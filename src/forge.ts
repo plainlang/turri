@@ -5,7 +5,8 @@ import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createExecutor } from "./pi.ts";
 import { loadSkill, type Skill } from "./skill.ts";
-import { createAskUserTool, createWriteArtifactTool, type AskUser } from "./tools.ts";
+import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
+import type { RenderQueue } from "./render/queue.ts";
 
 export interface EscalationRequest {
   step: string;
@@ -38,6 +39,8 @@ export async function runSkill(opts: {
   askUser?: AskUser;
   /** "provider/model-id" for the executor and the judges. Omitted: pi's default. */
   model?: string;
+  /** Lets steps build functionalities in the background while the interview continues. */
+  renderQueue?: RenderQueue;
 }): Promise<RunSkillResult> {
   const skill = loadSkill(opts.skillDir);
   const runDir = resolve(opts.runDir);
@@ -47,6 +50,7 @@ export async function runSkill(opts: {
   const writeArtifact = createWriteArtifactTool(runDir);
   const customTools: ToolDefinition[] = [writeArtifact];
   if (opts.askUser !== undefined) customTools.push(createAskUserTool(opts.askUser));
+  if (opts.renderQueue !== undefined) customTools.push(...createRenderTools(opts.renderQueue));
 
   const names = customTools.map((tool) => tool.name);
   const builtins = skill.allowedTools.filter((t) => !names.includes(t));

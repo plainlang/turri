@@ -1,6 +1,6 @@
-# Phase 2 — What technologies should it use?
+# the stack phase — What technologies should it use?
 
-Gather the technical stack **and** the project's structure/architecture. This phase affects only `***implementation reqs***` — testing concerns come later. Phase 1 may already have left technology-free policy reqs there (retries, error handling, data formats); read them before topic 1, and revisit one only where the chosen stack contradicts it or supplies it natively. Run the core loop (ask → author → review) from `SKILL.md` for each topic below, in order. When the user has no preference, propose a sensible default that fits earlier answers and ask them to confirm.
+Gather the technical stack **and** the project's structure/architecture. This phase affects only `***implementation reqs***` — testing concerns come later. the specs phase may already have left technology-free policy reqs there (retries, error handling, data formats); read them before topic 1, and revisit one only where the chosen stack contradicts it or supplies it natively. Run the core loop (ask → author → review) from `SKILL.md` for each topic below, in order. When the user has no preference, propose a sensible default that fits earlier answers and ask them to confirm.
 
 ## Author target for this phase
 
@@ -21,4 +21,4 @@ Do **not** add `***test reqs***` or `***acceptance tests***` in this phase — t
 6. **Other constraints** — deployment target, OS requirements, performance needs, coding standards, security policies, observability — anything stack-wide that hasn't already been covered. Author each constraint as its own requirement at the appropriate scope. Review the new constraint snippets.
 7. **Anything else** — anything the user wants to add or change that hasn't already been covered.
 
-When all topics are complete, summarize the full tech stack and the chosen architecture, and get an explicit overall confirmation before moving to Phase 3.
+When all topics are complete, summarize the full tech stack and the chosen architecture, and get an explicit overall confirmation before moving to the testing phase.

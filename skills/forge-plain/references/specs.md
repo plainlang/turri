@@ -1,6 +1,6 @@
-# Phase 1 — What are we building?
+# the specs phase — What are we building?
 
-Translate the confirmed Phase 0 intent brief into the product model and observable behavior. Refine
+Translate the confirmed the intent phase intent brief into the product model and observable behavior. Refine
 the brief rather than repeating its discovery questions. Run the core loop (ask → author → review)
 for each topic below, in order.
 
@@ -11,7 +11,7 @@ The moment the user answers, write the resulting snippet to disk using the right
 - **Module structure** — create or update the `.plain` file(s) (single module, template + modules, or chained modules). Set up YAML frontmatter (`import`, `requires`, `description`) and the proposed module name. If a template is used, create it in `template/` **without** a `***functional specs***` section. Use the `create-import-module` skill where applicable.
 - **`***definitions***`** — add or refine concepts (entities, attributes, relationships). Define every concept before it is referenced. Use the `add-concept` skill.
 - **`***functional specs***`** — translate each answer into a single chronological, incremental spec (≤200 lines of code change, language-agnostic, no conflicts). Use `add-functional-spec` for one new spec; use `add-functional-specs` only when a single answer naturally decomposes into a tight cluster of specs flowing from the same answer (e.g. list / create / delete CRUD on one entity). **Never hand-author the `***functional specs***` section directly.**
-- **`***implementation reqs***`** — only a requirement that can be stated without naming a technology: an error-handling or retry policy, an idempotency or ordering guarantee, a data-format or precision rule. Use the `add-implementation-requirement` skill, on the module whose behavior it constrains. The moment stating it takes a language, framework, library, storage engine, or deployment target, it is a Phase 2 answer — note it and steer back.
+- **`***implementation reqs***`** — only a requirement that can be stated without naming a technology: an error-handling or retry policy, an idempotency or ordering guarantee, a data-format or precision rule. Use the `add-implementation-requirement` skill, on the module whose behavior it constrains. The moment stating it takes a language, framework, library, storage engine, or deployment target, it is a the stack phase answer — note it and steer back.
 
 Do **not** add `***test reqs***` or `***acceptance tests***` in this phase — they belong to later phases.
 
@@ -38,4 +38,4 @@ Do **not** add `***test reqs***` or `***acceptance tests***` in this phase — t
 
 Keep asking follow-ups within a topic until every feature is specific enough to become a single functional spec (implying ≤200 lines of code change each). If a feature is too large, break it down together with the user before authoring.
 
-When all topics are complete, summarize the full feature list and the final module/concept layout, and get an explicit overall confirmation before moving to Phase 2.
+When all topics are complete, summarize the full feature list and the final module/concept layout, and get an explicit overall confirmation before moving to the stack phase.

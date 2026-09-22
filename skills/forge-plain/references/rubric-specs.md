@@ -18,7 +18,7 @@ Verify each box by its tag:
 A box is met only when its own source confirms it. Read `forge/rules/` as needed so boxes
 about ≤200 LOC, define-before-use and language-agnostic wording can actually be assessed.
 
-<!-- Included in the Phase 1-3 rubrics. -->
+<!-- Included in the the specs phase-3 rubrics. -->
 
 ## Every loop iteration
 
@@ -28,13 +28,16 @@ about ≤200 LOC, define-before-use and language-agnostic wording can actually b
 - [ ] **[both]** Any answer that contradicted an earlier snippet was fixed in place before the next question — no stale spec left on disk.
 - [ ] **[both]** Stayed within the current phase — no drafting of later-phase content on disk, no multi-question detours into later-phase topics.
 
-## Phase 1 — What are we building?
+## the specs phase — What are we building?
 
-- [ ] **[record]** Carried the confirmed Phase 0 intent brief into `phase-1-product.md`; refined it without restarting intent discovery.
-- [ ] **[record]** Walked Phase 1 topics in order (description, users/product shape, scope, entities, features, flows, constraints, UI if any, anything else).
+- [ ] **[record]** Carried the confirmed the intent phase intent brief into `specs.md`; refined it without restarting intent discovery.
+- [ ] **[record]** Walked the specs phase topics in order (description, users/product shape, scope, entities, features, flows, constraints, UI if any, anything else).
 - [ ] **[disk]** `.plain` module structure created with YAML frontmatter; template (if any) has no `***functional specs***`.
 - [ ] **[both]** Every concept authored in `***definitions***` via `add-concept`, defined before use.
 - [ ] **[both]** Every feature authored as functional specs via `add-functional-spec(s)`, each ≤200 LOC, in chronological build order.
 - [ ] **[disk]** No `***test reqs***` or `***acceptance tests***` written in this phase.
 - [ ] **[disk]** Every `***implementation reqs***` bullet written this phase is technology-free policy — none names a language, framework, library, storage engine, or deployment target.
+- [ ] **[record]** Every functional spec was queued for building with `start_render` immediately after the user approved it, before the next question was asked.
+- [ ] **[both]** Any functionality edited after it had already been queued was re-queued with `regenerate: true`; no functionality was left built from a superseded spec.
+- [ ] **[record]** The interview never waited on a build. Questions continued while renders ran, and build results were reported when they arrived rather than blocked on.
 - [ ] **[record]** Summarized the full feature list and module/concept layout; got explicit overall confirmation.

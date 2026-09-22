@@ -79,6 +79,7 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 
 
 import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
+import type { RenderQueue } from "./render/queue.ts";
 
 export type { AskUser, AskUserRequest };
 
@@ -137,3 +138,67 @@ export function createAskUserTool(ask: AskUser) {
 }
 
 export { runAsk };
+
+
+/**
+ * Lets a step start building a functionality and carry straight on.
+ *
+ * The interview is the thing the person is waiting on, so it never waits for a render.
+ * The queue keeps the renders themselves in order behind it.
+ */
+export function createRenderTools(queue: RenderQueue) {
+  const start = defineTool({
+    name: "start_render",
+    label: "Start render",
+    description:
+      "Start building one functionality in the background and return immediately. Queued behind any " +
+      "render already running, so functionalities are built in the order you ask for them. Use " +
+      "regenerate when the functionality was already built and its specification has since changed.",
+    promptSnippet: "start_render: build a functionality in the background, then carry on",
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "Path to the .plain file" }),
+      frid: Type.String({ description: 'Functionality id, e.g. "1" or "2.3"' }),
+      regenerate: Type.Optional(
+        Type.Boolean({ description: "The functionality was already built and its spec has changed" }),
+      ),
+    }),
+    async execute(_id, params) {
+      const entry = queue.enqueue({
+        plainFile: params.plain_file,
+        frid: params.frid,
+        regenerate: params.regenerate,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              `Queued functionality ${entry.frid} as job ${entry.jobId} (position ${entry.position}). ` +
+              "It builds in the background. Carry on with the interview - do not wait for it.",
+          },
+        ],
+        details: { jobId: entry.jobId, position: entry.position },
+      };
+    },
+  });
+
+  const status = defineTool({
+    name: "render_status",
+    label: "Render status",
+    description: "What has been queued for building so far, in order, and how each one is doing.",
+    promptSnippet: "render_status: how the background builds are doing",
+    parameters: Type.Object({}),
+    async execute() {
+      const entries = queue.status();
+      const text =
+        entries.length === 0
+          ? "Nothing has been queued for building yet."
+          : entries
+              .map((e) => `${e.position}. functionality ${e.frid}  ${e.status}  (job ${e.jobId})`)
+              .join("\n");
+      return { content: [{ type: "text" as const, text }], details: { queued: entries.length } };
+    },
+  });
+
+  return [start, status];
+}

@@ -18,7 +18,7 @@ Verify each box by its tag:
 A box is met only when its own source confirms it. Read `forge/rules/` as needed so boxes
 about ≤200 LOC, define-before-use and language-agnostic wording can actually be assessed.
 
-<!-- Included in the Phase 1-3 rubrics. -->
+<!-- Included in the the specs phase-3 rubrics. -->
 
 ## Every loop iteration
 
@@ -28,9 +28,11 @@ about ≤200 LOC, define-before-use and language-agnostic wording can actually b
 - [ ] **[both]** Any answer that contradicted an earlier snippet was fixed in place before the next question — no stale spec left on disk.
 - [ ] **[both]** Stayed within the current phase — no drafting of later-phase content on disk, no multi-question detours into later-phase topics.
 
-## Phase 2 — What tech should it use?
+## the stack phase — What tech should it use?
 
-- [ ] **[record]** Read `phase-2-tech.md` and walked its topics in order (language, frameworks, storage, external services, structure/architecture, other constraints, anything else).
+- [ ] **[record]** Read `stack.md` and walked its topics in order (language, frameworks, storage, external services, structure/architecture, other constraints, anything else).
 - [ ] **[disk]** Every requirement authored into `***implementation reqs***` at the right scope (shared → template, module-specific → module).
 - [ ] **[disk]** No `***test reqs***` or `***acceptance tests***` written in this phase.
 - [ ] **[record]** Summarized the tech stack and architecture; got explicit overall confirmation.
+- [ ] **[disk]** The stack is complete enough to build from: the implementation reqs name the language, and the unit test framework the generated code must use.
+- [ ] **[record]** No functional specs were written in this phase - the stack is settled before any functionality exists.

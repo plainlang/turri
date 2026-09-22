@@ -10,6 +10,7 @@ import { listFrids, renderFunctionality } from "./render/render.ts";
 import { renderConformanceTests } from "./render/conformance.ts";
 import { regenerateFunctionality, renderModule } from "./render/module.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
+import { createRenderQueue } from "./render/queue.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
@@ -176,6 +177,9 @@ export default function (pi: ExtensionAPI) {
         report,
         askUser: askUserVia(ctx),
         model: conversationModel(ctx),
+        // Renders queued by a step land in the same registry as everything else, so
+        // check_job and list_jobs see them without knowing a skill started them.
+        renderQueue: createRenderQueue({ registry: jobs, cwd, model: conversationModel(ctx) }),
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {

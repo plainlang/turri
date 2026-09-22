@@ -1,4 +1,4 @@
-# Phase 0 — What is the intent?
+# the intent phase — What is the intent?
 
 Extract the user's intent before creating files or decomposing the product into specifications.
 Keep this phase short. Ask exactly five core questions, one at a time, and do not write to disk.
@@ -24,6 +24,6 @@ Summarize the answers in five short bullets:
 - Observable success criterion
 - Initial boundary and explicit exclusions
 
-Ask the user to confirm or correct the brief. Phase 0 finishes only after explicit confirmation.
-Carry the confirmed brief into Phase 1 so product questions refine it instead of restarting intent
+Ask the user to confirm or correct the brief. the intent phase finishes only after explicit confirmation.
+Carry the confirmed brief into the specs phase so product questions refine it instead of restarting intent
 discovery.

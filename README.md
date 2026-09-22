@@ -218,6 +218,19 @@ Judges get nothing by default, which is right when the artifact is the whole sub
 rubric that checks what is on disk has to be able to look, so the gate asks for it
 explicitly - and only for tools that cannot change anything.
 
+### Steps can build while they interview
+
+A step may call `start_render` to queue a functionality and carry straight on. The interview
+is what the person is waiting on, so it never waits for a build.
+
+Renders are queued, not merely backgrounded. Functionality 2 is built on top of
+functionality 1, and two renders writing one build directory would trip over each other - so
+each waits for the one before it while the interview runs ahead of all of them. A render
+that fails does not cancel the ones behind it; each reports on its own. `render_status`
+shows the queue.
+
+`regenerate: true` re-queues a functionality whose spec changed after it was already built.
+
 ### Steps can interview the user
 
 A step may call `ask_user` to put one question to the person running the skill. In the TUI

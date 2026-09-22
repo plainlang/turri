@@ -1,6 +1,6 @@
-# Phase 3 — How should testing be done?
+# the testing phase — How should testing be done?
 
-Gather the testing strategy. This phase covers `***test reqs***`, `***acceptance tests***`, the scripts under `test_scripts/`, and the `config.yaml` file(s) that wire them in. Run the core loop (ask → author → review) from `SKILL.md` for each topic below, in order. When the user has no preference, propose a default that fits the language and stack chosen in Phase 2 and ask them to confirm.
+Gather the testing strategy. This phase covers `***test reqs***`, `***acceptance tests***`, the scripts under `test_scripts/`, and the `config.yaml` file(s) that wire them in. Run the core loop (ask → author → review) from `SKILL.md` for each topic below, in order. When the user has no preference, propose a default that fits the language and stack chosen in the stack phase and ask them to confirm.
 
 ## Hard partition (applies to every topic)
 
@@ -32,12 +32,12 @@ template_dir: template
 
 ## Topics (in order)
 
-1. **Unit-test framework** — e.g. pytest, Jest, JUnit, Go's `testing` package. Suggest one that fits the Phase 2 language if the user has no preference.
+1. **Unit-test framework** — e.g. pytest, Jest, JUnit, Go's `testing` package. Suggest one that fits the the stack phase language if the user has no preference.
    - Author a `:UnitTests:` framework requirement in `***implementation reqs***` at the appropriate scope (template if shared, otherwise on the module) — e.g. "`:UnitTests:` should use pytest" plus "`:UnitTests:` are run via `pytest tests/`". Generate `run_unittests` (and any framework config it needs, e.g. `pytest.ini`, `jest.config.js`) via `implement-unit-testing-script`. Add the `unittests-script:` entry to the relevant `config.yaml`(s), creating each file if it doesn't exist yet.
    - Review the framework req, the generated script paths, and the new `config.yaml` entry.
-2. **Unit-test types and architecture mapping** — which of unit tests and integration tests the user wants, and how tests map to the Phase 2 architectural layers (e.g. one test module per service, repository tests with an in-memory store). Author a `:UnitTests:` scope / architecture requirement in `***implementation reqs***`, phrased in terms of `:UnitTests:` so the partition is visible. Review that requirement.
+2. **Unit-test types and architecture mapping** — which of unit tests and integration tests the user wants, and how tests map to the the stack phase architectural layers (e.g. one test module per service, repository tests with an in-memory store). Author a `:UnitTests:` scope / architecture requirement in `***implementation reqs***`, phrased in terms of `:UnitTests:` so the partition is visible. Review that requirement.
 3. **Conformance testing** — explicitly ask whether conformance / end-to-end tests should be part of the project. This drives whether `run_conformance_tests` is generated and whether `***acceptance tests***` are authored. If the user is unsure, briefly explain the tradeoff (extra scripts + per-spec acceptance tests vs. lighter setup) and let them choose.
-   - If **yes**: author a conformance-testing requirement in `***test reqs***` (framework, execution command, any constraints); generate `run_conformance_tests` via `implement-conformance-testing-script`; add the `conformance-tests-script:` entry to the relevant `config.yaml`(s); then **walk every functional spec authored in Phase 1, one at a time** — for each spec, ask one `AskUserQuestion` whether it needs concrete verification, and if yes author one acceptance test under that spec via `add-acceptance-test`, then review that acceptance test as a snippet before moving to the next spec. Never bulk-write acceptance tests; never ask about more than one spec per call.
+   - If **yes**: author a conformance-testing requirement in `***test reqs***` (framework, execution command, any constraints); generate `run_conformance_tests` via `implement-conformance-testing-script`; add the `conformance-tests-script:` entry to the relevant `config.yaml`(s); then **walk every functional spec authored in the specs phase, one at a time** — for each spec, ask one `AskUserQuestion` whether it needs concrete verification, and if yes author one acceptance test under that spec via `add-acceptance-test`, then review that acceptance test as a snippet before moving to the next spec. Never bulk-write acceptance tests; never ask about more than one spec per call.
    - If **no**: record the decision; skip the conformance script, its config entry, and acceptance-test authoring entirely.
    - Review the conformance req (if any), the new script and config entry (if any), and each acceptance test snippet (if any).
 4. **Environment preparation script** — explicitly ask whether a `prepare_environment` script should be generated. It is the single entry point for installing dependencies and setting up fixtures/services before tests run. If the user is unsure, note it is recommended when there are dependencies to install or services to start, and skippable when the project genuinely has nothing to prepare.
@@ -59,8 +59,8 @@ Delegate environment verification to the `check-plain-env` skill — do **not** 
 
 Act on the return value:
 
-- **`PASS`** — the machine is ready. Continue to Phase 4.
+- **`PASS`** — the machine is ready. Continue to the handoff phase.
 - **`WARN`** — everything required is present but there is at least one soft warning (e.g. a service binary present but its daemon not running, a language-version mismatch). Show the warnings to the user; let them decide whether to address each one now or proceed knowing the corresponding scripts will surface the issue later.
-- **`FAIL`** — at least one required item is missing. For every gap the report already gives what is missing, why the project needs it, and how to install it for the detected OS. Walk the gaps with the user: install now, swap to an alternative (which means revising the Phase 2 / Phase 3 decisions), or proceed knowing the corresponding scripts will fail. Re-invoke `check-plain-env` after the user installs anything so the report reflects the current state of the machine.
+- **`FAIL`** — at least one required item is missing. For every gap the report already gives what is missing, why the project needs it, and how to install it for the detected OS. Walk the gaps with the user: install now, swap to an alternative (which means revising the the stack phase / the testing phase decisions), or proceed knowing the corresponding scripts will fail. Re-invoke `check-plain-env` after the user installs anything so the report reflects the current state of the machine.
 
-Do not move on to Phase 4 until `check-plain-env` returns `PASS`, or `WARN` / `FAIL` with the user's explicit acknowledgement of each remaining item.
+Do not move on to the handoff phase until `check-plain-env` returns `PASS`, or `WARN` / `FAIL` with the user's explicit acknowledgement of each remaining item.

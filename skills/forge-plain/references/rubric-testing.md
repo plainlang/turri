@@ -18,7 +18,7 @@ Verify each box by its tag:
 A box is met only when its own source confirms it. Read `forge/rules/` as needed so boxes
 about ≤200 LOC, define-before-use and language-agnostic wording can actually be assessed.
 
-<!-- Included in the Phase 1-3 rubrics. -->
+<!-- Included in the the specs phase-3 rubrics. -->
 
 ## Every loop iteration
 
@@ -28,13 +28,13 @@ about ≤200 LOC, define-before-use and language-agnostic wording can actually b
 - [ ] **[both]** Any answer that contradicted an earlier snippet was fixed in place before the next question — no stale spec left on disk.
 - [ ] **[both]** Stayed within the current phase — no drafting of later-phase content on disk, no multi-question detours into later-phase topics.
 
-## Phase 3 — How is testing done?
+## the testing phase — How is testing done?
 
-- [ ] **[record]** Read `phase-3-testing.md`; stated the planned `config.yaml` split (one per part) and confirmed it before topic 1.
+- [ ] **[record]** Read `testing.md`; stated the planned `config.yaml` split (one per part) and confirmed it before topic 1.
 - [ ] **[disk]** Honored the hard partition — every `:UnitTests:` fact in `***implementation reqs***`, every `:ConformanceTests:` fact in `***test reqs***`; never shared a bullet.
 - [ ] **[record]** Walked topics in order (unit framework, unit types/architecture, conformance decision, prepare-environment decision, layout, execution, other constraints, anything else).
 - [ ] **[disk]** Generated the needed scripts under `test_scripts/` via the `implement-*-script` skills and added each `*-script:` entry to the right `config.yaml`.
-- [ ] **[both]** Conformance decision was asked explicitly; if yes, walked every Phase-1 functional spec one at a time for acceptance tests via `add-acceptance-test` (acceptance tests present on disk when the decision was yes).
+- [ ] **[both]** Conformance decision was asked explicitly; if yes, walked every the specs phase functional spec one at a time for acceptance tests via `add-acceptance-test` (acceptance tests present on disk when the decision was yes).
 - [ ] **[record]** Prepare-environment decision was asked explicitly and recorded.
 - [ ] **[record]** Recapped the testing strategy; got explicit overall confirmation.
 - [ ] **[record]** Ran `check-plain-env`; it returned `PASS`, or `WARN`/`FAIL` with each remaining item explicitly acknowledged by the user (re-invoked after any install).

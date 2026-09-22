@@ -1,4 +1,4 @@
-# Phase 4 — Validate and hand off
+# the handoff phase — Validate and hand off
 
 Two halves. First **the agent** validates every spec end-to-end with a `plainwright` dry-run so the user never wastes a real render — or any debugging time — on a fixable static error. Only after that passes does the agent **hand off** the render command (plus any side-channel commands) to the user.
 
@@ -11,7 +11,7 @@ Find the **last module in the dependency chain** — the module that is not `req
 
 ## 4b. Build the final `config.yaml` with `init-config-file`
 
-Finalize the project's `config.yaml` file(s) before validation. Phase 3 may have written provisional entries as scripts were generated; **this** is where they are consolidated into the canonical form the renderer expects. Invoke the `init-config-file` skill. It:
+Finalize the project's `config.yaml` file(s) before validation. the testing phase may have written provisional entries as scripts were generated; **this** is where they are consolidated into the canonical form the renderer expects. Invoke the `init-config-file` skill. It:
 
 - enumerates every part of the project (one `config.yaml` per part — single-stack → root config; multi-part → one config per part),
 - assembles only the **valid** config keys derived from the `plainwright` CLI parser,
@@ -46,4 +46,4 @@ Only after the dry-run passes, tell the user their specs are ready and present t
 - Chain `base.plain → features.plain → integrations.plain` → `plainwright integrations.plain`.
 - Single module `my_app.plain` → `plainwright my_app.plain`.
 
-Also remind the user of any **side-channel commands** they may want to run themselves per the Phase 3 testing strategy — for example `./test_scripts/run_unittests.sh <module>`, `./test_scripts/prepare_environment.sh <module>`, or `./test_scripts/run_conformance_tests.sh <module> <conformance_tests_folder>`. Mention only the scripts that were actually generated in Phase 3.
+Also remind the user of any **side-channel commands** they may want to run themselves per the the testing phase testing strategy — for example `./test_scripts/run_unittests.sh <module>`, `./test_scripts/prepare_environment.sh <module>`, or `./test_scripts/run_conformance_tests.sh <module> <conformance_tests_folder>`. Mention only the scripts that were actually generated in the testing phase.
