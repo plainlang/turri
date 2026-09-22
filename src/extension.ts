@@ -133,6 +133,7 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: [
       "When a request matches a skill listed in run_skill's description, call run_skill instead of doing the work yourself. Doing it by hand skips the review gates.",
       "run_skill returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
+      "If run_skill fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
     ],
     parameters: Type.Object({
       skill: Type.String({
@@ -172,6 +173,7 @@ export default function (pi: ExtensionAPI) {
         runDir: resolve(cwd, ".forge/run", skill.name),
         report,
         askUser: askUserVia(ctx),
+        model: conversationModel(ctx),
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {

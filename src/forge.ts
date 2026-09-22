@@ -36,6 +36,8 @@ export async function runSkill(opts: {
   escalate: (request: EscalationRequest) => Promise<boolean>;
   /** Lets a step interview the user. Omitted: the skill runs with nobody to ask. */
   askUser?: AskUser;
+  /** "provider/model-id" for the executor and the judges. Omitted: pi's default. */
+  model?: string;
 }): Promise<RunSkillResult> {
   const skill = loadSkill(opts.skillDir);
   const runDir = resolve(opts.runDir);
@@ -52,10 +54,18 @@ export async function runSkill(opts: {
     cwd: opts.cwd,
     customTools,
     tools: [...builtins, ...names],
+    model: opts.model,
   });
 
   try {
-    const app = compileSkill({ skill, cwd: opts.cwd, runDir, executor, report: opts.report }).compile({
+    const app = compileSkill({
+      skill,
+      cwd: opts.cwd,
+      runDir,
+      executor,
+      report: opts.report,
+      model: opts.model,
+    }).compile({
       checkpointer: new MemorySaver(),
     });
     const config = { configurable: { thread_id: `forge-${Date.now()}` }, recursionLimit: 50 };

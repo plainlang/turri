@@ -67,6 +67,8 @@ export function compileSkill(opts: {
   runDir: string;
   executor: AgentSession;
   report: Reporter;
+  /** Default model for the judges, when a gate does not name one of its own. */
+  model?: string;
 }) {
   const { skill, report } = opts;
   const graph = new StateGraph(ForgeState) as any;
@@ -119,6 +121,7 @@ export function compileSkill(opts: {
         outcome = await runGate({
           cwd: opts.cwd,
           review,
+          defaultModel: opts.model,
           rubric,
           artifactPath: artifactPath(step),
           artifact,

@@ -42,6 +42,8 @@ export async function runGate(opts: {
   artifactPath: string;
   artifact: string;
   executor: AgentSession;
+  /** Used when the gate does not name a model - normally the conversation's. */
+  defaultModel?: string;
   onJudgeStart?: (index: number, model: string) => void;
 }): Promise<GateOutcome> {
   const { review } = opts;
@@ -54,7 +56,7 @@ export async function runGate(opts: {
         verdictTool: createVerdictTool((v) => {
           captured = v;
         }),
-        modelSpec: review.model,
+        modelSpec: review.model ?? opts.defaultModel,
         borrowAuthFrom: opts.executor,
         extraTools: review.judgeTools,
       });

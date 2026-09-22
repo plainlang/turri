@@ -43,9 +43,13 @@ const reporter: Reporter = {
 };
 
 async function main() {
-  const skillArg = process.argv[2];
+  const args = process.argv.slice(2);
+  const modelIndex = args.indexOf("--model");
+  const model = modelIndex === -1 ? undefined : args[modelIndex + 1];
+  const skillArg = args.filter((arg, i) => !arg.startsWith("--") && i !== modelIndex + 1)[0];
+
   if (!skillArg) {
-    console.error("usage: npm run forge -- <path-to-skill-dir>");
+    console.error("usage: plainwright skill <path-to-skill-dir> [--model provider/id]");
     process.exit(1);
   }
 
@@ -58,6 +62,7 @@ async function main() {
     skillDir: skillArg,
     cwd,
     runDir: resolve(cwd, ".forge/run"),
+    model,
     report: reporter,
     // The CLI has no dialogs, so options are numbered and either the number or the text
     // is accepted - the point is still to pick rather than to type the answer out.
