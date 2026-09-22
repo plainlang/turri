@@ -197,8 +197,19 @@ explicitly - and only for tools that cannot change anything.
 ### Steps can interview the user
 
 A step may call `ask_user` to put one question to the person running the skill. In the TUI
-that is a real dialog through `ctx.ui`; from the CLI it is a prompt on stdin; where there is
-no user at all the step is told to decide and record the assumption.
+that is a real dialog through `ctx.ui`; from the CLI the options are numbered and either the
+number or the text is accepted; where there is no user at all the step is told to decide and
+record the assumption.
+
+**Offering choices is the default, not an option.** A call with neither `options` nor
+`free_form: true` is refused and the model is told to ask again — an optional field is one a
+model quietly skips, and picking from a list is far quicker than typing. Every list also
+carries "Something else…", so offering choices never traps the user into a wrong one.
+`multi_select: true` keeps offering what is left until they say they are done, which beats
+asking the same question five times.
+
+The policy lives in `src/ask.ts` so the TUI and CLI behave identically and it can be tested
+without a terminal.
 
 The harness still owns the sequence. A step chooses what to ask; it does not choose whether
 the gate afterwards runs.

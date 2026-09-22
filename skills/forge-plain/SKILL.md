@@ -74,7 +74,7 @@ judge being spent.
 
 Phases 1–3 run this tight loop. Each iteration is a single question followed by an immediate write:
 
-1. **Ask** one focused question via `ask_user` — never bundle two. Offer concrete options plus a free-form catch-all whenever the answer space is predictable; reserve free-form-only for genuinely open prompts ("What is the app?"). Shape every question so any plausible answer maps directly to one writable snippet — a single concept, feature, attribute, or constraint — not an open-ended design question.
+1. **Ask** one focused question via `ask_user` — never bundle two. Always pass `options` so the user picks rather than types; they can still choose "Something else…" and type. Pass `multi_select: true` when several answers can apply at once. Reserve `free_form: true` for genuinely open prompts ("What is the app?") — a question with neither options nor `free_form` is refused and has to be asked again. Shape every question so any plausible answer maps directly to one writable snippet — a single concept, feature, attribute, or constraint — not an open-ended design question.
 2. **Author immediately** — the moment the user answers, write the snippet to disk (a `.plain` section, a script, or a `config.yaml` entry) using the right edit skill. Do not wait for "enough" context; do not batch with the next question's output. Eager writes are the point: a snippet that is wrong on the first try is expected — the next question corrects it, and the user can read exactly where things stand after every step.
 3. **Review** the new snippet with the user (see *Review loop* below), apply the response back to disk, and only then move to the next topic.
 

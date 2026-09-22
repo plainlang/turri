@@ -10,7 +10,7 @@ import { listFrids, renderFunctionality } from "./render/render.ts";
 import { renderConformanceTests } from "./render/conformance.ts";
 import { regenerateFunctionality, renderModule } from "./render/module.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
-import type { AskUser } from "./tools.ts";
+import { runAsk, type AskUser } from "./ask.ts";
 import {
   createJobRegistry,
   describeJob,
@@ -64,20 +64,14 @@ function discoverSkills(): { skills: Skill[]; pending: string[] } {
 
 /** Puts a skill step's question to the person, when there is one to ask. */
 function askUserVia(ctx: ExtensionContext): AskUser {
-  return async ({ question, options }) => {
+  return async (request) => {
     if (!ctx.hasUI) {
       return "No user is available to answer. Decide yourself, and say in your report what you assumed.";
     }
-
-    if (options !== undefined && options.length > 0) {
-      const OTHER = "Something else…";
-      const choice = await ctx.ui.select(question, [...options, OTHER]);
-      if (choice === undefined) return "The user dismissed the question without answering.";
-      if (choice !== OTHER) return choice;
-    }
-
-    const typed = await ctx.ui.input(question);
-    return typed ?? "The user dismissed the question without answering.";
+    return runAsk(request, {
+      select: (title, options) => ctx.ui.select(title, options),
+      input: (title) => ctx.ui.input(title),
+    });
   };
 }
 

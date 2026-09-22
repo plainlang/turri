@@ -2,6 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { describeGates, runSkill } from "./forge.ts";
 import type { Decision, Reporter } from "./graph.ts";
+import { runAsk } from "./ask.ts";
 import { loadSkill } from "./skill.ts";
 
 const c = {
@@ -58,13 +59,26 @@ async function main() {
     cwd,
     runDir: resolve(cwd, ".forge/run"),
     report: reporter,
-    askUser: async ({ question, options }) => {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const prompt = options && options.length > 0 ? `${question}\n  ${options.join("\n  ")}\n> ` : `${question}\n> `;
-      const answer = await rl.question(`\n${c.bold(c.cyan("? "))}${prompt}`);
-      rl.close();
-      return answer.trim() || "The user gave no answer.";
-    },
+    // The CLI has no dialogs, so options are numbered and either the number or the text
+    // is accepted - the point is still to pick rather than to type the answer out.
+    askUser: (request) =>
+      runAsk(request, {
+        select: async (title, options) => {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const list = options.map((option, i) => `  ${c.bold(String(i + 1))}. ${option}`).join("\n");
+          const reply = (await rl.question(`\n${c.bold(c.cyan("? "))}${title}\n${list}\n> `)).trim();
+          rl.close();
+          const index = Number.parseInt(reply, 10);
+          if (Number.isInteger(index) && index >= 1 && index <= options.length) return options[index - 1];
+          return reply === "" ? undefined : reply;
+        },
+        input: async (title) => {
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          const reply = (await rl.question(`\n${c.bold(c.cyan("? "))}${title}\n> `)).trim();
+          rl.close();
+          return reply === "" ? undefined : reply;
+        },
+      }),
     escalate: async ({ question, critique }) => {
       console.log(`\n${c.bold(c.yellow("! human review required"))}`);
       console.log(c.dim(critique));

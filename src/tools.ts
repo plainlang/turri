@@ -78,13 +78,9 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 }
 
 
-export interface AskUserRequest {
-  question: string;
-  /** Concrete choices. Empty for a free-form answer. */
-  options?: string[];
-}
+import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
 
-export type AskUser = (request: AskUserRequest) => Promise<string>;
+export type { AskUser, AskUserRequest };
 
 /**
  * Lets a skill step put a question to the person running it.
@@ -98,19 +94,40 @@ export function createAskUserTool(ask: AskUser) {
     name: "ask_user",
     label: "Ask the user",
     description:
-      "Put one question to the user and wait for their answer. Ask exactly one thing at a time, " +
-      "and offer concrete options whenever the answer space is predictable.",
-    promptSnippet: "ask_user: ask the user one question and wait for the answer",
+      "Put one question to the user and wait for their answer. Ask exactly one thing at a time. " +
+      "Offer concrete options in `options` so the user can pick rather than type - that is the " +
+      "normal case, and a question with neither options nor free_form is refused rather than asked.",
+    promptSnippet: "ask_user: ask the user one question, offering options to pick from",
+    promptGuidelines: [
+      "Every ask_user call should carry `options` unless the answer genuinely cannot be anticipated; picking from a list is far quicker for the user than typing. A free-form question needs free_form: true.",
+      "Use multi_select: true when several answers can apply at once, rather than asking the same question repeatedly.",
+    ],
     parameters: Type.Object({
       question: Type.String({ description: "One question. Never bundle two." }),
       options: Type.Optional(
         Type.Array(Type.String(), {
-          description: "Concrete choices to offer. Omit for a free-form answer.",
+          description:
+            "Concrete choices to offer. The user can always pick \"Something else…\" and type instead, " +
+            "so offering options never traps them.",
+        }),
+      ),
+      multi_select: Type.Optional(
+        Type.Boolean({ description: "Let the user pick several of the options." }),
+      ),
+      free_form: Type.Optional(
+        Type.Boolean({
+          description:
+            "Ask without options, for a genuinely open question. Required when options is omitted.",
         }),
       ),
     }),
     async execute(_id, params) {
-      const answer = await ask({ question: params.question, options: params.options });
+      const answer = await ask({
+        question: params.question,
+        options: params.options,
+        multiSelect: params.multi_select,
+        freeForm: params.free_form,
+      });
       return {
         content: [{ type: "text" as const, text: answer }],
         details: { question: params.question, answer },
@@ -118,3 +135,5 @@ export function createAskUserTool(ask: AskUser) {
     },
   });
 }
+
+export { runAsk };
