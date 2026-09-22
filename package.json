@@ -14,7 +14,8 @@
     "render": "tsx src/render-frid.ts",
     "conformance": "tsx src/conformance-frid.ts",
     "module": "tsx src/render-module.ts",
-    "regenerate": "tsx src/regenerate-frid.ts"
+    "regenerate": "tsx src/regenerate-frid.ts",
+    "check": "tsx src/check-cli.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1",

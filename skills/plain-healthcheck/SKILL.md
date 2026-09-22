@@ -3,7 +3,7 @@ name: plain-healthcheck
 description: >-
   Verification gate for a ***plain project. Verifies that every `config.yaml`
   exists, points at scripts that actually live in `test_scripts/`, and that
-  `codeplain <top_module>.plain --dry-run` passes for every top module in
+  `plainwright check <top_module>.plain` passes for every top module in
   the project. Run this whenever anything in the project is finalized —
   including (but not limited to) the end of `forge-plain`, the end of
   `add-feature`, after `debug-specs`, after any single-skill edit that
@@ -13,7 +13,7 @@ description: >-
 
 # Plain Healthcheck
 
-Always use the skill `load-codeplain-reference` to retrieve the full `codeplain` CLI reference (every flag, path-resolution rules, `config.yaml` mapping, render banners, exit codes), and the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet. This skill runs `codeplain … --dry-run` and validates every `config.yaml`, so the CLI reference is required.
+Always use the skill `load-plainwright-reference` to retrieve the full `plainwright` CLI reference (every flag, path-resolution rules, `config.yaml` mapping, render banners, exit codes), and the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet. This skill runs `plainwright … --dry-run` and validates every `config.yaml`, so the CLI reference is required.
 
 ## When to run
 
@@ -73,7 +73,7 @@ Anything else (missing script, mixed stacks, missing `config.yaml`) must be surf
 For each `(top_module, config.yaml)` pair from Step 1, run a dry-run from the project root via the `terminal` tool:
 
 ```bash
-codeplain <top_module>.plain --dry-run
+`plainwright check <top_module>.plain`
 ```
 
 **Match the dry-run to how the user will actually render.** Pass the flags the user would pass for the real render so what you validate is what they will run:
@@ -92,13 +92,13 @@ Iterate until it passes:
 1. Read the error output. If the first run was not verbose, immediately re-run with `--verbose`. Identify the offending `.plain` file, the line (if reported), and the kind of issue: missing concept, syntax error, cyclic definition, complexity violation (`Functional spec too complex!`), conflicting reqs, missing template, broken `import`/`requires`, missing config field, etc.
 2. Fix only the `.plain` files (or the relevant `config.yaml` / template) using the appropriate edit skill — `add-concept`, `add-functional-spec`, `add-functional-specs`, `add-implementation-requirement`, `resolve-spec-conflict`, `break-down-func-spec`, `consolidate-concepts`, or an inline edit. **Never** modify generated code under `plain_modules/<module>/code/` or `plain_modules/<module>/tests/`.
 3. If you are uncertain about ***plain syntax for the failing construct, re-load `load-plain-reference` before fixing.
-4. Re-run the same `codeplain <top_module>.plain --dry-run …` command with the same flags. Repeat until it exits successfully.
+4. Re-run the same `plainwright check <top_module>.plain` …` command with the same flags. Repeat until it exits successfully.
 
 If the failure is something the healthcheck cannot reasonably fix on its own (e.g. the user has to choose between two contradictory specs and neither side was pre-approved, or a missing concept whose semantics aren't clear), **stop and surface it to the user** with the offending snippet and a concrete question. Do not invent behavior.
 
 #### Environment failures
 
-If `codeplain` is not on PATH, or `CODEPLAIN_API_KEY` is not set:
+If `plainwright` is not on PATH, or `PLAINWRIGHT_API_KEY` is not set:
 
 - Do **not** pretend the dry-run passed.
 - Tell the user exactly what's missing and how to fix it (install the CLI, export the env var) and stop the healthcheck with a clearly-marked environment failure. This is the only kind of failure that may legitimately remain unresolved at the end of the skill.
@@ -128,5 +128,5 @@ The verdict goes on the first line so callers can pattern-match without parsing 
 - [ ] No `config.yaml` mixes stacks (e.g. Python + JS scripts in the same file)
 - [ ] No `config.yaml` declares `prepare-environment-script` without also declaring `conformance-tests-script`
 - [ ] Every `test_scripts/*` file is referenced by some `config.yaml` (or surfaced as a warning)
-- [ ] `codeplain <top>.plain --dry-run` exits successfully for **every** top module, with the right `--config-name` for multi-part projects
+- [ ] `plainwright check <top>.plain` exits successfully for **every** top module, with the right `--config-name` for multi-part projects
 - [ ] Verdict (`PASS` / `FAIL`) is on the first line, with a numbered list of remaining problems if it failed

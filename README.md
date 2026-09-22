@@ -74,7 +74,7 @@ Each `### heading` is a step. Each gate becomes a conditional edge after its ste
 
 ## The plain parser
 
-`src/plain/` is a TypeScript port of the codeplain ***plain*** parser - `plain_file.py`,
+`src/plain/` is a TypeScript port of the reference ***plain*** parser - `plain_file.py`,
 `plain_spec.py`, `concept_utils.py`, and the `file_utils.py` helpers they depend on.
 
 ```bash
@@ -89,6 +89,30 @@ npm test                      # 138 tests
 | `src/plain/markdown.ts` | mistletoe's AST + `PlainRenderer` (mdast + a matching serializer) |
 | `src/plain/liquid.ts` | `plain2code_nodes.py` + the two filters in `plain_spec.py` (liquidjs) |
 | `src/plain/files.ts` | `file_utils.open_from` / `get_loaded_templates`, base64 blob detection |
+
+### Checking a spec
+
+```bash
+plainwright check <file.plain>        # one spec
+plainwright check .                   # every .plain file in a directory
+plainwright check <file.plain> --json
+```
+
+This is the check that used to mean running a renderer with `--dry-run`. It uses this
+repo's own parser, so it needs no external tool, no API key and no credits: it parses the
+file, resolves its imports and required modules, and reports every syntax, concept and
+structure error with the line it is on.
+
+```
+PASS  d365_export.plain  6 functionalities (1, 2, 3, 4, 5, 6), requires d365_restore_api
+
+FAIL  broken.plain  PlainSyntaxError
+        Plain syntax error: Syntax error at line 3: Invalid specification heading
+        (`Nope:`). Allowed headings: definitions, implementation reqs, test reqs, ...
+```
+
+Exit code is 0 only when every file passed. The same thing is `check_plain` in a
+conversation.
 
 ### The functional-spec iterator
 

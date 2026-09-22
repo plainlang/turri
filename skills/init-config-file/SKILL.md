@@ -1,7 +1,7 @@
 ---
 name: init-config-file
 description: >-
-  Build / finalize the `config.yaml` file(s) that the `codeplain` renderer
+  Build / finalize the `config.yaml` file(s) that the `plainwright` renderer
   consumes. Pulls together every decision made during Phase 3 of `forge-plain`
   (script paths, template directory, build folders, copy/dest behavior, log
   settings) and emits one canonical `config.yaml` per part of the project.
@@ -13,9 +13,9 @@ description: >-
 
 # Init Config File
 
-Always use the skill `load-codeplain-reference` to retrieve the full `codeplain` CLI reference (every flag, the `config.yaml` mapping, and the secrets / per-invocation keys that must never be written to config) — but only if you haven't done so yet. This skill assembles `config.yaml` from the valid CLI-derived keys, so the CLI reference is required.
+Always use the skill `load-plainwright-reference` to retrieve the full `plainwright` CLI reference (every flag, the `config.yaml` mapping, and the secrets / per-invocation keys that must never be written to config) — but only if you haven't done so yet. This skill assembles `config.yaml` from the valid CLI-derived keys, so the CLI reference is required.
 
-This skill is the **single authoritative writer** of `config.yaml` for a ***plain project. Anything that ends up in `config.yaml` should go through this skill. The renderer (`codeplain`) reads each key listed below into the same argparse namespace it uses for CLI flags — so a value set in `config.yaml` is exactly equivalent to passing the corresponding `--flag` on the command line.
+This skill is the **single authoritative writer** of `config.yaml` for a ***plain project. Anything that ends up in `config.yaml` should go through this skill. The renderer (`plainwright`) reads each key listed below into the same argparse namespace it uses for CLI flags — so a value set in `config.yaml` is exactly equivalent to passing the corresponding `--flag` on the command line.
 
 ## When to run
 
@@ -39,11 +39,11 @@ If you only fixed a typo inside a `.plain` file and the testing surface didn't m
 - It does **not** generate testing scripts. Use `implement-unit-testing-script`, `implement-conformance-testing-script`, or `implement-prepare-environment-script` first; this skill only wires them in.
 - It does **not** decide *whether* the user wants conformance tests, a prepare-environment script, copy-build, etc. Those decisions belong to `forge-plain` Phase 3. This skill only **records** them.
 - It does **not** invent values for keys whose decisions weren't made — it leaves them out (the renderer falls back to its default) rather than guessing.
-- It does **not** write secrets. `api-key` belongs in the `CODEPLAIN_API_KEY` environment variable, never in `config.yaml`.
+- It does **not** write secrets. `api-key` belongs in the `PLAINWRIGHT_API_KEY` environment variable, never in `config.yaml`.
 
 ## Valid keys reference
 
-The canonical list of keys is derived from the `codeplain` CLI argparse parser. Every key below corresponds to exactly one `--flag` and is read by the renderer through `update_args_with_config`. **No other keys are valid** — the renderer rejects unknown keys with `parser.error(f"Invalid argument: {key}")`.
+The canonical list of keys is derived from the `plainwright` CLI argparse parser. Every key below corresponds to exactly one `--flag` and is read by the renderer through `update_args_with_config`. **No other keys are valid** — the renderer rejects unknown keys with `parser.error(f"Invalid argument: {key}")`.
 
 YAML keys use the **dashed** form (e.g. `unittests-script`, not `unittests_script`) to mirror the CLI flag spelling. The only exception that has historically appeared with underscores is `template_dir`; prefer `template-dir` for new configs but accept either when reading an existing file.
 
@@ -73,12 +73,12 @@ These are useful but the defaults are almost always fine. Only include them when
 | `copy-conformance-tests` | bool | `false` | Requires `conformance-tests-script` to also be set. |
 | `conformance-tests-dest` | string | `dist_conformance_tests` | Target folder for the post-render copy of `plain_modules/<module>/tests`. Must differ from `build-folder`. |
 | `log-to-file` | bool | `true` | Disable only when the user explicitly does not want a log file. Controls whether logs are mirrored to disk — it does **not** set the log level (that's `logging-config-path`'s job). |
-| `log-file-name` | string | `codeplain.log` | If `log-to-file` is `false`, this key must be left out. A relative value set here resolves against the config file's directory; when the key is left out entirely, the default resolves against the `.plain` file's directory. |
+| `log-file-name` | string | `plainwright.log` | If `log-to-file` is `false`, this key must be left out. A relative value set here resolves against the config file's directory; when the key is left out entirely, the default resolves against the `.plain` file's directory. |
 | `render-machine-graph` | bool | `false` | Include only when the user wants the state-machine graph rendered. |
 | `headless` | bool | `false` | Include only when the project is meant to run in CI / non-interactive mode by default. |
 | `force-render` | bool | `false` | Almost never belongs in `config.yaml`; prefer the CLI flag for one-off forced renders. |
 | `verbose` | bool | `false` | Almost never belongs in `config.yaml`; prefer the CLI flag for one-off verbose runs. |
-| `api` | URL (string) | `https://api.codeplain.ai` | Include only when the user is pointing at a non-default API endpoint. |
+| `api` | URL (string) | `https://api.plainwright.ai` | Include only when the user is pointing at a non-default API endpoint. |
 
 ### Keys you must NEVER include
 
@@ -86,7 +86,7 @@ These flags are **per-invocation** or **secret**. Putting them in `config.yaml` 
 
 | Key | Why it doesn't belong |
 |---|---|
-| `api-key` | Secret. Belongs in the `CODEPLAIN_API_KEY` environment variable. Never in a file the user might commit. |
+| `api-key` | Secret. Belongs in the `PLAINWRIGHT_API_KEY` environment variable. Never in a file the user might commit. |
 | `dry-run` | Per-invocation. `plain-healthcheck` runs the dry-run explicitly; pinning it in the config would make a real render impossible. |
 | `full-plain` | Per-invocation preview. Mutually exclusive with `dry-run`. |
 | `render-range` | Per-invocation. Selects a slice of functionalities to (re)render. |
@@ -103,7 +103,7 @@ Log **levels** are not controlled directly by `config.yaml` — they live in a s
 
 ### How the renderer assembles logging
 
-From `setup_logging` in the `codeplain` source:
+From `setup_logging` in the `plainwright` source:
 
 1. The renderer first installs a set of **baseline levels**:
    - root logger → `INFO`
@@ -148,7 +148,7 @@ handlers:
     formatter: default
     level: DEBUG
 loggers:
-  codeplain:
+  plainwright:
     level: DEBUG
   urllib3:
     level: WARNING
@@ -244,7 +244,7 @@ Tell the caller exactly which file(s) were written and invoke `plain-healthcheck
 - **Putting `api-key`, `dry-run`, `full-plain`, `render-range`, `render-from`, `replay-with`, `config-name`, or `filename` in `config.yaml`.** All of these are per-invocation or secret; the renderer treats them as command-line concerns.
 - **Emitting `prepare-environment-script` without `conformance-tests-script`.** A prepare-environment script only makes sense in service of conformance tests; without one, `plain-healthcheck` will fail.
 - **Hand-merging into an existing config.yaml without re-running this skill.** If the user edited the config manually, re-run the skill to re-derive a clean canonical version (after confirming any custom fields with the user).
-- **Reading the renderer's API key from a project file.** Always rely on `CODEPLAIN_API_KEY`.
+- **Reading the renderer's API key from a project file.** Always rely on `PLAINWRIGHT_API_KEY`.
 
 ## Validation Checklist
 

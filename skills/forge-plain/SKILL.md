@@ -118,7 +118,7 @@ and get explicit overall confirmation before continuing.
 - **A user answer contradicts prior specs** → edit the affected snippet in place immediately, then continue the loop; surface a non-trivial change in the next question.
 - **`check-plain-env` returns `FAIL`** (testing phase) → walk each gap with the user; install, swap to an alternative, or explicitly acknowledge it before the handoff phase. Re-invoke after any install.
 - **`plain-healthcheck` returns `FAIL`** (handoff phase) → do not present the render command; work through its numbered list with the right edit skill and re-run until it passes.
-- **Environment failure** (`codeplain` not on PATH, `CODEPLAIN_API_KEY` unset) → tell the user exactly what is missing and how to fix it; never pretend the check passed.
+- **Environment failure** (`plainwright` not on PATH, `PLAINWRIGHT_API_KEY` unset) → tell the user exactly what is missing and how to fix it; never pretend the check passed.
 
 ## Reference
 

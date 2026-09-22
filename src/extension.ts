@@ -9,6 +9,7 @@ import { loadSkill, type Skill } from "./skill.ts";
 import { listFrids, renderFunctionality } from "./render/render.ts";
 import { renderConformanceTests } from "./render/conformance.ts";
 import { regenerateFunctionality, renderModule } from "./render/module.ts";
+import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
@@ -110,6 +111,7 @@ export default function (pi: ExtensionAPI) {
   registerJobTools(pi, jobs);
   registerRenderFunctionality(pi, cwd, jobs);
   registerRenderConformanceTests(pi, cwd, jobs);
+  registerCheckPlain(pi, cwd);
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
 
@@ -641,6 +643,49 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
               .map((job) => `${job.id}  ${job.status.padEnd(9)} ${formatDuration(job).padStart(6)}  ${job.kind}: ${job.summary}`)
               .join("\n");
       return { content: [{ type: "text" as const, text }], details: { count: all.length } };
+    },
+  });
+}
+
+
+/**
+ * Static validation of a ***plain specification.
+ *
+ * This is the check that used to mean a renderer dry-run. It runs this repo's own parser,
+ * so it needs no external tool, no API key and no credits - and it is the only honest way
+ * to answer "is this spec valid?" without generating anything.
+ */
+function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
+  pi.registerTool({
+    name: "check_plain",
+    label: "Check plain spec",
+    description:
+      "Validate one or more .plain specifications without rendering: parses each file, resolves its " +
+      "imports and required modules, and reports every syntax, concept and structure error with the " +
+      "line it is on. Pass a directory to check every .plain file in it. Fast, free, and offline.",
+    promptSnippet: "check_plain: validate a .plain spec without rendering it",
+    promptGuidelines: [
+      "Use check_plain to verify a .plain file is valid. Never shell out to another renderer to do it, and never claim a spec is valid without running it.",
+      "Run check_plain after editing a .plain file, and before telling the user a spec is ready.",
+    ],
+    parameters: Type.Object({
+      target: Type.String({ description: "A .plain file, or a directory holding .plain files" }),
+      template_dir: Type.Optional(
+        Type.Array(Type.String(), { description: "Extra template directories" }),
+      ),
+    }),
+    async execute(_id, params) {
+      const results = checkPlainTargets(
+        resolve(cwd, params.target),
+        (params.template_dir ?? []).map((dir) => resolve(cwd, dir)),
+      );
+      const failed = results.filter((result) => !result.ok).length;
+      const text =
+        results.length === 0
+          ? `No .plain files found in ${params.target}.`
+          : `${formatCheckResults(results)}\n\n${failed === 0 ? "All specs valid." : `${failed} of ${results.length} failed.`}`;
+
+      return { content: [{ type: "text" as const, text }], details: { failed, checked: results.length } };
     },
   });
 }

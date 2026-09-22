@@ -1,5 +1,5 @@
 /**
- * A TypeScript port of the codeplain ***plain*** parser.
+ * The ***plain*** parser: a TypeScript port of the reference implementation.
  *
  * Mirrors plain_file.py, plain_spec.py, concept_utils.py and the file_utils.py
  * helpers they depend on. The entry points are `plainFileParser` (a .plain file to a

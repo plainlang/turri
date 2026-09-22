@@ -82,6 +82,7 @@ const COMMANDS: Record<string, { module: string; blurb: string }> = {
   conformance: { module: "./conformance-frid.ts", blurb: "black-box tests for one functionality" },
   module: { module: "./render-module.ts", blurb: "build every functionality, with the regression gate" },
   regenerate: { module: "./regenerate-frid.ts", blurb: "rebuild a functionality after its spec changed" },
+  check: { module: "./check-cli.ts", blurb: "validate a ***plain spec without rendering" },
   skill: { module: "./run.ts", blurb: "run a gated skill" },
 };
 

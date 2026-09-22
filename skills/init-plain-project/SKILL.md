@@ -6,7 +6,7 @@ description: >-
   then scaffolds a template import module (with base implementation reqs and
   test reqs), a stub top-level module, the unit testing script, and
   (optionally) the conformance and prepare-environment scripts plus a
-  config.yaml. Does NOT run `codeplain --dry-run`. Use when the user wants a
+  config.yaml. Does NOT run `plainwright check`. Use when the user wants a
   quick project skeleton to start writing functional specs against, without
   the full forge-plain interview.
 ---
@@ -30,7 +30,7 @@ What this skill writes:
 
 What this skill does **not** do:
 
-- Run `codeplain --dry-run` or `plain-healthcheck`.
+- Run `plainwright check` or `plain-healthcheck`.
 - Author concepts, functional specs, or acceptance tests.
 - Probe the host environment (`check-plain-env` is a separate step the user can run later).
 
@@ -119,7 +119,7 @@ Tell the user what was created and what's next:
 
 - Files written: `template/base.plain`, `<project>.plain`, the test scripts, `config.yaml`.
 - Suggested next steps: add concepts with `add-concept`, add functional specs with `add-functional-spec` or `add-functional-specs`, or jump straight into `add-feature`.
-- Mention that `codeplain <project>.plain --dry-run` has not been run — they can run `plain-healthcheck` when they want validation.
+- Mention that `plainwright check <project>.plain` has not been run — they can run `plain-healthcheck` when they want validation.
 
 ## Validation checklist
 
