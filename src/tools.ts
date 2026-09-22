@@ -1,0 +1,120 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type, type Static } from "typebox";
+
+/**
+ * Personal tools.
+ *
+ * `write_artifact` is the executor's only way to produce output: it can read the
+ * repo, but everything it makes lands in one sandboxed directory under a name the
+ * graph chose. That is what lets the gate know exactly what to review - there is
+ * no "find the thing the agent probably changed" step.
+ */
+export function createWriteArtifactTool(runDir: string) {
+  const root = resolve(runDir);
+  return defineTool({
+    name: "write_artifact",
+    label: "Write artifact",
+    description:
+      "Write this step's deliverable. Path must be the artifact path given in the step instructions. " +
+      "Overwrites any previous attempt.",
+    promptSnippet: "write_artifact: write the current step's deliverable to its artifact path",
+    parameters: Type.Object({
+      path: Type.String({ description: "Artifact path, exactly as given in the step instructions" }),
+      content: Type.String({ description: "Full contents of the artifact" }),
+    }),
+    async execute(_id, params) {
+      const target = resolve(root, params.path);
+      if (relative(root, target).startsWith("..")) {
+        throw new Error(`write_artifact: '${params.path}' escapes the artifact directory`);
+      }
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, params.content, "utf8");
+      return {
+        content: [{ type: "text" as const, text: `Wrote ${params.content.length} bytes to ${params.path}` }],
+        details: { path: params.path, bytes: params.content.length },
+      };
+    },
+  });
+}
+
+export const VerdictSchema = Type.Object({
+  verdict: Type.Union([Type.Literal("pass"), Type.Literal("fail")], {
+    description: "'fail' if ANY rubric criterion is violated. There is no partial credit.",
+  }),
+  violations: Type.Array(
+    Type.Object({
+      criterion: Type.String({ description: "The rubric criterion, quoted" }),
+      evidence: Type.String({ description: "The exact text from the artifact that violates it" }),
+      fix: Type.String({ description: "One concrete instruction that would resolve it" }),
+    }),
+    { description: "Empty when verdict is 'pass'. Never empty when verdict is 'fail'." },
+  ),
+});
+
+export type Verdict = Static<typeof VerdictSchema>;
+
+/**
+ * The judge's only tool. Forcing the verdict through a schema is the difference
+ * between a decision the graph can branch on and a paragraph someone has to read.
+ * `terminate` stops the judge session as soon as the verdict lands.
+ */
+export function createVerdictTool(onVerdict: (v: Verdict) => void) {
+  return defineTool({
+    name: "submit_verdict",
+    label: "Submit verdict",
+    description: "Submit your review verdict. Call this exactly once. Do not reply with prose.",
+    parameters: VerdictSchema,
+    async execute(_id, params) {
+      onVerdict(params as Verdict);
+      return {
+        content: [{ type: "text" as const, text: "Verdict recorded." }],
+        details: params,
+        terminate: true,
+      };
+    },
+  });
+}
+
+
+export interface AskUserRequest {
+  question: string;
+  /** Concrete choices. Empty for a free-form answer. */
+  options?: string[];
+}
+
+export type AskUser = (request: AskUserRequest) => Promise<string>;
+
+/**
+ * Lets a skill step put a question to the person running it.
+ *
+ * A gated skill otherwise runs to completion with nobody to ask, which is fine for work
+ * that is fully specified and useless for an interview. The harness still owns the
+ * sequence - the step decides what to ask, not whether the gate afterwards runs.
+ */
+export function createAskUserTool(ask: AskUser) {
+  return defineTool({
+    name: "ask_user",
+    label: "Ask the user",
+    description:
+      "Put one question to the user and wait for their answer. Ask exactly one thing at a time, " +
+      "and offer concrete options whenever the answer space is predictable.",
+    promptSnippet: "ask_user: ask the user one question and wait for the answer",
+    parameters: Type.Object({
+      question: Type.String({ description: "One question. Never bundle two." }),
+      options: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Concrete choices to offer. Omit for a free-form answer.",
+        }),
+      ),
+    }),
+    async execute(_id, params) {
+      const answer = await ask({ question: params.question, options: params.options });
+      return {
+        content: [{ type: "text" as const, text: answer }],
+        details: { question: params.question, answer },
+      };
+    },
+  });
+}

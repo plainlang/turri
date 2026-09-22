@@ -1,0 +1,10 @@
+***definitions***
+
+- :concept: is a concept.
+
+***implementation reqs***
+- First implementation requirement.
+- Second implementation requirement.
+
+***functional specs***
+- Implement {% include "implement.plain", variable_name: "nice" %}
