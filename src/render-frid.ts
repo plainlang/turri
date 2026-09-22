@@ -11,7 +11,7 @@ const c = {
 
 const USAGE = `usage: npm run render -- <file.plain> [frid] [options]
 
-  --build-dir <dir>      where the agent works (default: build/<module>)
+  --build-dir <dir>      where the agent works (default: plain_modules/<module>/code)
   --template-dir <dir>   extra template directory (repeatable)
   --list                 list the functionality IDs and exit
   --dry-run              print the prompt without starting an agent

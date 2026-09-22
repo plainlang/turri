@@ -5,7 +5,10 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { getFrids, getSpecificationsForFrid } from "../plain/spec.ts";
+import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS } from "../plain/spec.ts";
+import { reportStage } from "./activity.ts";
+import { confinedTools } from "./confine.ts";
+import { defaultBuildDir, modulesRoot, testsDirUnder } from "./paths.ts";
 import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { resolveTemplateDirs } from "./render.ts";
@@ -38,7 +41,7 @@ const CONFORMANCE_TOOLS = [
 ];
 
 /** Tools the code-fixing agent gets: the mirror image - the code, never the tests. */
-const FIX_TOOLS = ["read", "write", "edit", "bash", "ls", "grep", "find", "run_unit_tests"];
+const FIX_TOOLS = ["run_unit_tests"];
 
 const DEFAULT_MAX_ROUNDS = 3;
 
@@ -47,7 +50,7 @@ const DEFAULT_MAX_ROUNDS = 3;
  * can merge exactly the ones built so far.
  */
 export function conformanceDirFor(moduleName: string, frid: string, root?: string): string {
-  return join(root ?? join(process.cwd(), "conformance"), moduleName, frid);
+  return join(testsDirUnder(root ?? modulesRoot(), moduleName), frid);
 }
 
 const MAX_OUTPUT_CHARS = 20000;
@@ -59,7 +62,7 @@ export interface RenderConformanceTestsOptions {
   templateDirs?: string[];
   /** The rendered code under test. Must exist and be non-empty. */
   buildDir?: string;
-  /** Where the tests are written. Defaults to `<cwd>/conformance/<module>`. */
+  /** Where the tests are written. Defaults to `<cwd>/plain_modules/<module>/tests/<frid>`. */
   conformanceDir?: string;
   onDelta?: (delta: string) => void;
   onRun?: (command: string, exitCode: number) => void;
@@ -102,76 +105,50 @@ export interface RenderConformanceTestsResult {
   testRemovals: TestRemoval[];
 }
 
+
 /**
- * Run a command against a throwaway copy of the build with one or more sets of tests
- * laid over it.
+ * Run a command against the built code with one or more test sets laid over it.
  *
- * Several sets matter for regression: the tests of every functionality built so far are
- * merged into one run, which is the only way to notice that the newest one broke an older
- * one. They are flattened into the root so the language's own discovery finds them, and a
- * name that is already taken is prefixed with the directory it came from rather than
- * silently overwriting.
+ * Neither the build nor the tests are touched: everything happens in a throwaway copy, so a
+ * test run cannot leave anything behind in the codebase it is testing, and each run starts
+ * from the same state as the last.
  *
- * A fresh sandbox per run means tests cannot accumulate state between attempts, and
- * whatever they write never touches the build directory.
+ * Several sets merge for a regression run - every functionality built so far. A file that
+ * would land on one already taken is renamed rather than overwritten, because two
+ * functionalities are allowed to have written a `test_helpers.py` each and neither of them
+ * should silently lose.
  */
 export function runInSandbox(
   buildDir: string,
   conformanceDirs: string | string[],
   command: string,
 ): { exitCode: number; output: string } {
-  const dirs = (Array.isArray(conformanceDirs) ? conformanceDirs : [conformanceDirs]).filter((dir) =>
-    existsSync(dir),
-  );
-  const sandbox = mkdtempSync(join(tmpdir(), "forge-conformance-"));
+  const dirs = Array.isArray(conformanceDirs) ? conformanceDirs : [conformanceDirs];
+  const sandbox = mkdtempSync(join(tmpdir(), "plainwright-conformance-"));
 
   try {
     cpSync(buildDir, sandbox, { recursive: true });
 
     const taken = new Set(listFiles(sandbox));
-    for (const dir of dirs) {
+    dirs.forEach((dir, index) => {
+      if (!existsSync(dir)) return;
       for (const file of listFiles(dir)) {
-        const name = taken.has(file) ? join(dirname(file), `${basename(dir)}_${basename(file)}`) : file;
-        taken.add(name);
-        const target = join(sandbox, name);
-        mkdirSync(dirname(target), { recursive: true });
-        copyFileSync(join(dir, file), target);
+        let target = file;
+        if (taken.has(target)) {
+          const renamed = `${index + 1}_${basename(file)}`;
+          target = dirname(file) === "." ? renamed : join(dirname(file), renamed);
+        }
+        taken.add(target);
+        const destination = join(sandbox, target);
+        mkdirSync(dirname(destination), { recursive: true });
+        copyFileSync(join(dir, file), destination);
       }
-    }
+    });
 
-    const result = runCommand(sandbox, command);
-    return { exitCode: result.exitCode, output: truncateOutput(result.output) };
+    return runCommand(sandbox, command);
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
-}
-
-function createReadTestFileTool(conformanceDir: string) {
-  const root = resolve(conformanceDir);
-  return defineTool({
-    name: "read_test_file",
-    label: "Read test file",
-    description:
-      "Read a file you have written in the conformance test directory. It cannot reach the " +
-      "implementation - conformance tests are written from the specification, not from the code.",
-    parameters: Type.Object({
-      path: Type.String({ description: "Path relative to the conformance test directory" }),
-    }),
-    async execute(_id, params) {
-      const target = resolve(root, params.path);
-      if (relative(root, target).startsWith("..")) {
-        throw new Error(
-          `read_test_file: '${params.path}' is outside the conformance test directory. ` +
-            "The implementation is a black box and cannot be read.",
-        );
-      }
-      const { readFileSync } = await import("node:fs");
-      return {
-        content: [{ type: "text" as const, text: readFileSync(target, "utf8") }],
-        details: { path: params.path },
-      };
-    },
-  });
 }
 
 function createTriageTool(onVerdict: (verdict: TriageVerdict) => void) {
@@ -256,7 +233,7 @@ export async function renderConformanceTests(
     throw new Error(`Functionality ${frid} does not exist. Available: ${frids.join(", ")}.`);
   }
 
-  const buildDir = resolve(options.buildDir ?? join(process.cwd(), "build", moduleName));
+  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
   const manifest = listFiles(buildDir);
   if (manifest.length === 0) {
     throw new Error(
@@ -270,6 +247,18 @@ export async function renderConformanceTests(
   );
 
   const [specifications] = getSpecificationsForFrid(tree, frid);
+
+  // Conformance tests are written from the test reqs: they say how the suite is built and
+  // run. Without them there is nothing to write tests against, and an agent asked anyway
+  // would invent a convention that nothing else in the project shares.
+  if (specifications[TEST_REQUIREMENTS].length === 0) {
+    throw new Error(
+      `Module '${moduleName}' has no ${TEST_REQUIREMENTS}, so conformance tests cannot be written. ` +
+        `Add a ${TEST_REQUIREMENTS} section saying how conformance tests are written and run, or render ` +
+        "with conformance turned off.",
+    );
+  }
+
   const linkedResources = loadLinkedResources(tree, frid, templateDirs);
   const prompt = buildConformancePrompt({
     moduleName,
@@ -306,10 +295,17 @@ export async function renderConformanceTests(
   const lastOutput = { value: "" };
 
   let pendingTriage: TriageVerdict | undefined;
+  // Reads the code, writes only its tests. Both live under `plain_modules/<module>`, which
+  // is as far as this agent can see in either direction.
+  const fence = confinedTools({
+    workdir: conformanceDir,
+    read: [buildDir],
+    write: [conformanceDir],
+  });
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
-      createReadTestFileTool(conformanceDir),
+      ...fence.tools,
       createRunTool(buildDir, conformanceDir, runs, lastOutput, options.onRun),
       createTriageTool((verdict) => {
         pendingTriage = verdict;
@@ -317,12 +313,14 @@ export async function renderConformanceTests(
         options.onTriage?.(verdict);
       }),
     ],
-    tools: CONFORMANCE_TOOLS,
+    tools: [...fence.names, ...CONFORMANCE_TOOLS],
     model: options.model,
   });
 
   try {
     let inventory = inventoryTests(conformanceDir);
+    const stage = (label: string) => reportStage(`${moduleName} ${frid}: ${label}`);
+    stage("writing conformance tests from the spec");
     let response = await ask(executor, prompt, options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -353,6 +351,7 @@ export async function renderConformanceTests(
       }
 
       if (pendingTriage === undefined) {
+        stage("conformance tests failing - deciding whether the test or the code is wrong");
         response = await ask(
           executor,
           [
@@ -372,6 +371,7 @@ export async function renderConformanceTests(
       pendingTriage = undefined;
 
       if (verdict.fault === "test_at_fault") {
+        stage("correcting a conformance test");
         response = await ask(
           executor,
           [
@@ -387,6 +387,7 @@ export async function renderConformanceTests(
 
       // The code is at fault, and this agent cannot see the code. Hand the failure to one
       // that can - and which in turn cannot see or edit the tests.
+      stage("the code is at fault - fixing the implementation");
       const fix = await runCodeFix({
         buildDir,
         moduleName,
@@ -401,6 +402,7 @@ export async function renderConformanceTests(
 
       // The harness re-runs the same command itself, so the verdict on whether the fix
       // worked does not depend on either agent reporting it.
+      stage("re-running the conformance tests against the fix");
       const recheck = runInSandbox(buildDir, conformanceDir, last.command);
       runs.push({ command: last.command, exitCode: recheck.exitCode });
       lastOutput.value = recheck.output;
@@ -451,9 +453,15 @@ async function runCodeFix(input: {
   model?: string;
 }): Promise<CodeFix> {
   const runs: TestRun[] = [];
+  const fixFence = confinedTools({
+    workdir: input.buildDir,
+    read: [],
+    write: [input.buildDir],
+  });
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [
+      ...fixFence.tools,
       createRunTestsTool({
         name: "run_unit_tests",
         label: "Run unit tests",
@@ -462,7 +470,7 @@ async function runCodeFix(input: {
         runs,
       }),
     ],
-    tools: FIX_TOOLS,
+    tools: [...fixFence.names, ...FIX_TOOLS],
     model: input.model,
   });
 

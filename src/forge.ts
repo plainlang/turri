@@ -4,8 +4,12 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createExecutor } from "./pi.ts";
-import { loadSkill, type Skill } from "./skill.ts";
+import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
+import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
+import { createFunctionalSpecTools } from "./spec-tools.ts";
+
+const WRITE_FUNCTIONAL_SPEC = "write_functional_spec";
 import type { RenderQueue } from "./render/queue.ts";
 
 export interface EscalationRequest {
@@ -41,25 +45,74 @@ export async function runSkill(opts: {
   model?: string;
   /** Lets steps build functionalities in the background while the interview continues. */
   renderQueue?: RenderQueue;
+  /** What the user has already said, so the skill does not re-ask it. */
+  context?: string;
 }): Promise<RunSkillResult> {
   const skill = loadSkill(opts.skillDir);
   const runDir = resolve(opts.runDir);
   rmSync(runDir, { recursive: true, force: true });
   mkdirSync(runDir, { recursive: true });
 
+  // The executor has to exist before a reviewer can borrow its auth, and the reviewer has
+  // to exist before the tools that report its findings. So the tool list is built in two
+  // passes with a box the reviewer is dropped into once there is one.
+  const liveReviewers = new Map<string, LiveReviewer>();
+  const liveStep = skill.steps.find((step) => step.gate?.continuous !== undefined);
+  const holder: { reviewer?: LiveReviewer } = {};
+  const liveProxy: LiveReviewer | undefined =
+    liveStep === undefined
+      ? undefined
+      : {
+          notice: (scope) => holder.reviewer?.notice(scope),
+          take: () => holder.reviewer?.take() ?? [],
+          takeQuestions: () => holder.reviewer?.takeQuestions() ?? [],
+          reply: (id, answer) => holder.reviewer?.reply(id, answer) ?? false,
+          settle: async () => holder.reviewer?.settle() ?? { clean: true, findings: [] },
+          history: () => holder.reviewer?.history() ?? [],
+          passes: () => holder.reviewer?.passes() ?? 0,
+        };
+
   const writeArtifact = createWriteArtifactTool(runDir);
   const customTools: ToolDefinition[] = [writeArtifact];
-  if (opts.askUser !== undefined) customTools.push(createAskUserTool(opts.askUser));
-  if (opts.renderQueue !== undefined) customTools.push(...createRenderTools(opts.renderQueue));
+
+  // A skill that lists write_functional_spec gets it, and with it write and edit tools that
+  // leave the functional specs alone - so every spec is built because of how it was
+  // written, not because a separate call was remembered.
+  const specs =
+    opts.renderQueue !== undefined && skill.allowedTools.includes(WRITE_FUNCTIONAL_SPEC)
+      ? createFunctionalSpecTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy })
+      : undefined;
+
+  if (opts.askUser !== undefined) customTools.push(createAskUserTool(opts.askUser, () => specs?.pace.answered()));
+  if (opts.renderQueue !== undefined) {
+    customTools.push(...createRenderTools(opts.renderQueue, opts.cwd, liveProxy));
+  }
+  if (specs !== undefined) customTools.push(...specs.tools);
 
   const names = customTools.map((tool) => tool.name);
-  const builtins = skill.allowedTools.filter((t) => !names.includes(t));
+  // Tools this harness provides are never pi built-ins, even when it did not provide them.
+  const builtins = skill.allowedTools.filter((t) => !names.includes(t) && t !== WRITE_FUNCTIONAL_SPEC);
   const executor = await createExecutor({
     cwd: opts.cwd,
     customTools,
     tools: [...builtins, ...names],
     model: opts.model,
+    // A skill writes specs; the rules it is held to are in its system prompt.
+    rules: true,
   });
+
+  if (liveStep !== undefined && liveProxy !== undefined) {
+    const continuous = liveStep.gate!.continuous!;
+    holder.reviewer = createLiveReviewer({
+      cwd: opts.cwd,
+      spec: continuous,
+      rubric: readRubric(skill, continuous),
+      executor,
+      defaultModel: opts.model,
+      onPass: (pass) => opts.report.livePass?.(liveStep.name, pass.scope, pass.findings),
+    });
+    liveReviewers.set(liveStep.name, liveProxy);
+  }
 
   try {
     const app = compileSkill({
@@ -69,6 +122,8 @@ export async function runSkill(opts: {
       executor,
       report: opts.report,
       model: opts.model,
+      context: opts.context,
+      liveReviewers,
     }).compile({
       checkpointer: new MemorySaver(),
     });
@@ -98,11 +153,14 @@ export async function runSkill(opts: {
 
 /** Human-readable one-liner per step, for logs and tool output. */
 export function describeGates(skill: Skill): string[] {
-  return skill.steps.map((s) =>
-    s.gate
-      ? `${s.name} -> gate(${s.gate.review.rubric}, judges=${s.gate.review.judges}, quorum=${s.gate.review.quorum}, on_fail=${s.gate.review.onFail}, max_retries=${s.gate.review.maxRetries})`
-      : `${s.name} -> no gate`,
-  );
+  return skill.steps.map((s) => {
+    if (!s.gate) return `${s.name} -> no gate`;
+    const live = s.gate.continuous
+      ? ` + continuous(${s.gate.continuous.rubric}, judges=${s.gate.continuous.judges})`
+      : "";
+    const r = s.gate.review;
+    return `${s.name} -> gate(${r.rubric}, judges=${r.judges}, quorum=${r.quorum}, on_fail=${r.onFail}, max_retries=${r.maxRetries})${live}`;
+  });
 }
 
 export type { Reporter };

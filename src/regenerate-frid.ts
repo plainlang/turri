@@ -6,8 +6,8 @@ const USAGE = `usage: npm run regenerate -- <file.plain> <frid> [options]
 Rebuilds one functionality whose specification changed, over code that already exists,
 then runs the whole module's conformance suite.
 
-  --build-dir <dir>        default: build/<module>
-  --conformance-root <dir> default: conformance
+  --build-dir <dir>        default: plain_modules/<module>/code
+  --conformance-root <dir> default: plain_modules
   --template-dir <dir>     extra template directory (repeatable)
   --model <provider/id>    model for the agents
   --max-regression-rounds  repair attempts per regression failure (default 3)`;

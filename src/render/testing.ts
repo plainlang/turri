@@ -3,6 +3,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { STATE_FILE } from "./state.ts";
+import { commandSandbox } from "./confine.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
 
@@ -19,10 +21,19 @@ export function truncateOutput(text: string): string {
   return `${text.slice(0, MAX_OUTPUT_CHARS)}\n... [truncated, ${text.length} characters total]`;
 }
 
+/**
+ * Run a command an agent chose, fenced to `cwd`.
+ *
+ * The command runs under the same OS sandbox as the bash tool, with `cwd` as its only read
+ * and write root, so running the tests cannot be used to read the specification or to
+ * reach into another project.
+ */
 export function runCommand(cwd: string, command: string): { exitCode: number; output: string } {
+  const sandbox = commandSandbox({ workdir: cwd, read: [cwd], write: [cwd] });
   try {
-    const stdout = execSync(command, {
+    const stdout = execSync(sandbox ? sandbox.wrap(command) : command, {
       cwd,
+      env: sandbox ? { ...process.env, ...sandbox.env } : undefined,
       timeout: RUN_TIMEOUT_MS,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -32,6 +43,8 @@ export function runCommand(cwd: string, command: string): { exitCode: number; ou
     const failure = error as { status?: number; stdout?: string; stderr?: string; message?: string };
     const output = `${failure.stdout ?? ""}${failure.stderr ?? ""}` || (failure.message ?? "");
     return { exitCode: failure.status ?? 1, output: truncateOutput(output) };
+  } finally {
+    sandbox?.dispose();
   }
 }
 
@@ -39,7 +52,11 @@ export function listFiles(root: string): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
-      if (entry === ".git" || entry === "node_modules" || entry === "__pycache__") continue;
+      // The state file is the harness's own bookkeeping, not part of the codebase: it is
+      // never shown to an agent as a file it wrote, copied forward to a requiring module,
+      // or counted when asking whether anything has been built.
+      if (entry === ".git" || entry === "node_modules" || entry === "__pycache__" || entry === STATE_FILE)
+        continue;
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) walk(full);
       else found.push(relative(root, full));

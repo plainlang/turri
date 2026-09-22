@@ -189,18 +189,16 @@ cost stops being worth it.
 
 ### Skills run through the gated runner
 
-A skill is only runnable once it has a `## Steps` section with `### <step>` headings, and
-gates in `metadata.gates`. Anything else does not load, and `run_skill` lists it as not yet
-converted rather than pretending otherwise.
+Every skill in `skills/` is runnable. A skill declares its steps with a `## Steps` section
+whose `###` headings are the steps; without that section the whole skill is one step, which
+is what most skills are and what the Agent Skills standard describes.
 
-That rule is stricter than it looks, and deliberately so: most prose skills contain `###`
-headings of their own, and an earlier version of the loader happily read those as
-executable steps - 26 of the 32 skills "loaded" while being nothing of the kind.
+Steps are never inferred from `###` headings elsewhere in the body. Prose skills are full of
+those, and an earlier loader read them as executable steps - so a skill's explanatory
+subsections would have been run as work.
 
-| | |
-|---|---|
-| converted | `forge-plain` |
-| pending | the other 31 |
+Gates are declared per step in `metadata.gates`, so a single-step skill can be gated by
+naming the skill itself. Only `forge-plain` declares any today.
 
 ### Gates can grant judges read-only tools
 
@@ -423,7 +421,7 @@ npm run render -- <file.plain> 1 --dry-run     # print the prompt, start nothing
 
 | Option | |
 |---|---|
-| `--build-dir <dir>` | where the agent works (default `build/<module>`) |
+| `--build-dir <dir>` | where the agent works (default `plain_modules/<module>/code`) |
 | `--template-dir <dir>` | extra template directory, repeatable |
 | `--model <provider/id>` | model for the agents, e.g. `google/gemini-2.5-pro` |
 | `PLAIN_TEMPLATE_DIRS` | colon-separated template dirs, e.g. the standard library |
@@ -451,8 +449,36 @@ spec references up to that point:
 ```
 
 The agent runs with `read`, `write`, `edit`, `bash`, `ls`, `grep`, `find` and
-`run_unit_tests`, and its session cwd is the build directory - so its tools point at the
-code being built, not at this repo.
+`run_unit_tests`, confined to the build directory. See *Confinement* below: `cwd` alone is
+where relative paths start, not a fence.
+
+### Confinement
+
+pi's `cwd` is a starting point: an absolute path resolves to itself and `bash` can `cd`
+anywhere. A rendering agent has no business outside the module it is building, so
+`src/render/confine.ts` rebuilds the file tools from pi's own factories with a check in
+front of every path, and runs `bash` under an OS sandbox.
+
+Each agent gets two roots, both under `plain_modules`, and nothing reaches above that:
+
+| agent | reads | writes |
+| --- | --- | --- |
+| render | `plain_modules/<module>/code` | `plain_modules/<module>/code` |
+| conformance author | `plain_modules/<module>/{code,tests/<frid>}` | `plain_modules/<module>/tests/<frid>` |
+| code fixer | `plain_modules/<module>/code` | `plain_modules/<module>/code` |
+
+The path check runs twice: once on the argument the tool was called with, and once on the
+absolute path the tool resolved it to, because the two can differ. Symlinks are resolved
+before comparing, so a link cannot walk out, and a glob containing `..` is refused
+outright.
+
+`bash` is the case no argument check can cover - one string, and no way to read where it
+will write. On macOS it runs under `sandbox-exec` with a profile that denies writes
+everywhere except the agent's own roots and a private scratch directory (which `TMPDIR`
+points at), and denies reads of the project above `plain_modules`. Reads elsewhere stay
+open, because interpreters, compilers and package managers live there and denying them
+breaks the build without protecting anything. Where no OS sandbox is available the agent
+gets no shell at all, since there is no honest way to fence one.
 
 ### The tests must actually pass
 
@@ -491,7 +517,7 @@ Run against `examples/example_hello_world_python/hello_world_python.plain`:
 
 ```
 done hello_world_python functionality 1
-  build dir: build/hello_world_python
+  build dir: plain_modules/hello_world_python/code
     hello_world.py
     test_hello_world.py
 ```
@@ -509,7 +535,7 @@ For each functionality in order: render the code and unit tests, write its black
 conformance tests, then run the conformance tests of **every functionality built so far,
 merged into one suite**. It advances only when that whole suite is green.
 
-Each functionality's tests live in `conformance/<module>/<frid>/`, and a regression run
+Each functionality's tests live in `plain_modules/<module>/tests/<frid>/`, and a regression run
 flattens the ones built so far over a throwaway copy of the build. A clashing file name is
 prefixed with its directory rather than silently overwritten, and the conformance prompt
 asks for the functionality id in each file name so clashes stay rare.
@@ -557,31 +583,30 @@ npm run conformance -- <file.plain> 1 --dry-run
 
 | Option | |
 |---|---|
-| `--build-dir <dir>` | the rendered code under test (default `build/<module>`) |
-| `--conformance-dir <dir>` | where tests are written (default `conformance/<module>`) |
+| `--build-dir <dir>` | the rendered code under test (default `plain_modules/<module>/code`) |
+| `--conformance-dir <dir>` | where tests are written (default `plain_modules/<module>/tests`) |
 | `--template-dir <dir>` | extra template directory, repeatable |
 
 It refuses to start when the build directory is empty, and says what to run first -
 there is nothing to test until the functionality has been rendered.
 
-### How the black box is kept closed
+### Black box in shape, not in blindness
 
-The test author's tool surface is `write`, `edit`, `ls`, plus two custom tools:
+The test author can read the implementation and cannot write to it: its roots are the
+code directory for reading and its own `tests/<frid>` directory for writing (see
+*Confinement*). It also gets `run_conformance_tests`, which copies the build and the tests
+into a throwaway directory, runs a command there, and returns the exit code and output.
 
-- `read_test_file`, which resolves only inside the conformance directory and rejects
-  anything outside it.
-- `run_conformance_tests`, which copies the build and the tests into a throwaway
-  directory, runs a command there, and returns the exit code and output.
+The tests stay black box in *shape* - they invoke the built functionality from outside,
+through its entry point - and the prompt is explicit about why the code is readable at all:
+to find out how the thing is called, never to decide what it should do. Every assertion
+comes from the specification, because a test written from the code agrees with the code by
+construction and can never catch it being wrong.
 
-There is no `read`, `grep`, `find` or `bash`, so no tool in that set can open a file in
-the build. The prompt carries the specification, the acceptance tests and a manifest of
-built *file names* - never their contents.
-
-This is a tool-surface guarantee, not a sandbox: the command passed to
-`run_conformance_tests` runs against a copy of the build, so an agent that wanted to
-could print source into the test output. Closing that would mean filtering commands or
-intercepting tool calls; the current design makes reading the implementation something
-you would have to do on purpose rather than by reflex.
+That is a weaker guarantee than the tool surface used to give, and deliberately so: tests
+written with no idea how to invoke the thing failed for the wrong reasons. What protects
+the property now is the prompt and the `code_at_fault` triage below, not the shape of the
+tool set.
 
 Each run gets a fresh sandbox, so tests cannot accumulate state between attempts and
 nothing they write reaches the build directory.

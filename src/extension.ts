@@ -1,16 +1,25 @@
-import { readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { describeGates, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
-import { loadSkill, type Skill } from "./skill.ts";
-import { listFrids, renderFunctionality } from "./render/render.ts";
-import { renderConformanceTests } from "./render/conformance.ts";
-import { regenerateFunctionality, renderModule } from "./render/module.ts";
+import { loadSkill, skillStatus, type Skill } from "./skill.ts";
+import { listFrids } from "./render/render.ts";
+import { renderConformanceSuite } from "./render/conformance-suite.ts";
+import type { RenderConformanceTestsResult } from "./render/conformance.ts";
+import { regenerateFunctionality, renderChain, type RenderModuleResult } from "./render/module.ts";
+import { describeChain } from "./render/requires.ts";
+import { createProgressTracker } from "./render/progress.ts";
+import { describeDelivery } from "./render/delivery.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue } from "./render/queue.ts";
+import { createJobPanel } from "./render/job-panel.ts";
+import { inheritThinkingLevel } from "./pi.ts";
+import { moduleLanes } from "./render/lanes.ts";
+import { beginCapture, captureConsole, describeCaptured } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
@@ -18,6 +27,7 @@ import {
   describeJob,
   formatDuration,
   shouldWait,
+  type Job,
   type JobOutcome,
   type JobRegistry,
 } from "./render/jobs.ts";
@@ -45,7 +55,7 @@ function discoverSkills(): { skills: Skill[]; pending: string[] } {
   let entries: string[];
   try {
     entries = readdirSync(root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("_"))
+      .filter((e) => e.isDirectory() && (!e.name.startsWith("_") || process.env.FORGE_INCLUDE_FIXTURES === "1"))
       .map((e) => e.name)
       .sort();
   } catch {
@@ -64,26 +74,55 @@ function discoverSkills(): { skills: Skill[]; pending: string[] } {
   return { skills, pending };
 }
 
-/** Puts a skill step's question to the person, when there is one to ask. */
-function askUserVia(ctx: ExtensionContext): AskUser {
+/**
+ * Puts a skill step's question to the person, when there is one to ask.
+ *
+ * A skill runs inside one tool call, in its own session, so its dialogs are not
+ * conversation turns and nothing it asks would otherwise reach the transcript. Every
+ * exchange is therefore reported back, so the interview is visible while it happens and
+ * survives in the tool's result afterwards.
+ */
+function askUserVia(
+  ctx: ExtensionContext,
+  onExchange: (question: string, answer: string) => void,
+): AskUser {
   return async (request) => {
     if (!ctx.hasUI) {
       return "No user is available to answer. Decide yourself, and say in your report what you assumed.";
     }
-    return runAsk(request, {
-      select: (title, options) => ctx.ui.select(title, options),
-      input: (title) => ctx.ui.input(title),
-    });
+
+    ctx.ui.setWorkingMessage("waiting for your answer");
+    try {
+      const answer = await runAsk(request, {
+        select: (title, options) => ctx.ui.select(title, options),
+        input: (title) => ctx.ui.input(title),
+      });
+      onExchange(request.question, answer);
+      return answer;
+    } finally {
+      ctx.ui.setWorkingMessage();
+    }
   };
 }
 
 export default function (pi: ExtensionAPI) {
   const cwd = process.cwd();
+  const discoveredSkills = discoverSkills();
 
-  // Finished work announces itself into the transcript rather than triggering a turn,
-  // so a job landing never interrupts what the person is in the middle of saying.
-  const jobs = createJobRegistry({
+  // What the background work is doing right now, drawn above the editor while it runs.
+  const panel = createJobPanel(() => jobs.list());
+
+  // Finished work is announced twice, to two audiences, because pi treats them differently.
+  // A message - what the agent reads - is held until the current turn ends, and a skill's
+  // interview is one long turn: a render finishing mid-interview would say nothing until the
+  // interview was over. An entry is drawn the moment it is appended. So the person gets an
+  // entry, now, and the agent gets the full report as a hidden message, whenever its turn
+  // allows. Neither starts a turn, so nothing talks over the person.
+  const jobs: JobRegistry = createJobRegistry({
+    onChange: () => panel.refresh(),
     onFinish: (job) => {
+      panel.refresh();
+      announceJob(pi, job);
       void pi.sendMessage(
         {
           customType: "forge_job",
@@ -91,10 +130,10 @@ export default function (pi: ExtensionAPI) {
             job.status === "succeeded"
               ? `Background job ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
               : `Background job ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`,
-          display: true,
+          display: false,
           details: { jobId: job.id, status: job.status },
         },
-        { deliverAs: "nextTurn" },
+        { triggerTurn: false },
       );
     },
   });
@@ -109,6 +148,37 @@ export default function (pi: ExtensionAPI) {
     }));
   }
 
+  // A turn's own model calls happen inside pi's agent loop, outside any tool, so the
+  // capture is bracketed around the turn itself. Without this, every model call writes
+  // through the terminal the TUI is drawing on and strands a frame in the scrollback.
+  let turnCapture: { end: () => string[] } | undefined;
+  pi.on("agent_start", () => {
+    turnCapture?.end();
+    turnCapture = beginCapture();
+  });
+  const endTurnCapture = () => {
+    turnCapture?.end();
+    turnCapture = undefined;
+  };
+  pi.on("agent_end", endTurnCapture);
+  pi.on("agent_settled", endTurnCapture);
+
+  pi.on("session_start", (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    const ui = ctx.ui;
+    // setWidget is overloaded - lines or a component - and the panel is always a component.
+    type ComponentWidget = Extract<Parameters<typeof ui.setWidget>[1], (...args: never[]) => unknown>;
+    panel.attach({
+      setWidget: (key, content, options) => ui.setWidget(key, content as ComponentWidget | undefined, options),
+      getToolsExpanded: () => ui.getToolsExpanded(),
+    });
+  });
+
+  // Sub-agents think as hard as the conversation that started them, not pi's default.
+  inheritThinkingLevel(() => pi.getThinkingLevel());
+
+  registerBranding(pi, rules.length, discoveredSkills);
+  registerInterviewLog(pi);
   registerJobTools(pi, jobs);
   registerRenderFunctionality(pi, cwd, jobs);
   registerRenderConformanceTests(pi, cwd, jobs);
@@ -116,14 +186,12 @@ export default function (pi: ExtensionAPI) {
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
 
-  const { skills, pending } = discoverSkills();
+  const { skills, pending } = discoveredSkills;
   if (skills.length === 0) return;
 
   const catalogue = skills.map((s) => `- ${s.name}: ${s.description}`).join("\n");
   const pendingNote =
-    pending.length > 0
-      ? `\n\nNot yet converted to the gated format, and therefore not runnable: ${pending.join(", ")}.`
-      : "";
+    pending.length > 0 ? `\n\nFailed to load and therefore not runnable: ${pending.join(", ")}.` : "";
 
   pi.registerTool({
     name: "run_skill",
@@ -137,11 +205,21 @@ export default function (pi: ExtensionAPI) {
       "When a request matches a skill listed in run_skill's description, call run_skill instead of doing the work yourself. Doing it by hand skips the review gates.",
       "run_skill returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
       "If run_skill fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
+      "Always pass `context` to run_skill, summarising what the user has already told you. The skill starts with an empty session and will re-ask everything you omit, which reads as it not having listened.",
     ],
     parameters: Type.Object({
       skill: Type.String({
         description: `Skill name. One of: ${skills.map((s) => s.name).join(", ")}`,
       }),
+      context: Type.Optional(
+        Type.String({
+          description:
+            "Everything the user has already told you that this skill would otherwise ask for - what " +
+            "they are building, for whom, any decisions already made, names they have used. The skill " +
+            "runs in its own session and cannot see this conversation, so whatever you leave out it " +
+            "will ask again.",
+        }),
+      ),
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const skill = skills.find((s) => s.name === params.skill);
@@ -159,9 +237,20 @@ export default function (pi: ExtensionAPI) {
       };
 
       const report: Reporter = {
-        step: (name, attempt) => push(`step ${name} (attempt ${attempt})`),
+        step: (name, attempt) => {
+          if (ctx.hasUI) ctx.ui.setStatus("forge-skill", skillStatus(skill, name, attempt));
+          push(`step ${name} (attempt ${attempt})`);
+        },
         artifact: (path, body) => push(`  ${path}: ${body.split("\n")[0]}${body.includes("\n") ? " ..." : ""}`),
         gate: (name, judges) => push(judges === 0 ? `gate ${name}: no artifact` : `gate ${name}: ${judges} judges`),
+        livePass: (step, scope, findings) =>
+          push(`  review ${step}: ${scope} - ${findings === 0 ? "clean" : `${findings} to fix`}`),
+        liveReview: (name, passes, findings) =>
+          push(
+            findings === 0
+              ? `gate ${name}: reviewer read along in ${passes} passes, nothing outstanding`
+              : `gate ${name}: ${findings} unresolved from the reviewer`,
+          ),
         judge: (index, model, verdict, violations) =>
           push(`  judge ${index + 1} (${model}): ${verdict}${violations ? ` (${violations} violations)` : ""}`),
         outcome: (name, decision, critique) => {
@@ -170,12 +259,18 @@ export default function (pi: ExtensionAPI) {
         },
       };
 
-      const result = await runSkill({
+      const { result, output: captured } = await captureConsole(() =>
+        runSkill({
         skillDir: skill.dir,
         cwd,
         runDir: resolve(cwd, ".forge/run", skill.name),
         report,
-        askUser: askUserVia(ctx),
+        context: conversationContext(ctx, params.context),
+        askUser: askUserVia(ctx, (question, answer) => {
+          push(`  Q: ${question}`);
+          push(`  A: ${answer}`);
+          recordExchange(pi, { skill: skill.name, question, answer });
+        }),
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
         // check_job and list_jobs see them without knowing a skill started them.
@@ -189,12 +284,16 @@ export default function (pi: ExtensionAPI) {
           }
           return ctx.ui.confirm(`Review gate: ${skill.name}`, `${critique}\n\n${question}`);
         },
-      });
+        }),
+      );
+      const noise = describeCaptured(captured);
+      if (noise !== null) push(noise);
 
       const text = result.ok
         ? [`${skill.name}: passed all gates.`, "", "<artifact>", result.output, "</artifact>", "", "<trace>", ...trace, "</trace>"].join("\n")
         : [`${skill.name}: stopped at a gate. No approved artifact.`, "", "<trace>", ...trace, "</trace>"].join("\n");
 
+      if (ctx.hasUI) ctx.ui.setStatus("forge-skill", undefined);
       return { content: [{ type: "text" as const, text }], details: { ok: result.ok, artifacts: result.artifacts } };
     },
   });
@@ -213,25 +312,26 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
     name: "render_functionality",
     label: "Render functionality",
     description:
-      "Implement one functionality of a .plain specification. Parses the file, builds the context for " +
-      "the requested functionality ID (definitions, implementation reqs, test reqs, the functionalities " +
-      "already built, the target functionality and its acceptance tests) and runs a coding agent in its " +
-      "own build directory to write the code and unit tests. Omit `frid` to list the available " +
-      "functionality IDs instead of building one.",
+      "Build a .plain specification up to and including one functionality. Anything it depends on is " +
+      "built first: the modules this one requires, and the earlier functionalities of this module that " +
+      "are missing or whose specification has changed since they were built. Work already built from " +
+      "the current specification is skipped. Omit `frid` to list the available functionality IDs " +
+      "instead of building anything.",
     promptSnippet: "render_functionality: implement one functionality of a .plain specification",
     promptGuidelines: [
       "When asked to implement or render a .plain specification, call render_functionality rather than reading the file and writing the code yourself - it assembles the specification context deterministically.",
       "Call render_functionality without a frid first when the user has not said which functionality they mean; it returns the available IDs.",
+      "Asking for one functionality builds its prerequisites too. Do not call render_functionality repeatedly to walk a module - one call with the last functionality does it.",
       "After render_functionality succeeds, offer render_conformance_tests for the same functionality - unit tests are written by the implementer, conformance tests are not.",
       "These tools return a job id and keep working in the background. Say what has started and carry on talking; do not sit waiting for it, and do not claim it finished until the job reports back or check_job says so.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
       frid: Type.Optional(
-        Type.String({ description: "Functionality ID, e.g. \"1\" or \"2.3\". Omit to list them." }),
+        Type.String({ description: "Functionality ID, e.g. \"1\" or \"4\". Omit to list them." }),
       ),
       build_dir: Type.Optional(
-        Type.String({ description: "Where the agent works. Default: build/<module>" }),
+        Type.String({ description: "Where the agent works. Default: plain_modules/<module>/code" }),
       ),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
@@ -255,42 +355,60 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
 
       return deliver(jobs, {
         kind: "render_functionality",
-        summary: `${params.plain_file} functionality ${params.frid}`,
+        summary: `${basename(params.plain_file)} fs ${params.frid}`,
         model,
         wait: params.wait,
         mode: ctx.mode,
+        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
         onUpdate,
         run: async (onDelta) => {
-          const result = await renderFunctionality({
+          // Prerequisites are the point: functionality 4 is built on 1 to 3, so asking for
+          // it asks for them. renderChain resolves both kinds - the modules this one
+          // requires, and the earlier functionalities of this module.
+          const result = await renderChain({
             plainFile,
-            frid: params.frid,
+            to: params.frid,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
             onDelta,
           });
-          return { report: renderReport(result), details: { passed: result.passed } };
+          return {
+            report: chainReport(result),
+            announce: chainAnnouncement(result),
+            details: { passed: result.passed, modules: result.outcomes.map((o) => o.module) },
+          };
         },
       });
     },
   });
 }
 
-function renderReport(result: Awaited<ReturnType<typeof renderFunctionality>>): string {
+/**
+ * What landed, and how to see it working, for the last functionality a chain built.
+ *
+ * Leads the report because it is what the person reads when a background render announces
+ * itself; the chain and module detail below it is for the agent.
+ */
+function deliveryReport(result: RenderModuleResult): string | undefined {
+  const last = result.outcomes.at(-1);
+  if (last === undefined) return undefined;
+  // Everything this run added, not just the last functionality's share: asking for 4
+  // can build 1 to 3 as well, and their files are just as new to the person.
+  const added = [...new Set(result.outcomes.flatMap((outcome) => outcome.render.added))];
+  const removals = last.render.testRemovals;
   return [
-    result.passed
-      ? `Built ${result.moduleName} functionality ${result.frid} in ${result.buildDir}; unit tests pass.`
-      : `Built ${result.moduleName} functionality ${result.frid} in ${result.buildDir}, but the unit tests are NOT passing.`,
-    result.testRemovals.length > 0
-      ? `Tests were removed and challenged: ${result.testRemovals.map((r) => r.file).join(", ")}.`
-      : "",
-    "",
-    "<files>",
-    ...result.files,
-    "</files>",
-    "",
-    "<agent report>",
-    result.response,
-    "</agent report>",
+    describeDelivery({
+      moduleName: result.moduleName,
+      frid: last.frid,
+      functionality: last.render.functionality,
+      buildDir: result.buildDir,
+      added,
+      runs: last.render.runs,
+      conformanceRuns: last.conformance?.runs,
+      passed: last.stoppedAt === null,
+      tryIt: last.render.tryIt,
+    }),
+    removals.length > 0 ? `\nTests were removed and challenged: ${removals.map((r) => r.file).join(", ")}.` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -308,10 +426,11 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
     name: "render_conformance_tests",
     label: "Render conformance tests",
     description:
-      "Write black-box conformance tests for one functionality of a .plain specification, and run them " +
-      "against the built code. The test author never sees the implementation: it works from the " +
-      "specification and the acceptance tests, invoking the built functionality from the outside. " +
-      "Call this after render_functionality has built the functionality.",
+      "Write black-box conformance tests for code that already exists, and run them against it. " +
+      "Rendering and conformance are separate jobs: name one functionality, several, a range, the whole " +
+      "module (the default) or the whole requires chain. The test author never sees the implementation - " +
+      "it works from the specification and the acceptance tests, invoking the built functionality from " +
+      "the outside. Needs test reqs, which is what conformance tests are written from.",
     promptSnippet: "render_conformance_tests: black-box tests for a rendered functionality",
     promptGuidelines: [
       "render_conformance_tests requires the functionality to have been rendered first; it fails if the build directory is empty.",
@@ -319,42 +438,87 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
-      frid: Type.String({ description: 'Functionality ID, e.g. "1" or "2.3"' }),
-      build_dir: Type.Optional(
-        Type.String({ description: "The rendered code under test. Default: build/<module>" }),
+      frids: Type.Optional(
+        Type.Array(Type.String(), {
+          description: 'Functionality ids, e.g. ["1", "3"]. Omit for the whole module.',
+        }),
       ),
-      conformance_dir: Type.Optional(
-        Type.String({ description: "Where tests are written. Default: conformance/<module>/<frid>" }),
+      range: Type.Optional(
+        Type.String({ description: 'A range of functionalities, inclusive: "2" or "2,5"' }),
+      ),
+      chain: Type.Optional(
+        Type.Boolean({ description: "Every module this one requires, each in full" }),
+      ),
+      force: Type.Optional(Type.Boolean({ description: "Rewrite suites that already pass" })),
+      build_dir: Type.Optional(
+        Type.String({ description: "The rendered code under test. Default: plain_modules/<module>/code" }),
       ),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const model = conversationModel(ctx, params.model);
+      const scope = params.chain
+        ? "whole chain"
+        : params.frids !== undefined
+          ? `functionality ${params.frids.join(", ")}`
+          : params.range !== undefined
+            ? `functionalities ${params.range}`
+            : "whole module";
       return deliver(jobs, {
         kind: "render_conformance_tests",
-        summary: `${params.plain_file} functionality ${params.frid}`,
+        summary: `${basename(params.plain_file)} conformance, ${scope}`,
         model,
         wait: params.wait,
         mode: ctx.mode,
+        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
         onUpdate,
         run: async (onDelta) => {
-          const result = await renderConformanceTests({
+          const result = await renderConformanceSuite({
             plainFile: resolve(cwd, params.plain_file),
-            frid: params.frid,
+            frids: params.frids,
+            range: params.range,
+            chain: params.chain,
+            force: params.force,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-            conformanceDir: params.conformance_dir ? resolve(cwd, params.conformance_dir) : undefined,
             model,
             onDelta,
           });
-          return { report: conformanceReport(result), details: { passed: result.passed } };
+          return { report: suiteReport(result), details: { passed: result.passed } };
         },
       });
     },
   });
 }
 
-function conformanceReport(result: Awaited<ReturnType<typeof renderConformanceTests>>): string {
+function suiteReport(result: Awaited<ReturnType<typeof renderConformanceSuite>>): string {
+  const written = result.outcomes.filter((o) => !o.skipped);
+  const failing = written.filter((o) => o.result && !o.result.passed);
+
+  const lines = [
+    result.passed
+      ? `Conformance suite passes for ${result.targets.map((t) => t.moduleName).join(", ")}.`
+      : `Conformance suite is NOT passing. ${failing.length} of ${written.length} failed.`,
+    "",
+    "<targets>",
+    ...result.targets.map((t) => `${t.moduleName}: ${t.frids.join(", ")}`),
+    "</targets>",
+    "",
+    "<results>",
+    ...result.outcomes.map((o) =>
+      o.skipped
+        ? `${o.moduleName} ${o.frid}: already passing, skipped`
+        : `${o.moduleName} ${o.frid}: ${o.result?.passed ? "pass" : "fail"}`,
+    ),
+    "</results>",
+  ];
+
+  const last = written.at(-1)?.result;
+  if (last !== undefined) lines.push("", conformanceReport(last));
+  return lines.join("\n");
+}
+
+function conformanceReport(result: RenderConformanceTestsResult): string {
   return [
     result.passed
       ? `Conformance tests pass for ${result.moduleName} functionality ${result.frid}.`
@@ -392,11 +556,12 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     name: "render_module",
     label: "Render module",
     description:
-      "Build every functionality of a .plain specification in order. For each one it renders the code " +
-      "and unit tests, writes black-box conformance tests, and then runs the conformance tests of every " +
-      "functionality built so far together. It advances to the next functionality only when that whole " +
-      "suite passes, repairing the code when it does not. Use this instead of calling " +
-      "render_functionality repeatedly.",
+      "Build a .plain module and everything it requires. A required module's code is copied into the " +
+      "build before this module starts, so the chain is built bottom first and modules already complete " +
+      "are skipped. Within each module every functionality is built in order: code and unit tests, then " +
+      "black-box conformance tests, then the conformance tests of every functionality so far together - " +
+      "advancing only when that whole suite passes. Use this instead of calling render_functionality " +
+      "repeatedly.",
     promptSnippet: "render_module: build every functionality of a .plain specification in order",
     promptGuidelines: [
       "Prefer render_module over looping render_functionality yourself: it enforces the regression gate between functionalities.",
@@ -407,7 +572,20 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       plain_file: Type.String({ description: "Path to the .plain file" }),
       from: Type.Optional(Type.String({ description: "Start at this functionality id" })),
       to: Type.Optional(Type.String({ description: "Stop after this functionality id" })),
-      build_dir: Type.Optional(Type.String({ description: "Default: build/<module>" })),
+      only: Type.Optional(
+        Type.Boolean({ description: "Build just this module, ignoring what it requires" }),
+      ),
+      force: Type.Optional(
+        Type.Boolean({ description: "Rebuild modules that are already complete" }),
+      ),
+      conformance: Type.Optional(
+        Type.Boolean({
+          description:
+            "Write conformance tests. Defaults to whether the module has test reqs, which is what they " +
+            "are written from. Setting it true without them fails.",
+        }),
+      ),
+      build_dir: Type.Optional(Type.String({ description: "Default: plain_modules/<module>/code" })),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -415,31 +593,119 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       const model = conversationModel(ctx, params.model);
       return deliver(jobs, {
         kind: "render_module",
-        summary: `${params.plain_file}${params.from ? ` from ${params.from}` : ""}${params.to ? ` to ${params.to}` : ""}`,
+        summary: `${basename(params.plain_file)} module${params.from ? ` from fs ${params.from}` : ""}${params.to ? ` to fs ${params.to}` : ""}`,
         model,
         wait: params.wait,
         mode: ctx.mode,
+        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
         onUpdate,
         run: async (onDelta) => {
-          const result = await renderModule({
-            plainFile: resolve(cwd, params.plain_file),
-            from: params.from,
-            to: params.to,
-            buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-            model,
-            onDelta,
-          });
-          return {
-            report: moduleReport(result),
-            details: { passed: result.passed, completed: result.completed },
+          // A render runs in the background, so the tool result is long gone before the
+          // work is. The widget is what the person actually watches.
+          const progress = createProgressTracker();
+          const show = () => {
+            if (!ctx.hasUI) return;
+            try {
+              ctx.ui.setWidget("plainwright-render", progress.lines(), { placement: "aboveEditor" });
+              ctx.ui.setStatus("plainwright-render", progress.summary());
+            } catch {
+              // The widget is a convenience; losing it must not fail the render.
+            }
           };
+
+          try {
+            const result = await renderChain({
+              plainFile: resolve(cwd, params.plain_file),
+              from: params.from,
+              to: params.to,
+              buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
+              skipRequires: params.only,
+              force: params.force,
+              model,
+              onDelta,
+              onChainEvent: (event) => {
+                progress.onChainEvent(event);
+                if (event.type === "module_done") {
+                  recordMilestone(pi, {
+                    module: event.module,
+                    text: event.passed ? "built" : "stopped before finishing",
+                  });
+                }
+                show();
+              },
+              onEvent: (event) => {
+                progress.onModuleEvent(event);
+                if (event.type === "functionality_done") {
+                  recordMilestone(pi, { module: progress.summary(), text: `functionality ${event.frid} done` });
+                }
+                show();
+              },
+            });
+            return {
+              report: chainReport(result),
+              announce: chainAnnouncement(result),
+              details: { passed: result.passed, modules: result.outcomes.map((o) => o.module) },
+            };
+          } finally {
+            if (ctx.hasUI) {
+              try {
+                ctx.ui.setWidget("plainwright-render", undefined);
+                ctx.ui.setStatus("plainwright-render", undefined);
+              } catch {
+                /* nothing to clean up */
+              }
+            }
+          }
         },
       });
     },
   });
 }
 
-function moduleReport(result: Awaited<ReturnType<typeof renderModule>>): string {
+/** For the person: how to try what was built, or where the chain stopped. */
+function chainAnnouncement(result: Awaited<ReturnType<typeof renderChain>>): string {
+  const built = result.outcomes.at(-1)?.result;
+  const delivery = built ? deliveryReport(built) : undefined;
+  if (delivery !== undefined) return delivery;
+  return result.passed ? "Everything was already built; nothing to do." : "The chain stopped before building anything.";
+}
+
+function chainReport(result: Awaited<ReturnType<typeof renderChain>>): string {
+  const built = result.outcomes.at(-1)?.result;
+  const delivery = built ? deliveryReport(built) : undefined;
+  const lines = [
+    ...(delivery ? [delivery, ""] : []),
+    result.passed
+      ? `Built the whole chain: ${result.outcomes.map((o) => o.module).join(" -> ")}.`
+      : "The chain is incomplete.",
+    "",
+    "<chain>",
+    describeChain(result.chain),
+    "</chain>",
+    "",
+    "<modules>",
+  ];
+
+  for (const outcome of result.outcomes) {
+    if (outcome.skipped) {
+      lines.push(`${outcome.module}: already built, skipped`);
+      continue;
+    }
+    const inner = outcome.result;
+    lines.push(
+      `${outcome.module}: ${inner?.passed ? "done" : "incomplete"}` +
+        (inner ? `, ${inner.completed.length}/${inner.frids.length} functionalities` : "") +
+        (outcome.copied > 0 ? `, ${outcome.copied} files copied from ${result.chain.find((c) => c.moduleName === outcome.module)?.requires}` : ""),
+    );
+  }
+  lines.push("</modules>");
+
+  const last = result.outcomes[result.outcomes.length - 1];
+  if (last?.result !== undefined) lines.push("", moduleReport(last.result));
+  return lines.join("\n");
+}
+
+function moduleReport(result: RenderModuleResult): string {
   return [
     result.passed
       ? `Built all of ${result.moduleName}: ${result.completed.join(", ")}.`
@@ -475,7 +741,7 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
       frid: Type.String({ description: "Functionality id whose specification changed" }),
-      build_dir: Type.Optional(Type.String({ description: "Default: build/<module>" })),
+      build_dir: Type.Optional(Type.String({ description: "Default: plain_modules/<module>/code" })),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -483,10 +749,11 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       const model = conversationModel(ctx, params.model);
       return deliver(jobs, {
         kind: "regenerate_functionality",
-        summary: `${params.plain_file} functionality ${params.frid}`,
+        summary: `${basename(params.plain_file)} fs ${params.frid} (rebuild)`,
         model,
         wait: params.wait,
         mode: ctx.mode,
+        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
         onUpdate,
         run: async (onDelta) => {
           const result = await regenerateFunctionality({
@@ -563,6 +830,8 @@ async function deliver(
     model: string | undefined;
     wait: boolean | undefined;
     mode: string;
+    /** What the job writes. See StartJobInput.lanes. */
+    lanes: string[];
     onUpdate?: (result: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void;
     run: (onDelta: (delta: string) => void) => Promise<JobOutcome>;
   },
@@ -571,23 +840,47 @@ async function deliver(
 
   if (wait) {
     let streamed = "";
-    const outcome = await input.run((delta) => {
-      streamed += delta;
-      input.onUpdate?.({ content: [{ type: "text" as const, text: streamed }], details: {} });
-    });
-    return { content: [{ type: "text" as const, text: outcome.report }], details: outcome.details ?? {} };
+    const { result: outcome, output } = await captureConsole(() =>
+      input.run((delta) => {
+        streamed += delta;
+        input.onUpdate?.({ content: [{ type: "text" as const, text: streamed }], details: {} });
+      }),
+    );
+    const noise = describeCaptured(output);
+    return {
+      content: [{ type: "text" as const, text: noise ? `${outcome.report}\n\n${noise}` : outcome.report }],
+      details: outcome.details ?? {},
+    };
   }
 
-  const summary = input.model ? `${input.summary} on ${input.model}` : input.summary;
-  const job = jobs.start({ kind: input.kind, summary, run: input.run });
+  // The job's name stays short for the panel; which model it runs on goes to the agent.
+  const summary = input.summary;
+  const onModel = input.model ? ` on ${input.model}` : "";
+  const job = jobs.start({
+    kind: input.kind,
+    summary,
+    lanes: input.lanes,
+    // Background work writes through the same terminal the TUI is drawing on, so its
+    // console output is collected rather than printed.
+    run: async (onDelta) => {
+      const { result, output } = await captureConsole(() => input.run(onDelta));
+      const noise = describeCaptured(output);
+      return noise ? { ...result, report: `${result.report}\n\n${noise}` } : result;
+    },
+  });
   return {
     content: [
       {
         type: "text" as const,
         text:
-          `Started ${input.kind} as background job ${job.id}: ${summary}.\n` +
-          "It is running now and will report back when it finishes. Tell the user it has started, " +
-          `and carry on. Use check_job with "${job.id}" if they ask how it is going.`,
+          (job.status === "queued"
+            ? `Queued ${input.kind} as background job ${job.id}: ${summary}${onModel}. It writes the same ` +
+              `module as ${job.waitingOn.map((id) => `job ${id}`).join(" and ")}, so it starts when that ` +
+              "finishes. Tell the user it is queued and why, and carry on. "
+            : `Started ${input.kind} as background job ${job.id}: ${summary}${onModel}.\n` +
+              "It is running now and will report back when it finishes. Tell the user it has started, " +
+              "and carry on. ") +
+          `Use check_job with "${job.id}" if they ask how it is going.`,
       },
     ],
     details: { jobId: job.id, status: job.status },
@@ -635,20 +928,38 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
   pi.registerTool({
     name: "list_jobs",
     label: "List jobs",
-    description: "List the background jobs started in this session, newest first.",
+    description: "List the background jobs started in this session, in the order they were started.",
     promptSnippet: "list_jobs: what background work is running",
     parameters: Type.Object({}),
     async execute() {
       const all = jobs.list();
-      const text =
-        all.length === 0
-          ? "No jobs have been started."
-          : all
-              .map((job) => `${job.id}  ${job.status.padEnd(9)} ${formatDuration(job).padStart(6)}  ${job.kind}: ${job.summary}`)
-              .join("\n");
-      return { content: [{ type: "text" as const, text }], details: { count: all.length } };
+      return { content: [{ type: "text" as const, text: listJobs(jobs) }], details: { count: all.length } };
     },
   });
+
+  // The panel is compact and ctrl+o only lasts as long as the work does. This is the whole
+  // list, finished jobs included, put in the transcript where it stays.
+  // An entry rather than a message, so it shows straight away even while a skill is
+  // running - which is exactly when someone wants to know what the queue is doing.
+  pi.registerCommand("jobs", {
+    description: "List every background job: running, queued and finished",
+    handler: async () => {
+      pi.appendEntry(JOBS_LIST_ENTRY, { text: listJobs(jobs) });
+    },
+  });
+}
+
+/** Every job, in the order it was started, with what a queued one is waiting for. */
+function listJobs(jobs: JobRegistry): string {
+  const all = [...jobs.list()].reverse();
+  if (all.length === 0) return "No jobs have been started.";
+  return all
+    .map((job) => {
+      const time = job.status === "queued" ? "waiting" : formatDuration(job);
+      const after = job.status === "queued" ? `  (after ${job.waitingOn.join(", ")})` : "";
+      return `${job.id}  ${job.status.padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${after}`;
+    })
+    .join("\n");
 }
 
 
@@ -692,4 +1003,241 @@ function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
       return { content: [{ type: "text" as const, text }], details: { failed, checked: results.length } };
     },
   });
+}
+
+
+const MILESTONE_ENTRY = "plainwright_milestone";
+const JOB_ENTRY = "plainwright_job";
+const JOBS_LIST_ENTRY = "plainwright_jobs";
+
+interface JobAnnouncement {
+  id: string;
+  summary: string;
+  status: "succeeded" | "failed";
+  duration: string;
+  text: string;
+}
+
+function announceJob(pi: ExtensionAPI, job: Job): void {
+  if (job.status !== "succeeded" && job.status !== "failed") return;
+  const announcement: JobAnnouncement = {
+    id: job.id,
+    summary: job.summary,
+    status: job.status,
+    duration: formatDuration(job),
+    text: job.status === "succeeded" ? (job.announce ?? job.report ?? "") : (job.error ?? "no error recorded"),
+  };
+  try {
+    pi.appendEntry(JOB_ENTRY, announcement);
+  } catch {
+    // The agent still gets the report; losing the entry must not lose the result.
+  }
+}
+
+/** A durable note in the transcript when something actually completes. */
+function recordMilestone(pi: ExtensionAPI, milestone: { module: string; text: string }): void {
+  try {
+    pi.appendEntry(MILESTONE_ENTRY, milestone);
+  } catch {
+    /* the report still carries it */
+  }
+}
+
+const INTERVIEW_ENTRY = "forge_exchange";
+
+export interface Exchange {
+  skill: string;
+  question: string;
+  answer: string;
+}
+
+/**
+ * Show each question and answer in the transcript, where the person can see it.
+ *
+ * A skill runs inside one tool call and asks through dialogs, so its interview leaves no
+ * trace in the conversation - the questions vanish once answered. These are custom
+ * *entries* rather than messages on purpose: they are durable and rendered, but they do
+ * not enter the model's context, so a long interview is readable without being paid for
+ * twice.
+ */
+function registerInterviewLog(pi: ExtensionAPI) {
+  pi.registerEntryRenderer(JOB_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as JobAnnouncement | undefined;
+    if (data === undefined) return undefined;
+    const ok = data.status === "succeeded";
+    const header = ok
+      ? `${theme.fg("success", "✓")} ${theme.fg("text", data.summary)} ${theme.fg("muted", `finished after ${data.duration}`)}`
+      : `${theme.fg("error", "✗")} ${theme.fg("text", data.summary)} ${theme.fg("error", `failed after ${data.duration}`)}`;
+    const box = new Box(1, 0);
+    box.addChild(new Text([header, "", theme.fg(ok ? "text" : "muted", data.text.trim())].join("\n"), 0, 0));
+    return box;
+  });
+
+  pi.registerEntryRenderer(JOBS_LIST_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as { text: string } | undefined;
+    if (data === undefined) return undefined;
+    const box = new Box(1, 0);
+    box.addChild(new Text([theme.fg("muted", "background jobs"), theme.fg("text", data.text)].join("\n"), 0, 0));
+    return box;
+  });
+
+  pi.registerEntryRenderer(MILESTONE_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as { module: string; text: string } | undefined;
+    if (data === undefined) return undefined;
+    const box = new Box(1, 0);
+    box.addChild(
+      new Text(`${theme.fg("success", "●")} ${theme.fg("muted", data.module)} ${theme.fg("text", data.text)}`, 0, 0),
+    );
+    return box;
+  });
+
+  pi.registerEntryRenderer(INTERVIEW_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as Exchange | undefined;
+    if (data === undefined) return undefined;
+
+    // Two details of the TUI components matter here. Box's third argument is a
+    // *background* function - passing a foreground colour into it tints every line, which
+    // is what made these unreadable. And Text pads by 1 on both axes unless told
+    // otherwise, so one Text per line puts a blank line between each. Hence a single Text
+    // with explicit zero padding, coloured per line.
+    const answer =
+      data.answer.trim() === ""
+        ? theme.fg("dim", "> (no answer)")
+        : theme.fg("accent", `> ${data.answer}`);
+
+    const box = new Box(1, 0);
+    box.addChild(
+      new Text(
+        [theme.fg("muted", `${data.skill} asked`), theme.fg("text", data.question), answer].join("\n"),
+        0,
+        0,
+      ),
+    );
+    return box;
+  });
+}
+
+function recordExchange(pi: ExtensionAPI, exchange: Exchange): void {
+  try {
+    pi.appendEntry(INTERVIEW_ENTRY, exchange);
+  } catch {
+    // The trace still carries it; a rendering failure must not lose the answer.
+  }
+}
+
+
+/**
+ * What the skill should be told about the conversation that started it.
+ *
+ * The agent's own summary comes first, because it knows which parts matter. The user's
+ * recent messages are appended verbatim underneath: a summary drops the particulars - a
+ * product name, a phrasing the user chose - and those are exactly what makes a skill's
+ * first question sound like it was listening.
+ */
+function conversationContext(ctx: ExtensionContext, summary: string | undefined): string | undefined {
+  const spoken = recentUserMessages(ctx, 12);
+  const parts: string[] = [];
+  if (summary !== undefined && summary.trim() !== "") parts.push(summary.trim());
+  if (spoken.length > 0) {
+    parts.push(`In their own words:\n${spoken.map((line) => `- ${line}`).join("\n")}`);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+function recentUserMessages(ctx: ExtensionContext, limit: number): string[] {
+  let entries: unknown[];
+  try {
+    entries = ctx.sessionManager.getEntries();
+  } catch {
+    return [];
+  }
+
+  const said: string[] = [];
+  for (const entry of entries) {
+    const message = (entry as { type?: string; message?: { role?: string; content?: unknown } }).message;
+    if ((entry as { type?: string }).type !== "message" || message?.role !== "user") continue;
+
+    const text =
+      typeof message.content === "string"
+        ? message.content
+        : Array.isArray(message.content)
+          ? message.content
+              .filter((part) => (part as { type?: string }).type === "text")
+              .map((part) => (part as { text?: string }).text ?? "")
+              .join(" ")
+          : "";
+
+    const trimmed = text.trim().replace(/\s+/g, " ");
+    if (trimmed !== "") said.push(trimmed.length > 400 ? `${trimmed.slice(0, 400)}…` : trimmed);
+  }
+
+  return said.slice(-limit);
+}
+
+
+const BANNER_ENTRY = "plainwright_banner";
+
+/**
+ * The name on the door.
+ *
+ * Pi's own startup header is a built-in component an extension cannot replace, so this
+ * adds a wordmark of its own at the top of the session. Set `quietStartup: true` in
+ * settings to hide pi's and leave only this one.
+ */
+function registerBranding(
+  pi: ExtensionAPI,
+  ruleCount: number,
+  skills: { skills: Skill[]; pending: string[] },
+) {
+  pi.registerEntryRenderer(BANNER_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as
+      | { version: string; rules: number; skills: number; pending: number; cwd: string }
+      | undefined;
+    if (data === undefined) return undefined;
+
+    const rule = "─".repeat(46);
+    const box = new Box(1, 0);
+    box.addChild(
+      new Text(
+        [
+          theme.fg("borderMuted", rule),
+          `${theme.fg("accent", "plainwright")}  ${theme.fg("muted", `v${data.version}`)}`,
+          theme.fg("text", "specifications in, working code out"),
+          theme.fg(
+            "muted",
+            `${data.rules} rules · ${data.skills} skill${data.skills === 1 ? "" : "s"}` +
+              (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
+          ),
+          theme.fg("dim", data.cwd),
+          theme.fg("borderMuted", rule),
+        ].join("\n"),
+        0,
+        0,
+      ),
+    );
+    return box;
+  });
+
+  pi.on("session_start", (_event, ctx) => {
+    try {
+      pi.appendEntry(BANNER_ENTRY, {
+        version: packageVersion(),
+        rules: ruleCount,
+        skills: skills.skills.length,
+        pending: skills.pending.length,
+        cwd: ctx.cwd,
+      });
+    } catch {
+      // Branding is the least important thing here; never let it stop a session starting.
+    }
+  });
+}
+
+function packageVersion(): string {
+  try {
+    const raw = readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8");
+    return (JSON.parse(raw) as { version?: string }).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
 }

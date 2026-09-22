@@ -4,6 +4,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { Annotation, END, START, StateGraph, interrupt } from "@langchain/langgraph";
 import { runGate, type GateOutcome } from "./judge.ts";
 import { ask } from "./pi.ts";
+import { describeFindings, type LiveReviewer } from "./review/live.ts";
 import { readRubric, type Skill, type StepSpec } from "./skill.ts";
 
 export type Decision = "advance" | "retry" | "escalate" | "abort";
@@ -28,6 +29,10 @@ export interface Reporter {
   step(name: string, attempt: number): void;
   artifact(path: string, body: string): void;
   gate(name: string, judges: number): void;
+  /** One continuous-review pass finished while the step was still running. */
+  livePass?(step: string, scope: string, findings: number): void;
+  /** The continuous reviewer's closing word, read at the gate. */
+  liveReview?(name: string, passes: number, findings: number): void;
   judge(index: number, model: string, verdict: string, violations: number): void;
   outcome(name: string, decision: Decision, critique: string): void;
 }
@@ -39,7 +44,7 @@ const escalateNode = (s: string) => `escalate.${s}`;
 /** Where the executor is required to put this step's deliverable. */
 const artifactPath = (step: StepSpec) => `${step.name}.md`;
 
-function stepPrompt(skill: Skill, step: StepSpec, critique: string): string {
+function stepPrompt(skill: Skill, step: StepSpec, critique: string, context?: string): string {
   if (critique) {
     return [
       `Your previous attempt at step '${step.name}' was rejected by review.`,
@@ -55,10 +60,22 @@ function stepPrompt(skill: Skill, step: StepSpec, critique: string): string {
   return [
     `You are executing step '${step.name}' of the skill '${skill.name}'.`,
     "",
+    // A skill runs in its own session and has never seen the conversation that led here.
+    // Without this it re-asks what the person has already said, which reads as the skill
+    // not listening.
+    context
+      ? `<what the user has already said>\n${context}\n</what the user has already said>\n\nTake this as given. Do not ask again for anything it already answers; confirm it in one line and move to what is still unknown.\n`
+      : "",
     step.instructions,
     "",
-    `When you are done, call write_artifact with path "${artifactPath(step)}".`,
-  ].join("\n");
+    // The artifact exists for the gate's judges to read. Without a gate nothing reads it,
+    // and asking for one is a tool call spent on a file no one opens.
+    step.gate
+      ? `When you are done, call write_artifact with path "${artifactPath(step)}" holding the record the review will be checked against.`
+      : "",
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
 }
 
 export function compileSkill(opts: {
@@ -69,6 +86,10 @@ export function compileSkill(opts: {
   report: Reporter;
   /** Default model for the judges, when a gate does not name one of its own. */
   model?: string;
+  /** What the user has already said, carried in from the conversation that started this. */
+  context?: string;
+  /** Reviewers already reading along, by step name. Their findings gate the step too. */
+  liveReviewers?: Map<string, LiveReviewer>;
 }) {
   const { skill, report } = opts;
   const graph = new StateGraph(ForgeState) as any;
@@ -79,7 +100,10 @@ export function compileSkill(opts: {
     graph.addNode(stepNode(step.name), async (state: ForgeStateType) => {
       const attempt = (state.attempts[step.name] ?? 0) + 1;
       report.step(step.name, attempt);
-      await ask(opts.executor, stepPrompt(skill, step, state.critique));
+      // Only the first step needs it: the executor keeps one session across every step,
+      // so it is already in the history by the time the second runs.
+      const context = index === 0 ? opts.context : undefined;
+      await ask(opts.executor, stepPrompt(skill, step, state.critique, context));
 
       let artifact = "";
       try {
@@ -106,6 +130,27 @@ export function compileSkill(opts: {
 
     graph.addNode(gateNode(step.name), async (state: ForgeStateType) => {
       const artifact = state.artifacts[step.name] ?? "";
+
+      // A reviewer that has been reading along all phase gets the last word before the
+      // judges are spent: it has seen every spec as it landed, and anything it is still
+      // unhappy about is a violation the step has to fix whatever the record says.
+      const live = opts.liveReviewers?.get(step.name);
+      if (live !== undefined) {
+        const settled = await live.settle();
+        report.liveReview?.(step.name, live.passes(), settled.findings.length);
+        if (!settled.clean) {
+          const attempts = state.attempts[step.name] ?? 1;
+          const decision: Decision =
+            review.onFail === "abort"
+              ? "abort"
+              : review.onFail === "retry" && attempts <= review.maxRetries
+                ? "retry"
+                : "escalate";
+          const critique = describeFindings(settled.findings);
+          report.outcome(step.name, decision, critique);
+          return { decision, critique };
+        }
+      }
 
       let outcome: GateOutcome;
       if (!artifact) {

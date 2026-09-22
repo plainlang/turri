@@ -15,6 +15,14 @@ export interface PromptInput {
   linkedResources: LoadedResource[];
 }
 
+/** "Functionality 1", "Functionalities 1 and 2", "Functionalities 1 to 3", or null for none. */
+function implementedRange(count: number): string | null {
+  if (count === 0) return null;
+  if (count === 1) return "Functionality 1";
+  if (count === 2) return "Functionalities 1 and 2";
+  return `Functionalities 1 to ${count}`;
+}
+
 function section(title: string, items: string[]): string | null {
   if (items.length === 0) return null;
   return `<${title}>\n${items.join("\n\n")}\n</${title}>`;
@@ -34,18 +42,27 @@ export function buildRenderPrompt(input: PromptInput): string {
   const target = functionalities[functionalities.length - 1];
   if (target === undefined) throw new Error(`Functionality ${input.frid} has no specification text.`);
   const alreadyBuilt = functionalities.slice(0, -1);
+  const done = implementedRange(alreadyBuilt.length);
 
   const parts: Array<string | null> = [
     `You are implementing one functionality of the \`${input.moduleName}\` specification.`,
     "",
-    "The working directory holds the code built so far. Everything listed as already",
-    "implemented is done and its tests pass; do not rewrite it unless this functionality",
-    "requires a change.",
+    done === null
+      ? `Nothing is implemented yet: functionality ${input.frid} is the first, and the working directory is where it goes.`
+      : `${done} ${alreadyBuilt.length === 1 ? "is" : "are"} already implemented: the code is in the working ` +
+        "directory and its unit tests pass. They are listed below so you know what exists - they are not " +
+        `your task. Your task is functionality ${input.frid}, and only functionality ${input.frid}.`,
     "",
     section(DEFINITIONS, specifications[DEFINITIONS]),
     section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
-    section(TEST_REQUIREMENTS, specifications[TEST_REQUIREMENTS]),
-    section("already implemented", alreadyBuilt),
+    // Test reqs are deliberately absent. They govern conformance testing, which is
+    // written by an agent that has not seen this code - showing them here invites the
+    // implementer to build towards the tests that are meant to judge it from outside.
+    alreadyBuilt.length === 0
+      ? null
+      : `<already implemented>\n${alreadyBuilt
+          .map((spec, index) => `<functionality id="${index + 1}" status="implemented">\n${spec}\n</functionality>`)
+          .join("\n\n")}\n</already implemented>`,
   ];
 
   if (input.linkedResources.length > 0) {
@@ -60,11 +77,18 @@ export function buildRenderPrompt(input: PromptInput): string {
     `<functionality id="${input.frid}">\n${target}\n</functionality>`,
     section("acceptance tests", specifications[ACCEPTANCE_TESTS] ?? []),
     "",
-    `Implement functionality ${input.frid} and its unit tests.`,
+    `Implement functionality ${input.frid} and its unit tests - only functionality ${input.frid}.`,
     "",
+    ...(done === null
+      ? []
+      : [
+          `- ${done} ${alreadyBuilt.length === 1 ? "exists" : "exist"}. Do not implement ${alreadyBuilt.length === 1 ? "it" : "them"} again, and do not`,
+          `  rewrite ${alreadyBuilt.length === 1 ? "its" : "their"} code. Change it only where functionality ${input.frid} needs it to, and keep`,
+          `  ${alreadyBuilt.length === 1 ? "its behaviour and its" : "their behaviour and their"} tests passing.`,
+        ]),
     "- Write the implementation first, then unit tests covering it.",
     "- Honour every implementation req: they constrain the whole codebase, not just this step.",
-    "- The test reqs say how tests must be written. Follow them.",
+    "- The implementation reqs say how the code and its unit tests must be built. Follow them.",
     "- Terms in `:ColonWrapped:` form are defined in the definitions; use them as written.",
     "- A `` `[resource]name` `` reference points at one of the linked resources above.",
     "- Call run_unit_tests to run the suite, and keep going until it passes. A run through",
@@ -93,10 +117,10 @@ export interface ConformancePromptInput {
 /**
  * Build the prompt for conformance tests.
  *
- * These are black-box: they invoke the built functionality from outside and check it
- * does what the specification says. The prompt therefore carries the specification and
- * a manifest of file names, never the implementation - and the agent is given no tool
- * that can read it.
+ * These are black-box in shape: they invoke the built functionality from outside and check
+ * it does what the specification says. The agent can read the implementation - it needs to
+ * know how to call the thing - but the prompt leads with the specification, because a test
+ * written from the code can only ever agree with it.
  */
 export function buildConformancePrompt(input: ConformancePromptInput): string {
   const { specifications } = input;
@@ -109,8 +133,14 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "",
     "Conformance tests are black box. They invoke the built functionality from the outside -",
     "running its executable or importing its public entry point - and check that it behaves as",
-    "the specification says. You cannot read the implementation and must not try to: write the",
-    "tests from the specification alone, so that they fail when the code does not match it.",
+    "the specification says.",
+    "",
+    "You can read the implementation, and you should, but only to find out how the thing is",
+    "invoked: its entry point, its arguments, the shape of its output. Every assertion comes",
+    "from the specification. A test that asserts what the code happens to do agrees with the",
+    "code by construction and can never catch it being wrong - which is the only thing these",
+    "tests are for. Where the code and the specification disagree, the test follows the",
+    "specification and fails.",
     "",
     section(DEFINITIONS, specifications[DEFINITIONS]),
     section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
@@ -134,7 +164,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           `<your existing tests>\n${input.existingTests.join("\n")}\n</your existing tests>`,
           "",
           "Those are your tests for this functionality, written against an earlier version of the",
-          "specification. Read them with read_test_file and update them to match the specification",
+          "specification. Read them and update them to match the specification",
           "above. Keep the coverage you already had; change only what the specification changed.",
         ].join("\n")
       : null,

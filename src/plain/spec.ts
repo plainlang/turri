@@ -37,11 +37,11 @@ export interface SpecificationItem {
   [ACCEPTANCE_TESTS]?: SpecificationItem[];
 }
 
-/** The marshalled tree: heading -> list of items, plus optional ID/Heading/sections. */
+/**
+ * The marshalled tree: heading -> list of items. Flat: functionalities are numbered 1, 2, 3
+ * in the order they appear. Nested sections with dotted ids ("2.3") are not supported.
+ */
 export interface MarshalledPlainSource {
-  ID?: string;
-  Heading?: string;
-  sections?: MarshalledPlainSource[];
   [heading: string]: unknown;
 }
 
@@ -114,17 +114,13 @@ export function collectLinkedResourcesInSection(
   includeAcceptanceTests: boolean,
   frid: string | null,
 ): boolean {
-  const shouldCollectHere = frid === null || section.ID === undefined || frid.startsWith(section.ID);
-
-  if (shouldCollectHere) {
-    let toCollect = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS];
-    if (specificationsList && specificationsList.length > 0) {
-      toCollect = toCollect.filter((heading) => specificationsList.includes(heading));
-    }
-    for (const heading of toCollect) {
-      for (const requirement of getSpecificationItems(section, heading) ?? []) {
-        collectSpecificationLinkedResources(requirement, heading, linkedResourcesList);
-      }
+  let toCollect = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS];
+  if (specificationsList && specificationsList.length > 0) {
+    toCollect = toCollect.filter((heading) => specificationsList.includes(heading));
+  }
+  for (const heading of toCollect) {
+    for (const requirement of getSpecificationItems(section, heading) ?? []) {
+      collectSpecificationLinkedResources(requirement, heading, linkedResourcesList);
     }
   }
 
@@ -140,7 +136,7 @@ export function collectLinkedResourcesInSection(
       collectSpecificationLinkedResources(requirement, FUNCTIONAL_REQUIREMENTS, linkedResourcesList);
 
       count += 1;
-      const currentFrid = getCurrentFrid(section.ID ?? null, count);
+      const currentFrid = String(count);
 
       const tests = requirement[ACCEPTANCE_TESTS];
       if (tests !== undefined && includeAcceptanceTests && (frid === null || frid === currentFrid)) {
@@ -151,20 +147,6 @@ export function collectLinkedResourcesInSection(
 
       // FRIDs increment, so once the requested one is reached nothing after it counts.
       if (frid !== null && currentFrid === frid) return true;
-    }
-  }
-
-  for (const subsection of section.sections ?? []) {
-    if (
-      collectLinkedResourcesInSection(
-        subsection,
-        linkedResourcesList,
-        specificationsList,
-        includeAcceptanceTests,
-        frid,
-      )
-    ) {
-      return true;
     }
   }
 
@@ -200,30 +182,18 @@ export function collectLinkedResources(
 }
 
 /**
- * The FRID iterator: one functionality ID per functional spec, depth-first through
- * nested sections. Everything that walks the spec one functionality at a time -
- * rendering, ranges, context building - is driven by this.
+ * The FRID iterator: one functionality ID per functional spec, 1, 2, 3 in order.
+ * Everything that walks the spec one functionality at a time - rendering, ranges, context
+ * building - is driven by this.
  */
 export function* getFrids(tree: MarshalledPlainSource): Generator<string> {
-  const functionalRequirements = getSpecificationItems(tree, FUNCTIONAL_REQUIREMENTS);
-  if (functionalRequirements !== undefined) {
-    for (let id = 1; id <= functionalRequirements.length; id += 1) {
-      yield tree.ID !== undefined ? `${tree.ID}.${id}` : String(id);
-    }
-  }
-
-  for (const section of tree.sections ?? []) {
-    yield* getFrids(section);
-  }
+  const functionalRequirements = getSpecificationItems(tree, FUNCTIONAL_REQUIREMENTS) ?? [];
+  for (let id = 1; id <= functionalRequirements.length; id += 1) yield String(id);
 }
 
 export function getFirstFrid(tree: MarshalledPlainSource): string | null {
   const first = getFrids(tree).next();
   return first.done ? null : first.value;
-}
-
-export function getCurrentFrid(sectionId: string | null, functionalRequirementCount: number): string {
-  return sectionId === null ? String(functionalRequirementCount) : `${sectionId}.${functionalRequirementCount}`;
 }
 
 export function getNextFrid(tree: MarshalledPlainSource, frid: string): string | null {
@@ -297,7 +267,6 @@ function getSpecificationsFromPlainSourceTree(
   acceptanceTests: string[],
   codeVariables: Record<string, string>,
   replaceCodeVariables: boolean,
-  sectionId: string | null = null,
 ): string | null {
   let returnFrid: string | null = null;
 
@@ -306,7 +275,7 @@ function getSpecificationsFromPlainSourceTree(
     let count = 0;
     for (const requirement of requirements) {
       count += 1;
-      const currentFrid = sectionId === null ? String(count) : `${sectionId}.${count}`;
+      const currentFrid = String(count);
 
       functionalRequirements.push(
         getSpecificationItemMarkdown(requirement, codeVariables, replaceCodeVariables),
@@ -322,30 +291,7 @@ function getSpecificationsFromPlainSourceTree(
     }
   }
 
-  if (returnFrid === null) {
-    for (const section of tree.sections ?? []) {
-      const subFrid = getSpecificationsFromPlainSourceTree(
-        frid,
-        section,
-        definitions,
-        nonFunctionalRequirements,
-        testRequirements,
-        functionalRequirements,
-        acceptanceTests,
-        codeVariables,
-        replaceCodeVariables,
-        section.ID ?? null,
-      );
-      if (subFrid !== null) {
-        returnFrid = subFrid;
-        break;
-      }
-    }
-  }
-
   if (returnFrid !== null) {
-    // Outer sections prepend their own definitions and reqs, so the context reads
-    // from the outside in.
     const prepend = (target: string[], heading: string) => {
       const source = getSpecificationItems(tree, heading);
       if (source === undefined) return;

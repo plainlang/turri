@@ -1,6 +1,14 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { basename } from "node:path";
+import { plainFileParser } from "../plain/parser.ts";
+import { staleFrids } from "./state.ts";
+import { describeDelivery } from "./delivery.ts";
+import { defaultBuildDir } from "./paths.ts";
+import { resolveTemplateDirs } from "./render.ts";
 import { renderFunctionality } from "./render.ts";
 import { regenerateFunctionality } from "./module.ts";
+import { moduleLanes } from "./lanes.ts";
+import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
 
 /**
@@ -33,6 +41,13 @@ export type RenderRunner = (
 
 export interface RenderQueue {
   enqueue(request: RenderRequest): QueuedRender;
+  /**
+   * Queue a regeneration for every functionality whose built code no longer matches the
+   * specification. Returns what it queued, which is nothing when everything still matches.
+   */
+  requeueStale(plainFile: string, buildDir?: string): QueuedRender[];
+  /** The entry for a functionality that is queued or building right now, if there is one. */
+  inFlight(plainFile: string, frid: string): QueuedRender | undefined;
   /** What has been queued, in order, with each job's current state. */
   status(): Array<QueuedRender & { status: Job["status"] }>;
   /** Resolves when everything queued so far has finished. */
@@ -51,32 +66,70 @@ export function createRenderQueue(options: {
   const queued: QueuedRender[] = [];
   const jobs = new Map<string, Job>();
 
-  // The chain is the whole mechanism: each render is appended to the previous one's
-  // promise, so they run one at a time in the order they were asked for.
-  let chain: Promise<unknown> = Promise.resolve();
+  // Ordering is the registry's: every entry claims this queue's own lane, so they run one
+  // at a time in the order they were asked for, and the module lanes, so none of them runs
+  // alongside a render of the same module that was started some other way.
+  const queueLane = `render-queue:${randomUUID()}`;
+  let last: string | undefined;
 
   return {
     enqueue(request) {
       const plainFile = resolve(options.cwd, request.plainFile);
-      const previous = chain;
 
       const job = options.registry.start({
         kind: request.regenerate ? "regenerate" : "render",
-        summary: `${request.plainFile} functionality ${request.frid}`,
-        run: async (onDelta) => {
-          await previous.catch(() => {
-            // A failed render must not cancel the ones behind it; each reports on its own.
-          });
-          return runner({ ...request, plainFile }, onDelta);
-        },
+        // Short enough to read in a one-line queue: the file's name, not its path.
+        summary: `${basename(plainFile)} fs ${request.frid}${request.regenerate ? " (rebuild)" : ""}`,
+        lanes: [queueLane, ...moduleLanes(plainFile, options.buildDir)],
+        run: (onDelta) => runner({ ...request, plainFile }, onDelta),
       });
 
       jobs.set(job.id, job);
-      chain = options.registry.wait(job.id);
+      last = job.id;
 
-      const entry: QueuedRender = { ...request, jobId: job.id, position: queued.length + 1 };
+      // Stored resolved, so the same file named two ways is recognised as one.
+      const entry: QueuedRender = { ...request, plainFile, jobId: job.id, position: queued.length + 1 };
       queued.push(entry);
       return entry;
+    },
+
+    requeueStale(plainFile, buildDir) {
+      const file = resolve(options.cwd, plainFile);
+      const dirs = resolveTemplateDirs(file);
+      let moduleName: string;
+      let tree;
+      try {
+        [moduleName, tree] = plainFileParser(basename(file), dirs);
+      } catch {
+        // A spec that does not parse has nothing dependable to compare against.
+        return [];
+      }
+
+      const target = buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, options.cwd);
+
+      // Something already waiting to be built will pick up the current spec when it runs,
+      // so re-queueing it would render the same thing twice.
+      const inFlight = new Set(
+        queued
+          .filter((entry) => {
+            const status = jobs.get(entry.jobId)?.status;
+            return status === "running" || status === "queued";
+          })
+          .map((entry) => entry.frid),
+      );
+
+      return staleFrids(tree, target)
+        .filter((entry) => !inFlight.has(entry.frid))
+        .map((entry) => this.enqueue({ plainFile, frid: entry.frid, regenerate: true }));
+    },
+
+    inFlight(plainFile, frid) {
+      const file = resolve(options.cwd, plainFile);
+      return queued.find((entry) => {
+        if (entry.plainFile !== file || entry.frid !== frid) return false;
+        const status = jobs.get(entry.jobId)?.status;
+        return status === "running" || status === "queued";
+      });
     },
 
     status() {
@@ -87,7 +140,7 @@ export function createRenderQueue(options: {
     },
 
     async drain() {
-      await chain.catch(() => {});
+      if (last !== undefined) await options.registry.wait(last);
     },
   };
 }
@@ -115,9 +168,16 @@ function defaultRunner(options: { buildDir?: string; model?: string }): RenderRu
 
     const result = await renderFunctionality(common);
     return {
-      report: result.passed
-        ? `Built functionality ${result.frid} in ${result.buildDir}; unit tests pass.`
-        : `Built functionality ${result.frid}, but its unit tests are NOT passing.`,
+      report: describeDelivery({
+        moduleName: result.moduleName,
+        frid: result.frid,
+        functionality: result.functionality,
+        buildDir: result.buildDir,
+        added: result.added,
+        runs: result.runs,
+        passed: result.passed,
+        tryIt: result.tryIt,
+      }),
       details: { passed: result.passed, files: result.files },
     };
   };

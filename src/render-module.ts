@@ -1,16 +1,24 @@
 import { c, reportEvent } from "./module-report.ts";
-import { renderModule } from "./render/module.ts";
+import { renderChain } from "./render/module.ts";
+import { describeChain } from "./render/requires.ts";
 
 const USAGE = `usage: npm run module -- <file.plain> [options]
 
-Builds every functionality in order. A functionality advances only when its unit tests
-pass, its own conformance tests pass, and every earlier functionality's conformance tests
-still pass alongside it.
+Builds the module and everything it requires, bottom first. A required module's code is
+copied into the build before this module starts, so it is finished first.
 
+Within each module, a functionality advances only when its unit tests pass, its own
+conformance tests pass, and every earlier functionality's conformance tests still pass
+alongside it.
+
+  --no-conformance         skip conformance tests (they need test reqs)
+  --conformance            require conformance tests, failing if there are no test reqs
+  --only                   build just this module, ignoring what it requires
+  --force                  rebuild modules that are already complete
   --from <frid>            start here, treating earlier functionalities as already built
   --to <frid>              stop after this functionality
-  --build-dir <dir>        default: build/<module>
-  --conformance-root <dir> default: conformance
+  --build-dir <dir>        default: plain_modules/<module>/code
+  --conformance-root <dir> default: plain_modules
   --template-dir <dir>     extra template directory (repeatable)
   --model <provider/id>    model for the agents
   --max-regression-rounds  repair attempts per regression failure (default 3)
@@ -28,7 +36,10 @@ function parseArgs(argv: string[]) {
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
-    } else if (arg.startsWith("--")) options[arg.slice(2)] = argv[++i];
+    } else if (arg === "--only" || arg === "--force" || arg === "--conformance" || arg === "--no-conformance") {
+      options[arg.slice(2)] = "yes";
+    }
+    else if (arg.startsWith("--")) options[arg.slice(2)] = argv[++i];
     else positional.push(arg);
   }
 
@@ -43,9 +54,26 @@ async function main() {
     process.exit(1);
   }
 
-  const result = await renderModule({
+  const result = await renderChain({
     plainFile,
     templateDirs,
+    force: options.force !== undefined,
+    skipRequires: options.only !== undefined,
+    conformance:
+      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : undefined,
+    onChainEvent: (event) => {
+      if (event.type === "chain") {
+        console.log(`\n${c.bold("build chain")}\n${describeChain(event.chain)}`);
+      } else if (event.type === "module_start") {
+        console.log(`\n${c.bold(c.cyan(`══ ${event.module}`))} ${c.dim(`(${event.index}/${event.total})`)}`);
+      } else if (event.type === "module_skipped") {
+        console.log(`\n${c.dim(`── ${event.module}: already built, skipping`)}`);
+      } else if (event.type === "copied") {
+        console.log(c.dim(`   copied ${event.files} files from ${event.from}`));
+      } else if (event.type === "module_done") {
+        console.log(event.passed ? c.green(`   ${event.module} complete`) : c.red(`   ${event.module} incomplete`));
+      }
+    },
     from: options.from,
     to: options.to,
     buildDir: options["build-dir"],
@@ -59,21 +87,20 @@ async function main() {
   });
 
   console.log(
-    `\n\n${result.passed ? c.green(c.bold("module complete")) : c.red(c.bold("module incomplete"))} ` +
-      c.dim(result.moduleName),
+    `\n\n${result.passed ? c.green(c.bold("chain complete")) : c.red(c.bold("chain incomplete"))}`,
   );
-  console.log(c.dim(`  functionalities: ${result.frids.join(", ")}`));
-  console.log(c.dim(`  completed:       ${result.completed.join(", ") || "none"}`));
-  console.log(c.dim(`  build dir:       ${result.buildDir}`));
-  console.log(c.dim(`  tests:           ${result.conformanceRoot}/${result.moduleName}/<frid>`));
-
   for (const outcome of result.outcomes) {
-    const repairs = outcome.regression?.repairs.length ?? 0;
+    if (outcome.skipped) {
+      console.log(c.dim(`  ${outcome.module}: already built`));
+      continue;
+    }
+    const inner = outcome.result;
+    const detail = inner
+      ? `${inner.completed.length}/${inner.frids.length} functionalities` +
+        (outcome.copied > 0 ? `, ${outcome.copied} files copied in` : "")
+      : "not started";
     console.log(
-      c.dim(
-        `    ${outcome.frid}: ${outcome.stoppedAt ? `stopped at ${outcome.stoppedAt}` : "done"}` +
-          (repairs > 0 ? `, ${repairs} regression repair${repairs === 1 ? "" : "s"}` : ""),
-      ),
+      `  ${outcome.module}: ${inner?.passed ? c.green("done") : c.red("incomplete")} ${c.dim(detail)}`,
     );
   }
 

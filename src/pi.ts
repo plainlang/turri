@@ -1,10 +1,74 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AgentSession,
   createAgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
   ModelRegistry,
   SessionManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { loadRules, renderRulesBlock } from "./rules.ts";
+import { describeToolCall, describeToolResult, reportActivity, reportNow } from "./render/activity.ts";
+
+type ThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
+
+let thinkingSource: (() => ThinkingLevel | undefined) | undefined;
+
+/**
+ * Where sub-agents take their thinking level from: the conversation that started them.
+ *
+ * The model is inherited explicitly, by name, all the way down. The thinking level is just
+ * as much a choice the person made - and left alone pi falls back to its own default, so a
+ * conversation turned down for speed would hand every render agent a slower one. Read at
+ * the moment each session starts, so a change mid-conversation applies to the next agent.
+ */
+export function inheritThinkingLevel(source: () => ThinkingLevel | undefined): void {
+  thinkingSource = source;
+}
+
+function inheritedThinkingLevel(): ThinkingLevel | undefined {
+  try {
+    return thinkingSource?.();
+  } catch {
+    // The conversation it came from is gone - a reload, a resumed session. pi's default is
+    // a worse guess than the conversation's level, but a far better one than a failed build.
+    return undefined;
+  }
+}
+
+const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge", "rules");
+
+/**
+ * What a sub-agent session is made of: pi's resources without any extensions.
+ *
+ * Left to itself, pi builds every session from the user's configuration - including every
+ * installed extension. When plainwright is installed globally, that means each render agent,
+ * judge and skill executor loads a whole second copy of plainwright inside itself: its
+ * tools, its hooks, its job registry, all bound to a session that is thrown away minutes
+ * later. That copy then outlives its session in module state and breaks the next one. A
+ * sub-agent is given exactly what it needs instead; for agents that work on specs, that
+ * includes the ***plain rules, which otherwise only reached them through that stray copy.
+ */
+async function subAgentResources(cwd: string, withRules: boolean): Promise<DefaultResourceLoader> {
+  const rules = withRules ? renderRulesBlock(loadRules(RULES_DIR)) : "";
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir: getAgentDir(),
+    noExtensions: true,
+    appendSystemPrompt: rules !== "" ? [rules] : undefined,
+  });
+  await loader.reload();
+  return loader;
+}
+
+function seconds(ms: number): string {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+const CALL_PROGRESS_MS = 500;
 
 /** Raised when the provider itself failed, rather than the agent producing a poor answer. */
 export class ProviderError extends Error {
@@ -30,10 +94,51 @@ export async function ask(
   let out = "";
   let providerError: string | undefined;
 
+  // Inside a background job, what the agent is doing is what the person watches - and most
+  // of the time that is the model, not a tool. A write takes a millisecond; producing the
+  // file it writes takes as long as the model needs to type it out. So the time from the
+  // model starting a step to the tool running is shown against the tool, and while it is
+  // happening the panel says which part it is at.
+  let stepStarted = Date.now();
+  let callChars = 0;
+  let lastCallReport = 0;
+  reportNow("waiting for the model");
+
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      out += event.assistantMessageEvent.delta;
-      onDelta?.(event.assistantMessageEvent.delta);
+    if (event.type === "message_update") {
+      const update = event.assistantMessageEvent;
+      if (update.type === "text_delta") {
+        out += update.delta;
+        onDelta?.(update.delta);
+      } else if (update.type === "thinking_start") {
+        reportNow("thinking");
+      } else if (update.type === "text_start") {
+        reportNow("writing");
+      } else if (update.type === "toolcall_start") {
+        callChars = 0;
+        reportNow("preparing a tool call");
+      } else if (update.type === "toolcall_delta") {
+        callChars += update.delta.length;
+        const now = Date.now();
+        if (now - lastCallReport >= CALL_PROGRESS_MS) {
+          lastCallReport = now;
+          const block = update.partial.content[update.contentIndex] as { name?: string } | undefined;
+          const size = callChars >= 1000 ? `${(callChars / 1000).toFixed(1)}k` : `${callChars}`;
+          reportNow(`writing ${block?.name ?? "a tool"} call · ${size} chars`, { keepSince: true });
+        }
+      }
+    }
+    if (event.type === "tool_execution_start") {
+      const took = Date.now() - stepStarted;
+      const line = describeToolCall(event.toolName, event.args);
+      reportActivity(took >= 1000 ? `${line}   (model ${seconds(took)})` : line);
+      reportNow(`running ${event.toolName}`);
+    }
+    if (event.type === "tool_execution_end") {
+      const line = describeToolResult(event.toolName, event.result, event.isError);
+      if (line !== undefined) reportActivity(line);
+      stepStarted = Date.now();
+      reportNow("waiting for the model");
     }
     if (event.type === "message_end") {
       const message = event.message as { role?: string; stopReason?: string; errorMessage?: string };
@@ -47,6 +152,7 @@ export async function ask(
     await session.prompt(text, { expandPromptTemplates: false });
   } finally {
     unsubscribe();
+    reportNow(undefined);
   }
 
   if (providerError !== undefined) {
@@ -67,12 +173,15 @@ export async function createExecutor(opts: {
   tools: string[];
   /** "provider/model-id". Omitted: whatever pi is configured to use. */
   model?: string;
+  /** Give it the ***plain rules - for agents that write or edit specs, not code. */
+  rules?: boolean;
 }): Promise<AgentSession> {
   const { session } = await createAgentSession({
     cwd: opts.cwd,
     tools: opts.tools,
     customTools: opts.customTools,
     sessionManager: SessionManager.inMemory(opts.cwd),
+    resourceLoader: await subAgentResources(opts.cwd, opts.rules === true),
   });
 
   if (opts.model !== undefined) {
@@ -82,6 +191,10 @@ export async function createExecutor(opts: {
     }
     await session.setModel(model);
   }
+
+  // After the model: switching models picks a thinking level of its own.
+  const thinking = inheritedThinkingLevel();
+  if (thinking !== undefined) session.setThinkingLevel(thinking);
 
   return session;
 }
@@ -130,6 +243,8 @@ export async function createJudge(opts: {
     tools: [...(opts.extraTools ?? []), "submit_verdict"],
     customTools: [opts.verdictTool],
     sessionManager: SessionManager.inMemory(opts.cwd),
+    // Judges assess specs against the rules, so they have them too.
+    resourceLoader: await subAgentResources(opts.cwd, true),
   });
   return { session, modelNote };
 }

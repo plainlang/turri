@@ -316,8 +316,6 @@ export function processAcceptanceTests(plainSource: ParsedPlainSource): void {
 export function marshallPlainSource(input: ParsedPlainSource): MarshalledPlainSource {
   const plainSource: MarshalledPlainSource = {};
 
-  if ("ID" in input) plainSource.ID = input.ID as unknown as string;
-  if ("Heading" in input) plainSource.Heading = input.Heading as unknown as string;
 
   for (const heading of ALLOWED_SPECIFICATION_HEADINGS) {
     const section = input[heading];

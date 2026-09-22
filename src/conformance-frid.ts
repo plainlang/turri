@@ -1,4 +1,4 @@
-import { renderConformanceTests } from "./render/conformance.ts";
+import { renderConformanceSuite } from "./render/conformance-suite.ts";
 
 const c = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -8,12 +8,20 @@ const c = {
   yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
 };
 
-const USAGE = `usage: npm run conformance -- <file.plain> [frid] [options]
+const USAGE = `usage: plainwright conformance <file.plain> [frid...] [options]
 
-Writes black-box conformance tests for a functionality that has already been rendered.
+Writes black-box conformance tests for code that already exists. Rendering and conformance
+are separate jobs: a codebase can be built and given its conformance suite later.
 
-  --build-dir <dir>        the rendered code under test (default: build/<module>)
-  --conformance-dir <dir>  where the tests are written (default: conformance/<module>)
+  <frid...>                one or more functionality ids. Default: the whole module
+  --range <a,b>            a range of functionalities, inclusive
+  --all                    every functionality of this module (the default)
+  --chain                  every module this one requires, each in full
+  --force                  rewrite suites that already pass
+  --regression             run each module's merged suite afterwards
+
+  --build-dir <dir>        the rendered code under test (default: plain_modules/<module>/code)
+  --conformance-root <dir> where suites are written (default: plain_modules/<module>/tests/<frid>)
   --template-dir <dir>     extra template directory (repeatable)
   --dry-run                print the prompt without starting an agent
   --model <provider/id>    model for the agents, e.g. google/gemini-2.5-pro
@@ -21,30 +29,40 @@ Writes black-box conformance tests for a functionality that has already been ren
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
 function parseArgs(argv: string[]) {
-  const positional: string[] = [];
+  const frids: string[] = [];
   const templateDirs: string[] = [];
+  let plainFile: string | undefined;
+  let range: string | undefined;
   let buildDir: string | undefined;
-  let conformanceDir: string | undefined;
-  let dryRun = false;
+  let conformanceRoot: string | undefined;
   let model: string | undefined;
+  let all = false;
+  let chain = false;
+  let force = false;
+  let regression = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
     if (arg === "--build-dir") buildDir = argv[++i];
-    else if (arg === "--conformance-dir") conformanceDir = argv[++i];
+    else if (arg === "--conformance-root") conformanceRoot = argv[++i];
     else if (arg === "--template-dir") templateDirs.push(argv[++i]!);
-    else if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--range") range = argv[++i];
     else if (arg === "--model") model = argv[++i];
+    else if (arg === "--all") all = true;
+    else if (arg === "--chain") chain = true;
+    else if (arg === "--force") force = true;
+    else if (arg === "--regression") regression = true;
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
     } else if (arg.startsWith("-")) {
       console.error(`unknown option: ${arg}\n\n${USAGE}`);
       process.exit(1);
-    } else positional.push(arg);
+    } else if (plainFile === undefined) plainFile = arg;
+    else frids.push(arg);
   }
 
-  return { plainFile: positional[0], frid: positional[1], templateDirs, buildDir, conformanceDir, dryRun, model };
+  return { plainFile, frids, range, all, chain, force, regression, templateDirs, buildDir, conformanceRoot, model };
 }
 
 async function main() {
@@ -54,60 +72,50 @@ async function main() {
     process.exit(1);
   }
 
-  const result = await renderConformanceTests({
+  const result = await renderConformanceSuite({
     plainFile: args.plainFile,
-    frid: args.frid,
+    frids: args.frids.length > 0 ? args.frids : undefined,
+    range: args.range,
+    all: args.all,
+    chain: args.chain,
+    force: args.force,
+    regression: args.regression,
     templateDirs: args.templateDirs,
     buildDir: args.buildDir,
-    conformanceDir: args.conformanceDir,
-    dryRun: args.dryRun,
+    conformanceRoot: args.conformanceRoot,
     model: args.model,
     onDelta: (delta) => process.stdout.write(delta),
-    onRun: (command, exitCode) =>
-      console.log(
-        `\n${exitCode === 0 ? c.green("pass") : c.red(`exit ${exitCode}`)} ${c.dim(command)}`,
-      ),
-    onTriage: (verdict) =>
-      console.log(
-        `\n${c.yellow(c.bold(verdict.fault))} ${c.dim(verdict.reasoning.split("\n")[0] ?? "")}`,
-      ),
+    onEvent: (event) => {
+      if (event.type === "targets") {
+        const total = event.targets.reduce((n, t) => n + t.frids.length, 0);
+        console.log(`\n${c.bold("conformance targets")} ${c.dim(`(${total})`)}`);
+        for (const target of event.targets) {
+          console.log(c.dim(`  ${target.moduleName}: ${target.frids.join(", ")}`));
+        }
+      } else if (event.type === "start") {
+        console.log(
+          `\n${c.bold(`> ${event.module} functionality ${event.frid}`)} ${c.dim(`(${event.index}/${event.total})`)}`,
+        );
+      } else if (event.type === "skipped") {
+        console.log(c.dim(`  ${event.module} functionality ${event.frid}: already passing, skipping`));
+      } else if (event.type === "done") {
+        console.log(event.passed ? c.green("  pass") : c.red("  fail"));
+      }
+    },
   });
 
-  if (args.dryRun) {
-    console.log(result.prompt);
-    return;
-  }
+  const written = result.outcomes.filter((o) => !o.skipped).length;
+  const failed = result.outcomes.filter((o) => o.result && !o.result.passed).length;
 
-  const passed = result.passed;
   console.log(
-    `\n\n${passed ? c.green(c.bold("conformance tests pass")) : c.red(c.bold("conformance tests not passing"))} ` +
-      c.dim(`${result.moduleName} functionality ${result.frid}`),
+    `\n\n${result.passed ? c.green(c.bold("conformance suite passes")) : c.red(c.bold("conformance suite not passing"))}`,
   );
-  console.log(c.dim(`  tests in:  ${result.conformanceDir}`));
-  for (const file of result.files) console.log(c.dim(`    ${file}`));
-  console.log(c.dim(`  against:   ${result.buildDir}`));
-  console.log(c.dim(`  runs:      ${result.runs.length}`));
-
-  if (result.triage.length > 0) {
-    console.log(c.dim(`  triage:    ${result.triage.map((v) => v.fault).join(", ")}`));
-  }
-  if (result.codeFixes.length > 0) {
-    console.log(c.dim(`  code fixes: ${result.codeFixes.length} (the implementation was changed)`));
-  }
-  if (result.testRemovals.length > 0) {
-    console.log(`\n${c.yellow(c.bold("conformance tests were removed during this run"))}`);
-    for (const removal of result.testRemovals) {
-      console.log(
-        c.dim(
-          removal.deleted
-            ? `    ${removal.file} deleted (~${removal.before} tests)`
-            : `    ${removal.file} ~${removal.before} -> ~${removal.after} tests`,
-        ),
-      );
-    }
+  console.log(c.dim(`  written: ${written}, skipped: ${result.outcomes.length - written}, failing: ${failed}`));
+  for (const [moduleName, regression] of Object.entries(result.regression)) {
+    console.log(c.dim(`  regression ${moduleName}: ${regression.passed ? "pass" : "fail"}`));
   }
 
-  process.exit(passed ? 0 : 1);
+  process.exit(result.passed ? 0 : 1);
 }
 
 main().catch((error) => {

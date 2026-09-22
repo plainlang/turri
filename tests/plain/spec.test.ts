@@ -110,103 +110,70 @@ describe("plain spec", () => {
 /**
  * The functional-spec iterator.
  *
- * `get_frids` walks functionalities depth-first through nested sections, and
- * `get_specifications_for_frid` builds the context each one is rendered with: the
- * definitions and reqs in scope from the outside in, every functionality up to and
- * including this one, and only this one's acceptance tests.
+ * `get_frids` numbers functionalities 1, 2, 3 in order, and `get_specifications_for_frid`
+ * builds the context each one is rendered with: the definitions and reqs, every
+ * functionality up to and including this one, and only this one's acceptance tests.
  */
 describe("functional spec iterator", () => {
-  const nestedTree: MarshalledPlainSource = {
+  const tree: MarshalledPlainSource = {
     [DEFINITIONS]: [{ markdown: "- :Root: is a concept." }],
     [NON_FUNCTIONAL_REQUIREMENTS]: [{ markdown: "- Root implementation req." }],
     [TEST_REQUIREMENTS]: [{ markdown: "- Root test req." }],
     [FUNCTIONAL_REQUIREMENTS]: [
-      { markdown: "- Root functionality one." },
+      { markdown: "- Functionality one." },
       {
-        markdown: "- Root functionality two.",
-        [ACCEPTANCE_TESTS]: [{ markdown: "- Check root functionality two." }],
+        markdown: "- Functionality two.",
+        [ACCEPTANCE_TESTS]: [{ markdown: "- Check functionality two." }],
       },
-    ],
-    sections: [
-      {
-        ID: "1",
-        Heading: "First section",
-        [DEFINITIONS]: [{ markdown: "- :Section: is a concept." }],
-        [NON_FUNCTIONAL_REQUIREMENTS]: [{ markdown: "- Section implementation req." }],
-        [FUNCTIONAL_REQUIREMENTS]: [{ markdown: "- Section functionality." }],
-      },
-      {
-        ID: "2",
-        Heading: "Second section",
-        [FUNCTIONAL_REQUIREMENTS]: [
-          { markdown: "- Other section functionality one." },
-          { markdown: "- Other section functionality two." },
-        ],
-      },
+      { markdown: "- Functionality three." },
+      { markdown: "- Functionality four." },
     ],
   };
 
-  it("yields root frids before section frids", () => {
-    expect([...getFrids(nestedTree)]).toEqual(["1", "2", "1.1", "2.1", "2.2"]);
+  it("numbers the functionalities in order", () => {
+    expect([...getFrids(tree)]).toEqual(["1", "2", "3", "4"]);
   });
 
   it("walks frids forwards and backwards", () => {
-    expect(getNextFrid(nestedTree, "2")).toBe("1.1");
-    expect(getPreviousFrid(nestedTree, "1.1")).toBe("2");
-    expect(getNextFrid(nestedTree, "2.2")).toBeNull();
-    expect(getFridsBefore(nestedTree, "2.1")).toEqual(["1", "2", "1.1"]);
+    expect(getNextFrid(tree, "2")).toBe("3");
+    expect(getPreviousFrid(tree, "3")).toBe("2");
+    expect(getNextFrid(tree, "4")).toBeNull();
+    expect(getFridsBefore(tree, "3")).toEqual(["1", "2"]);
   });
 
   it("includes only the functionalities up to the requested one", () => {
-    const [specifications] = getSpecificationsForFrid(nestedTree, "1");
-    expect(specifications[FUNCTIONAL_REQUIREMENTS]).toEqual(["- Root functionality one."]);
+    const [specifications] = getSpecificationsForFrid(tree, "1");
+    expect(specifications[FUNCTIONAL_REQUIREMENTS]).toEqual(["- Functionality one."]);
     expect(specifications[ACCEPTANCE_TESTS]).toBeUndefined();
   });
 
   it("includes the requested functionality's acceptance tests only", () => {
-    const [specifications] = getSpecificationsForFrid(nestedTree, "2");
-    expect(specifications[FUNCTIONAL_REQUIREMENTS]).toEqual([
-      "- Root functionality one.",
-      "- Root functionality two.",
-    ]);
-    expect(specifications[ACCEPTANCE_TESTS]).toEqual(["- Check root functionality two."]);
+    const [specifications] = getSpecificationsForFrid(tree, "2");
+    expect(specifications[FUNCTIONAL_REQUIREMENTS]).toEqual(["- Functionality one.", "- Functionality two."]);
+    expect(specifications[ACCEPTANCE_TESTS]).toEqual(["- Check functionality two."]);
   });
 
-  it("prepends outer definitions and reqs for a nested functionality", () => {
-    const [specifications] = getSpecificationsForFrid(nestedTree, "1.1");
-
-    expect(specifications[DEFINITIONS]).toEqual([
-      "- :Root: is a concept.",
-      "- :Section: is a concept.",
-    ]);
-    expect(specifications[NON_FUNCTIONAL_REQUIREMENTS]).toEqual([
-      "- Root implementation req.",
-      "- Section implementation req.",
-    ]);
+  it("includes the module's definitions and reqs with every functionality", () => {
+    const [specifications] = getSpecificationsForFrid(tree, "3");
+    expect(specifications[DEFINITIONS]).toEqual(["- :Root: is a concept."]);
+    expect(specifications[NON_FUNCTIONAL_REQUIREMENTS]).toEqual(["- Root implementation req."]);
     expect(specifications[TEST_REQUIREMENTS]).toEqual(["- Root test req."]);
-    expect(specifications[FUNCTIONAL_REQUIREMENTS]).toEqual([
-      "- Root functionality one.",
-      "- Root functionality two.",
-      "- Section functionality.",
-    ]);
   });
 
   it("iterates every functionality with its own context", () => {
-    const iterated = [...iterateFunctionalSpecs(nestedTree)];
+    const iterated = [...iterateFunctionalSpecs(tree)];
 
-    expect(iterated.map((entry) => entry.frid)).toEqual(["1", "2", "1.1", "2.1", "2.2"]);
-    expect(iterated.map((entry) => entry.specifications[FUNCTIONAL_REQUIREMENTS].length)).toEqual([
-      1, 2, 3, 4, 5,
-    ]);
+    expect(iterated.map((entry) => entry.frid)).toEqual(["1", "2", "3", "4"]);
+    expect(iterated.map((entry) => entry.specifications[FUNCTIONAL_REQUIREMENTS].length)).toEqual([1, 2, 3, 4]);
 
     for (const entry of iterated) {
-      const [expected] = getSpecificationsForFrid(nestedTree, entry.frid);
+      const [expected] = getSpecificationsForFrid(tree, entry.frid);
       expect(entry.specifications).toEqual(expected);
     }
   });
 
   it("substitutes code variables into the rendered context", () => {
-    const tree: MarshalledPlainSource = {
+    const withVariables: MarshalledPlainSource = {
       [FUNCTIONAL_REQUIREMENTS]: [
         {
           markdown: "- Implement {{ variable_name }}.",
@@ -215,20 +182,20 @@ describe("functional spec iterator", () => {
       ],
     };
 
-    const [replaced, codeVariables] = getSpecificationsForFrid(tree, "1");
+    const [replaced, codeVariables] = getSpecificationsForFrid(withVariables, "1");
     expect(replaced[FUNCTIONAL_REQUIREMENTS]).toEqual(["- Implement nice."]);
     expect(codeVariables).toEqual({ variable_name: "nice" });
 
-    const [kept] = getSpecificationsForFrid(tree, "1", false);
+    const [kept] = getSpecificationsForFrid(withVariables, "1", false);
     expect(kept[FUNCTIONAL_REQUIREMENTS]).toEqual(["- Implement {{ variable_name }}."]);
   });
 
   it("computes render ranges over the frid sequence", () => {
-    expect(getRenderRange("2,2.1", nestedTree)).toEqual(["2", "1.1", "2.1"]);
-    expect(getRenderRange("1.1", nestedTree)).toEqual(["1.1"]);
-    expect(getRenderRangeFrom("1.1", nestedTree)).toEqual(["1.1", "2.1", "2.2"]);
-    expect(() => getRenderRange("9", nestedTree)).toThrow(InvalidFridArgument);
-    expect(() => getRenderRange("2.1,1", nestedTree)).toThrow(InvalidFridArgument);
+    expect(getRenderRange("2,3", tree)).toEqual(["2", "3"]);
+    expect(getRenderRange("3", tree)).toEqual(["3"]);
+    expect(getRenderRangeFrom("3", tree)).toEqual(["3", "4"]);
+    expect(() => getRenderRange("9", tree)).toThrow(InvalidFridArgument);
+    expect(() => getRenderRange("3,1", tree)).toThrow(InvalidFridArgument);
   });
 });
 

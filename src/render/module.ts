@@ -2,14 +2,32 @@ import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { plainFileParser } from "../plain/parser.ts";
-import { getFrids, getSpecificationsForFrid, type MarshalledPlainSource } from "../plain/spec.ts";
+import {
+  getFrids,
+  getSpecificationItems,
+  getSpecificationsForFrid,
+  TEST_REQUIREMENTS,
+  type MarshalledPlainSource,
+} from "../plain/spec.ts";
 import {
   conformanceDirFor,
   renderConformanceTests,
   runInSandbox,
   type RenderConformanceTestsResult,
 } from "./conformance.ts";
+import { reportActivity, reportStage } from "./activity.ts";
+import { confinedTools } from "./confine.ts";
+import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
+import { copyRequiredCode, resolveRequiresChain, type ChainEntry } from "./requires.ts";
+import {
+  describePending,
+  isModuleUpToDate,
+  pendingFrids,
+  recordFunctionality,
+  specStateFor,
+  type Pending,
+} from "./state.ts";
 import { renderFunctionality, resolveTemplateDirs, type RenderFunctionalityResult } from "./render.ts";
 import {
   chooseRegressionCommand,
@@ -19,7 +37,8 @@ import {
   type TestRun,
 } from "./testing.ts";
 
-const FIX_TOOLS = ["read", "write", "edit", "bash", "ls", "grep", "find", "run_unit_tests"];
+/** On top of the file tools, which are fenced to the build directory by `confine.ts`. */
+const FIX_TOOLS = ["run_unit_tests"];
 const DEFAULT_MAX_REGRESSION_ROUNDS = 3;
 
 export interface RegressionRun extends TestRun {
@@ -45,6 +64,8 @@ export interface FunctionalityOutcome {
   regression?: RegressionResult;
   /** Where this functionality stopped, or null when it completed. */
   stoppedAt: "unit tests" | "conformance" | "regression" | null;
+  /** True when conformance was off for this run. */
+  conformanceSkipped?: boolean;
 }
 
 export interface RenderModuleResult {
@@ -64,13 +85,20 @@ export interface RenderModuleOptions {
   plainFile: string;
   templateDirs?: string[];
   buildDir?: string;
-  /** Root for per-functionality test directories. Defaults to `<cwd>/conformance`. */
+  /** Root the module directories hang off. Defaults to `<cwd>/plain_modules`. */
   conformanceRoot?: string;
   model?: string;
   /** Start from this functionality, treating earlier ones as already built. */
   from?: string;
-  /** Stop after this functionality. */
+  /** Stop after this functionality. Everything before it is built first. */
   to?: string;
+  /** Rebuild functionalities that are already built from the current specification. */
+  force?: boolean;
+  /**
+   * Write conformance tests. Defaults to whether the module has test reqs, which are what
+   * conformance tests are written from. Setting it true without them is an error.
+   */
+  conformance?: boolean;
   maxRegressionRounds?: number;
   onDelta?: (delta: string) => void;
   onEvent?: (event: ModuleEvent) => void;
@@ -78,6 +106,7 @@ export interface RenderModuleOptions {
 
 export type ModuleEvent =
   | { type: "functionality_start"; frid: string; index: number; total: number }
+  | { type: "functionality_skipped"; frid: string }
   | { type: "phase"; frid: string; phase: "render" | "conformance" | "regression" }
   | { type: "run"; command: string; exitCode: number; frids?: string[] }
   | { type: "narrow_command"; command: string }
@@ -104,9 +133,11 @@ async function repairRegression(input: {
   const [specifications] = getSpecificationsForFrid(input.tree, input.frids[input.frids.length - 1]!);
   const runs: TestRun[] = [];
 
+  const fence = confinedTools({ workdir: input.buildDir, read: [], write: [input.buildDir] });
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [
+      ...fence.tools,
       createRunTestsTool({
         name: "run_unit_tests",
         label: "Run unit tests",
@@ -115,7 +146,7 @@ async function repairRegression(input: {
         runs,
       }),
     ],
-    tools: FIX_TOOLS,
+    tools: [...fence.names, ...FIX_TOOLS],
     model: input.model,
   });
 
@@ -171,14 +202,19 @@ export async function ensureRegressionPasses(input: {
 
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_REGRESSION_ROUNDS;
   for (let round = 0; round <= maxRounds; round += 1) {
+    reportStage(
+      `${input.moduleName}: running every functionality's conformance tests together (${input.frids.join(", ")})`,
+    );
     const result = runInSandbox(input.buildDir, dirs, input.command);
     runs.push({ command: input.command, exitCode: result.exitCode, frids: input.frids });
+    reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
     input.onEvent?.({ type: "run", command: input.command, exitCode: result.exitCode, frids: input.frids });
 
     if (result.exitCode === 0) return { passed: true, runs, repairs, command: input.command, narrow };
     if (round === maxRounds) break;
 
     input.onEvent?.({ type: "repair", frids: input.frids });
+    reportStage(`${input.moduleName}: an earlier functionality broke - repairing (round ${round + 1} of ${maxRounds})`);
     repairs.push(
       await repairRegression({
         buildDir: input.buildDir,
@@ -215,21 +251,56 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   const [moduleName, tree] = plainFileParser(basename(options.plainFile), templateDirs);
 
   const allFrids = [...getFrids(tree)];
-  const buildDir = resolve(options.buildDir ?? join(process.cwd(), "build", moduleName));
-  const conformanceRoot = resolve(options.conformanceRoot ?? join(process.cwd(), "conformance"));
+  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
+  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
 
   const fromIndex = options.from ? allFrids.indexOf(options.from) : 0;
   if (fromIndex === -1) throw new Error(`Functionality ${options.from} does not exist.`);
   const toIndex = options.to ? allFrids.indexOf(options.to) : allFrids.length - 1;
   if (toIndex === -1) throw new Error(`Functionality ${options.to} does not exist.`);
 
+  // Anything already built from the current specification is left alone. A functionality
+  // whose spec has since changed counts as not built, which is what makes "render
+  // functionality 4" also repair 1 to 3 when their specs moved.
+  const pending: Pending[] = options.force
+    ? allFrids.slice(fromIndex, toIndex + 1).map((frid) => ({ frid, reason: "never built" as const }))
+    : pendingFrids(tree, buildDir, allFrids[toIndex]).filter(
+        (entry) => allFrids.indexOf(entry.frid) >= fromIndex,
+      );
+  const toBuild = new Set(pending.map((entry) => entry.frid));
+
   const outcomes: FunctionalityOutcome[] = [];
   const completed = allFrids.slice(0, fromIndex);
   let command: string | null = null;
   let narrow = false;
 
+  // Conformance is optional, and it is written from the test reqs. With none, there is
+  // nothing to write tests against, so it is off unless explicitly asked for.
+  const hasTestReqs = (getSpecificationItems(tree, TEST_REQUIREMENTS) ?? []).length > 0;
+  const conformanceEnabled = options.conformance ?? hasTestReqs;
+  if (conformanceEnabled && !hasTestReqs) {
+    throw new Error(
+      `Module '${moduleName}' has no ${TEST_REQUIREMENTS}, so conformance tests cannot be written. ` +
+        `Add a ${TEST_REQUIREMENTS} section, or leave conformance off.`,
+    );
+  }
+
+  /** Write what this functionality was built from, as soon as it is known. */
+  const record = (
+    frid: string,
+    status: { unitTests: "passed" | "failed"; conformance?: "passed" | "failed" | "skipped" },
+  ) =>
+    recordFunctionality(buildDir, moduleName, { frid, ...specStateFor(tree, frid), ...status });
+
   for (let index = fromIndex; index <= toIndex; index += 1) {
     const frid = allFrids[index]!;
+
+    if (!toBuild.has(frid)) {
+      options.onEvent?.({ type: "functionality_skipped", frid });
+      completed.push(frid);
+      continue;
+    }
+
     options.onEvent?.({ type: "functionality_start", frid, index: index + 1, total: allFrids.length });
 
     options.onEvent?.({ type: "phase", frid, phase: "render" });
@@ -243,10 +314,23 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
     });
 
+    // State is written as each stage finishes, not at the end. A module is routinely
+    // left part-built - conformance fails on functionality 3, the run stops - and the
+    // work already done on that functionality must survive it.
+    record(frid, { unitTests: render.passed ? "passed" : "failed" });
+
     if (!render.passed) {
       outcomes.push({ frid, render, stoppedAt: "unit tests" });
       options.onEvent?.({ type: "stopped", frid, at: "unit tests" });
       break;
+    }
+
+    if (!conformanceEnabled) {
+      record(frid, { unitTests: "passed", conformance: "skipped" });
+      outcomes.push({ frid, render, stoppedAt: null, conformanceSkipped: true });
+      completed.push(frid);
+      options.onEvent?.({ type: "functionality_done", frid });
+      continue;
     }
 
     options.onEvent?.({ type: "phase", frid, phase: "conformance" });
@@ -266,6 +350,8 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       command = chosen.command;
       narrow = chosen.narrow;
     }
+
+    record(frid, { unitTests: "passed", conformance: conformance.passed ? "passed" : "failed" });
 
     if (!conformance.passed) {
       outcomes.push({ frid, render, conformance, stoppedAt: "conformance" });
@@ -344,8 +430,8 @@ export async function regenerateFunctionality(
     throw new Error(`Functionality ${options.frid} does not exist. Available: ${allFrids.join(", ")}.`);
   }
 
-  const buildDir = resolve(options.buildDir ?? join(process.cwd(), "build", moduleName));
-  const conformanceRoot = resolve(options.conformanceRoot ?? join(process.cwd(), "conformance"));
+  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
+  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
 
   if (listFiles(buildDir).length === 0) {
     throw new Error(
@@ -429,4 +515,97 @@ export async function regenerateFunctionality(
     passed: regression.passed,
     stoppedAt: regression.passed ? null : "regression",
   };
+}
+
+
+export interface ChainOutcome {
+  module: string;
+  /** Already built, and not forced. */
+  skipped: boolean;
+  /** Files copied in from the module this one requires. */
+  copied: number;
+  result?: RenderModuleResult;
+}
+
+export interface RenderChainResult {
+  chain: ChainEntry[];
+  outcomes: ChainOutcome[];
+  passed: boolean;
+}
+
+export interface RenderChainOptions extends RenderModuleOptions {
+  /** Rebuild modules that are already complete. */
+  force?: boolean;
+  /** Build only the named module, ignoring what it requires. */
+  skipRequires?: boolean;
+  onChainEvent?: (event: ChainEvent) => void;
+}
+
+export type ChainEvent =
+  | { type: "chain"; chain: ChainEntry[] }
+  | { type: "module_start"; module: string; index: number; total: number }
+  | { type: "module_skipped"; module: string }
+  | { type: "copied"; from: string; to: string; files: number }
+  | { type: "module_done"; module: string; passed: boolean };
+
+/**
+ * Build a module and everything it requires, bottom first.
+ *
+ * A required module is not a dependency to link against - its code is copied into the
+ * build before this module starts, so it has to be finished first. Each module keeps its
+ * own build directory, and records which functionalities it holds, so a chain interrupted
+ * half way can be resumed without rebuilding what is already done.
+ */
+export async function renderChain(options: RenderChainOptions): Promise<RenderChainResult> {
+  const chain = options.skipRequires
+    ? resolveRequiresChain(options.plainFile, options.templateDirs, options.buildDir).slice(-1)
+    : resolveRequiresChain(options.plainFile, options.templateDirs, options.buildDir);
+
+  options.onChainEvent?.({ type: "chain", chain });
+
+  const byModule = new Map(chain.map((entry) => [entry.moduleName, entry]));
+  const outcomes: ChainOutcome[] = [];
+
+  for (const [index, entry] of chain.entries()) {
+    const [, entryTree] = plainFileParser(basename(entry.plainFile), resolveTemplateDirs(entry.plainFile, options.templateDirs));
+    if (!options.force && isModuleUpToDate(entryTree, entry.buildDir)) {
+      options.onChainEvent?.({ type: "module_skipped", module: entry.moduleName });
+      outcomes.push({ module: entry.moduleName, skipped: true, copied: 0 });
+      continue;
+    }
+
+    options.onChainEvent?.({
+      type: "module_start",
+      module: entry.moduleName,
+      index: index + 1,
+      total: chain.length,
+    });
+
+    let copied = 0;
+    if (entry.requires !== null) {
+      const source = byModule.get(entry.requires);
+      if (source !== undefined) {
+        copied = copyRequiredCode(source.buildDir, entry.buildDir).length;
+        options.onChainEvent?.({
+          type: "copied",
+          from: entry.requires,
+          to: entry.moduleName,
+          files: copied,
+        });
+      }
+    }
+
+    const result = await renderModule({
+      ...options,
+      plainFile: entry.plainFile,
+      buildDir: entry.buildDir,
+    });
+
+    outcomes.push({ module: entry.moduleName, skipped: false, copied, result });
+    options.onChainEvent?.({ type: "module_done", module: entry.moduleName, passed: result.passed });
+
+    if (!result.passed) return { chain, outcomes, passed: false };
+  }
+
+  return { chain, outcomes, passed: true };
 }

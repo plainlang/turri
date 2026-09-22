@@ -1,4 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { plainFileParser } from "../../src/plain/parser.ts";
+import { resolveTemplateDirs } from "../../src/render/render.ts";
+import { recordFunctionality, specStateFor } from "../../src/render/state.ts";
 import { createJobRegistry } from "../../src/render/jobs.ts";
 import { createRenderQueue, type RenderRunner } from "../../src/render/queue.ts";
 
@@ -114,5 +120,85 @@ describe("the render queue", () => {
     await queue.drain();
 
     expect(seen).toEqual([undefined, true]);
+  });
+});
+
+describe("re-queueing what the specification changed under", () => {
+  const spec = (two = "- Two.") =>
+    `***implementation reqs***\n\n- A req.\n\n***functional specs***\n\n- One.\n\n${two}\n\n- Three.\n`;
+
+  function project() {
+    const dir = mkdtempSync(join(tmpdir(), "queue-stale-"));
+    const build = join(dir, "build");
+    writeFileSync(join(dir, "app.plain"), spec());
+    const tree = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1];
+    const built = (frid: string) =>
+      recordFunctionality(build, "app", { frid, ...specStateFor(tree(), frid), unitTests: "passed" });
+    return { dir, build, tree, built, change: (t: string) => writeFileSync(join(dir, "app.plain"), spec(t)) };
+  }
+
+  it("queues nothing when every built functionality still matches", () => {
+    const p = project();
+    p.built("1");
+    const queue = createRenderQueue({ registry: createJobRegistry(), cwd: p.dir, buildDir: p.build, run: async () => ({ report: "" }) });
+
+    expect(queue.requeueStale("app.plain")).toEqual([]);
+    rmSync(p.dir, { recursive: true, force: true });
+  });
+
+  it("queues a regeneration for a functionality whose spec changed after it was built", async () => {
+    const p = project();
+    p.built("1");
+    p.built("2");
+    p.change("- Two, rewritten.");
+
+    const seen: Array<{ frid: string; regenerate?: boolean }> = [];
+    const queue = createRenderQueue({
+      registry: createJobRegistry(), cwd: p.dir, buildDir: p.build,
+      run: async (request) => {
+        seen.push({ frid: request.frid, regenerate: request.regenerate });
+        return { report: "" };
+      },
+    });
+
+    const requeued = queue.requeueStale("app.plain");
+    await queue.drain();
+
+    // Only 2: it was built and its spec has since changed. 3 was never built, so there is
+    // nothing of it to regenerate, however much its spec has moved.
+    expect(requeued.map((r) => r.frid)).toEqual(["2"]);
+    expect(seen.every((s) => s.regenerate === true)).toBe(true);
+    rmSync(p.dir, { recursive: true, force: true });
+  });
+
+  it("ignores a spec that was never built - there is nothing to regenerate", () => {
+    const p = project();
+    p.change("- Two, rewritten.");
+    const queue = createRenderQueue({ registry: createJobRegistry(), cwd: p.dir, buildDir: p.build, run: async () => ({ report: "" }) });
+
+    expect(queue.requeueStale("app.plain")).toEqual([]);
+    rmSync(p.dir, { recursive: true, force: true });
+  });
+
+  it("does not re-queue a functionality that is already building", async () => {
+    const p = project();
+    p.built("1");
+    p.change("- Two, rewritten.");
+
+    let release!: () => void;
+    const blocked = new Promise<void>((r) => { release = r; });
+    const queue = createRenderQueue({
+      registry: createJobRegistry(), cwd: p.dir, buildDir: p.build,
+      run: async () => { await blocked; return { report: "" }; },
+    });
+
+    queue.enqueue({ plainFile: "app.plain", frid: "2" });
+    await vi.waitFor(() => expect(queue.status()[0]!.status).toBe("running"));
+    const requeued = queue.requeueStale("app.plain");
+
+    expect(requeued.map((r) => r.frid)).not.toContain("2");
+    release();
+    await queue.drain();
+    rmSync(p.dir, { recursive: true, force: true });
   });
 });

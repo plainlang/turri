@@ -26,6 +26,18 @@ const reporter: Reporter = {
         ? `${c.bold(c.yellow(`> gate ${name}`))} ${c.dim("no artifact - failing without spending judges")}`
         : `${c.bold(c.yellow(`> gate ${name}`))} ${c.dim(`${judges} independent judges`)}`,
     ),
+  livePass: (step, scope, findings) =>
+    console.log(
+      findings === 0
+        ? c.dim(`  review ${step}: ${scope} - clean`)
+        : `  ${c.yellow(`review ${step}`)}: ${scope} ${c.dim(`- ${findings} to fix`)}`,
+    ),
+  liveReview: (name, passes, findings) =>
+    console.log(
+      findings === 0
+        ? `${c.bold(c.yellow(`> gate ${name}`))} ${c.dim(`reviewer read along in ${passes} passes, nothing outstanding`)}`
+        : `${c.bold(c.yellow(`> gate ${name}`))} ${c.dim(`${findings} unresolved from the reviewer - failing without spending judges`)}`,
+    ),
   judge: (index, model, verdict, violations) => {
     const mark = verdict === "pass" ? c.green("pass") : c.red(verdict);
     console.log(`  judge ${index + 1} ${c.dim(`(${model})`)}: ${mark}${violations ? c.dim(` (${violations})`) : ""}`);

@@ -1,6 +1,6 @@
 # Add Feature Workflow Checklist
 
-Use this to verify the workflow was followed — never as a substitute for it. Run the loop block on each iteration, and run the whole list once more during Phase 3 before declaring the feature done. A box only counts as met when the spec is on disk and explicitly approved, not merely discussed. If a box is unmet, go back and complete the step.
+Use this to verify the workflow was followed — never as a substitute for it. Run the loop block on each iteration, and run the whole list once more during Phase 3 before declaring the feature done. A box only counts as met when the spec is on disk, not merely discussed. If a box is unmet, go back and complete the step.
 
 ## Phase 0 — Feature intent
 
@@ -34,5 +34,5 @@ Use this to verify the workflow was followed — never as a substitute for it. R
 
 - [ ] Read the modified `.plain` file(s) in full.
 - [ ] Verified: concepts defined before use, no cycles, chronological ordering correct end-to-end, functional specs language-agnostic, every external interface explicit (endpoints, methods, CLI args, formats), acceptance tests consistent with their parent specs.
-- [ ] Presented the final diff and got the user's approval (change requests dropped back into the one-question loop, not a restart).
+- [ ] Presented the final diff once, at the end (change requests dropped back into the one-question loop, not a restart). Individual writes were narrated during the loop, not submitted for approval.
 - [ ] Ran `plain-healthcheck`; worked its numbered list to `PASS` (fixing only `.plain`/`config.yaml`/scripts — never generated code) before declaring the feature ready and reminding the user to re-render with `plainwright module <module>.plain`.

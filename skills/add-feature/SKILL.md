@@ -4,8 +4,8 @@ description: >-
   End-to-end feature addition on an existing ***plain project: runs a short feature-intent
   interview, then takes the confirmed request and, one question at a time, incrementally writes
   ***plain specs (concepts, implementation reqs, functional specs, test reqs,
-  acceptance tests) to disk — asking, authoring, and reviewing per
-  functionality — then closes with a plain-healthcheck gate. Use when the user
+  acceptance tests) to disk — asking and authoring per functionality, without
+  stopping for approval of each write — then closes with a plain-healthcheck gate. Use when the user
   wants to add a feature to an existing project. Not for bootstrapping a new
   project from scratch (use forge-plain) or for editing generated code (the
   .plain specs are the source of truth).
@@ -93,6 +93,14 @@ If `add-functional-spec` (via its analyzers) reports a conflict, or the snippet 
 
 Apply the choice the instant the user answers. If they augmented a concept, walk every spec that references it and update each in place, limited to the approved scope. Never silently rewrite prior intent.
 
+### 2c'. Narrate, do not ask for approval
+
+Do not ask the user to approve each snippet. Say in one line what went to disk — "added
+`:Note:` to definitions", "functional spec 3 written" — and move to the next question. The
+only things worth interrupting for are a decision the answer does not settle: a conflict
+(2c above), an ambiguity you cannot resolve, or a choice that changes the shape of the
+module. The final review in Phase 3 is where the work is looked at as a whole.
+
 ### 2d. Decide what's next
 
 Ask the user whether the feature is fully covered. Yes → Phase 3. No → return to 2a with the next single question.
@@ -130,7 +138,7 @@ loop: **intent → scope → one-question loop → final review → intent → �
 
 ## Validation checklist
 
-Run the loop block in `references/checklist.md` on each iteration, and walk the whole list during Phase 3 before declaring the feature done. It is a self-audit of this workflow — never a substitute for it. A box only counts as met when the spec is on disk and explicitly approved; complete any unmet step before finishing.
+Run the loop block in `references/checklist.md` on each iteration, and walk the whole list during Phase 3 before declaring the feature done. It is a self-audit of this workflow — never a substitute for it. A box only counts as met when the spec is on disk; complete any unmet step before finishing.
 
 ## Question style
 

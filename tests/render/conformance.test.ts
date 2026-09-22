@@ -6,6 +6,20 @@ import { renderConformanceTests, runInSandbox } from "../../src/render/conforman
 
 const SIMPLE = "tests/data/simple.plain";
 
+/** Conformance needs test reqs, so the prompt tests use a spec that has them. */
+const WITH_TEST_REQS = `***implementation reqs***
+
+- Simple implementation requirement
+
+***test reqs***
+
+- Conformance tests run with "python -m unittest discover".
+
+***functional specs***
+
+- Simple functionality
+`;
+
 let buildDir: string;
 let conformanceDir: string;
 
@@ -92,8 +106,10 @@ describe("renderConformanceTests", () => {
       writeFileSync(join(buildDir, "app.py"), "SECRET_INTERNAL_HELPER = 1");
       writeFileSync(join(buildDir, "pkg", "helper.py"), "x = 2");
 
+      const specFile = join(buildDir, "..", "withreqs.plain");
+      writeFileSync(specFile, WITH_TEST_REQS);
       const result = await renderConformanceTests({
-        plainFile: SIMPLE,
+        plainFile: specFile,
         frid: "1",
         buildDir,
         conformanceDir,
@@ -104,7 +120,10 @@ describe("renderConformanceTests", () => {
 
     it("frames the task as black box", () => {
       expect(prompt).toContain("Conformance tests are black box");
-      expect(prompt).toContain("You cannot read the implementation");
+      // The agent may read the code to learn how to call it, but every assertion still
+      // comes from the specification - a test written from the code cannot catch the code.
+      expect(prompt).toContain("Every assertion comes");
+      expect(prompt).toContain("the test follows the");
     });
 
     it("lists the built files by name only, never their contents", () => {
@@ -114,6 +133,7 @@ describe("renderConformanceTests", () => {
 
     it("carries the functionality and the specification sections", () => {
       expect(prompt).toContain('<functionality id="1">\n- Simple functionality\n</functionality>');
+      expect(prompt).toContain("<test reqs>");
       expect(prompt).toContain("- Simple implementation requirement");
       expect(prompt).toContain("Write conformance tests for functionality 1.");
     });

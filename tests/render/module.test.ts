@@ -24,7 +24,7 @@ afterEach(() => {
 
 describe("conformanceDirFor", () => {
   it("gives each functionality its own directory", () => {
-    expect(conformanceDirFor("demo", "2.1", "/tmp/conf")).toBe("/tmp/conf/demo/2.1");
+    expect(conformanceDirFor("demo", "2", "/tmp/conf")).toBe("/tmp/conf/demo/tests/2");
   });
 });
 
