@@ -8,12 +8,9 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { extensionInstalledGlobally, PACKAGE_ROOT, themesInstalledGlobally } from "./environment.ts";
 
 /**
  * Start pi with this project's extension and themes already wired in.
@@ -21,41 +18,6 @@ const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  * Saves both a global pi install and the `-e <absolute path>` that a project-local
  * extension otherwise needs before the project is trusted.
  */
-const AGENT_DIR = join(homedir(), ".pi", "agent");
-
-/** Is a globally installed extension already pulling these tools in? */
-function extensionInstalledGlobally(): boolean {
-  const dir = join(AGENT_DIR, "extensions");
-  try {
-    return readdirSync(dir).some((entry) => {
-      try {
-        return readFileSync(join(dir, entry), "utf8").includes(PACKAGE_ROOT);
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Are this project's themes already installed globally?
- *
- * Passing --theme as well would make pi load each of them twice and report a collision
- * on startup - the global copy wins and the project copy is skipped, which is noise
- * about a duplicate we created ourselves.
- */
-function themesInstalledGlobally(): boolean {
-  const ours = join(PACKAGE_ROOT, ".pi", "themes");
-  try {
-    const names = readdirSync(ours).filter((entry) => entry.endsWith(".json"));
-    return names.length > 0 && names.every((name) => existsSync(join(AGENT_DIR, "themes", name)));
-  } catch {
-    return false;
-  }
-}
-
 function chat(args: string[]): never {
   const pi = join(PACKAGE_ROOT, "node_modules", ".bin", "pi");
   if (!existsSync(pi)) {
@@ -86,11 +48,20 @@ const COMMANDS: Record<string, { module: string; blurb: string }> = {
   skill: { module: "./run.ts", blurb: "run a gated skill" },
 };
 
+/** Getting the machine ready, and checking it is. */
+const SETUP_COMMANDS: Record<string, string> = {
+  setup: "get this machine ready: check everything, and fix what can be fixed here",
+  doctor: "check what plainwright needs, without changing anything",
+  "vm-image": "build the sandbox VM image with every toolchain (with e2fsprogs, or in Docker)",
+};
+
 const USAGE = [
   "usage: plainwright <command> [args]",
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
   `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded`,
+  "",
+  ...Object.entries(SETUP_COMMANDS).map(([name, blurb]) => `  ${name.padEnd(12)} ${blurb}`),
   "",
   "Run `plainwright <command> --help` for that command's options.",
   "",
@@ -106,6 +77,11 @@ if (command === undefined || command === "-h" || command === "--help") {
 }
 
 if (command === "chat") chat(rest);
+
+if (command in SETUP_COMMANDS) {
+  const { main } = await import("./setup.ts");
+  process.exit(await main(command as "setup" | "doctor" | "vm-image", rest));
+}
 
 const entry = COMMANDS[command];
 if (entry === undefined) {

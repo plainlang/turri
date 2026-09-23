@@ -11,7 +11,7 @@ import { Type } from "typebox";
 import { plainFileParser } from "./plain/parser.ts";
 import { FunctionalSpecError, functionalSpecsText, withFunctionalSpec } from "./plain/functional-section.ts";
 import { resolveTemplateDirs } from "./render/render.ts";
-import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./render/spec-change.ts";
+import { applySpecDiff, plainFilesOf, revertSpecDiff, snapshotSpec } from "./render/spec-change.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
 import type { RenderQueue } from "./render/queue.ts";
 import { reviewNote, type LiveReviewer } from "./tools.ts";
@@ -255,7 +255,9 @@ export function createSpecDiffTools(options: {
       if (params.fixes_earlier !== true) answeredSinceLastDiff = false;
       liveReview?.notice(`${params.plain_file}, after the change to ${touched.join(", ")}`);
 
-      const jobId = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff }).jobId;
+      // The spec as it stands with this change in is what its render builds and records.
+      const spec = snapshotSpec(params.plain_file, { cwd });
+      const jobId = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec }).jobId;
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
         `Rendering it as job ${jobId}, in the background - carry on with the interview.`,

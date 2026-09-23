@@ -29,7 +29,7 @@ describe("conformanceDirFor", () => {
 });
 
 describe("runInSandbox with several test sets", () => {
-  it("merges every set over the build", () => {
+  it("merges every set over the build", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
     const one = join(root, "c", "1");
     const two = join(root, "c", "2");
@@ -38,14 +38,14 @@ describe("runInSandbox with several test sets", () => {
     writeFileSync(join(one, "a.sh"), "cat app.txt");
     writeFileSync(join(two, "b.sh"), "echo second");
 
-    const result = runInSandbox(buildDir, [one, two], "sh a.sh && sh b.sh");
+    const result = await runInSandbox(buildDir, [one, two], "sh a.sh && sh b.sh");
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("hello");
     expect(result.output).toContain("second");
   });
 
-  it("renames a clashing file instead of overwriting it", () => {
+  it("renames a clashing file instead of overwriting it", async () => {
     const one = join(root, "c", "1");
     const two = join(root, "c", "2");
     mkdirSync(one, { recursive: true });
@@ -53,18 +53,18 @@ describe("runInSandbox with several test sets", () => {
     writeFileSync(join(one, "test.sh"), "echo from-one");
     writeFileSync(join(two, "test.sh"), "echo from-two");
 
-    const result = runInSandbox(buildDir, [one, two], "sh test.sh && sh 2_test.sh");
+    const result = await runInSandbox(buildDir, [one, two], "sh test.sh && sh 2_test.sh");
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("from-one");
     expect(result.output).toContain("from-two");
   });
 
-  it("skips a set that does not exist yet", () => {
+  it("skips a set that does not exist yet", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
     const missing = join(root, "c", "nope");
 
-    expect(runInSandbox(buildDir, [missing], "cat app.txt").exitCode).toBe(0);
+    expect((await runInSandbox(buildDir, [missing], "cat app.txt")).exitCode).toBe(0);
   });
 });
 

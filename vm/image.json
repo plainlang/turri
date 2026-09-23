@@ -1,0 +1,46 @@
+{
+  "arch": "aarch64",
+  "distro": "alpine",
+  "alpine": {
+    "version": "3.23.0",
+    "kernelPackage": "linux-virt",
+    "kernelImage": "vmlinuz-virt",
+    "rootfsPackages": [
+      "linux-virt",
+      "rng-tools",
+      "bash",
+      "ca-certificates",
+      "curl",
+      "e2fsprogs",
+      "e2fsprogs-extra",
+      "openssh",
+      "python3",
+      "py3-pip",
+      "uv",
+      "nodejs",
+      "npm",
+      "openjdk21-jdk",
+      "maven",
+      "gradle",
+      "go",
+      "rust",
+      "cargo",
+      "build-base",
+      "cmake",
+      "pkgconf",
+      "git",
+      "coreutils",
+      "findutils",
+      "grep",
+      "sed",
+      "tar",
+      "unzip",
+      "xz"
+    ],
+    "initramfsPackages": [],
+    "krunfwVersion": "v5.2.1"
+  },
+  "rootfs": {
+    "label": "gondolin-root"
+  }
+}

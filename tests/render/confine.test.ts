@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -7,11 +7,10 @@ import {
   confinedTools,
   ConfinementError,
   insideAny,
-  runConfined,
-  sandboxSupported,
 } from "../../src/render/confine.ts";
 import { runInSandbox } from "../../src/render/conformance.ts";
 import { runCommand } from "../../src/render/testing.ts";
+import { closeAllVms, installSystemPackages, runInVm, systemPackages, vmImage, vmSupported } from "../../src/render/vm.ts";
 
 let root: string;
 let code: string;
@@ -28,7 +27,9 @@ beforeEach(() => {
   writeFileSync(join(code, "app.py"), "print('hi')\n");
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Each test is a project of its own, and so has a VM of its own.
+  await closeAllVms();
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -60,28 +61,26 @@ describe("insideAny", () => {
 
 describe("confinedTools", () => {
   it("replaces the built-in file tools", () => {
-    const fence = confinedTools({ workdir: code, read: [], write: [code] });
+    const fence = confinedTools({ workdir: code });
     expect(fence.names).toEqual(
       expect.arrayContaining(["read", "write", "edit", "ls", "grep", "find"]),
     );
   });
 
-  it("refuses a root above the module root", () => {
-    expect(() => confinedTools({ workdir: code, read: [root], write: [code] })).toThrow(
-      ConfinementError,
-    );
-  });
-
-  it("allows the test directory to read the code beside it", () => {
-    const fence = confinedTools({ workdir: tests, read: [code], write: [tests] });
-    expect(fence.names).toContain("read");
-  });
-
   const execute = (tool: any, params: unknown) =>
     tool.execute("id", params, undefined, undefined, {} as never);
 
-  it("refuses to read outside its roots", async () => {
-    const fence = confinedTools({ workdir: code, read: [], write: [code] });
+  it("reaches every module in plain_modules", async () => {
+    const fence = confinedTools({ workdir: tests });
+    const read = fence.tools.find((t) => t.name === "read")!;
+    const write = fence.tools.find((t) => t.name === "write")!;
+    await expect(execute(read, { path: join(code, "app.py") })).resolves.toBeDefined();
+    await execute(write, { path: join(root, "plain_modules", "other", "code", "x.py"), content: "x" });
+    expect(existsSync(join(root, "plain_modules", "other", "code", "x.py"))).toBe(true);
+  });
+
+  it("refuses to read above plain_modules", async () => {
+    const fence = confinedTools({ workdir: code });
     const read = fence.tools.find((t) => t.name === "read")!;
 
     await expect(execute(read, { path: join(outside, "secret.ts") })).rejects.toThrow(
@@ -90,89 +89,146 @@ describe("confinedTools", () => {
     await expect(execute(read, { path: "../../../src/secret.ts" })).rejects.toThrow(
       ConfinementError,
     );
+    await expect(execute(read, { path: join(root, "app.plain") })).rejects.toThrow(ConfinementError);
   });
 
-  it("refuses to write outside its roots", async () => {
-    const fence = confinedTools({ workdir: tests, read: [code], write: [tests] });
+  it("refuses to write above plain_modules", async () => {
+    const fence = confinedTools({ workdir: tests });
     const write = fence.tools.find((t) => t.name === "write")!;
-
-    // It may read the code, but the code is not its to change.
-    await expect(execute(write, { path: join(code, "app.py"), content: "x" })).rejects.toThrow(
+    await expect(execute(write, { path: join(outside, "secret.ts"), content: "x" })).rejects.toThrow(
       /outside this agent's write directory/,
     );
-    expect(existsSync(join(code, "app.py"))).toBe(true);
+    expect(readFileSync(join(outside, "secret.ts"), "utf8")).toBe("const secret = 1;\n");
   });
 
   it("refuses a pattern that climbs out", async () => {
-    const fence = confinedTools({ workdir: code, read: [], write: [code] });
+    const fence = confinedTools({ workdir: code });
     const find = fence.tools.find((t) => t.name === "find")!;
     await expect(execute(find, { pattern: "../../**/*.ts" })).rejects.toThrow(/reaches outside/);
   });
 });
 
-describe.runIf(sandboxSupported())("the sandboxed shell", () => {
-  it("lets the agent write inside its own directory", () => {
-    const result = runConfined(
-      { workdir: code, read: [code], write: [code] },
-      "echo built > out.txt && cat out.txt",
-    );
-    expect(result.status).toBe(0);
+// Each project gets one VM; the first ever also fetches the image.
+const VM_TIMEOUT = 120_000;
+
+describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () => {
+  const sh = (command: string, cwd = code) => runInVm(command, { cwd });
+
+  it("lets the agent write anywhere in plain_modules", async () => {
+    const result = await sh(`echo built > out.txt && echo t > ${join(tests, "t.txt")} && cat out.txt`);
+    expect(result.exitCode).toBe(0);
     expect(result.output).toContain("built");
+    expect(existsSync(join(code, "out.txt"))).toBe(true);
+    expect(existsSync(join(tests, "t.txt"))).toBe(true);
   });
 
-  it("stops a write outside it", () => {
-    const result = runConfined(
-      { workdir: code, read: [code], write: [code] },
-      `echo bad > ${join(outside, "written.txt")}`,
-    );
-    expect(result.status).not.toBe(0);
+  it("does not hold the project above plain_modules at all", async () => {
+    writeFileSync(join(root, "app.plain"), "***functional specs***\n");
+    const result = await sh(`cat ../../../src/secret.ts ${join(outside, "secret.ts")} ${join(root, "app.plain")} 2>/dev/null; echo ---; ls -A ${root}`);
+    expect(result.output).not.toContain("const secret");
+    expect(result.output).not.toContain("functional specs");
+    // Only the path down to plain_modules exists.
+    expect(result.output.split("---\n")[1]).toBe("plain_modules\n");
+  });
+
+  it("does not hold the home directory, other projects, or the host's environment", async () => {
+    const home = homedir();
+    const result = await sh(`ls -A ${home} 2>&1; echo ---; env`);
+    const [listing, env] = result.output.split("---\n");
+    expect(listing).toMatch(/No such file or directory/);
+    expect(env).not.toMatch(/API_KEY|ANTHROPIC|OPENAI/);
+  });
+
+  it("stops a write above plain_modules", async () => {
+    const result = await sh(`echo bad > ${join(outside, "written.txt")}`);
+    expect(result.exitCode).not.toBe(0);
     expect(existsSync(join(outside, "written.txt"))).toBe(false);
   });
 
-  it("stops a read of the project above plain_modules", () => {
-    const result = runConfined(
-      { workdir: code, read: [code], write: [code] },
-      `cat ${join(outside, "secret.ts")}`,
-    );
-    expect(result.status).not.toBe(0);
-    expect(result.output).not.toContain("const secret");
+  it("runs what is built there - binaries and scripts alike", async () => {
+    writeFileSync(join(code, "run.sh"), "#!/bin/sh\necho script-ok\n");
+    const result = await sh("chmod +x run.sh && ./run.sh");
+    expect(result.output).toContain("script-ok");
   });
 
-  it("still lets ordinary tooling run", () => {
-    const result = runConfined({ workdir: code, read: [code], write: [code] }, "python3 -c 'print(2+2)'");
-    expect(result.status).toBe(0);
-    expect(result.output).toContain("4");
+  it("runs several commands at once", async () => {
+    const results = await Promise.all([1, 2, 3].map((n) => sh(`sleep 1; echo ${n}`)));
+    expect(results.map((r) => r.output.trim())).toEqual(["1", "2", "3"]);
+  });
+
+  it("is the shell the agent's bash tool runs", async () => {
+    const fence = confinedTools({ workdir: code });
+    const bash = fence.tools.find((t) => t.name === "bash")!;
+    const run = (command: string) =>
+      (bash as any).execute("id", { command }, undefined, undefined, {} as never).then(
+        (result: any) => result.content.map((part: any) => part.text).join(""),
+        (error: Error) => error.message,
+      );
+    expect(await run("python3 app.py")).toContain("hi");
+    expect(await run(`cat ${join(outside, "secret.ts")}`)).not.toContain("const secret");
+    expect(bash.description).toContain("install_system_packages");
   });
 });
 
-describe.runIf(sandboxSupported())("running the tests", () => {
-  it("cannot be used to read the spec above plain_modules", () => {
+describe.runIf(vmSupported() && vmImage() !== undefined)("the plainwright image", { timeout: VM_TIMEOUT }, () => {
+  it("builds and runs Java, Go, Rust and C", async () => {
+    writeFileSync(join(code, "a.c"), "int main(){return 0;}\n");
+    writeFileSync(join(code, "m.go"), 'package main\nfunc main(){println("go-ok")}\n');
+    writeFileSync(join(code, "m.rs"), 'fn main(){println!("rust-ok")}\n');
+    writeFileSync(join(code, "M.java"), 'class M{public static void main(String[] a){System.out.println("java-ok");}}\n');
+    const result = await runInVm(
+      "gcc a.c -o a && ./a && echo c-ok; go run m.go; rustc m.rs -o mr && ./mr; java M.java; mvn -v | head -1; git --version",
+      { cwd: code },
+    );
+    for (const ok of ["c-ok", "go-ok", "rust-ok", "java-ok", "Apache Maven", "git version"]) {
+      expect(result.output).toContain(ok);
+    }
+  });
+
+  it("keeps a system package the agent installed, for every VM the project starts", async () => {
+    const fence = confinedTools({ workdir: code });
+    const install = fence.tools.find((t) => t.name === "install_system_packages")!;
+    const installed = await (install as any).execute("id", { packages: ["jq"] }, undefined, undefined, {} as never);
+    expect(installed.details.exitCode).toBe(0);
+    expect(systemPackages(code)).toEqual(["jq"]);
+
+    await closeAllVms();
+    const result = await runInVm("echo '{\"a\":1}' | jq .a", { cwd: code });
+    expect(result.output.trim()).toBe("1");
+  });
+
+  it("refuses what is not a package name", async () => {
+    const result = await installSystemPackages(code, ["jq; rm -rf /"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain("Not an Alpine package name");
+    expect(systemPackages(code)).toEqual([]);
+  });
+});
+
+describe.runIf(vmSupported())("running the tests", { timeout: VM_TIMEOUT }, () => {
+  it("cannot be used to read the spec above plain_modules", async () => {
     writeFileSync(join(root, "app.plain"), "***functional specs***\n");
-    const result = runCommand(code, "cat ../../../app.plain");
+    const result = await runCommand(code, "cat ../../../app.plain");
     expect(result.exitCode).not.toBe(0);
     expect(result.output).not.toContain("functional specs");
   });
 
-  it("cannot write outside the directory it runs in", () => {
-    const result = runCommand(code, `echo bad > ${join(outside, "written.txt")}`);
-    expect(result.exitCode).not.toBe(0);
-    expect(existsSync(join(outside, "written.txt"))).toBe(false);
-  });
-
-  it("can still resolve its own working directory", () => {
-    const result = runCommand(code, "python3 -c 'import os; print(os.path.abspath(\".\"))'");
+  it("can still resolve its own working directory", async () => {
+    const result = await runCommand(code, "python3 -c 'import os; print(os.path.abspath(\".\"))'");
     expect(result.exitCode).toBe(0);
-    expect(result.output).toContain("code");
+    expect(result.output).toContain(code);
   });
 
-  it("still runs the tests themselves", () => {
-    expect(runCommand(code, "python3 app.py")).toEqual({ exitCode: 0, output: "hi\n" });
+  it("still runs the tests themselves", async () => {
+    expect(await runCommand(code, "python3 app.py")).toEqual({ exitCode: 0, output: "hi\n" });
   });
 
-  it("fences a conformance run to its throwaway copy", () => {
-    writeFileSync(join(tests, "check.sh"), "python3 app.py\n");
-    expect(runInSandbox(code, tests, "sh check.sh").output).toBe("hi\n");
-    expect(runInSandbox(code, tests, `cat ${join(outside, "secret.ts")}`).exitCode).not.toBe(0);
-    expect(runInSandbox(code, tests, `cat ${join(code, "app.py")}`).exitCode).not.toBe(0);
+  it("runs a conformance suite in a copy inside plain_modules, and leaves nothing behind", async () => {
+    writeFileSync(join(tests, "check.sh"), "python3 app.py; pwd\n");
+    const result = await runInSandbox(code, tests, "sh check.sh");
+    expect(result.output).toContain("hi\n");
+    expect(result.output).toContain(join(root, "plain_modules", ".plainwright", "runs"));
+    expect((await runInSandbox(code, tests, `cat ${join(outside, "secret.ts")}`)).exitCode).not.toBe(0);
+    expect(readdirSync(join(root, "plain_modules", ".plainwright", "runs")).flatMap((key) => readdirSync(join(root, "plain_modules", ".plainwright", "runs", key)))).toEqual([]);
   });
 });

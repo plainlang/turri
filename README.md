@@ -9,16 +9,98 @@ Pi supplies the agent runtime (sessions, tools, multi-provider models). LangGrap
 the control flow. The gate syntax lives in `SKILL.md`, so a gated skill still loads in any
 spec-compliant harness - it just runs ungated there.
 
-## Run it
+## Install
 
 ```bash
+git clone git@github.com:plainlang/plainwright.git && cd plainwright
 npm install
-npm run forge -- skills/forge-plain      # run a gated skill directly
-plainwright chat                          # or drive it from a conversation
+npm link              # puts `plainwright` on your PATH, pointing at this clone
+plainwright setup     # checks the machine, fixes what it can, asks before each change
 ```
 
+Then, in the project that holds your specs:
+
+```bash
+cd ~/my-project
+plainwright chat      # pi, with plainwright's tools, skills and themes loaded
+```
+
+`plainwright setup` checks, in order, and says exactly what to run for anything missing:
+
+| what | why | if it is missing |
+| --- | --- | --- |
+| Node 22.18+ | plainwright runs its `.ts` sources directly | install a newer Node |
+| QEMU | every command an agent runs, runs in a sandbox VM on it | `setup` offers `brew install qemu`; on Linux, `apt install qemu-system-arm` / `qemu-system-x86` |
+| the VM image | the full image has Python, Node, Java, Go, Rust, C/C++ and git | `setup` offers to build it (about 7 minutes, 2 GB) - see [Building the VM image](#building-the-vm-image); until then the stock image is used - see [below](#without-the-full-vm-image) |
+| a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
+| `plainwright` on PATH | so it runs from any project | `npm link` in this clone |
+| in every `pi` (optional) | a plain `pi` gets the tools too, not only `plainwright chat` | `setup` offers to write the one-line extension and copy the themes |
+
+It ends by starting a sandbox VM for real and listing the toolchains in it, since a VM that
+does not start is the one thing that stops every render. Nothing is changed without asking;
+`plainwright setup --yes` says yes to everything. Run without a terminal - piped, or in CI -
+it asks nothing, changes nothing, and lists what it would have asked.
+
+Afterwards:
+
+```bash
+plainwright doctor            # the same checks, changing nothing - for when something breaks
+plainwright doctor --quick    # without starting a VM
+plainwright vm-image          # build (or rebuild) the full VM image - with e2fsprogs, or in Docker
+```
+
+The pi session says where commands will run on its first line - the image in use, a limit
+such as the stock image, or that there is no VM and why. A VM that fails to start refuses
+the command and names `plainwright doctor`.
+
 Models and credentials come from your Pi configuration (`~/.pi/agent`) or provider env
-vars - the same resolution `pi` itself uses. No extra setup.
+vars - the same resolution `pi` itself uses.
+
+### Building the VM image
+
+The full image is built one of two ways, and `plainwright vm-image` uses the first this machine
+has (`--native` or `--docker` picks one):
+
+| | needs | |
+| --- | --- | --- |
+| with e2fsprogs (the default) | e2fsprogs: `brew install e2fsprogs`, or `apt install e2fsprogs` | a few small command-line tools, installed once - nothing to start or keep running. Gondolin unpacks the Alpine packages itself; e2fsprogs writes the disk image. |
+| in Docker | Docker, running | the build runs in a Linux container. For when e2fsprogs cannot be installed. |
+
+Both take about 7 minutes and produce the same image. `plainwright setup` works through them
+in that order:
+
+- **e2fsprogs installed** - it offers to build.
+- **e2fsprogs not installed** - on macOS it offers to install it with Homebrew, then to build;
+  on Linux it prints `sudo apt install e2fsprogs`.
+- **Still no e2fsprogs** - it falls back to Docker: it offers to build in Docker if it is
+  running, or to start it first if it is installed but not running (`open -a Docker` on
+  macOS, and waits for it; on Linux it prints `sudo systemctl start docker`).
+- **Neither** - it says so, explains what the stock image means for your project, and names
+  both ways to get the full one.
+
+`plainwright doctor` shows which way is available as `Image builder`.
+
+### Without the full VM image
+
+Until `plainwright vm-image` has been run, commands run in Gondolin's stock image, downloaded
+on first use (about 200 MB). What that means for a project:
+
+| | |
+| --- | --- |
+| works | Python 3.12 (`venv`, `pip` inside a venv, `uv`) and Node 24 (`npm`) projects. Their dependencies install into the project folder, so there is room for them - FastAPI, SQLAlchemy, pytest, Express, Vitest all install. |
+| missing | C/C++ compilers and `make`, `git`, Java, Go, Rust. |
+| so | A Java, Go, Rust or C/C++ project cannot be built. A Python or npm package that has to compile native code - one with no prebuilt build for Alpine - fails to install. |
+| installing more | The VM's own disk has about 80 MB free. `install_system_packages` fits small packages (`jq`, `sqlite`), never a compiler or a JDK. |
+
+The agents are told the same, so on the stock image a project that needs more is reported as
+needing the full image rather than fought with. `plainwright doctor`, `setup` and the session
+banner all say which image is in use.
+
+A gated skill can also be run directly, without a conversation:
+
+```bash
+npm run forge -- skills/forge-plain
+```
 
 ## The syntax
 
@@ -254,12 +336,10 @@ the gate afterwards runs.
 The tools resolve paths against the current directory, and a `.plain` file's linked
 resources do too - so the intended shape is to `cd` to the module and name the file.
 
-```bash
-cd plainwright && npm link          # once
-```
-
-That puts `plainwright` on your PATH, pointing at this working copy, so edits here take
-effect immediately - no reinstall while iterating.
+`npm link` (see [Install](#install)) puts `plainwright` on your PATH, pointing at this
+working copy, so edits here take effect immediately - no reinstall while iterating. It has to
+be a link, not `npm install -g`: Node will not run `.ts` files from inside a `node_modules`,
+and a copying global install puts them there.
 
 ```bash
 cd ~/Work/codeplain/hycu/hycu-dynamics-365-modules
@@ -283,11 +363,13 @@ export GEMINI_API_KEY=...        # and leave GOOGLE_API_KEY unset
 ### Conversation mode from any directory
 
 `plainwright chat` runs pi from this project's `node_modules`, so no global pi install is
-needed. To get the tools in a plain `pi` instead, install a one-line global extension:
+needed. To get the tools in a plain `pi` instead, let `plainwright setup` install a one-line
+global extension (`~/.pi/agent/extensions/plainwright.ts`) and copy the themes to
+`~/.pi/agent/themes/`. By hand, it is:
 
 ```bash
 mkdir -p ~/.pi/agent/extensions
-cat > ~/.pi/agent/extensions/plain-forge.ts <<'EOF'
+cat > ~/.pi/agent/extensions/plainwright.ts <<'EOF'
 export { default } from "/absolute/path/to/plainwright/src/extension.ts";
 EOF
 cp .pi/themes/*.json ~/.pi/agent/themes/
@@ -459,13 +541,9 @@ anywhere. A rendering agent has no business outside the module it is building, s
 `src/render/confine.ts` rebuilds the file tools from pi's own factories with a check in
 front of every path, and runs `bash` under an OS sandbox.
 
-Each agent gets two roots, both under `plain_modules`, and nothing reaches above that:
-
-| agent | reads | writes |
-| --- | --- | --- |
-| render | `plain_modules/<module>/code` | `plain_modules/<module>/code` |
-| conformance author | `plain_modules/<module>/{code,tests}` | `plain_modules/<module>/tests` |
-| code fixer | `plain_modules/<module>/code` | `plain_modules/<module>/code` |
+Every agent - render, conformance author, code fixer, regression repair - reads and writes
+the whole of `plain_modules`, every module's code and tests, and nothing above it: not the
+`.plain` specs, not the rest of the project.
 
 The path check runs twice: once on the argument the tool was called with, and once on the
 absolute path the tool resolved it to, because the two can differ. Symlinks are resolved
@@ -473,12 +551,35 @@ before comparing, so a link cannot walk out, and a glob containing `..` is refus
 outright.
 
 `bash` is the case no argument check can cover - one string, and no way to read where it
-will write. On macOS it runs under `sandbox-exec` with a profile that denies writes
-everywhere except the agent's own roots and a private scratch directory (which `TMPDIR`
-points at), and denies reads of the project above `plain_modules`. Reads elsewhere stay
-open, because interpreters, compilers and package managers live there and denying them
-breaks the build without protecting anything. Where no OS sandbox is available the agent
-gets no shell at all, since there is no honest way to fence one.
+will read or write. So it does not run on the host at all: every command - the agent's
+`bash`, `run_unit_tests`, conformance runs, the try-it checks - runs in one
+[Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux) per project,
+which holds `plain_modules` and nothing else, mounted read-write at the path it has on the
+host. The specs above it, the home directory and every other project do not exist in there.
+The host environment is not passed in, so the provider's API keys stay out. The network
+reaches the package registries (Alpine, PyPI, npm, Go, crates.io, Maven Central, Gradle) and
+any host named in `PLAINWRIGHT_ALLOWED_HOSTS` (comma-separated), nothing else.
+
+What the VM needs beside the code lives in `plain_modules/.plainwright`, which ignores itself:
+the package caches (so a dependency downloads once per project), the copies conformance runs
+and try-it checks happen in, and `system-packages.json`.
+
+The guest image is plainwright's own, built from `vm/image.json` with `plainwright vm-image`
+- or by `plainwright setup`, which offers to - for this machine's architecture, with e2fsprogs
+or in Docker (see [Building the VM image](#building-the-vm-image); about 7 minutes, 2 GB):
+Python, Node, Java 21 with Maven and Gradle, Go, Rust, C/C++ with make and cmake, and git.
+Without it the stock Gondolin image is used (downloaded on first use, about 200 MB) - see
+[Without the full VM image](#without-the-full-vm-image) for what that can and cannot build. A language, compiler or system
+library the image lacks, the agent installs with `install_system_packages` (Alpine packages).
+The packages are recorded in `plain_modules/.plainwright/system-packages.json` and installed
+again - from the project's cache - whenever the project's VM starts, so what one render set up
+is there for every later one. Project dependencies go through the project's own package manager
+as usual.
+
+The VM starts on the first command and is kept until pi exits. VMs run on Apple Silicon macOS
+and on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the
+agent gets no shell and commands are refused, because there is no honest way to fence one on
+the host. `plainwright doctor` says which of those it is.
 
 ### The tests must actually pass
 

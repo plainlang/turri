@@ -51,8 +51,12 @@ function stepLines(step: TryStep): string[] {
 }
 
 function tryItLines(delivery: Delivery): string[] {
-  const tryIt = delivery.tryIt;
-  const lines = ["", "Try it", `  $ cd ${shortPath(tryIt?.dir ?? delivery.buildDir)}`];
+  return describeTryIt(delivery.tryIt, delivery.buildDir);
+}
+
+/** The "Try it" block: where to go, the setup, and each step with whether it worked when checked. */
+export function describeTryIt(tryIt: TryIt | undefined, buildDir: string): string[] {
+  const lines = ["", "Try it", `  $ cd ${shortPath(tryIt?.dir ?? buildDir)}`];
   if (tryIt?.dir !== undefined) {
     lines.push("    (a copy of the build as it is now - later renders do not touch it)");
   }

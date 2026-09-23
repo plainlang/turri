@@ -16,7 +16,7 @@ const tryIt: TryIt = {
 
 function fake(results: Record<string, number>) {
   const ran: string[] = [];
-  const run = (_cwd: string, command: string) => {
+  const run = async (_cwd: string, command: string) => {
     ran.push(command);
     return { exitCode: results[command] ?? 0, output: `ran ${command}` };
   };
@@ -24,26 +24,26 @@ function fake(results: Record<string, number>) {
 }
 
 describe("checking the try-it steps", () => {
-  it("runs setup and the commands that finish, never servers or manual steps", () => {
+  it("runs setup and the commands that finish, never servers or manual steps", async () => {
     const { ran, run } = fake({});
-    const result = checkTryIt("/build", tryIt, run);
+    const result = await checkTryIt("/build", tryIt, run);
     expect(ran).toEqual(["make deps", "./app hello"]);
     expect(result.ok).toBe(true);
     expect(result.tryIt.steps[0]!.exitCode).toBe(0);
     expect(result.tryIt.steps[1]!.exitCode).toBeUndefined();
   });
 
-  it("records a failing step", () => {
+  it("records a failing step", async () => {
     const { run } = fake({ "./app hello": 2 });
-    const result = checkTryIt("/build", tryIt, run);
+    const result = await checkTryIt("/build", tryIt, run);
     expect(result.ok).toBe(false);
     expect(result.tryIt.steps[0]!.exitCode).toBe(2);
     expect(failedStepsPrompt(result.tryIt, result.outputs)).toContain("$ ./app hello\nran ./app hello");
   });
 
-  it("stops at a failing setup command", () => {
+  it("stops at a failing setup command", async () => {
     const { ran, run } = fake({ "make deps": 1 });
-    const result = checkTryIt("/build", tryIt, run);
+    const result = await checkTryIt("/build", tryIt, run);
     expect(ran).toEqual(["make deps"]);
     expect(result.ok).toBe(false);
     expect(result.tryIt.failedSetup).toEqual(["make deps"]);
@@ -51,8 +51,8 @@ describe("checking the try-it steps", () => {
 });
 
 describe("where the person tries it", () => {
-  it("is a copy per functionality, beside plain_modules", () => {
-    expect(tryDirFor("/proj/plain_modules/app/code", "app", "3")).toBe("/proj/.plainwright/try/app/fs-3");
+  it("is a copy per functionality, inside plain_modules where the VM can run it", () => {
+    expect(tryDirFor("/proj/plain_modules/app/code", "app", "3")).toBe("/proj/plain_modules/.plainwright/try/app/fs-3");
   });
 
   it("copies the code but not installed dependencies, caches or the build record", () => {
@@ -68,7 +68,7 @@ describe("where the person tries it", () => {
     prepareTryDir(build, dest);
 
     expect(readdirSync(dest).sort()).toEqual(["src"]);
-    expect(readFileSync(join(root, ".plainwright", ".gitignore"), "utf8")).toBe("*\n");
+    expect(readFileSync(join(root, "plain_modules", ".plainwright", ".gitignore"), "utf8")).toBe("*\n");
     rmSync(root, { recursive: true, force: true });
   });
 });

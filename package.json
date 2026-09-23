@@ -4,20 +4,30 @@
   "private": true,
   "type": "module",
   "description": "An agent that builds code from ***plain specifications, with harness-enforced review and conformance gates.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "plainwright": "bin/plainwright.mjs"
+  },
   "scripts": {
     "forge": "tsx src/run.ts",
     "typecheck": "tsc --noEmit",
     "chat": "pi -e ./src/extension.ts",
     "ask": "pi -p --no-session -e ./src/extension.ts",
     "test": "vitest run",
+    "vm:image": "node bin/plainwright.mjs vm-image",
     "test:watch": "vitest",
     "render": "tsx src/render-frid.ts",
     "conformance": "tsx src/conformance-frid.ts",
     "module": "tsx src/render-module.ts",
     "regenerate": "tsx src/regenerate-frid.ts",
-    "check": "tsx src/check-cli.ts"
+    "check": "tsx src/check-cli.ts",
+    "setup": "node bin/plainwright.mjs setup",
+    "doctor": "node bin/plainwright.mjs doctor"
   },
   "dependencies": {
+    "@earendil-works/gondolin": "^0.12.0",
     "@earendil-works/pi-coding-agent": "^0.87.1",
     "@earendil-works/pi-tui": "^0.87.1",
     "@langchain/langgraph": "1.4.15",
@@ -36,13 +46,12 @@
     "typescript": "^5.7.0",
     "vitest": "^5.0.1"
   },
-  "bin": {
-    "plainwright": "src/cli.ts"
-  },
   "files": [
+    "bin",
     "src",
     ".pi",
     "skills",
+    "vm",
     "README.md"
   ]
 }

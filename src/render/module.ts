@@ -152,7 +152,7 @@ async function repairRegression(input: {
   const [specifications] = getSpecificationsForFrid(input.tree, input.frids[input.frids.length - 1]!);
   const runs: TestRun[] = [];
 
-  const fence = confinedTools({ workdir: input.buildDir, read: [], write: [input.buildDir] });
+  const fence = confinedTools({ workdir: input.buildDir });
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [
@@ -231,7 +231,7 @@ export async function ensureRegressionPasses(input: {
     reportStage(
       `${input.moduleName}: running every functionality's conformance tests together (${input.frids.join(", ")})`,
     );
-    const result = runInSandbox(input.buildDir, dirs, command);
+    const result = await runInSandbox(input.buildDir, dirs, command);
     runs.push({ command, exitCode: result.exitCode, frids: input.frids });
     reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
     input.onEvent?.({ type: "run", command, exitCode: result.exitCode, frids: input.frids });

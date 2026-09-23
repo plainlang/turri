@@ -7,9 +7,10 @@ import { formatDuration, type Job } from "./jobs.ts";
  * Reading a job's agents at work, as it happens.
  *
  * The panel shows the last few things a job did; this shows all of it - every prompt the
- * harness gave, every reply and thought, every tool call and what came back - in an overlay
- * that follows the newest line until the person scrolls away from it, and follows again when
- * they scroll back to the bottom.
+ * harness gave, every reply and thought, every tool call and what came back - on a screen of
+ * its own that follows the newest line until the person scrolls away from it, and follows
+ * again when they scroll back to the bottom. Leaving it goes back to the conversation and
+ * keeps the place, so it can be switched to and from.
  */
 
 /** How the viewer colours things. Plain text when there is no theme, as in tests. */
@@ -91,6 +92,9 @@ export interface TranscriptViewOptions {
   /** Rows the overlay may use. */
   rows: () => number;
   style?: TranscriptStyle;
+  /** Back to the conversation, keeping the place. */
+  back: () => void;
+  /** Close it for good. */
   close: () => void;
 }
 
@@ -107,7 +111,7 @@ export function createTranscriptView(options: TranscriptViewOptions) {
       const rows = Math.max(6, options.rows());
       const bodyHeight = rows - 3;
       lastBodyHeight = bodyHeight;
-      if (job === undefined) return [style.error("That job is gone."), "", style.muted("q to close")];
+      if (job === undefined) return [style.error("That job is gone."), "", style.muted("x to close")];
 
       const body = transcriptLines(job, width, style);
       const maxScroll = Math.max(0, body.length - bodyHeight);
@@ -122,13 +126,16 @@ export function createTranscriptView(options: TranscriptViewOptions) {
         style.muted("─".repeat(Math.max(1, width))),
         ...visible.map((line) => truncateToWidth(line, width)),
         // Where you are first: the keys are the part a narrow terminal can afford to lose.
-        style.muted(truncateToWidth(`${where}  —  ↑↓ scroll · PgUp/PgDn page · g/G top/bottom · q close`, width)),
+        style.muted(
+          truncateToWidth(`${where}  —  q back to chat (alt+w returns) · g top · G bottom · ↑↓ PgUp PgDn scroll · x close`, width),
+        ),
       ];
     },
 
     handleInput(data: string): void {
       const page = Math.max(1, lastBodyHeight - 1);
-      if (matchesKey(data, Key.escape) || data === "q") options.close();
+      if (matchesKey(data, Key.escape) || data === "q") options.back();
+      else if (data === "x") options.close();
       else if (matchesKey(data, Key.up) || data === "k") fromBottom += 1;
       else if (matchesKey(data, Key.down) || data === "j") fromBottom = Math.max(0, fromBottom - 1);
       else if (matchesKey(data, Key.pageUp)) fromBottom += page;

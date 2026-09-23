@@ -1,10 +1,9 @@
-import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { STATE_FILE } from "./state.ts";
-import { commandSandbox } from "./confine.ts";
+import { runInVm } from "./vm.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
 
@@ -22,30 +21,15 @@ export function truncateOutput(text: string): string {
 }
 
 /**
- * Run a command an agent chose, fenced to `cwd`.
+ * Run a command an agent chose, from `cwd`.
  *
- * The command runs under the same OS sandbox as the bash tool, with `cwd` as its only read
- * and write root, so running the tests cannot be used to read the specification or to
- * reach into another project.
+ * In the project's VM, which holds only plain_modules (see `vm.ts`), so running the tests
+ * cannot be used to read the specification, the rest of the project, or anything else on the
+ * machine.
  */
-export function runCommand(cwd: string, command: string): { exitCode: number; output: string } {
-  const sandbox = commandSandbox({ workdir: cwd, read: [cwd], write: [cwd] });
-  try {
-    const stdout = execSync(sandbox ? sandbox.wrap(command) : command, {
-      cwd,
-      env: sandbox ? { ...process.env, ...sandbox.env } : undefined,
-      timeout: RUN_TIMEOUT_MS,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return { exitCode: 0, output: truncateOutput(stdout) };
-  } catch (error) {
-    const failure = error as { status?: number; stdout?: string; stderr?: string; message?: string };
-    const output = `${failure.stdout ?? ""}${failure.stderr ?? ""}` || (failure.message ?? "");
-    return { exitCode: failure.status ?? 1, output: truncateOutput(output) };
-  } finally {
-    sandbox?.dispose();
-  }
+export async function runCommand(cwd: string, command: string): Promise<{ exitCode: number; output: string }> {
+  const { exitCode, output } = await runInVm(command, { cwd, timeoutMs: RUN_TIMEOUT_MS });
+  return { exitCode, output: truncateOutput(output) };
 }
 
 /**
@@ -61,6 +45,7 @@ const NOT_CODE = new Set([
   ".pytest_cache",
   ".mypy_cache",
   ".ruff_cache",
+  ".plainwright",
   STATE_FILE,
 ]);
 
@@ -86,7 +71,7 @@ export function createRunTestsTool(options: {
   name: string;
   label: string;
   description: string;
-  run: (command: string) => { exitCode: number; output: string };
+  run: (command: string) => Promise<{ exitCode: number; output: string }>;
   runs: TestRun[];
   onRun?: (command: string, exitCode: number) => void;
 }) {
@@ -99,7 +84,7 @@ export function createRunTestsTool(options: {
       command: Type.String({ description: 'Shell command, e.g. "python -m unittest discover"' }),
     }),
     async execute(_id, params) {
-      const { exitCode, output } = options.run(params.command);
+      const { exitCode, output } = await options.run(params.command);
       options.runs.push({ command: params.command, exitCode });
       options.onRun?.(params.command, exitCode);
       return {

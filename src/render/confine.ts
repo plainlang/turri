@@ -1,6 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
@@ -10,9 +9,13 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  defineTool,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { MODULES_DIR } from "./paths.ts";
+import { Type } from "typebox";
+import { modulesRootOf } from "./paths.ts";
+import { truncateOutput } from "./testing.ts";
+import { installSystemPackages, vmBashOperations, vmEnvironmentNote, vmSupported } from "./vm.ts";
 
 /**
  * Keeping a rendering agent inside its own directory.
@@ -23,17 +26,13 @@ import { MODULES_DIR } from "./paths.ts";
  * business reading the rest of the project, let alone writing to it.
  *
  * So the tools are rebuilt from pi's own factories with a check in front of every path, and
- * `bash` runs under an OS sandbox. Two roots per agent: what it may read and what it may
- * write, both of which must sit under `plain_modules`. Nothing reaches above that.
+ * `bash` runs in the project's VM (see `vm.ts`). Both reach the whole of `plain_modules` - every
+ * module's code and tests - and nothing above it: not the specs, not the rest of the project.
  */
 
 export interface Confinement {
-  /** Where the agent starts and where relative paths resolve. */
+  /** Where the agent starts and where relative paths resolve. It sees the plain_modules this is in. */
   workdir: string;
-  /** Directories it may read from. The workdir is always one of them. */
-  read: string[];
-  /** Directories it may write to. */
-  write: string[];
 }
 
 export class ConfinementError extends Error {
@@ -49,9 +48,7 @@ export class ConfinementError extends Error {
  * `--build-dir` - is its own ceiling, so confinement never silently widens to a whole disk.
  */
 export function ceilingFor(dir: string): string {
-  const parts = resolve(dir).split(sep);
-  const index = parts.lastIndexOf(MODULES_DIR);
-  return index === -1 ? resolve(dir) : parts.slice(0, index + 1).join(sep);
+  return modulesRootOf(dir);
 }
 
 /** Resolve symlinks as far as the path exists, so a link cannot walk out of a root. */
@@ -135,71 +132,6 @@ function guardedOps(roots: string[], verb: "read" | "write") {
   };
 }
 
-/**
- * Where package managers keep their caches inside the sandbox.
- *
- * Their defaults sit in the home directory, which is not writable, so an install would
- * fail. This is shared across runs so a dependency is fetched once, not once per test run,
- * and it holds nothing but downloaded packages.
- */
-export function packageCacheDir(): string {
-  return process.env.PLAINWRIGHT_CACHE_DIR ?? join(homedir(), ".cache", "plainwright");
-}
-
-function cacheEnv(cache: string): Record<string, string> {
-  return {
-    XDG_CACHE_HOME: cache,
-    npm_config_cache: join(cache, "npm"),
-    YARN_CACHE_FOLDER: join(cache, "yarn"),
-    PIP_CACHE_DIR: join(cache, "pip"),
-    UV_CACHE_DIR: join(cache, "uv"),
-    GOCACHE: join(cache, "go-build"),
-    GOMODCACHE: join(cache, "go-mod"),
-  };
-}
-
-function sandboxProfile(c: Confinement, scratch: string, cache: string): string {
-  const ceiling = canonical(ceilingFor(c.workdir));
-  const subpaths = (dirs: string[]) => {
-    const unique = [...new Set(dirs.map((d) => canonical(d)))];
-    return unique.map((d) => `  (subpath "${d}")`).join("\n");
-  };
-
-  // Reads stay open in general: an interpreter, a compiler and a package manager all live
-  // outside and a denial here breaks the build rather than protecting anything. What is
-  // closed is the project the module lives in - everything above `plain_modules` - which is
-  // the thing an agent has no reason to be reading and every reason to leave alone.
-  // Its metadata stays open: `realpath` and `getcwd` stat every directory above the one
-  // they start in, and denying that breaks any interpreter run from inside `plain_modules`.
-  // A stat says a path exists, never what it holds or what sits next to it.
-  return [
-    "(version 1)",
-    "(allow default)",
-    "(deny file-write*)",
-    // Its own scratch directory stands in for the system temp dir, which the environment
-    // points at too. A compiler gets somewhere to work without every agent on the machine
-    // sharing one writable tree.
-    `(allow file-write*\n${subpaths([...c.write, scratch, cache, "/dev"])})`,
-    `(deny file-read* (subpath "${canonical(dirname(ceiling))}"))`,
-    `(allow file-read-metadata (subpath "${canonical(dirname(ceiling))}"))`,
-    `(allow file-read*\n${subpaths([...c.read, ...c.write, ceiling, scratch, cache])})`,
-  ].join("\n");
-}
-
-function sandboxAvailable(): boolean {
-  return process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec");
-}
-
-/**
- * Wrap a command so the kernel enforces the same boundary the tools do.
- *
- * Without this, `bash` is the hole every other check is plugged around: it takes one string
- * and no amount of reading it tells you where it will write. macOS can answer that for us.
- */
-function sandboxed(command: string, profilePath: string): string {
-  return `/usr/bin/sandbox-exec -f ${JSON.stringify(profilePath)} /bin/sh -c ${JSON.stringify(command)}`;
-}
-
 export interface ConfinedTools {
   tools: AnyTool[];
   /** Tool names, for the session's `tools` list. */
@@ -210,17 +142,10 @@ export interface ConfinedTools {
 
 export function confinedTools(c: Confinement): ConfinedTools {
   const workdir = resolve(c.workdir);
-  const read = [workdir, ...c.read].map((d) => resolve(d));
-  const write = [...c.write].map((d) => resolve(d));
-
-  const ceiling = ceilingFor(workdir);
-  for (const root of [...read, ...write]) {
-    if (!within(root, ceiling)) {
-      throw new ConfinementError(
-        `${root} is above ${ceiling}. An agent may not be given access above its module root.`,
-      );
-    }
-  }
+  // Every agent sees the whole of plain_modules, as its VM does, and nothing above it.
+  const root = ceilingFor(workdir);
+  const read = [root];
+  const write = [root];
 
   const readOps = guardedOps(read, "read");
   const writeOps = guardedOps(write, "write");
@@ -269,80 +194,55 @@ export function confinedTools(c: Confinement): ConfinedTools {
     }),
   ];
 
-  let description = `file tools fenced to ${workdir}`;
+  let description = `file tools fenced to ${root}`;
 
-  const sandbox = commandSandbox({ workdir, read, write });
-  if (sandbox !== null) {
-    tools.push(
-      createBashToolDefinition(workdir, {
-        spawnHook: (context) => ({
-          ...context,
-          // The command may cd wherever it likes; the sandbox decides what that gets it.
-          cwd: workdir,
-          command: sandbox.wrap(context.command),
-          env: { ...context.env, ...sandbox.env },
-        }),
-      }),
-    );
-    description += `, bash sandboxed to it (writes) and to ${ceilingFor(workdir)} (reads)`;
+  // The shell runs in the project's VM, which holds plain_modules and nothing else. Whatever
+  // it cds to or cats, nothing above that exists.
+  if (vmSupported()) {
+    const bash = createBashToolDefinition(workdir, {
+      operations: vmBashOperations(),
+      exposeSessionEnvironment: false,
+    });
+    bash.description = `${bash.description}\n\n${vmEnvironmentNote()}`;
+    tools.push(bash, installSystemPackagesTool(root));
+    description += ", bash in a VM holding only that";
   } else {
-    // Without an OS sandbox there is no honest way to fence a shell, so the agent does not
-    // get one. Everything it needs to do to files it can do with the tools above.
-    description += ", no bash (no OS sandbox on this platform)";
+    // Without a VM there is no honest way to fence a shell, so the agent does not get one.
+    // Everything it needs to do to files it can do with the tools above.
+    description += ", no bash (no sandbox VM on this platform)";
   }
 
   return { tools, names: tools.map((t) => t.name), description };
 }
 
-/** Whether the kernel-level part of the fence is available here. */
-export function sandboxSupported(): boolean {
-  return sandboxAvailable();
-}
-
-export interface CommandSandbox {
-  /** The command, rewritten to run under the profile. */
-  wrap(command: string): string;
-  /** Points the temp dir at the sandbox's own scratch space. */
-  env: Record<string, string>;
-  /** Remove the profile and scratch space. */
-  dispose(): void;
-}
-
 /**
- * The kernel-level fence for shell commands, or null where there is none.
- *
- * Shared by the bash tool and by every tool that runs a command the agent chose - running
- * the tests takes a command string too, and without this it would be a shell with no
- * fence around it at all.
+ * Install what the VM does not have - a language, a compiler, a system library - with `apk`.
+ * The packages are remembered for the project, and every VM it starts installs them again.
  */
-export function commandSandbox(c: Confinement): CommandSandbox | null {
-  if (!sandboxAvailable()) return null;
-  const dir = mkdtempSync(join(tmpdir(), "plainwright-sandbox-"));
-  const scratch = join(dir, "tmp");
-  mkdirSync(scratch, { recursive: true });
-  const cache = packageCacheDir();
-  mkdirSync(cache, { recursive: true });
-  const profilePath = join(dir, "profile.sb");
-  writeFileSync(profilePath, sandboxProfile(c, scratch, cache));
-  return {
-    wrap: (command) => sandboxed(command, profilePath),
-    env: { TMPDIR: scratch, TMP: scratch, TEMP: scratch, ...cacheEnv(cache) },
-    dispose: () => rmSync(dir, { recursive: true, force: true }),
-  };
-}
-
-/** Used by tests: run one command under the same profile the bash tool would use. */
-export function runConfined(c: Confinement, command: string): { status: number; output: string } {
-  const sandbox = commandSandbox(c);
-  if (sandbox === null) throw new ConfinementError("No OS sandbox on this platform.");
-  try {
-    const result = spawnSync("/bin/sh", ["-c", sandbox.wrap(command)], {
-      cwd: c.workdir,
-      encoding: "utf8",
-      env: { ...process.env, ...sandbox.env },
-    });
-    return { status: result.status ?? 1, output: `${result.stdout ?? ""}${result.stderr ?? ""}` };
-  } finally {
-    sandbox.dispose();
-  }
+function installSystemPackagesTool(root: string): AnyTool {
+  return defineTool({
+    name: "install_system_packages",
+    label: "Install system packages",
+    description:
+      "Install Alpine Linux packages into the VM your commands run in - a language runtime, a compiler, a system " +
+      "library or tool (e.g. ruby, php83, openjdk17, dotnet8-sdk, sqlite-dev). They stay installed for every later " +
+      "render of this project. Use it for what the project's own package manager cannot provide; project " +
+      "dependencies still go in the project's manifest.",
+    promptSnippet: "install_system_packages: install a missing language, compiler or system library in the VM",
+    parameters: Type.Object({
+      packages: Type.Array(Type.String(), { description: "Alpine package names, e.g. [\"ruby\", \"ruby-dev\"]" }),
+    }),
+    async execute(_id, params, signal) {
+      const { exitCode, output } = await installSystemPackages(root, params.packages, { signal });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: exitCode === 0 ? `Installed ${params.packages.join(", ")}.\n\n${truncateOutput(output)}` : `exit code: ${exitCode}\n\n${truncateOutput(output)}`,
+          },
+        ],
+        details: { packages: params.packages, exitCode },
+      };
+    },
+  });
 }

@@ -2,7 +2,7 @@ import { cpSync, rmSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ensureInScratch, scratchDir } from "./paths.ts";
+import { ensureInVmScratch } from "./paths.ts";
 import { STATE_FILE } from "./state.ts";
 import { runCommand, truncateOutput } from "./testing.ts";
 
@@ -80,15 +80,16 @@ export function createTryItTool(onSubmit: (tryIt: TryIt) => void) {
   });
 }
 
-export function tryItPrompt(frid: string): string {
+/** `what`: what was just built, as the start of a sentence - "Functionality 3", "The spec change". */
+export function tryItPrompt(what: string): string {
   return [
-    `Functionality ${frid} is built and its unit tests pass. Now tell the person who asked for it`,
+    `${what} is built and its unit tests pass. Now tell the person who asked for it`,
     "how to try it themselves. Call describe_how_to_try_it.",
     "",
     "- They want to run the software and see the new behaviour, not run the unit tests.",
     "- Use the real entry point: the CLI, the script, the server, the page - whatever this",
     "  codebase is. Give concrete inputs, not placeholders, and say exactly what comes back.",
-    "- Show this functionality specifically. Earlier functionalities only where they are needed",
+    "- Show what was just built specifically. What was built before only where it is needed",
     "  to get there.",
     "- The person runs these from a fresh copy of the working directory: the code, but no",
     "  installed dependencies - no virtual environment, no node_modules, no build caches. Put",
@@ -117,7 +118,7 @@ export function failedStepsPrompt(tryIt: TryIt, outputs: Map<string, string>): s
 }
 
 /** What is not copied: caches, installed dependencies, and the harness's own bookkeeping. */
-const NOT_COPIED = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", STATE_FILE]);
+const NOT_COPIED = new Set([".git", ".plainwright", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", STATE_FILE]);
 
 /**
  * A fresh copy of the build to try it from, replacing any earlier copy for this functionality.
@@ -129,7 +130,7 @@ const NOT_COPIED = new Set([".git", "node_modules", ".venv", "venv", "__pycache_
  */
 export function prepareTryDir(buildDir: string, dest: string): string {
   rmSync(dest, { recursive: true, force: true });
-  ensureInScratch(scratchDir(buildDir), dirname(dest));
+  ensureInVmScratch(buildDir, dirname(dest));
   cpSync(buildDir, dest, { recursive: true, filter: (source) => !NOT_COPIED.has(basename(source)) });
   return dest;
 }
@@ -139,16 +140,16 @@ export function prepareTryDir(buildDir: string, dest: string): string {
  *
  * Stops at the first setup failure, since nothing after it is meaningful.
  */
-export function checkTryIt(
+export async function checkTryIt(
   dir: string,
   tryIt: TryIt,
-  run: (cwd: string, command: string) => { exitCode: number; output: string } = runCommand,
-): { tryIt: TryIt; outputs: Map<string, string>; ok: boolean } {
+  run: (cwd: string, command: string) => Promise<{ exitCode: number; output: string }> = runCommand,
+): Promise<{ tryIt: TryIt; outputs: Map<string, string>; ok: boolean }> {
   const outputs = new Map<string, string>();
   const failedSetup: string[] = [];
 
   for (const command of tryIt.setup) {
-    const result = run(dir, command);
+    const result = await run(dir, command);
     outputs.set(command, truncateOutput(result.output));
     if (result.exitCode !== 0) {
       failedSetup.push(command);
@@ -156,13 +157,50 @@ export function checkTryIt(
     }
   }
 
-  const steps = tryIt.steps.map((step) => {
-    if (step.kind !== "command") return step;
-    const result = run(dir, step.do);
+  const steps: TryStep[] = [];
+  for (const step of tryIt.steps) {
+    if (step.kind !== "command") {
+      steps.push(step);
+      continue;
+    }
+    const result = await run(dir, step.do);
     outputs.set(step.do, truncateOutput(result.output));
-    return { ...step, exitCode: result.exitCode };
-  });
+    steps.push({ ...step, exitCode: result.exitCode });
+  }
 
   const ok = steps.every((step) => step.exitCode === undefined || step.exitCode === 0);
   return { tryIt: { ...tryIt, steps }, outputs, ok };
+}
+
+/**
+ * Ask the agent how the person can try what it just built, and check the answer: the setup
+ * and every step that finishes on its own are run in a fresh copy of the build, and a failure
+ * goes back to the agent once. Returns the steps as checked - each marked with whether it
+ * worked - or nothing when the agent gave none.
+ *
+ * In a copy made for the person, never the build: the next render works in the build, and
+ * whatever trying it leaves behind - a database, installed packages - stays out of the
+ * codebase. A fresh copy each time, so a fix is what gets checked.
+ */
+export async function settleTryIt(input: {
+  buildDir: string;
+  tryDir: string;
+  /** From tryItPrompt. */
+  prompt: string;
+  /** Put a prompt to the agent; resolves to what it passed to describe_how_to_try_it, if anything. */
+  ask: (prompt: string) => Promise<TryIt | undefined>;
+  stage: (label: string) => void;
+}): Promise<TryIt | undefined> {
+  input.stage("working out how you can try it");
+  const described = await input.ask(input.prompt);
+  if (described === undefined) return undefined;
+  const check = (steps: TryIt) => checkTryIt(prepareTryDir(input.buildDir, input.tryDir), { ...steps, dir: input.tryDir });
+  input.stage("running the try-it steps to check they work");
+  let checked = await check(described);
+  if (!checked.ok) {
+    input.stage("a try-it step failed - fixing it");
+    const fixed = await input.ask(failedStepsPrompt(checked.tryIt, checked.outputs));
+    if (fixed !== undefined) checked = await check(fixed);
+  }
+  return checked.tryIt;
 }

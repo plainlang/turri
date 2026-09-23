@@ -1,16 +1,16 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs } from "../plain/spec.ts";
+import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory } from "./history.ts";
 import type { RequiredSpec } from "./state.ts";
-import { defaultBuildDir, modulesRoot, testsDirUnder } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { resolveTemplateDirs } from "./render.ts";
@@ -77,6 +77,11 @@ export interface RenderConformanceTestsOptions {
   dryRun?: boolean;
   /** Update the tests for a spec change, given as a diff, rather than for one functionality. */
   diff?: string;
+  /**
+   * The spec as parsed when that change was written. A change rendered from a queue runs after
+   * later ones went into the file, so the file is not what this change is about.
+   */
+  spec?: { moduleName: string; tree: MarshalledPlainSource };
 }
 
 export type Fault = "test_at_fault" | "code_at_fault";
@@ -123,16 +128,25 @@ export interface RenderConformanceTestsResult {
  * functionalities are allowed to have written a `test_helpers.py` each and neither of them
  * should silently lose.
  */
-export function runInSandbox(
+export async function runInSandbox(
   buildDir: string,
   conformanceDirs: string | string[],
   command: string,
-): { exitCode: number; output: string } {
+): Promise<{ exitCode: number; output: string }> {
   const dirs = Array.isArray(conformanceDirs) ? conformanceDirs : [conformanceDirs];
-  const sandbox = mkdtempSync(join(tmpdir(), "plainwright-conformance-"));
+  // The same place every time for the same build and tests, emptied first: the run's VM is
+  // started once for it and reused, and nothing from the last run is left in it.
+  const key = createHash("sha1").update(JSON.stringify([resolve(buildDir), ...dirs.map((dir) => resolve(dir))])).digest("hex").slice(0, 16);
+  // Inside plain_modules, since that is all the VM holds.
+  const sandbox = join(vmScratchDir(buildDir), "runs", key);
+  rmSync(sandbox, { recursive: true, force: true });
+  ensureInVmScratch(buildDir, sandbox);
 
   try {
-    cpSync(buildDir, sandbox, { recursive: true });
+    // Entry by entry: a build directory outside plain_modules holds the VM's scratch itself.
+    for (const entry of readdirSync(buildDir)) {
+      if (entry !== ".plainwright") cpSync(join(buildDir, entry), join(sandbox, entry), { recursive: true });
+    }
 
     const taken = new Set(listFiles(sandbox));
     dirs.forEach((dir, index) => {
@@ -150,9 +164,10 @@ export function runInSandbox(
       }
     });
 
-    return runCommand(sandbox, command);
+    return await runCommand(sandbox, command);
   } finally {
-    rmSync(sandbox, { recursive: true, force: true });
+    // Emptied, not removed: the next run reuses the path, and the VM mounted on it.
+    for (const entry of readdirSync(sandbox)) rmSync(join(sandbox, entry), { recursive: true, force: true });
   }
 }
 
@@ -203,7 +218,7 @@ function createRunTool(
       command: Type.String({ description: 'Shell command, e.g. "python -m unittest discover"' }),
     }),
     async execute(_id, params) {
-      const { exitCode, output } = runInSandbox(buildDir, conformanceDir, params.command);
+      const { exitCode, output } = await runInSandbox(buildDir, conformanceDir, params.command);
       runs.push({ command: params.command, exitCode });
       lastOutput.value = output;
       onRun?.(params.command, exitCode);
@@ -229,7 +244,9 @@ export async function renderConformanceTests(
   }
 
   const templateDirs = resolveTemplateDirs(options.plainFile, options.templateDirs);
-  const [moduleName, tree] = plainFileParser(basename(options.plainFile), templateDirs);
+  const [moduleName, tree] = options.spec
+    ? [options.spec.moduleName, options.spec.tree]
+    : plainFileParser(basename(options.plainFile), templateDirs);
 
   const frids = [...getFrids(tree)];
   const frid = options.frid ?? frids[0];
@@ -303,13 +320,8 @@ export async function renderConformanceTests(
   const lastOutput = { value: "" };
 
   let pendingTriage: TriageVerdict | undefined;
-  // Reads the code, writes only its tests. Both live under `plain_modules/<module>`, which
-  // is as far as this agent can see in either direction.
-  const fence = confinedTools({
-    workdir: conformanceDir,
-    read: [buildDir],
-    write: [conformanceDir],
-  });
+  // Works in its tests. It sees plain_modules, the code included, and nothing above it.
+  const fence = confinedTools({ workdir: conformanceDir });
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
@@ -412,7 +424,7 @@ export async function renderConformanceTests(
       // The harness re-runs the same command itself, so the verdict on whether the fix
       // worked does not depend on either agent reporting it.
       stage("re-running the conformance tests against the fix");
-      const recheck = runInSandbox(buildDir, conformanceDir, last.command);
+      const recheck = await runInSandbox(buildDir, conformanceDir, last.command);
       runs.push({ command: last.command, exitCode: recheck.exitCode });
       lastOutput.value = recheck.output;
       options.onRun?.(last.command, recheck.exitCode);
@@ -471,11 +483,7 @@ async function runCodeFix(input: {
   model?: string;
 }): Promise<CodeFix> {
   const runs: TestRun[] = [];
-  const fixFence = confinedTools({
-    workdir: input.buildDir,
-    read: [],
-    write: [input.buildDir],
-  });
+  const fixFence = confinedTools({ workdir: input.buildDir });
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [

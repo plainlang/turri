@@ -20,53 +20,56 @@ const WITH_TEST_REQS = `***implementation reqs***
 - Simple functionality
 `;
 
+let project: string;
 let buildDir: string;
 let conformanceDir: string;
 
 beforeEach(() => {
-  buildDir = mkdtempSync(join(tmpdir(), "forge-build-"));
-  conformanceDir = mkdtempSync(join(tmpdir(), "forge-tests-"));
+  project = mkdtempSync(join(tmpdir(), "forge-conformance-"));
+  buildDir = join(project, "plain_modules", "app", "code");
+  conformanceDir = join(project, "plain_modules", "app", "tests");
+  mkdirSync(buildDir, { recursive: true });
+  mkdirSync(conformanceDir, { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(buildDir, { recursive: true, force: true });
-  rmSync(conformanceDir, { recursive: true, force: true });
+  rmSync(project, { recursive: true, force: true });
 });
 
 describe("runInSandbox", () => {
-  it("merges the build and the tests, and reports success", () => {
+  it("merges the build and the tests, and reports success", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
     writeFileSync(join(conformanceDir, "check.sh"), "cat app.txt");
 
-    const result = runInSandbox(buildDir, conformanceDir, "sh check.sh");
+    const result = await runInSandbox(buildDir, conformanceDir, "sh check.sh");
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("hello");
   });
 
-  it("reports the exit code and output of a failing command", () => {
+  it("reports the exit code and output of a failing command", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
 
-    const result = runInSandbox(buildDir, conformanceDir, "echo boom >&2; exit 3");
+    const result = await runInSandbox(buildDir, conformanceDir, "echo boom >&2; exit 3");
 
     expect(result.exitCode).toBe(3);
     expect(result.output).toContain("boom");
   });
 
-  it("leaves the build and test directories untouched", () => {
+  it("leaves the build and test directories untouched", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
 
-    runInSandbox(buildDir, conformanceDir, "echo scratch > scratch.txt");
+    await runInSandbox(buildDir, conformanceDir, "echo scratch > scratch.txt");
 
     expect(readdirSync(buildDir)).toEqual(["app.txt"]);
     expect(readdirSync(conformanceDir)).toEqual([]);
   });
 
-  it("gives each run a fresh sandbox", () => {
+  it("gives each run a fresh sandbox", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
 
-    runInSandbox(buildDir, conformanceDir, "echo first > state.txt");
-    const second = runInSandbox(buildDir, conformanceDir, "cat state.txt");
+    await runInSandbox(buildDir, conformanceDir, "echo first > state.txt");
+    const second = await runInSandbox(buildDir, conformanceDir, "cat state.txt");
 
     expect(second.exitCode).not.toBe(0);
   });

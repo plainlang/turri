@@ -24,7 +24,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   };
 });
 
-const { applySpecDiff, renderSpecDiff } = await import("../../src/render/spec-change.ts");
+const { applySpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/render/spec-change.ts");
 const { buildSpecDiffPrompt } = await import("../../src/render/prompt.ts");
 const { readState, recordFunctionality, rewriteRecord, specStateFor } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
@@ -192,21 +192,84 @@ describe("renders queued behind the interview", () => {
     const three = plain(["- One, now reworded.", "- Two.", "- Three."]);
     writeFileSync(join(dir, "app.plain"), one);
 
-    // As write_spec_diff does: each diff applied at the moment it is written.
+    // As write_spec_diff does: each diff applied, and the spec parsed, the moment it is written.
     const first = diffOf(one, two);
     const second = diffOf(two, three);
     expect(applySpecDiff(first, dir)).toBe("applied");
+    const afterFirst = snapshotSpec("app.plain", { cwd: dir });
     expect(applySpecDiff(second, dir)).toBe("applied");
+    const afterSecond = snapshotSpec("app.plain", { cwd: dir });
     // The first no longer fits the file either way - which is what made its render fail.
     expect(() => applySpecDiff(first, dir)).toThrow(/does not apply/);
 
     const registry = createJobRegistry();
     const queue = createRenderQueue({ registry, cwd: dir });
-    const jobs = [queue.enqueueSpecDiff({ plainFile: "app.plain", diff: first }), queue.enqueueSpecDiff({ plainFile: "app.plain", diff: second })];
+    const jobs = [
+      queue.enqueueSpecDiff({ plainFile: "app.plain", diff: first, applied: "applied", spec: afterFirst }),
+      queue.enqueueSpecDiff({ plainFile: "app.plain", diff: second, applied: "applied", spec: afterSecond }),
+    ];
     await queue.drain();
 
     expect(jobs.map((job) => registry.get(job.jobId)!.status)).toEqual(["succeeded", "succeeded"]);
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
+    // Each was built from the spec as it stood with its own change in, not as the file is now.
+    const changes = prompts.filter((prompt) => !prompt.includes("describe_how_to_try_it"));
+    expect(changes[0]).toContain("- Two.");
+    expect(changes[0]).not.toContain("- Three.");
+    expect(changes[1]).toContain("- Three.");
+  });
+
+  it("record the spec the change was written against - every section - and the diff", async () => {
+    const one = plain(["- One."]);
+    const two = "***definitions***\n\n- :User: is a person.\n\n" + plain(["- One.", "- :User: signs in."]);
+    const three = plain(["- Something else."]);
+    writeFileSync(join(dir, "app.plain"), one);
+    const change = diffOf(one, two);
+    expect(applySpecDiff(change, dir)).toBe("applied");
+    const spec = snapshotSpec("app.plain", { cwd: dir });
+    // A later change goes into the file before this one's render starts.
+    writeFileSync(join(dir, "app.plain"), three);
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: change, cwd: dir, applied: "applied", spec });
+
+    expect(result.diff).toBe("applied");
+    const state = readState(result.buildDir)!;
+    expect(state.sections.definitions).toEqual(["- :User: is a person."]);
+    expect(Object.values(state.functionalities).map((f) => f.spec)).toEqual(["- One.", "- :User: signs in."]);
+    expect(state.specDiffs?.map((entry) => entry.diff)).toEqual([change]);
+    // The sections are stored once, at the top - never again on each functional spec.
+    const stored = JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"));
+    expect(stored.definitions).toEqual(["- :User: is a person."]);
+    for (const entry of stored["functional specs"]) expect(entry).not.toHaveProperty("sections");
+  });
+
+  it("keep every spec diff rendered in the codebase, oldest first", async () => {
+    const one = plain(["- One."]);
+    const two = plain(["- One.", "- Two."]);
+    const three = plain(["- One.", "- Two.", "- Three."]);
+    writeFileSync(join(dir, "app.plain"), one);
+    const first = diffOf(one, two);
+    const second = diffOf(two, three);
+
+    await renderSpecDiff({ plainFile: "app.plain", diff: first, cwd: dir });
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: second, cwd: dir });
+
+    const stored = JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"));
+    expect(stored.specDiffs.map((entry: { diff: string }) => entry.diff)).toEqual([first, second]);
+    expect(stored.specDiff).toBeUndefined();
+  });
+
+  it("read a record that kept only the last spec diff as a list of one", () => {
+    const buildDir = join(dir, "plain_modules", "app", "code");
+    mkdirSync(buildDir, { recursive: true });
+    writeFileSync(
+      join(buildDir, ".plainwright.json"),
+      JSON.stringify({
+        version: 2, module: "app", updatedAt: "", definitions: [], "implementation reqs": [], "test reqs": [],
+        "functional specs": [], specDiff: { diff: "old", renderedAt: "then" },
+      }),
+    );
+    expect(readState(buildDir)!.specDiffs).toEqual([{ diff: "old", renderedAt: "then" }]);
   });
 });
 

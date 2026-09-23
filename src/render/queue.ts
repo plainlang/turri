@@ -10,7 +10,7 @@ import { ensureRegressionPasses, regenerateFunctionality } from "./module.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { moduleLanes } from "./lanes.ts";
 import { findCodebaseTip } from "./requires.ts";
-import { describeSpecDiff, renderSpecDiff } from "./spec-change.ts";
+import { describeSpecDiff, renderSpecDiff, type SpecSnapshot } from "./spec-change.ts";
 import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage } from "./activity.ts";
@@ -49,7 +49,13 @@ export interface RenderQueue {
    * Render a spec change, given as a git diff, in the order it was asked for - behind every
    * render queued before it, and never alongside another job on the same modules.
    */
-  enqueueSpecDiff(request: { plainFile: string; diff: string }): { jobId: string; position: number };
+  enqueueSpecDiff(request: {
+    plainFile: string;
+    diff: string;
+    /** How putting the diff in went, when it was written. */
+    applied: "applied" | "already applied";
+    spec: SpecSnapshot;
+  }): { jobId: string; position: number };
   /**
    * Queue a regeneration for every functionality whose built code no longer matches the
    * specification. Returns what it queued, which is nothing when everything still matches.
@@ -96,13 +102,17 @@ export function createRenderQueue(options: {
         diff: request.diff,
         lanes: [queueLane, ...moduleLanes(codebaseOf(plainFile), options.buildDir)],
         run: async (onDelta) => {
-          // write_spec_diff applied it when it was written; later changes may be on top of it now.
+          // write_spec_diff applied it, and parsed the spec, when it was written; later changes
+          // may be on top of it in the files now.
           const result = await renderSpecDiff({
             plainFile,
             diff: request.diff,
             cwd: options.cwd,
             model: options.model,
-            applied: true,
+            applied: request.applied,
+            spec: request.spec,
+            // Queued from an interview: the person is there, trying each change as it lands.
+            tryIt: true,
             onDelta,
           });
           return { report: describeSpecDiff(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };

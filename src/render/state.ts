@@ -93,6 +93,16 @@ export interface BuildState {
    * again by a build that writes none of its own.
    */
   conformanceCommand?: string;
+  /**
+   * Every spec diff rendered in this codebase, oldest first. The rest of the record is the
+   * spec as it stood when the last of them was written.
+   */
+  specDiffs?: SpecDiffRecord[];
+}
+
+export interface SpecDiffRecord {
+  diff: string;
+  renderedAt: string;
 }
 
 const EMPTY_SECTIONS: SharedSections = {
@@ -121,6 +131,9 @@ interface StoredState extends SharedSections {
   module: string;
   updatedAt: string;
   conformanceCommand?: string;
+  specDiffs?: SpecDiffRecord[];
+  /** Written by the first version of spec diff rendering, which kept only the last one. */
+  specDiff?: SpecDiffRecord;
   [FUNCTIONAL_REQUIREMENTS]: StoredSpec[];
 }
 
@@ -141,6 +154,7 @@ function fromStored(stored: StoredState): BuildState {
     module: stored.module,
     updatedAt: stored.updatedAt,
     conformanceCommand: stored.conformanceCommand,
+    specDiffs: stored.specDiffs ?? (stored.specDiff ? [stored.specDiff] : []),
     sections: {
       [DEFINITIONS]: stored[DEFINITIONS] ?? [],
       [NON_FUNCTIONAL_REQUIREMENTS]: stored[NON_FUNCTIONAL_REQUIREMENTS] ?? [],
@@ -211,6 +225,24 @@ export function readState(buildDir: string): BuildState | null {
   return null;
 }
 
+/**
+ * What a build of one functionality records, field by field. The shared sections are stored
+ * once, at the top of the record, so nothing handed in alongside - a copy of them, a stray
+ * field - ends up on an entry.
+ */
+function builtFields(build: Partial<RequiredBuild>): Partial<RequiredBuild> {
+  const fields: Partial<RequiredBuild> = {
+    specHash: build.specHash,
+    renderedAt: build.renderedAt,
+    unitTests: build.unitTests,
+    conformance: build.conformance,
+    files: build.files,
+    testCommand: build.testCommand,
+    in: build.in,
+  };
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+}
+
 export function writeState(buildDir: string, state: BuildState): void {
   const own = Object.values(state.functionalities).sort((a, b) => byFrid(a.frid, b.frid));
   const stored: StoredState = {
@@ -218,6 +250,7 @@ export function writeState(buildDir: string, state: BuildState): void {
     module: state.module,
     updatedAt: state.updatedAt,
     ...(state.conformanceCommand ? { conformanceCommand: state.conformanceCommand } : {}),
+    ...(state.specDiffs?.length ? { specDiffs: state.specDiffs } : {}),
     ...state.sections,
     [FUNCTIONAL_REQUIREMENTS]: [
       ...state.required.map((entry) => ({
@@ -225,12 +258,15 @@ export function writeState(buildDir: string, state: BuildState): void {
         frid: entry.frid,
         spec: entry.spec,
         ...(entry.acceptanceTests?.length ? { "acceptance tests": entry.acceptanceTests } : {}),
-        ...(entry.build ? { build: entry.build } : {}),
+        ...(entry.build ? { build: builtFields(entry.build) as RequiredBuild } : {}),
       })),
-      ...own.map(({ acceptanceTests, ...entry }) => ({
+      ...own.map((entry) => ({
         module: state.module,
-        ...entry,
-        ...(acceptanceTests?.length ? { "acceptance tests": acceptanceTests } : {}),
+        frid: entry.frid,
+        specHash: entry.specHash,
+        spec: entry.spec,
+        ...(entry.acceptanceTests?.length ? { "acceptance tests": entry.acceptanceTests } : {}),
+        ...builtFields(entry),
       })),
     ],
   };
@@ -409,11 +445,14 @@ export function inheritRecord(
 }
 
 /**
- * Rewrite a build's record to the specs as they now stand, after a change was rendered in it.
+ * Rewrite a build's record to the specs a change was rendered from - every section, the
+ * required modules' functional specs and this module's own - replacing what was there. Unlike
+ * a render of one functionality, which only adds to the list, a spec change may have changed
+ * anything, and the codebase now holds exactly what those specs say.
  *
  * Functionalities are numbered by position, so a change that adds or removes specs moves the
- * numbers: the record keeps exactly the functionalities the spec now has, and nothing under
- * a number that no longer exists. What a functionality's earlier render recorded - its file
+ * numbers: the record keeps exactly the functionalities the spec has, and nothing under a
+ * number that no longer exists. What a functionality's earlier render recorded - its file
  * changes, its test command - is kept where its spec did not change.
  */
 export function rewriteRecord(
@@ -423,6 +462,8 @@ export function rewriteRecord(
     sections: SharedSections;
     required: RequiredSpec[];
     functionalities: Array<Omit<FunctionalityState, "renderedAt"> & { renderedAt?: string }>;
+    /** The change that was rendered, as a git diff of the .plain files. */
+    specDiff?: string;
   },
 ): BuildState {
   const previous = readState(buildDir);
@@ -431,6 +472,7 @@ export function rewriteRecord(
     module: moduleName,
     updatedAt: now,
     conformanceCommand: previous?.conformanceCommand,
+    specDiffs: [...(previous?.specDiffs ?? []), ...(input.specDiff !== undefined ? [{ diff: input.specDiff, renderedAt: now }] : [])],
     sections: input.sections,
     required: mergeRequired(previous?.required ?? [], input.required),
     functionalities: Object.fromEntries(

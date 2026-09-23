@@ -48,16 +48,48 @@ export function testsDirUnder(root: string, moduleName: string): string {
 }
 
 /**
- * Where a person tries one functionality: `.plainwright/try/<module>/fs-<frid>`, beside
- * `plain_modules` in the project.
+ * The `plain_modules` a directory sits in: all an agent sees and all its VM holds. A
+ * directory outside one - a sandbox, an explicit `--build-dir` - is its own root, so this
+ * never silently widens to a whole disk.
+ */
+export function modulesRootOf(dir: string): string {
+  const parts = resolve(dir).split(sep);
+  const index = parts.lastIndexOf(MODULES_DIR);
+  return index === -1 ? resolve(dir) : parts.slice(0, index + 1).join(sep);
+}
+
+/**
+ * `.plainwright` inside the modules root: what the VM needs beside the code - the package
+ * caches, the copies test runs and try-it checks happen in, the system packages installed.
+ * Inside the root because the VM holds nothing else; ignored by the project's history.
+ */
+export function vmScratchDir(dir: string): string {
+  return join(modulesRootOf(dir), ".plainwright");
+}
+
+/** Make `path` inside the VM's scratch, which ignores itself. Returns `path`. */
+export function ensureInVmScratch(dir: string, path: string): string {
+  return ensureInScratch(vmScratchDir(dir), path);
+}
+
+/**
+ * Where a person tries one functionality: `plain_modules/.plainwright/try/<module>/fs-<frid>`.
  *
  * A copy of the build, not the build itself, so trying functionality 2 cannot disturb the
  * render of functionality 3 going on in the build directory - and each functionality keeps
- * its own, so an earlier one can still be tried after later ones land. Outside
- * `plain_modules` because it is not part of the codebase.
+ * its own, so an earlier one can still be tried after later ones land. Inside `plain_modules`
+ * because the steps are checked in the VM, which holds nothing else.
  */
 export function tryDirFor(buildDir: string, moduleName: string, frid: string): string {
-  return join(scratchDir(buildDir), "try", moduleName, `fs-${frid}`);
+  return join(vmScratchDir(buildDir), "try", moduleName, `fs-${frid}`);
+}
+
+/**
+ * Where a person tries what the latest spec change built: one copy per module, replaced by
+ * each change, beside the per-functionality ones.
+ */
+export function specChangeTryDirFor(buildDir: string, moduleName: string): string {
+  return join(vmScratchDir(buildDir), "try", moduleName, "spec-change");
 }
 
 /**

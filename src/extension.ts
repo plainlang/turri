@@ -2,7 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import type { OverlayHandle } from "@earendil-works/pi-tui";
+import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
@@ -14,6 +15,7 @@ import { regenerateFunctionality, renderChain, type RenderModuleResult } from ".
 import { describeChain } from "./render/requires.ts";
 import { createProgressTracker } from "./render/progress.ts";
 import { describeDelivery } from "./render/delivery.ts";
+import { vmSummary } from "./render/vm.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
@@ -24,7 +26,7 @@ import { describeUsage } from "./render/activity.ts";
 import { inheritThinkingLevel } from "./pi.ts";
 import { moduleLanes } from "./render/lanes.ts";
 import { findCodebaseTip } from "./render/requires.ts";
-import { describeSpecDiff, renderSpecDiff } from "./render/spec-change.ts";
+import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from "./render/spec-change.ts";
 import { beginCapture, captureConsole, describeCaptured } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
@@ -839,7 +841,8 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       "added, changed or removed, in any section, across any number of them; a diff that adds everything " +
       "builds from scratch. The diff is applied with git unless it already is. One agent, given the diff and " +
       "every spec as it now stands, makes the code match, in the chain's current codebase. Then the " +
-      "conformance tests are brought in line with it, the whole suite runs, and the build record is rewritten.",
+      "conformance tests are brought in line with it, the whole suite runs, and the build record is rewritten " +
+      "from the spec as parsed when the diff went in - every section, not only the functional specs - with the diff.",
     promptSnippet: "render_spec_diff: make the code match a git diff of the .plain specs",
     promptGuidelines: [
       "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
@@ -851,6 +854,13 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       in_module: Type.Optional(
         Type.String({ description: "The codebase to render in, when modules built on this one branch" }),
       ),
+      try_it: Type.Optional(
+        Type.Boolean({
+          description:
+            "Work out and check how the user can try what the change built. Default true. Pass false for " +
+            "long unattended runs.",
+        }),
+      ),
       conformance: CONFORMANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
@@ -858,13 +868,10 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
     async execute(_id, params, _signal, onUpdate, ctx) {
       const model = conversationModel(ctx, params.model);
       const plainFile = resolve(cwd, params.plain_file);
-      // The job writes the codebase the change lands in, so it claims that chain's modules.
-      let lanesFrom = plainFile;
-      try {
-        lanesFrom = findCodebaseTip(plainFile, { inModule: params.in_module }).tip.plainFile;
-      } catch {
-        // A module the diff creates is not there to resolve yet; its own file will do.
-      }
+      // Applied and parsed now, with the call: that parse is what the job builds and records,
+      // whatever changes reach the files while it waits its turn.
+      const applied = applySpecDiff(params.diff, cwd);
+      const spec = snapshotSpec(plainFile, { cwd, inModule: params.in_module });
       return deliver(jobs, {
         kind: "render_spec_diff",
         summary: `${basename(params.plain_file)} render spec diff`,
@@ -872,7 +879,8 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
         model,
         wait: params.wait,
         mode: ctx.mode,
-        lanes: moduleLanes(lanesFrom),
+        // The job writes the codebase the change lands in, so it claims that chain's modules.
+        lanes: moduleLanes(spec.plainFile),
         onUpdate,
         run: async (onDelta) => {
           const result = await renderSpecDiff({
@@ -880,6 +888,9 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
             diff: params.diff,
             cwd,
             inModule: params.in_module,
+            applied,
+            spec,
+            tryIt: params.try_it ?? true,
             conformance: conformanceOption(params.conformance),
             model,
             onDelta,
@@ -1239,42 +1250,89 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   // Read a job's agents at work: its whole transcript, live, in an overlay.
+  // The transcript is a screen of its own, over the whole terminal. Leaving it (q) goes back to
+  // the conversation and keeps it - its job and its place - so alt+w or /watch switch back.
+  let watching: { jobId: string; handle?: OverlayHandle; close: () => void } | undefined;
+
+  const showWatch = () => {
+    watching?.handle?.setHidden(false);
+    watching?.handle?.focus();
+  };
+
+  const openWatch = (ctx: ExtensionContext, job: Job) => {
+    watching?.close();
+    const entry: NonNullable<typeof watching> = { jobId: job.id, close: () => {} };
+    watching = entry;
+    // Not awaited: the screen lives on while the person is back in the conversation.
+    void ctx.ui.custom<void>(
+      (tui, theme, _keybindings, done) => {
+        const view = createTranscriptView({
+          job: () => jobs.get(job.id),
+          rows: () => tui.terminal.rows,
+          style: {
+            heading: (text) => theme.bold(theme.fg("accent", text)),
+            muted: (text) => theme.fg("muted", text),
+            accent: (text) => theme.fg("accent", text),
+            error: (text) => theme.fg("error", text),
+            added: (text) => theme.fg("toolDiffAdded", text),
+            removed: (text) => theme.fg("toolDiffRemoved", text),
+          },
+          back: () => {
+            entry.handle?.unfocus();
+            entry.handle?.setHidden(true);
+            tui.requestRender();
+          },
+          close: () => done(undefined),
+        });
+        entry.close = () => done(undefined);
+        // A running job keeps writing; redraw so the screen follows it - while it is showing.
+        const timer = setInterval(() => {
+          if (entry.handle?.isHidden() !== true) tui.requestRender();
+        }, WATCH_REDRAW_MS);
+        timer.unref?.();
+        return {
+          render: (width: number) => view.render(width),
+          handleInput: (data: string) => {
+            // The screen has the keys while it shows, so the switch back is handled here too.
+            if (matchesKey(data, WATCH_KEY)) view.handleInput("q");
+            else view.handleInput(data);
+            tui.requestRender();
+          },
+          invalidate: () => view.invalidate(),
+          dispose: () => {
+            clearInterval(timer);
+            if (watching === entry) watching = undefined;
+          },
+        };
+      },
+      {
+        overlay: true,
+        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+        onHandle: (handle) => {
+          entry.handle = handle;
+        },
+      },
+    );
+  };
+
   pi.registerCommand("watch", {
-    description: "Read a background job's full transcript as it happens: /watch [job id]",
+    description: "Read a background job's full transcript as it happens, on a screen of its own: /watch [job id]. q goes back to the chat; alt+w or /watch returns.",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
-      const job = await chooseJob(jobs, args.trim(), ctx.ui);
-      if (job === undefined) return;
-      await ctx.ui.custom<void>(
-        (tui, theme, _keybindings, done) => {
-          const view = createTranscriptView({
-            job: () => jobs.get(job.id),
-            rows: () => Math.floor(tui.terminal.rows * 0.9) - 2,
-            style: {
-              heading: (text) => theme.bold(theme.fg("accent", text)),
-              muted: (text) => theme.fg("muted", text),
-              accent: (text) => theme.fg("accent", text),
-              error: (text) => theme.fg("error", text),
-              added: (text) => theme.fg("toolDiffAdded", text),
-              removed: (text) => theme.fg("toolDiffRemoved", text),
-            },
-            close: () => done(undefined),
-          });
-          // A running job keeps writing; redraw so the overlay follows it.
-          const timer = setInterval(() => tui.requestRender(), WATCH_REDRAW_MS);
-          timer.unref?.();
-          return {
-            render: (width: number) => view.render(width),
-            handleInput: (data: string) => {
-              view.handleInput(data);
-              tui.requestRender();
-            },
-            invalidate: () => view.invalidate(),
-            dispose: () => clearInterval(timer),
-          };
-        },
-        { overlay: true, overlayOptions: { width: "95%", maxHeight: "90%" } },
-      );
+      const named = args.trim();
+      if (watching !== undefined && (named === "" || watching.jobId.startsWith(named))) return showWatch();
+      const job = await chooseJob(jobs, named, ctx.ui);
+      if (job !== undefined) openWatch(ctx, job);
+    },
+  });
+
+  pi.registerShortcut(WATCH_KEY, {
+    description: "Switch to the job transcript (/watch) and back",
+    handler: async (ctx) => {
+      if (!ctx.hasUI) return;
+      if (watching !== undefined) return showWatch();
+      const job = await chooseJob(jobs, "", ctx.ui);
+      if (job !== undefined) openWatch(ctx, job);
     },
   });
 
@@ -1289,6 +1347,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 }
 
 const WATCH_REDRAW_MS = 500;
+/** Switches between the conversation and the transcript screen. */
+const WATCH_KEY = "alt+w";
 
 /** The modules in this project that have a history, by name. */
 function modulesWithHistory(cwd: string): string[] {
@@ -1613,7 +1673,7 @@ function registerBranding(
 ) {
   pi.registerEntryRenderer(BANNER_ENTRY, (entry, _options, theme) => {
     const data = entry.data as
-      | { version: string; rules: number; skills: number; pending: number; cwd: string }
+      | { version: string; rules: number; skills: number; pending: number; cwd: string; sandbox?: ReturnType<typeof vmSummary> }
       | undefined;
     if (data === undefined) return undefined;
 
@@ -1631,6 +1691,10 @@ function registerBranding(
               (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
           ),
           theme.fg("dim", data.cwd),
+          // Where every command an agent runs will run - or that none can.
+          ...(data.sandbox
+            ? [theme.fg(data.sandbox.level === "ok" ? "dim" : data.sandbox.level === "limited" ? "warning" : "error", data.sandbox.text)]
+            : []),
           theme.fg("borderMuted", rule),
         ].join("\n"),
         0,
@@ -1648,6 +1712,7 @@ function registerBranding(
         skills: skills.skills.length,
         pending: skills.pending.length,
         cwd: ctx.cwd,
+        sandbox: vmSummary(),
       });
     } catch {
       // Branding is the least important thing here; never let it stop a session starting.

@@ -77,8 +77,9 @@ describe("the transcript viewer", () => {
     const job = await jobWith(() => {
       for (let i = 0; i < 50; i += 1) reportTranscript({ kind: "result", text: `line ${i}` });
     });
+    let back = 0;
     let closed = false;
-    const view = createTranscriptView({ job: () => job, rows: () => 10, close: () => (closed = true) });
+    const view = createTranscriptView({ job: () => job, rows: () => 10, back: () => (back += 1), close: () => (closed = true) });
 
     const following = view.render(60);
     expect(following).toHaveLength(10);
@@ -91,7 +92,14 @@ describe("the transcript viewer", () => {
     view.handleInput("G");
     expect(view.render(60).at(-2)).toContain("line 49");
 
+    // q goes back to the conversation and keeps the place; x closes it for good.
+    view.handleInput("g");
     view.handleInput("q");
+    expect(back).toBe(1);
+    expect(closed).toBe(false);
+    expect(view.render(60)[2]).toContain("line 0");
+
+    view.handleInput("x");
     expect(closed).toBe(true);
   });
 });

@@ -26,7 +26,7 @@ const AUTHOR = ["-c", "user.name=plainwright", "-c", "user.email=plainwright@loc
  * Kept out of history: the history itself - git skips only a folder named `.git` on its own -
  * installed dependencies, and caches.
  */
-const EXCLUDED = [`/${HISTORY_DIR}/`, "node_modules/", ".venv/", "venv/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", ".DS_Store"];
+const EXCLUDED = [`/${HISTORY_DIR}/`, ".plainwright/", "node_modules/", ".venv/", "venv/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", ".DS_Store"];
 
 function git(moduleDir: string, args: string[], input?: string) {
   return spawnSync("git", [...AUTHOR, "--git-dir", join(moduleDir, HISTORY_DIR), "--work-tree", moduleDir, ...args], {

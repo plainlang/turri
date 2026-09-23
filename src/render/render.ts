@@ -23,14 +23,7 @@ import {
   type TestRemoval,
   type TestRun,
 } from "./testing.ts";
-import {
-  checkTryIt,
-  createTryItTool,
-  failedStepsPrompt,
-  prepareTryDir,
-  tryItPrompt,
-  type TryIt,
-} from "./try-it.ts";
+import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 
 /** Tools the coding agent gets. Scoped to the build directory by the session's cwd. */
 /**
@@ -228,7 +221,7 @@ export async function renderFunctionality(
 
   // The build directory is the whole world for this agent: it reads and writes there and
   // nowhere else. Nothing above `plain_modules` is reachable, including this repo.
-  const fence = confinedTools({ workdir: buildDir, read: [], write: [buildDir] });
+  const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
   const executor = await createExecutor({
     cwd: buildDir,
@@ -273,31 +266,20 @@ export async function renderFunctionality(
 
     // Asked only once the tests pass: instructions for software that does not work yet
     // would be instructions for something else.
-    let files = listFiles(buildDir);
     if (options.tryIt === true && runs[runs.length - 1]?.exitCode === 0) {
-      tryIt = undefined;
-      stage("working out how you can try it");
-      await ask(executor, tryItPrompt(frid), options.onDelta);
-      files = listFiles(buildDir);
-      if (tryIt !== undefined) {
-        // In a copy made for the person, never the build: the next render works in the
-        // build, and whatever trying it leaves behind - a database, installed packages -
-        // stays out of the codebase. A fresh copy each time, so a fix is what gets checked.
-        const tryDir = tryDirFor(buildDir, moduleName, frid);
-        const check = (steps: TryIt) => checkTryIt(prepareTryDir(buildDir, tryDir), { ...steps, dir: tryDir });
-        stage("running the try-it steps to check they work");
-        let checked = check(tryIt);
-        if (!checked.ok) {
-          const first = checked;
+      tryIt = await settleTryIt({
+        buildDir,
+        tryDir: tryDirFor(buildDir, moduleName, frid),
+        prompt: tryItPrompt(`Functionality ${frid}`),
+        ask: async (next) => {
           tryIt = undefined;
-          stage("a try-it step failed - fixing it");
-          await ask(executor, failedStepsPrompt(first.tryIt, first.outputs), options.onDelta);
-          files = listFiles(buildDir);
-          checked = tryIt !== undefined ? check(tryIt) : first;
-        }
-        tryIt = checked.tryIt;
-      }
+          await ask(executor, next, options.onDelta);
+          return tryIt;
+        },
+        stage,
+      });
     }
+    const files = listFiles(buildDir);
 
     // A fix to the instructions may have touched the code, so this is the last run, not
     // the one before the question was asked.

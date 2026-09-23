@@ -9,6 +9,7 @@ import {
   getInheritedFunctionalSpecs,
   getSpecificationsForFrid,
   TEST_REQUIREMENTS,
+  type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, createExecutor } from "../pi.ts";
@@ -17,12 +18,14 @@ import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
-import { modulesRoot } from "./paths.ts";
+import { modulesRoot, specChangeTryDirFor } from "./paths.ts";
+import { describeTryIt } from "./delivery.ts";
+import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
 import { recordHistory } from "./history.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
-import { copyRequiredCode, findCodebaseTip } from "./requires.ts";
+import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { rewriteRecord, sectionsOf, specStateFor } from "./state.ts";
 import {
@@ -46,9 +49,15 @@ import {
  * change: one agent, given the diff and every spec it touches as it now stands, makes the
  * code match. Starting from nothing is the same operation, with a diff that adds everything.
  *
+ * It is given two things: the diff, and the whole spec as parsed right after the diff went in.
+ * The render works from that parse and the build record is written from it - every section,
+ * not only the functional specs - because that is what the codebase holds once the change is
+ * built. A change rendered from a queue runs after later ones have gone into the files, so
+ * the files are not what it is about; the parse taken with the diff is.
+ *
  * After it, the order that makes the result trustworthy: the conformance tests are brought
  * in line with the change, the whole suite runs with repairs, and the build record is
- * rewritten to the specs as they now stand.
+ * rewritten.
  */
 
 const MAX_FOLLOW_UPS = 4;
@@ -103,6 +112,37 @@ export function plainFilesOf(diff: string): string[] {
   return [...files];
 }
 
+/**
+ * The spec as it stands with a change in: the codebase the change is rendered in, and that
+ * module parsed - its sections, the functional specs it inherits and its own.
+ */
+export interface SpecSnapshot {
+  moduleName: string;
+  plainFile: string;
+  tree: MarshalledPlainSource;
+  /** The codebase's requires chain, bottom first; the last entry is the codebase itself. */
+  chain: ChainEntry[];
+}
+
+/** Parse the spec as it stands now, for a change to `plainFile`'s module. */
+export function snapshotSpec(
+  plainFile: string,
+  options: { cwd?: string; templateDirs?: string[]; inModule?: string } = {},
+): SpecSnapshot {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const templateDirs = options.templateDirs ?? [];
+  // The change lands in the chain's current codebase. A spec change is built whatever it
+  // touches - a definition, a req, a functional spec - so a module with no functional specs
+  // yet is still a module to build.
+  const { tip, chain } = withParseCache(() =>
+    findCodebaseTip(resolve(cwd, plainFile), { templateDirs, inModule: options.inModule, allowNoFunctionalities: true }),
+  );
+  const [moduleName, tree] = plainFileParser(basename(tip.plainFile), resolveTemplateDirs(tip.plainFile, templateDirs), {
+    allowNoFunctionalities: true,
+  });
+  return { moduleName, plainFile: tip.plainFile, tree, chain };
+}
+
 export interface RenderSpecDiffOptions {
   /** A .plain file of the module the change is rendered for. */
   plainFile: string;
@@ -116,11 +156,18 @@ export interface RenderSpecDiffOptions {
   /** Write and run conformance tests. Default: when the module has test reqs. */
   conformance?: boolean;
   /**
-   * The diff was applied when it was written, and is not to be applied again. A render queued
-   * behind the interview runs after later changes have gone on top of it, so its diff no
-   * longer fits the file either way - but it was applied, and that is what matters.
+   * The diff was already put in when it was written - how that went - and is not to be applied
+   * again. A render queued behind the interview runs after later changes have gone on top of
+   * it, so its diff no longer fits the file either way - but it is in, and that is what matters.
    */
-  applied?: boolean;
+  applied?: "applied" | "already applied";
+  /** The spec as parsed with the diff in. Taken now, after applying it, when not given. */
+  spec?: SpecSnapshot;
+  /**
+   * Once the unit tests pass, ask how the person can try what changed, and check the steps.
+   * On when someone is there to try it; off for long unattended runs.
+   */
+  tryIt?: boolean;
   model?: string;
   onDelta?: (delta: string) => void;
 }
@@ -136,6 +183,8 @@ export interface RenderSpecDiffResult {
   files: { added: string[]; changed: string[]; removed: string[] };
   conformance?: RenderConformanceTestsResult;
   regression?: RegressionResult;
+  /** How to try it, as checked. Only when asked for and the unit tests passed. */
+  tryIt?: TryIt;
   passed: boolean;
   stoppedAt: "unit tests" | "conformance" | "regression" | null;
 }
@@ -143,18 +192,10 @@ export interface RenderSpecDiffResult {
 export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<RenderSpecDiffResult> {
   const cwd = resolve(options.cwd ?? process.cwd());
   const templateDirs = options.templateDirs ?? [];
-  const applied = options.applied === true ? "already applied" : applySpecDiff(options.diff, cwd);
-
-  // The change lands in the chain's current codebase. A module with no build of its own
-  // starts from the code of the module it requires, as a render would.
-  // A spec change is built whatever it touches - a definition, a req, a functional spec - so
-  // a module with no functional specs yet is still a module to build.
-  const { tip, chain } = withParseCache(() =>
-    findCodebaseTip(resolve(cwd, options.plainFile), { templateDirs, inModule: options.inModule, allowNoFunctionalities: true }),
-  );
-  const [moduleName, tree] = plainFileParser(basename(tip.plainFile), resolveTemplateDirs(tip.plainFile, templateDirs), {
-    allowNoFunctionalities: true,
-  });
+  const applied = options.applied ?? applySpecDiff(options.diff, cwd);
+  const spec = options.spec ?? snapshotSpec(options.plainFile, { cwd, templateDirs, inModule: options.inModule });
+  const { moduleName, tree, chain } = spec;
+  const tip = chain.at(-1)!;
   const frids = [...getFrids(tree)];
   const lastFrid = frids.at(-1);
   const sections = sectionsOf(tree);
@@ -182,10 +223,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   const digestsBefore = digestFiles(buildDir);
   const runs: TestRun[] = [];
-  const fence = confinedTools({ workdir: buildDir, read: [], write: [buildDir] });
+  const fence = confinedTools({ workdir: buildDir });
+  let tryIt: TryIt | undefined;
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [
+      createTryItTool((submitted) => (tryIt = submitted)),
       createRunTestsTool({
         name: "run_unit_tests",
         label: "Run unit tests",
@@ -195,7 +238,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       }),
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests"],
+    tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it"],
     model: options.model,
   });
 
@@ -223,17 +266,34 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       }
       break;
     }
+
+    // Asked only once the tests pass: instructions for software that does not work yet would
+    // be instructions for something else.
+    if (options.tryIt === true && runs.at(-1)?.exitCode === 0) {
+      tryIt = await settleTryIt({
+        buildDir,
+        tryDir: specChangeTryDirFor(buildDir, moduleName),
+        prompt: tryItPrompt("The spec change"),
+        ask: async (next) => {
+          tryIt = undefined;
+          await ask(executor, next, options.onDelta);
+          return tryIt;
+        },
+        stage: (label) => reportStage(`${moduleName}: ${label}`),
+      });
+    }
   } finally {
     executor.dispose();
   }
 
   const unitPassed = runs.at(-1)?.exitCode === 0;
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
-  const base = { moduleName, buildDir, diff: applied, response, runs, testRemovals, files };
+  const base = { moduleName, buildDir, diff: applied, response, runs, testRemovals, files, tryIt };
 
-  /** The record, rewritten to the specs as they now stand - whatever happened - and committed. */
+  /** The record, rewritten to the spec the change was rendered from - whatever happened - and committed. */
   const record = (conformance: "passed" | "failed" | "skipped") => {
     rewriteRecord(buildDir, moduleName, {
+      specDiff: options.diff,
       sections,
       required,
       functionalities: frids.map((frid) => ({
@@ -276,6 +336,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     buildDir,
     conformanceDir: conformanceDirFor(moduleName, conformanceRoot),
     diff: options.diff,
+    spec: { moduleName, tree },
     model: options.model,
     onDelta: options.onDelta,
   });
@@ -316,6 +377,9 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
         : "Conformance tests are NOT passing.",
     repairs > 0 ? `${repairs} regression repair(s) changed the code beyond the change itself.` : "",
     result.testRemovals.length > 0 ? `Unit tests removed and justified: ${result.testRemovals.map((r) => r.file).join(", ")}.` : "",
+    // Instructions for software that is not working would send the person after something
+    // that does not exist yet.
+    ...(result.passed && result.tryIt !== undefined ? describeTryIt(result.tryIt, result.buildDir) : []),
     "",
     "<agent report>",
     result.response,
