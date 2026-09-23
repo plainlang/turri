@@ -209,3 +209,22 @@ describe("renders queued behind the interview", () => {
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
   });
 });
+
+describe("the history of a rendered spec change", () => {
+  it("commits the change with the diff it rendered", async () => {
+    const { head, historyLog, historyShow } = await import("../../src/render/history.ts");
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+    writeFileSync(join(result.buildDir, "app.py"), "x\n"); // what an agent would have written
+    const { recordHistory } = await import("../../src/render/history.ts");
+    recordHistory(result.buildDir, "render app fs 2");
+
+    const log = historyLog(result.buildDir);
+    expect(log).toMatch(/spec diff: app\.plain \+\d+ −\d+ · .+ \(conformance skipped\)/);
+    const commit = log.split("\n").find((line) => line.includes("spec diff:"))!.split("  ")[0]!;
+    expect(historyShow(result.buildDir, commit)).toContain("+- Two.");
+    expect(head(result.buildDir)).toBeDefined();
+  });
+});

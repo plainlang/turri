@@ -19,6 +19,8 @@ import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsR
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
 import { modulesRoot } from "./paths.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
+import { recordHistory } from "./history.ts";
+import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { copyRequiredCode, findCodebaseTip } from "./requires.ts";
 import { loadLinkedResources } from "./resources.ts";
@@ -229,8 +231,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
   const base = { moduleName, buildDir, diff: applied, response, runs, testRemovals, files };
 
-  /** The record, rewritten to the specs as they now stand - whatever happened. */
-  const record = (conformance: "passed" | "failed" | "skipped") =>
+  /** The record, rewritten to the specs as they now stand - whatever happened - and committed. */
+  const record = (conformance: "passed" | "failed" | "skipped") => {
     rewriteRecord(buildDir, moduleName, {
       sections,
       required,
@@ -242,6 +244,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         testCommand: runs.filter((run) => run.exitCode === 0).at(-1)?.command,
       })),
     });
+    const outcome = runs.at(-1)?.exitCode === 0 ? `conformance ${conformance}` : "unit tests NOT passing";
+    recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)} (${outcome})`, options.diff);
+  };
 
   if (!unitPassed) {
     record("skipped");

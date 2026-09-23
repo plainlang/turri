@@ -17,6 +17,7 @@ import { reportActivity, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
+import { recordHistory } from "./history.ts";
 import {
   copyRequiredCode,
   findCodebaseTip,
@@ -231,11 +232,18 @@ export async function ensureRegressionPasses(input: {
       `${input.moduleName}: running every functionality's conformance tests together (${input.frids.join(", ")})`,
     );
     const result = runInSandbox(input.buildDir, dirs, command);
-    runs.push({ command: command, exitCode: result.exitCode, frids: input.frids });
+    runs.push({ command, exitCode: result.exitCode, frids: input.frids });
     reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
-    input.onEvent?.({ type: "run", command: command, exitCode: result.exitCode, frids: input.frids });
+    input.onEvent?.({ type: "run", command, exitCode: result.exitCode, frids: input.frids });
 
-    if (result.exitCode === 0) return { passed: true, runs, repairs, command: command, narrow };
+    if (result.exitCode === 0) {
+      // Whatever builds on this codebase later can run the same suite with it.
+      if (!narrow) recordConformanceCommand(input.buildDir, command);
+      if (repairs.length > 0) {
+        recordHistory(input.buildDir, `regression ${input.moduleName} (pass after ${repairs.length} repair(s))`);
+      }
+      return { passed: true, runs, repairs, command, narrow };
+    }
     if (round === maxRounds) break;
 
     input.onEvent?.({ type: "repair", frids: input.frids });
@@ -254,7 +262,8 @@ export async function ensureRegressionPasses(input: {
     );
   }
 
-  return { passed: false, runs, repairs, command: command, narrow };
+  recordHistory(input.buildDir, `regression ${input.moduleName} (NOT passing after ${repairs.length} repair(s))`);
+  return { passed: false, runs, repairs, command, narrow };
 }
 
 function suiteCommand(conformance: RenderConformanceTestsResult | undefined): {
@@ -438,6 +447,9 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
     options.onEvent?.({ type: "functionality_done", frid });
   }
 
+  // The record's last word on each functionality lands after its step's own commit.
+  recordHistory(buildDir, `${moduleName}: build record`);
+
   return {
     moduleName,
     buildDir,
@@ -552,6 +564,7 @@ export async function regenerateFunctionality(
     } else {
       recordFunctionality(buildDir, moduleName, { frid: options.frid, ...specStateFor(tree, options.frid), ...built });
     }
+    recordHistory(buildDir, `regenerate ${moduleName} fs ${options.frid}${host ? ` in ${host.moduleName}` : ""}: conformance ${conformance}`);
   };
 
   if (!render.passed) {

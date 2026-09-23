@@ -8,6 +8,7 @@ import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts
 import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
+import { moduleDirOf, recordHistory } from "./history.ts";
 import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder } from "./paths.ts";
 import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
@@ -430,6 +431,14 @@ export async function renderConformanceTests(
       );
     }
 
+    const passed = runs[runs.length - 1]?.exitCode === 0;
+    // The tests, and the code when a fix changed it: one commit if they share a module folder.
+    const subject =
+      `conformance ${moduleName} ${options.diff !== undefined ? "for a spec change" : `fs ${frid}`} ` +
+      `(${passed ? "pass" : "NOT passing"}${codeFixes.length > 0 ? `, ${codeFixes.length} code fix(es)` : ""})`;
+    recordHistory(conformanceDir, subject);
+    if (moduleDirOf(buildDir) !== moduleDirOf(conformanceDir)) recordHistory(buildDir, subject);
+
     return {
       moduleName,
       frid,
@@ -439,7 +448,7 @@ export async function renderConformanceTests(
       response,
       files: listFiles(conformanceDir),
       runs,
-      passed: runs[runs.length - 1]?.exitCode === 0,
+      passed,
       triage,
       codeFixes,
       testRemovals,

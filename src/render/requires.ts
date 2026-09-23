@@ -5,6 +5,7 @@ import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { inheritRecord, STATE_FILE, type RequiredSpec, type SharedSections } from "./state.ts";
+import { head, recordHistory } from "./history.ts";
 import { listFiles } from "./testing.ts";
 
 /**
@@ -207,6 +208,11 @@ export function copyRequiredCode(
   // The record comes with the code, as what the new module inherits - not as its own work.
   inheritRecord(from, to, toModule, sections);
 
+  // A new module's history starts here: where its code came from, and at which commit.
+  const source = basename(dirname(from));
+  const at = head(from);
+  const recordStart = () => recordHistory(to, `start from ${source}${at ? ` at ${at}` : ""}`);
+
   // So do the conformance tests: they check the code that was just copied, and the new
   // module's regression suite has to keep them passing. They sit beside the code, in the
   // module's `tests` directory.
@@ -219,6 +225,7 @@ export function copyRequiredCode(
       copyFileSync(join(testsFrom, file), target);
     }
   }
+  recordStart();
   return copied;
 }
 

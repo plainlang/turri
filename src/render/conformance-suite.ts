@@ -4,6 +4,7 @@ import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsR
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
 import { findCodebaseTip, requiredFunctionalSpecs, resolveRequiresChain, type ChainEntry } from "./requires.ts";
 import { readState, recordConformance } from "./state.ts";
+import { recordHistory } from "./history.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { modulesRoot } from "./paths.ts";
@@ -181,6 +182,7 @@ export async function renderConformanceSuite(
       // The codebase's record of this functionality gains its conformance verdict - on its own
       // entry, or on the entry it has as a required module's functionality.
       recordConformance(buildDir, target.moduleName, frid, result.passed ? "passed" : "failed");
+      recordHistory(buildDir, `conformance ${target.moduleName} fs ${frid}: verdict recorded (${result.passed ? "pass" : "fail"})`);
 
       if (!result.passed) passed = false;
     }

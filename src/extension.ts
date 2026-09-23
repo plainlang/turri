@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -18,6 +18,8 @@ import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createTranscriptView } from "./render/transcript-view.ts";
+import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
+import { defaultBuildDir } from "./render/paths.ts";
 import { describeUsage } from "./render/activity.ts";
 import { inheritThinkingLevel } from "./pi.ts";
 import { moduleLanes } from "./render/lanes.ts";
@@ -185,7 +187,7 @@ export default function (pi: ExtensionAPI) {
 
   registerBranding(pi, rules.length, discoveredSkills);
   registerInterviewLog(pi);
-  registerJobTools(pi, jobs);
+  registerJobTools(pi, jobs, cwd);
   registerRenderFunctionality(pi, cwd, jobs);
   registerRenderConformanceTests(pi, cwd, jobs);
   registerCheckPlain(pi, cwd);
@@ -1112,7 +1114,7 @@ async function deliver(
 }
 
 /** Looking in on work that is still running, and collecting what finished. */
-function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
+function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   pi.registerTool({
     name: "check_job",
     label: "Check job",
@@ -1201,6 +1203,41 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
     },
   });
 
+  // A module's history: every render, regeneration and conformance run, as git commits.
+  pi.registerCommand("history", {
+    description: "Show a module's history - every render, regeneration and conformance run: /history [module]",
+    handler: async (args, ctx) => {
+      if (!ctx.hasUI) return;
+      const modules = modulesWithHistory(cwd);
+      let name = args.trim();
+      if (name === "") {
+        if (modules.length === 0) return ctx.ui.notify("No module has any history yet.", "info");
+        name = modules.length === 1 ? modules[0]! : ((await ctx.ui.select("History of which module?", modules)) ?? "");
+        if (name === "") return;
+      }
+      pi.appendEntry(HISTORY_ENTRY, { module: name, text: historyLog(defaultBuildDir(name, cwd)) });
+    },
+  });
+
+  pi.registerTool({
+    name: "module_history",
+    label: "Module history",
+    description:
+      "Read a module's history: every render, regeneration, conformance run and spec change made to its code " +
+      "and tests, as git commits. Without a commit, the log; with one, that commit in full - its message and " +
+      "the change it made.",
+    promptSnippet: "module_history: what was rendered into a module, and when",
+    parameters: Type.Object({
+      module: Type.String({ description: "The module's name" }),
+      commit: Type.Optional(Type.String({ description: "A commit from the log, to see in full" })),
+    }),
+    async execute(_id, params) {
+      const buildDir = defaultBuildDir(params.module, cwd);
+      const text = params.commit ? historyShow(buildDir, params.commit) : historyLog(buildDir);
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
   // Read a job's agents at work: its whole transcript, live, in an overlay.
   pi.registerCommand("watch", {
     description: "Read a background job's full transcript as it happens: /watch [job id]",
@@ -1252,6 +1289,16 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
 }
 
 const WATCH_REDRAW_MS = 500;
+
+/** The modules in this project that have a history, by name. */
+function modulesWithHistory(cwd: string): string[] {
+  const root = join(cwd, "plain_modules");
+  try {
+    return readdirSync(root).filter((name) => existsSync(join(root, name, HISTORY_DIR)));
+  } catch {
+    return [];
+  }
+}
 
 /** The spec of the codebase a job on this module would write: the tip built on it, or itself. */
 function codebasePlainFile(plainFile: string, inModule?: string): string {
@@ -1363,6 +1410,7 @@ function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
 const MILESTONE_ENTRY = "plainwright_milestone";
 const JOB_ENTRY = "plainwright_job";
 const JOBS_LIST_ENTRY = "plainwright_jobs";
+const HISTORY_ENTRY = "plainwright_history";
 
 interface JobAnnouncement {
   id: string;
@@ -1436,6 +1484,14 @@ function registerInterviewLog(pi: ExtensionAPI) {
     const spent = data.spent ? ` ${theme.fg("muted", `· ${data.spent}`)}` : "";
     const box = new Box(1, 0);
     box.addChild(new Text([header + spent, "", theme.fg(ok ? "text" : "muted", data.text.trim())].join("\n"), 0, 0));
+    return box;
+  });
+
+  pi.registerEntryRenderer(HISTORY_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as { module: string; text: string } | undefined;
+    if (data === undefined) return undefined;
+    const box = new Box(1, 0);
+    box.addChild(new Text([theme.fg("muted", `history of ${data.module}`), theme.fg("text", data.text)].join("\n"), 0, 0));
     return box;
   });
 

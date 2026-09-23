@@ -5,6 +5,7 @@ import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
+import { recordHistory } from "./history.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, tryDirFor } from "./paths.ts";
@@ -312,8 +313,14 @@ export async function renderFunctionality(
       files: diffFiles(digestsBefore, digestFiles(buildDir)),
       testCommand: runs.filter((run) => run.exitCode === 0).at(-1)?.command,
     };
+    const outcome = passed ? "unit tests pass" : "unit tests NOT passing";
+    const what = targetFunctionality(specifications).split("\n")[0]!.replace(/^- /, "");
     if (host === undefined) {
       recordFunctionality(buildDir, moduleName, { frid, ...specStateFor(tree, frid), ...built, required });
+      recordHistory(
+        buildDir,
+        `${options.regenerate ? "regenerate" : "render"} ${moduleName} fs ${frid}: ${what} (${outcome})`,
+      );
     } else {
       // Updated in a later module's codebase: that codebase's record says so. This module's
       // own build is left as it was - an older snapshot, no longer where the code lives.
@@ -323,6 +330,7 @@ export async function renderFunctionality(
         required: requiredFunctionalSpecs(host.plainFile, options.templateDirs),
         build: { specHash: specStateFor(tree, frid).specHash, ...built },
       });
+      recordHistory(buildDir, `regenerate ${moduleName} fs ${frid} in ${host.moduleName}: ${what} (${outcome})`);
     }
 
     return {
