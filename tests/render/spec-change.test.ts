@@ -182,3 +182,30 @@ describe("rendering a spec diff before any functional spec exists", () => {
     expect(state.functionalities).toEqual({});
   });
 });
+
+describe("renders queued behind the interview", () => {
+  it("render a diff that later changes have since gone on top of, without applying it again", async () => {
+    const { createRenderQueue } = await import("../../src/render/queue.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const one = plain(["- One."]);
+    const two = plain(["- One.", "- Two."]);
+    const three = plain(["- One, now reworded.", "- Two.", "- Three."]);
+    writeFileSync(join(dir, "app.plain"), one);
+
+    // As write_spec_diff does: each diff applied at the moment it is written.
+    const first = diffOf(one, two);
+    const second = diffOf(two, three);
+    expect(applySpecDiff(first, dir)).toBe("applied");
+    expect(applySpecDiff(second, dir)).toBe("applied");
+    // The first no longer fits the file either way - which is what made its render fail.
+    expect(() => applySpecDiff(first, dir)).toThrow(/does not apply/);
+
+    const registry = createJobRegistry();
+    const queue = createRenderQueue({ registry, cwd: dir });
+    const jobs = [queue.enqueueSpecDiff({ plainFile: "app.plain", diff: first }), queue.enqueueSpecDiff({ plainFile: "app.plain", diff: second })];
+    await queue.drain();
+
+    expect(jobs.map((job) => registry.get(job.jobId)!.status)).toEqual(["succeeded", "succeeded"]);
+    expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
+  });
+});

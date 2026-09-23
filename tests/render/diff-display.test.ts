@@ -1,0 +1,80 @@
+import { describe, expect, it } from "vitest";
+import { createJobRegistry } from "../../src/render/jobs.ts";
+import { diffBody, jobPanelLines, styleDiffLine, summarizeDiff } from "../../src/render/job-panel.ts";
+import { transcriptLines } from "../../src/render/transcript-view.ts";
+
+const diff = [
+  "diff --git a/backend.plain b/backend.plain",
+  "--- a/backend.plain",
+  "+++ b/backend.plain",
+  "@@ -3,6 +3,8 @@",
+  " - :User: is a registered student account.",
+  "+",
+  "+- :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.",
+  " ",
+  "-- Old rule.",
+  "+- A repeated :Kudo: has no further effect.",
+  "",
+].join("\n");
+
+function gate() {
+  let release!: () => void;
+  return { opened: new Promise<void>((resolve) => (release = resolve)), release: () => release() };
+}
+
+describe("showing a spec change", () => {
+  it("sums it up in one line: the files, the lines, and what it is about", () => {
+    expect(summarizeDiff(diff)).toBe("backend.plain +3 −1 · :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+  });
+
+  it("keeps the hunks and drops the headers", () => {
+    expect(diffBody(diff)[0]).toBe("@@ -3,6 +3,8 @@");
+    expect(diffBody(diff).some((line) => line.startsWith("diff --git") || line.startsWith("+++"))).toBe(false);
+  });
+
+  it("shows under a running job, in full with ctrl+o, and as a line under each queued one", async () => {
+    const jobs = createJobRegistry();
+    const { opened, release } = gate();
+    jobs.start({ kind: "render_spec_diff", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => (await opened, { report: "" }) });
+    jobs.start({ kind: "render_spec_diff", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => ({ report: "" }) });
+
+    const compact = jobPanelLines(jobs.list());
+    expect(compact).toContain("    backend.plain +3 −1 · :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+    expect(compact.some((line) => line.includes("│"))).toBe(false);
+
+    const expanded = jobPanelLines(jobs.list(), { expanded: true });
+    expect(expanded).toContain("      │ +- :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+    expect(expanded.filter((line) => line.includes("backend.plain +3 −1"))).toHaveLength(2);
+    release();
+  });
+
+  it("leads the transcript in /watch, even before the job has started", () => {
+    const jobs = createJobRegistry();
+    const { opened } = gate();
+    jobs.start({ kind: "render", summary: "a", lanes: ["m"], run: async () => (await opened, { report: "" }) });
+    const queued = jobs.start({ kind: "render_spec_diff", summary: "b", diff, lanes: ["m"], run: async () => ({ report: "" }) });
+
+    const lines = transcriptLines(queued, 100);
+    expect(lines[0]).toBe("── the spec change");
+    expect(lines).toContain("+- :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+    expect(lines.at(-1)).toBe("(queued - not started yet)");
+  });
+});
+
+describe("colouring a spec change", () => {
+  const style = { added: (t: string) => `<green>${t}</green>`, removed: (t: string) => `<red>${t}</red>` };
+
+  it("makes added lines green and removed lines red, and leaves the rest alone", () => {
+    expect(styleDiffLine("+- :Kudo: is new.", style)).toBe("<green>+- :Kudo: is new.</green>");
+    expect(styleDiffLine("-- Old rule.", style)).toBe("<red>-- Old rule.</red>");
+    expect(styleDiffLine(" - :User: stays.", style)).toBe(" - :User: stays.");
+    expect(styleDiffLine("+++ b/backend.plain", style)).toBe("+++ b/backend.plain");
+    expect(styleDiffLine("--- a/backend.plain", style)).toBe("--- a/backend.plain");
+  });
+
+  it("colours the counts in the summary line", () => {
+    expect(summarizeDiff(diff, style)).toBe(
+      "backend.plain <green>+3</green> <red>−1</red> · :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.",
+    );
+  });
+});

@@ -93,13 +93,16 @@ export function createRenderQueue(options: {
       const job = options.registry.start({
         kind: "render_spec_diff",
         summary: `${basename(plainFile)} render spec diff`,
+        diff: request.diff,
         lanes: [queueLane, ...moduleLanes(codebaseOf(plainFile), options.buildDir)],
         run: async (onDelta) => {
+          // write_spec_diff applied it when it was written; later changes may be on top of it now.
           const result = await renderSpecDiff({
             plainFile,
             diff: request.diff,
             cwd: options.cwd,
             model: options.model,
+            applied: true,
             onDelta,
           });
           return { report: describeSpecDiff(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };

@@ -866,6 +866,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       return deliver(jobs, {
         kind: "render_spec_diff",
         summary: `${basename(params.plain_file)} render spec diff`,
+        diff: params.diff,
         model,
         wait: params.wait,
         mode: ctx.mode,
@@ -1053,6 +1054,8 @@ async function deliver(
     /** What the job writes. See StartJobInput.lanes. */
     lanes: string[];
     onUpdate?: (result: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void;
+    /** For a render spec diff job: the diff, shown while it waits and runs. */
+    diff?: string;
     run: (onDelta: (delta: string) => void) => Promise<JobOutcome>;
   },
 ) {
@@ -1079,6 +1082,7 @@ async function deliver(
   const job = jobs.start({
     kind: input.kind,
     summary,
+    diff: input.diff,
     lanes: input.lanes,
     // Background work writes through the same terminal the TUI is drawing on, so its
     // console output is collected rather than printed.
@@ -1214,6 +1218,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
               muted: (text) => theme.fg("muted", text),
               accent: (text) => theme.fg("accent", text),
               error: (text) => theme.fg("error", text),
+              added: (text) => theme.fg("toolDiffAdded", text),
+              removed: (text) => theme.fg("toolDiffRemoved", text),
             },
             close: () => done(undefined),
           });

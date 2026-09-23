@@ -113,6 +113,12 @@ export interface RenderSpecDiffOptions {
   inModule?: string;
   /** Write and run conformance tests. Default: when the module has test reqs. */
   conformance?: boolean;
+  /**
+   * The diff was applied when it was written, and is not to be applied again. A render queued
+   * behind the interview runs after later changes have gone on top of it, so its diff no
+   * longer fits the file either way - but it was applied, and that is what matters.
+   */
+  applied?: boolean;
   model?: string;
   onDelta?: (delta: string) => void;
 }
@@ -135,7 +141,7 @@ export interface RenderSpecDiffResult {
 export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<RenderSpecDiffResult> {
   const cwd = resolve(options.cwd ?? process.cwd());
   const templateDirs = options.templateDirs ?? [];
-  const applied = applySpecDiff(options.diff, cwd);
+  const applied = options.applied === true ? "already applied" : applySpecDiff(options.diff, cwd);
 
   // The change lands in the chain's current codebase. A module with no build of its own
   // starts from the code of the module it requires, as a render would.

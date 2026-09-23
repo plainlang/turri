@@ -34,15 +34,70 @@ function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
 }
 
+/** Diff lines shown per running job while expanded. */
+const EXPANDED_DIFF_LINES = 20;
+
+/**
+ * One line saying what a spec change does: the files, the lines added and removed, and the
+ * first line it adds - usually the concept or the functional spec it is about.
+ */
+/** How a diff is coloured: added lines green, removed lines red. Plain when there is no theme. */
+export interface DiffStyle {
+  added(text: string): string;
+  removed(text: string): string;
+}
+
+const PLAIN_DIFF: DiffStyle = { added: (text) => text, removed: (text) => text };
+
+/** One diff line, coloured by what it does. Hunk headers and context stay as they are. */
+export function styleDiffLine(line: string, style: DiffStyle = PLAIN_DIFF): string {
+  if (line.startsWith("+") && !line.startsWith("+++")) return style.added(line);
+  if (line.startsWith("-") && !line.startsWith("---")) return style.removed(line);
+  return line;
+}
+
+export function summarizeDiff(diff: string, style: DiffStyle = PLAIN_DIFF): string {
+  const files = new Set<string>();
+  let added = 0;
+  let removed = 0;
+  let first: string | undefined;
+  for (const line of diff.split("\n")) {
+    const file = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
+    if (file) {
+      if (file[1] !== "/dev/null") files.add(file[1]!.split("/").pop()!);
+      continue;
+    }
+    if (line.startsWith("---") || line.startsWith("diff --git") || line.startsWith("index ")) continue;
+    if (line.startsWith("+")) {
+      added += 1;
+      const text = line.slice(1).replace(/^- /, "").trim();
+      if (first === undefined && text !== "" && !/^\*\*\*.*\*\*\*$/.test(text)) first = text;
+    } else if (line.startsWith("-")) {
+      removed += 1;
+    }
+  }
+  return `${[...files].join(", ")} ${style.added(`+${added}`)} ${style.removed(`−${removed}`)}${first ? ` · ${first}` : ""}`;
+}
+
+/** The lines of a diff worth reading in a panel: the hunks, not the headers. */
+export function diffBody(diff: string): string[] {
+  return diff
+    .split("\n")
+    .filter((line) => !/^(diff --git|index |--- |\+\+\+ )/.test(line) && line !== "");
+}
+
 export interface PanelOptions {
   /** Everything, rather than the compact view. */
   expanded?: boolean;
   now?: number;
+  /** Colours for the diffs of render spec diff jobs. */
+  diffStyle?: DiffStyle;
 }
 
 export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[] {
   const now = options.now ?? Date.now();
   const expanded = options.expanded === true;
+  const diffStyle = options.diffStyle ?? PLAIN_DIFF;
   const inOrder = [...jobs].sort((a, b) => a.sequence - b.sequence);
   const running = inOrder.filter((job) => job.status === "running");
   const queued = inOrder.filter((job) => job.status === "queued");
@@ -55,6 +110,14 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (lines.length > 0) lines.push("");
     const spent = describeUsage(job.usage);
     lines.push(`${spinner(now)} ${job.summary} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`);
+    if (job.diff !== undefined) {
+      lines.push(`    ${summarizeDiff(job.diff, diffStyle)}`);
+      if (expanded) {
+        const body = diffBody(job.diff);
+        for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${styleDiffLine(line, diffStyle)}`);
+        if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - /watch ${job.id} shows it all`);
+      }
+    }
     lines.push(`    ${job.stage ?? "starting"}`);
     const activity = expanded ? job.activity : job.activity.slice(-COMPACT_ACTIVITY);
     if (activity.length < job.activity.length) hidden = true;
@@ -70,6 +133,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (expanded || queued.length === 1) {
       for (const job of queued) {
         lines.push(`  queued  ${job.summary}  (job ${job.id}, after ${job.waitingOn.join(", ")})`);
+        if (job.diff !== undefined) lines.push(`          ${summarizeDiff(job.diff, diffStyle)}`);
       }
     } else {
       // Counted, then named in order - so however narrow the line gets, the number is there.
@@ -91,7 +155,12 @@ interface Redrawable {
 export interface PanelUI {
   setWidget(
     key: string,
-    content: ((tui: Redrawable, theme: never) => { render(width: number): string[]; invalidate(): void }) | undefined,
+    content:
+      | ((tui: Redrawable, theme: { fg(color: "toolDiffAdded" | "toolDiffRemoved", text: string): string }) => {
+          render(width: number): string[];
+          invalidate(): void;
+        })
+      | undefined,
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
   getToolsExpanded(): boolean;
@@ -121,12 +190,16 @@ export function createJobPanel(list: () => Job[]): JobPanel {
         mounted = true;
         target.setWidget(
           JOB_PANEL_KEY,
-          (next) => {
+          (next, theme) => {
             tui = next;
+            const diffStyle: DiffStyle = {
+              added: (text) => theme.fg("toolDiffAdded", text),
+              removed: (text) => theme.fg("toolDiffRemoved", text),
+            };
             return {
               // Laid out on every render, so ctrl+o takes effect on the very next frame.
               render: (width) =>
-                jobPanelLines(list(), { expanded: target.getToolsExpanded() }).map((line) =>
+                jobPanelLines(list(), { expanded: target.getToolsExpanded(), diffStyle }).map((line) =>
                   truncateToWidth(line, width),
                 ),
               invalidate() {},

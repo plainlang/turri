@@ -1,5 +1,6 @@
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { describeUsage, type TranscriptEntry } from "./activity.ts";
+import { styleDiffLine, type DiffStyle } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 
 /**
@@ -12,7 +13,7 @@ import { formatDuration, type Job } from "./jobs.ts";
  */
 
 /** How the viewer colours things. Plain text when there is no theme, as in tests. */
-export interface TranscriptStyle {
+export interface TranscriptStyle extends DiffStyle {
   heading(text: string): string;
   muted(text: string): string;
   accent(text: string): string;
@@ -24,6 +25,8 @@ const PLAIN: TranscriptStyle = {
   muted: (text) => text,
   accent: (text) => text,
   error: (text) => text,
+  added: (text) => text,
+  removed: (text) => text,
 };
 
 function wrap(text: string, width: number, indent: string): string[] {
@@ -52,10 +55,30 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
   }
 }
 
-/** Every line of the job's transcript at this width, oldest first. */
+/**
+ * Every line of the job's transcript at this width, oldest first - led, for a render spec diff
+ * job, by the change it renders, which is readable before the job has even started.
+ */
 export function transcriptLines(job: Job, width: number, style: TranscriptStyle = PLAIN): string[] {
-  if (job.transcript.length === 0) return [style.muted("(nothing yet)")];
-  return job.transcript.flatMap((entry) => entryLines(entry, width, style));
+  const change =
+    job.diff === undefined
+      ? []
+      : [
+          style.heading("── the spec change"),
+          ...job.diff
+            .trimEnd()
+            .split("\n")
+            .map((line) => {
+              const clipped = truncateToWidth(line, width);
+              const styled = styleDiffLine(clipped, style);
+              // Headers and unchanged context are there to place the change; they recede.
+              return styled === clipped ? style.muted(clipped) : styled;
+            }),
+        ];
+  if (job.transcript.length === 0) {
+    return [...change, ...(change.length > 0 ? [""] : []), style.muted(job.status === "queued" ? "(queued - not started yet)" : "(nothing yet)")];
+  }
+  return [...change, ...job.transcript.flatMap((entry) => entryLines(entry, width, style))];
 }
 
 function header(job: Job): string {
