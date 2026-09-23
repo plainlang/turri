@@ -21,7 +21,7 @@ are separate jobs: a codebase can be built and given its conformance suite later
   --regression             run each module's merged suite afterwards
 
   --build-dir <dir>        the rendered code under test (default: plain_modules/<module>/code)
-  --conformance-root <dir> where suites are written (default: plain_modules/<module>/tests/<frid>)
+  --conformance-root <dir> where suites are written (default: plain_modules/<module>/tests)
   --template-dir <dir>     extra template directory (repeatable)
   --dry-run                print the prompt without starting an agent
   --model <provider/id>    model for the agents, e.g. google/gemini-2.5-pro

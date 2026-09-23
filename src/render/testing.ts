@@ -48,6 +48,22 @@ export function runCommand(cwd: string, command: string): { exitCode: number; ou
   }
 }
 
+/**
+ * Never part of the codebase: version control, installed dependencies, tool caches, and the
+ * harness's own bookkeeping. Installed dependencies alone can be tens of thousands of files.
+ */
+const NOT_CODE = new Set([
+  ".git",
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  STATE_FILE,
+]);
+
 export function listFiles(root: string): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
@@ -55,8 +71,7 @@ export function listFiles(root: string): string[] {
       // The state file is the harness's own bookkeeping, not part of the codebase: it is
       // never shown to an agent as a file it wrote, copied forward to a requiring module,
       // or counted when asking whether anything has been built.
-      if (entry === ".git" || entry === "node_modules" || entry === "__pycache__" || entry === STATE_FILE)
-        continue;
+      if (NOT_CODE.has(entry)) continue;
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) walk(full);
       else found.push(relative(root, full));

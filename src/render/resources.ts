@@ -18,7 +18,8 @@ const MAX_RESOURCE_CHARS = 8000;
  */
 export function loadLinkedResources(
   tree: MarshalledPlainSource,
-  frid: string,
+  /** Up to and including this functionality. Null: the whole module. */
+  frid: string | null,
   templateDirs: string[],
 ): LoadedResource[] {
   const collected: Array<{ text: string; target: string; sections: string[] }> = [];

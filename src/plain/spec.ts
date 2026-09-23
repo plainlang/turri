@@ -10,6 +10,12 @@ export const TEST_REQUIREMENTS = "test reqs";
 export const FUNCTIONAL_REQUIREMENTS = "functional specs";
 export const ACCEPTANCE_TESTS = "acceptance_tests";
 export const ACCEPTANCE_TEST_HEADING = "acceptance tests";
+/**
+ * Where a module's tree carries the functional specs it inherits through `requires`: every
+ * functional spec of every module it requires, transitively, bottom of the chain first.
+ * Kept apart from its own, which are numbered 1, 2, 3 on their own.
+ */
+export const REQUIRED_FUNCTIONAL_SPECS = "required functional specs";
 
 export const ALLOWED_SPECIFICATION_HEADINGS = [
   DEFINITIONS,
@@ -35,6 +41,33 @@ export interface SpecificationItem {
   linked_resources?: LinkedResource[];
   code_variables?: CodeVariable[];
   [ACCEPTANCE_TESTS]?: SpecificationItem[];
+}
+
+/** A functional spec inherited through `requires`, with the module it belongs to and its id there. */
+export interface InheritedSpecificationItem extends SpecificationItem {
+  module: string;
+  frid: string;
+}
+
+/**
+ * The functional specs a module inherits through `requires`, rendered: each with its
+ * module, its id there, and its acceptance tests.
+ */
+export function getInheritedFunctionalSpecs(
+  tree: MarshalledPlainSource,
+  replaceCodeVariables = true,
+): Array<{ module: string; frid: string; spec: string; acceptanceTests?: string[] }> {
+  const items = (tree[REQUIRED_FUNCTIONAL_SPECS] as InheritedSpecificationItem[] | undefined) ?? [];
+  return items.map((item) => {
+    const codeVariables: Record<string, string> = {};
+    const tests = item[ACCEPTANCE_TESTS];
+    return {
+      module: item.module,
+      frid: item.frid,
+      spec: getSpecificationItemMarkdown(item, codeVariables, replaceCodeVariables),
+      acceptanceTests: tests?.map((test) => getSpecificationItemMarkdown(test, codeVariables, replaceCodeVariables)),
+    };
+  });
 }
 
 /**

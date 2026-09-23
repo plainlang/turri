@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
 /**
@@ -5,7 +6,8 @@ import { dirname, join, resolve, sep } from "node:path";
  *
  * Everything a module produces sits under `plain_modules/<module>/`, next to the specs it
  * came from and inside the project's own repository: `code/` holds the implementation and
- * its unit tests, `tests/<frid>/` the black-box conformance tests for one functionality.
+ * its unit tests, `tests/` the black-box conformance tests - of every functionality built so
+ * far, the required modules' included, organised however suits them.
  * The build state is written into `code/`, so what a codebase contains travels with that
  * codebase instead of living in a scratch directory that can be cleared without anyone
  * noticing the specs and the code have drifted apart.
@@ -55,8 +57,40 @@ export function testsDirUnder(root: string, moduleName: string): string {
  * `plain_modules` because it is not part of the codebase.
  */
 export function tryDirFor(buildDir: string, moduleName: string, frid: string): string {
-  const parts = resolve(buildDir).split(sep);
+  return join(scratchDir(buildDir), "try", moduleName, `fs-${frid}`);
+}
+
+/**
+ * The project a directory belongs to: the one `plain_modules` sits in, when the directory is
+ * inside it; otherwise the directory's parent for a build folder, or the directory itself.
+ */
+export function projectRootOf(dir: string): string {
+  const parts = resolve(dir).split(sep);
   const index = parts.lastIndexOf(MODULES_DIR);
-  const project = index === -1 ? dirname(resolve(buildDir)) : parts.slice(0, index).join(sep);
-  return join(project, ".plainwright", "try", moduleName, `fs-${frid}`);
+  return index === -1 ? resolve(dir) : parts.slice(0, index).join(sep);
+}
+
+/**
+ * `.plainwright` in the project: the harness's own scratch space - copies to try things in,
+ * saved agent sessions. Never part of the project's history, so it ignores itself.
+ */
+export function scratchDir(dir: string): string {
+  const parts = resolve(dir).split(sep);
+  const index = parts.lastIndexOf(MODULES_DIR);
+  const project = index === -1 ? dirname(resolve(dir)) : parts.slice(0, index).join(sep);
+  return join(project, ".plainwright");
+}
+
+/** Make `path`, inside a scratch dir, and see that the scratch dir ignores itself. Returns `path`. */
+export function ensureInScratch(scratch: string, path: string): string {
+  mkdirSync(path, { recursive: true });
+  const ignore = join(scratch, ".gitignore");
+  if (!existsSync(ignore)) writeFileSync(ignore, "*\n");
+  return path;
+}
+
+/** Where agent sessions are saved, so what an agent did can be read - and resumed - later. */
+export function sessionsDir(project: string): string {
+  const scratch = scratchDir(join(project, MODULES_DIR));
+  return ensureInScratch(scratch, join(scratch, "sessions"));
 }

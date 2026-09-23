@@ -44,6 +44,25 @@ const escalateNode = (s: string) => `escalate.${s}`;
 /** Where the executor is required to put this step's deliverable. */
 const artifactPath = (step: StepSpec) => `${step.name}.md`;
 
+/**
+ * The prompt for a step picked up after the run was interrupted part-way through it. The
+ * session is the one that was running, so the step's instructions and everything said so far
+ * are already in it; what the agent needs is to know it stopped, and to look before it acts.
+ */
+function resumePrompt(step: StepSpec): string {
+  return [
+    `This skill run was interrupted during step '${step.name}' and has been resumed. Your session is as`,
+    "it was when it stopped.",
+    "",
+    "Check what is already on disk before doing anything - the specs written so far, and any artifact -",
+    "and continue the step from where it stopped. Do not redo what is done, and do not ask the user again",
+    "for anything they have already answered.",
+    step.gate ? `\nWhen the step is done, call write_artifact with path "${artifactPath(step)}" as before.` : "",
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+}
+
 function stepPrompt(skill: Skill, step: StepSpec, critique: string, context?: string): string {
   if (critique) {
     return [
@@ -90,20 +109,31 @@ export function compileSkill(opts: {
   context?: string;
   /** Reviewers already reading along, by step name. Their findings gate the step too. */
   liveReviewers?: Map<string, LiveReviewer>;
+  /** Start at this step instead of the first: a resumed run, picking up where it stopped. */
+  startAt?: string;
+  /** Called as each step starts, with the state it starts from - what a resumed run restores. */
+  onStepStart?: (step: string, state: ForgeStateType) => void;
 }) {
   const { skill, report } = opts;
   const graph = new StateGraph(ForgeState) as any;
+  // The step being resumed is told it was interrupted - once. A retry after its gate is an
+  // ordinary retry.
+  let resuming = opts.startAt;
 
   skill.steps.forEach((step, index) => {
     const nextNode = index + 1 < skill.steps.length ? stepNode(skill.steps[index + 1]!.name) : END;
 
     graph.addNode(stepNode(step.name), async (state: ForgeStateType) => {
+      opts.onStepStart?.(step.name, state);
       const attempt = (state.attempts[step.name] ?? 0) + 1;
       report.step(step.name, attempt);
       // Only the first step needs it: the executor keeps one session across every step,
       // so it is already in the history by the time the second runs.
       const context = index === 0 ? opts.context : undefined;
-      await ask(opts.executor, stepPrompt(skill, step, state.critique, context));
+      const prompt =
+        resuming === step.name && !state.critique ? resumePrompt(step) : stepPrompt(skill, step, state.critique, context);
+      resuming = undefined;
+      await ask(opts.executor, prompt);
 
       let artifact = "";
       try {
@@ -225,6 +255,9 @@ export function compileSkill(opts: {
     );
   });
 
-  graph.addEdge(START, stepNode(skill.steps[0]!.name));
+  // Every step is a possible entry point, so none is unreachable when a resumed run starts
+  // part-way through; which one is taken is decided here.
+  const first = opts.startAt !== undefined && skill.steps.some((s) => s.name === opts.startAt) ? opts.startAt : skill.steps[0]!.name;
+  graph.addConditionalEdges(START, () => stepNode(first), skill.steps.map((s) => stepNode(s.name)));
   return graph;
 }

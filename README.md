@@ -464,7 +464,7 @@ Each agent gets two roots, both under `plain_modules`, and nothing reaches above
 | agent | reads | writes |
 | --- | --- | --- |
 | render | `plain_modules/<module>/code` | `plain_modules/<module>/code` |
-| conformance author | `plain_modules/<module>/{code,tests/<frid>}` | `plain_modules/<module>/tests/<frid>` |
+| conformance author | `plain_modules/<module>/{code,tests}` | `plain_modules/<module>/tests` |
 | code fixer | `plain_modules/<module>/code` | `plain_modules/<module>/code` |
 
 The path check runs twice: once on the argument the tool was called with, and once on the

@@ -1,9 +1,9 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { getRenderRange, type MarshalledPlainSource } from "../plain/spec.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
-import { resolveRequiresChain, type ChainEntry } from "./requires.ts";
-import { recordFunctionality, readState, specStateFor } from "./state.ts";
+import { findCodebaseTip, requiredFunctionalSpecs, resolveRequiresChain, type ChainEntry } from "./requires.ts";
+import { readState, recordConformance } from "./state.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { modulesRoot } from "./paths.ts";
@@ -87,12 +87,16 @@ export interface ConformanceSuiteResult {
   outcomes: ConformanceSuiteOutcome[];
   regression: Record<string, RegressionResult>;
   passed: boolean;
+  /** The codebase the tests were written and run in, when it is not each module's own. */
+  codebaseOf?: string;
 }
 
 export interface ConformanceSuiteOptions extends ConformanceSelection {
   plainFile: string;
   templateDirs?: string[];
   buildDir?: string;
+  /** The codebase to test in, when modules built on this one branch. */
+  inModule?: string;
   conformanceRoot?: string;
   model?: string;
   /** Rewrite suites that already pass. */
@@ -126,6 +130,14 @@ export async function renderConformanceSuite(
   const targets = resolveConformanceTargets(chain, options, treeFor);
   options.onEvent?.({ type: "targets", targets });
 
+  // Conformance tests are written and run in the chain's current codebase, not in the named
+  // module's older build: that is where the code they check now lives, and where they are
+  // carried on up from as later modules are built. An explicit build directory is taken at
+  // its word.
+  const codebase =
+    options.buildDir === undefined
+      ? findCodebaseTip(options.plainFile, { templateDirs: options.templateDirs, inModule: options.inModule }).tip
+      : undefined;
   const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
   const outcomes: ConformanceSuiteOutcome[] = [];
   const regression: Record<string, RegressionResult> = {};
@@ -138,8 +150,14 @@ export async function renderConformanceSuite(
     for (const frid of target.frids) {
       index += 1;
 
-      const built = readState(target.buildDir)?.functionalities[frid];
-      if (!options.force && built?.conformance === "passed") {
+      const buildDir = codebase?.buildDir ?? target.buildDir;
+      const holder = codebase?.moduleName ?? target.moduleName;
+      const state = readState(buildDir);
+      const verdict =
+        target.moduleName === state?.module
+          ? state.functionalities[frid]?.conformance
+          : state?.required.find((spec) => spec.module === target.moduleName && spec.frid === frid)?.build?.conformance;
+      if (!options.force && verdict === "passed") {
         options.onEvent?.({ type: "skipped", module: target.moduleName, frid });
         outcomes.push({ moduleName: target.moduleName, frid, skipped: true });
         continue;
@@ -151,8 +169,8 @@ export async function renderConformanceSuite(
         plainFile: target.plainFile,
         frid,
         templateDirs: options.templateDirs,
-        buildDir: target.buildDir,
-        conformanceDir: conformanceDirFor(target.moduleName, frid, conformanceRoot),
+        buildDir,
+        conformanceDir: conformanceDirFor(holder, conformanceRoot),
         model: options.model,
         onDelta: options.onDelta,
       });
@@ -160,20 +178,14 @@ export async function renderConformanceSuite(
       outcomes.push({ moduleName: target.moduleName, frid, skipped: false, result });
       options.onEvent?.({ type: "done", module: target.moduleName, frid, passed: result.passed });
 
-      // The build's record of this functionality gains its conformance verdict; whether
-      // the code was rendered here or long ago does not change what is true of it now.
-      const tree = treeFor(chain.find((entry) => entry.moduleName === target.moduleName)!);
-      recordFunctionality(target.buildDir, target.moduleName, {
-        frid,
-        ...specStateFor(tree, frid),
-        unitTests: built?.unitTests ?? "passed",
-        conformance: result.passed ? "passed" : "failed",
-      });
+      // The codebase's record of this functionality gains its conformance verdict - on its own
+      // entry, or on the entry it has as a required module's functionality.
+      recordConformance(buildDir, target.moduleName, frid, result.passed ? "passed" : "failed");
 
       if (!result.passed) passed = false;
     }
 
-    if (options.regression === true && target.frids.length > 0) {
+    if (codebase === undefined && options.regression === true && target.frids.length > 0) {
       const tree = treeFor(chain.find((entry) => entry.moduleName === target.moduleName)!);
       const last = outcomes.filter((o) => o.moduleName === target.moduleName).at(-1)?.result;
       regression[target.moduleName] = await ensureRegressionPasses({
@@ -182,6 +194,7 @@ export async function renderConformanceSuite(
         moduleName: target.moduleName,
         frids: target.frids,
         tree,
+        required: requiredFunctionalSpecs(target.plainFile, options.templateDirs),
         command: last?.runs.filter((run) => run.exitCode === 0).at(-1)?.command ?? null,
         model: options.model,
         onDelta: options.onDelta,
@@ -190,5 +203,23 @@ export async function renderConformanceSuite(
     }
   }
 
-  return { targets, outcomes, regression, passed };
+  // In the current codebase, one suite holds every module's tests: it runs once, at the end.
+  if (codebase !== undefined && options.regression === true) {
+    const [, tipTree] = plainFileParser(basename(codebase.plainFile), resolveTemplateDirs(codebase.plainFile, options.templateDirs));
+    const last = outcomes.filter((o) => o.result !== undefined).at(-1)?.result;
+    regression[codebase.moduleName] = await ensureRegressionPasses({
+      buildDir: codebase.buildDir,
+      conformanceRoot,
+      moduleName: codebase.moduleName,
+      frids: codebase.frids,
+      tree: tipTree,
+      required: requiredFunctionalSpecs(codebase.plainFile, options.templateDirs),
+      command: last?.runs.filter((run) => run.exitCode === 0).at(-1)?.command ?? null,
+      model: options.model,
+      onDelta: options.onDelta,
+    });
+    if (!regression[codebase.moduleName]!.passed) passed = false;
+  }
+
+  return { targets, outcomes, regression, passed, codebaseOf: codebase?.moduleName };
 }

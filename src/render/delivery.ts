@@ -58,7 +58,7 @@ function tryItLines(delivery: Delivery): string[] {
   }
 
   if (tryIt === undefined) {
-    lines.push("  (the build did not say how to run it - ask and it can be worked out from the code)");
+    lines.push("  (how to try it was not worked out for this build - ask, and it can be from the code)");
     return lines;
   }
 

@@ -22,6 +22,63 @@ export interface ActivitySink {
    * `keepSince` updates the words without restarting the clock on it.
    */
   now(label: string | undefined, options?: { keepSince?: boolean }): void;
+  /** What one model response cost. */
+  usage(usage: UsageReport): void;
+  /** One piece of the full conversation, for reading it back while it happens. */
+  transcript(entry: TranscriptEntry): void;
+  /** Aborted when the job is asked to stop. */
+  signal?: AbortSignal;
+}
+
+/** Raised inside a job that was asked to stop, so the work unwinds instead of carrying on. */
+export class JobStoppedError extends Error {
+  constructor() {
+    super("Stopped on request.");
+    this.name = "JobStoppedError";
+  }
+}
+
+/** The stop signal of the job this code is running for, if it is running for one. */
+export function currentStopSignal(): AbortSignal | undefined {
+  return store.getStore()?.signal;
+}
+
+/**
+ * The conversation an agent is having, as it happens: what it was asked, what it wrote and
+ * thought, what it called and what came back. Text and thinking arrive as deltas and are
+ * joined to the entry before them of the same kind.
+ */
+export interface TranscriptEntry {
+  kind: "stage" | "prompt" | "text" | "thinking" | "tool" | "result";
+  text: string;
+  /** For a result: whether the tool failed. */
+  error?: boolean;
+}
+
+export function reportTranscript(entry: TranscriptEntry): void {
+  store.getStore()?.transcript(entry);
+}
+
+/** The part of a model response's usage a job adds up. */
+export interface UsageReport {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+}
+
+export function reportUsage(usage: UsageReport): void {
+  store.getStore()?.usage(usage);
+}
+
+/** "1.2k tok · $0.03", or "" when nothing has been spent yet. */
+export function describeUsage(usage: UsageReport | undefined): string {
+  if (usage === undefined) return "";
+  const tokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+  if (tokens === 0) return "";
+  const size = tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(1)}M` : tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`;
+  return usage.cost > 0 ? `${size} tok · $${usage.cost.toFixed(2)}` : `${size} tok`;
 }
 
 const store = new AsyncLocalStorage<ActivitySink>();

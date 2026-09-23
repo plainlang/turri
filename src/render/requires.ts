@@ -1,10 +1,10 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { getFrids } from "../plain/spec.ts";
+import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
+import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
-import { STATE_FILE } from "./state.ts";
+import { inheritRecord, STATE_FILE, type RequiredSpec, type SharedSections } from "./state.ts";
 import { listFiles } from "./testing.ts";
 
 /**
@@ -47,6 +47,8 @@ export function resolveRequiresChain(
   plainFile: string,
   templateDirs: string[] = [],
   buildRoot?: string,
+  /** Accept the named module without functional specs yet. Those it requires must have them. */
+  options: ParseOptions = {},
 ): ChainEntry[] {
   const dirs = resolveTemplateDirs(plainFile, templateDirs);
   const root = resolve(buildRoot ?? modulesRoot());
@@ -54,7 +56,7 @@ export function resolveRequiresChain(
   const seen = new Set<string>();
 
   const visit = (file: string, requiredBy: string[]): string => {
-    const [moduleName, tree, requires] = plainFileParser(basename(file), dirs);
+    const [moduleName, tree, requires] = plainFileParser(basename(file), dirs, requiredBy.length === 0 ? options : {});
 
     if (requiredBy.includes(moduleName)) {
       throw new Error(`Circular requires: ${[...requiredBy, moduleName].join(" -> ")}`);
@@ -82,12 +84,115 @@ export function resolveRequiresChain(
 }
 
 /**
+ * The codebase a change to `plainFile`'s module lands in: the furthest-built module whose
+ * requires chain includes it, with that chain.
+ *
+ * Code accumulates up a chain, so once modules have been built on top of this one, its own
+ * build is only an early snapshot - the living codebase is the one at the tip. A change to
+ * this module's spec is made there, where everything built since can be kept working, not
+ * in the snapshot, where it would have to be copied up over newer work.
+ *
+ * Found by reading every .plain file beside this one. Where built descendants sit on
+ * different branches there is no single tip, and choosing one is a decision: `inModule`
+ * names it, and without it this refuses rather than guesses.
+ */
+export function findCodebaseTip(
+  plainFile: string,
+  options: { templateDirs?: string[]; buildRoot?: string; inModule?: string; allowNoFunctionalities?: boolean } = {},
+): { tip: ChainEntry; chain: ChainEntry[] } {
+  return withParseCache(() => findTip(plainFile, options));
+}
+
+function findTip(
+  plainFile: string,
+  options: { templateDirs?: string[]; buildRoot?: string; inModule?: string; allowNoFunctionalities?: boolean },
+): { tip: ChainEntry; chain: ChainEntry[] } {
+  const templateDirs = options.templateDirs ?? [];
+  const own = resolveRequiresChain(plainFile, templateDirs, options.buildRoot, {
+    allowNoFunctionalities: options.allowNoFunctionalities,
+  });
+  const self = own.at(-1)!;
+
+  const candidates: ChainEntry[][] = [];
+  const seen = new Set<string>();
+  for (const dir of resolveTemplateDirs(plainFile, templateDirs)) {
+    let names: string[];
+    try {
+      names = readdirSync(dir).filter((name) => name.endsWith(PLAIN_SOURCE_FILE_EXTENSION));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const file = join(dir, name);
+      if (seen.has(file)) continue;
+      seen.add(file);
+      let chain: ChainEntry[];
+      try {
+        chain = resolveRequiresChain(file, templateDirs, options.buildRoot);
+      } catch {
+        // Import modules, and anything that does not parse, are not codebases.
+        continue;
+      }
+      const top = chain.at(-1)!;
+      const includes = chain.some((entry) => entry.moduleName === self.moduleName);
+      if (includes && listFiles(top.buildDir).length > 0) candidates.push(chain);
+    }
+  }
+
+  const within = (chain: ChainEntry[]) => chain.slice(0, -1).map((entry) => entry.moduleName);
+  if (options.inModule !== undefined) {
+    const chosen = candidates.find((chain) => chain.at(-1)!.moduleName === options.inModule);
+    if (chosen === undefined) {
+      throw new Error(
+        `'${options.inModule}' is not a built module that requires '${self.moduleName}'. ` +
+          `Built ones that do: ${candidates.map((c) => c.at(-1)!.moduleName).join(", ") || "none"}.`,
+      );
+    }
+    return { tip: chosen.at(-1)!, chain: chosen };
+  }
+
+  // A tip is a candidate that no other candidate is built on top of.
+  const tips = candidates.filter(
+    (chain) => !candidates.some((other) => other !== chain && within(other).includes(chain.at(-1)!.moduleName)),
+  );
+  if (tips.length === 0) return { tip: self, chain: own };
+  if (tips.length > 1) {
+    throw new Error(
+      `'${self.moduleName}' is built on in more than one branch: ${tips.map((c) => c.at(-1)!.moduleName).join(", ")}. ` +
+        "Say which codebase to regenerate in.",
+    );
+  }
+  return { tip: tips[0]!.at(-1)!, chain: tips[0]! };
+}
+
+/**
+ * Every functional spec of the modules this one requires, transitively, bottom of the chain
+ * first - as the parser inherits them.
+ *
+ * A required module's code is copied in as this module's starting point, and that code
+ * already holds its own ancestors'. So all of their functional specs are previous
+ * functional specs here: already implemented, in this codebase.
+ */
+export function requiredFunctionalSpecs(plainFile: string, templateDirs: string[] = []): RequiredSpec[] {
+  const [, tree] = plainFileParser(basename(plainFile), resolveTemplateDirs(plainFile, templateDirs));
+  return getInheritedFunctionalSpecs(tree);
+}
+
+/**
  * Copy a required module's codebase into the build that is about to be created.
  *
- * The build state is left behind: it describes which functionalities of *that* module are
- * built, and copying it would make the new build claim work it has not done.
+ * The build record comes too, converted: what the source module built becomes what the new
+ * one inherits, with how and where each functionality was built, while the new module's own
+ * functionalities start empty. Copied as-is, it would claim the source's work as the new
+ * module's own. And the conformance tests come, into the new module's tests directory.
  */
-export function copyRequiredCode(from: string, to: string): string[] {
+export function copyRequiredCode(
+  from: string,
+  to: string,
+  toModule: string,
+  /** The new module's own definitions and reqs, imports included, for its record. */
+  sections?: SharedSections,
+): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
 
@@ -98,6 +203,21 @@ export function copyRequiredCode(from: string, to: string): string[] {
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(join(from, file), target);
     copied.push(file);
+  }
+  // The record comes with the code, as what the new module inherits - not as its own work.
+  inheritRecord(from, to, toModule, sections);
+
+  // So do the conformance tests: they check the code that was just copied, and the new
+  // module's regression suite has to keep them passing. They sit beside the code, in the
+  // module's `tests` directory.
+  const testsFrom = join(dirname(from), "tests");
+  const testsTo = join(dirname(to), "tests");
+  if (existsSync(testsFrom)) {
+    for (const file of listFiles(testsFrom)) {
+      const target = join(testsTo, file);
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(join(testsFrom, file), target);
+    }
   }
   return copied;
 }

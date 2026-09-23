@@ -10,7 +10,17 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
-import { describeToolCall, describeToolResult, reportActivity, reportNow } from "./render/activity.ts";
+import { projectRootOf, sessionsDir } from "./render/paths.ts";
+import {
+  currentStopSignal,
+  describeToolCall,
+  describeToolResult,
+  JobStoppedError,
+  reportActivity,
+  reportNow,
+  reportTranscript,
+  reportUsage,
+} from "./render/activity.ts";
 
 type ThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
 
@@ -70,6 +80,23 @@ function seconds(ms: number): string {
 
 const CALL_PROGRESS_MS = 500;
 
+/** How much of a tool call's arguments and result the transcript keeps: enough to follow, not the whole file. */
+const MAX_TOOL_ARGS = 600;
+const MAX_TOOL_RESULT = 2000;
+
+function clipText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}… [${text.length - max} more characters]`;
+}
+
+function resultText(result: unknown): string {
+  const content = (result as { content?: Array<{ type?: string; text?: string }> } | undefined)?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n");
+}
+
 /** Raised when the provider itself failed, rather than the agent producing a poor answer. */
 export class ProviderError extends Error {
   constructor(message: string) {
@@ -103,6 +130,7 @@ export async function ask(
   let callChars = 0;
   let lastCallReport = 0;
   reportNow("waiting for the model");
+  reportTranscript({ kind: "prompt", text });
 
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "message_update") {
@@ -110,6 +138,9 @@ export async function ask(
       if (update.type === "text_delta") {
         out += update.delta;
         onDelta?.(update.delta);
+        reportTranscript({ kind: "text", text: update.delta });
+      } else if (update.type === "thinking_delta") {
+        reportTranscript({ kind: "thinking", text: update.delta });
       } else if (update.type === "thinking_start") {
         reportNow("thinking");
       } else if (update.type === "text_start") {
@@ -129,31 +160,56 @@ export async function ask(
       }
     }
     if (event.type === "tool_execution_start") {
+      reportTranscript({ kind: "tool", text: `${event.toolName} ${clipText(JSON.stringify(event.args ?? {}), MAX_TOOL_ARGS)}` });
       const took = Date.now() - stepStarted;
       const line = describeToolCall(event.toolName, event.args);
       reportActivity(took >= 1000 ? `${line}   (model ${seconds(took)})` : line);
       reportNow(`running ${event.toolName}`);
     }
     if (event.type === "tool_execution_end") {
+      reportTranscript({ kind: "result", text: clipText(resultText(event.result), MAX_TOOL_RESULT), error: event.isError });
       const line = describeToolResult(event.toolName, event.result, event.isError);
       if (line !== undefined) reportActivity(line);
       stepStarted = Date.now();
       reportNow("waiting for the model");
     }
     if (event.type === "message_end") {
-      const message = event.message as { role?: string; stopReason?: string; errorMessage?: string };
+      const message = event.message as {
+        role?: string;
+        stopReason?: string;
+        errorMessage?: string;
+        usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; cost?: { total: number } };
+      };
+      if (message.role === "assistant" && message.usage !== undefined) {
+        const { input, output, cacheRead, cacheWrite, cost } = message.usage;
+        reportUsage({ input, output, cacheRead, cacheWrite, cost: cost?.total ?? 0 });
+      }
       if (message.role === "assistant" && message.stopReason === "error") {
         providerError = message.errorMessage ?? "the provider returned an error";
       }
     }
   });
 
+  // A job asked to stop: abort the turn in progress, and do not start another. Every
+  // agent a job runs goes through here, so this is where a stop reaches all of them.
+  const stop = currentStopSignal();
+  if (stop?.aborted) {
+    unsubscribe();
+    reportNow(undefined);
+    throw new JobStoppedError();
+  }
+  const onStop = () => void session.abort();
+  stop?.addEventListener("abort", onStop, { once: true });
+
   try {
     await session.prompt(text, { expandPromptTemplates: false });
   } finally {
     unsubscribe();
+    stop?.removeEventListener("abort", onStop);
     reportNow(undefined);
   }
+
+  if (stop?.aborted) throw new JobStoppedError();
 
   if (providerError !== undefined) {
     throw new ProviderError(`${session.model?.id ?? "model"}: ${providerError}`);
@@ -175,12 +231,20 @@ export async function createExecutor(opts: {
   model?: string;
   /** Give it the ***plain rules - for agents that write or edit specs, not code. */
   rules?: boolean;
+  /** Continue the session saved in this file, instead of starting a new one. */
+  resumeFrom?: string;
 }): Promise<AgentSession> {
+  // Saved to disk, in the project: an agent's session is the record of what it did, and the
+  // only way to pick a long run back up after the process that ran it is gone.
+  const sessionManager =
+    opts.resumeFrom !== undefined
+      ? SessionManager.open(opts.resumeFrom)
+      : SessionManager.create(opts.cwd, sessionsDir(projectRootOf(opts.cwd)));
   const { session } = await createAgentSession({
     cwd: opts.cwd,
     tools: opts.tools,
     customTools: opts.customTools,
-    sessionManager: SessionManager.inMemory(opts.cwd),
+    sessionManager,
     resourceLoader: await subAgentResources(opts.cwd, opts.rules === true),
   });
 

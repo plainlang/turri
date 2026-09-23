@@ -41,12 +41,13 @@ describe("checkPlainFile", () => {
     expect(result.error).toContain("Invalid specification heading");
   });
 
-  it("reports a module with no functionalities", () => {
+  it("passes a module with no functional specs yet, and says so", () => {
     writeFileSync(join(dir, "empty.plain"), "***implementation reqs***\n\n- A requirement.\n");
     const result = checkPlainFile(join(dir, "empty.plain"));
 
-    expect(result.ok).toBe(false);
-    expect(result.errorType).toBe("MissingFunctionalitiesError");
+    expect(result.ok).toBe(true);
+    expect(result.frids).toEqual([]);
+    expect(formatCheckResults([result])).toBe("PASS  empty.plain  no functional specs yet");
   });
 
   it("rejects a file that is not a .plain file", () => {

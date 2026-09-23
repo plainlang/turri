@@ -1,15 +1,19 @@
 import { join, resolve } from "node:path";
 import { basename } from "node:path";
 import { plainFileParser } from "../plain/parser.ts";
-import { staleFrids } from "./state.ts";
+import { pendingFrids, staleFrids } from "./state.ts";
 import { describeDelivery } from "./delivery.ts";
-import { defaultBuildDir } from "./paths.ts";
+import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { renderFunctionality } from "./render.ts";
-import { regenerateFunctionality } from "./module.ts";
+import { ensureRegressionPasses, regenerateFunctionality } from "./module.ts";
+import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { moduleLanes } from "./lanes.ts";
+import { findCodebaseTip } from "./requires.ts";
+import { describeSpecDiff, renderSpecDiff } from "./spec-change.ts";
 import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
+import { reportStage } from "./activity.ts";
 
 /**
  * Renders queued while an interview carries on.
@@ -42,10 +46,21 @@ export type RenderRunner = (
 export interface RenderQueue {
   enqueue(request: RenderRequest): QueuedRender;
   /**
+   * Render a spec change, given as a git diff, in the order it was asked for - behind every
+   * render queued before it, and never alongside another job on the same modules.
+   */
+  enqueueSpecDiff(request: { plainFile: string; diff: string }): { jobId: string; position: number };
+  /**
    * Queue a regeneration for every functionality whose built code no longer matches the
    * specification. Returns what it queued, which is nothing when everything still matches.
    */
   requeueStale(plainFile: string, buildDir?: string): QueuedRender[];
+  /**
+   * Queue everything the spec holds that is not built from its current text: changed ones
+   * as regenerations first, then ones never built, in order. For a run picked up after a
+   * restart, whose queue did not survive it. Returns what it queued.
+   */
+  catchUp(plainFile: string, buildDir?: string): QueuedRender[];
   /** The entry for a functionality that is queued or building right now, if there is one. */
   inFlight(plainFile: string, frid: string): QueuedRender | undefined;
   /** What has been queued, in order, with each job's current state. */
@@ -73,6 +88,28 @@ export function createRenderQueue(options: {
   let last: string | undefined;
 
   return {
+    enqueueSpecDiff(request) {
+      const plainFile = resolve(options.cwd, request.plainFile);
+      const job = options.registry.start({
+        kind: "render_spec_diff",
+        summary: `${basename(plainFile)} render spec diff`,
+        lanes: [queueLane, ...moduleLanes(codebaseOf(plainFile), options.buildDir)],
+        run: async (onDelta) => {
+          const result = await renderSpecDiff({
+            plainFile,
+            diff: request.diff,
+            cwd: options.cwd,
+            model: options.model,
+            onDelta,
+          });
+          return { report: describeSpecDiff(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
+        },
+      });
+      jobs.set(job.id, job);
+      last = job.id;
+      return { jobId: job.id, position: jobs.size };
+    },
+
     enqueue(request) {
       const plainFile = resolve(options.cwd, request.plainFile);
 
@@ -80,7 +117,7 @@ export function createRenderQueue(options: {
         kind: request.regenerate ? "regenerate" : "render",
         // Short enough to read in a one-line queue: the file's name, not its path.
         summary: `${basename(plainFile)} fs ${request.frid}${request.regenerate ? " (rebuild)" : ""}`,
-        lanes: [queueLane, ...moduleLanes(plainFile, options.buildDir)],
+        lanes: [queueLane, ...moduleLanes(request.regenerate ? codebaseOf(plainFile) : plainFile, options.buildDir)],
         run: (onDelta) => runner({ ...request, plainFile }, onDelta),
       });
 
@@ -123,6 +160,24 @@ export function createRenderQueue(options: {
         .map((entry) => this.enqueue({ plainFile, frid: entry.frid, regenerate: true }));
     },
 
+    catchUp(plainFile, buildDir) {
+      const file = resolve(options.cwd, plainFile);
+      let moduleName: string;
+      let tree;
+      try {
+        [moduleName, tree] = plainFileParser(basename(file), resolveTemplateDirs(file));
+      } catch {
+        // Not a buildable module - an import module, or one that does not parse yet.
+        return [];
+      }
+      const target = buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, options.cwd);
+      const regenerated = this.requeueStale(file, buildDir);
+      const fresh = pendingFrids(tree, target)
+        .filter((entry) => entry.reason === "never built" && this.inFlight(file, entry.frid) === undefined)
+        .map((entry) => this.enqueue({ plainFile: file, frid: entry.frid }));
+      return [...regenerated, ...fresh];
+    },
+
     inFlight(plainFile, frid) {
       const file = resolve(options.cwd, plainFile);
       return queued.find((entry) => {
@@ -146,7 +201,16 @@ export function createRenderQueue(options: {
 }
 
 
-function defaultRunner(options: { buildDir?: string; model?: string }): RenderRunner {
+/** The spec whose codebase a regeneration writes: the tip built on this module, or itself. */
+function codebaseOf(plainFile: string): string {
+  try {
+    return findCodebaseTip(plainFile).tip.plainFile;
+  } catch {
+    return plainFile;
+  }
+}
+
+function defaultRunner(options: { buildDir?: string; model?: string; cwd: string }): RenderRunner {
   return async (request, onDelta) => {
     const common = {
       plainFile: request.plainFile,
@@ -166,19 +230,57 @@ function defaultRunner(options: { buildDir?: string; model?: string }): RenderRu
       };
     }
 
-    const result = await renderFunctionality(common);
+    // Functionality N is rendered as built on 1 to N-1, so any of those that was never built -
+    // its job stopped, or never queued - is built first, in order. Otherwise the render would
+    // be told they are implemented when they are not.
+    const [moduleName, tree] = plainFileParser(basename(request.plainFile), resolveTemplateDirs(request.plainFile));
+    const target = options.buildDir ?? defaultBuildDir(moduleName);
+    const missing = pendingFrids(tree, target, request.frid).filter(
+      (entry) => entry.reason === "never built" && entry.frid !== request.frid,
+    );
+    const prerequisites: string[] = [];
+    for (const entry of missing) {
+      reportStage(`${moduleName}: building functionality ${entry.frid} first - ${request.frid} is built on it`);
+      const built = await renderFunctionality({ ...common, frid: entry.frid });
+      prerequisites.push(`functionality ${entry.frid} was not built yet, so it was built first${built.passed ? "" : " - its unit tests are NOT passing"}.`);
+    }
+
+    // Queued from an interview: the person is there, trying each spec as it lands.
+    const result = await renderFunctionality({ ...common, tryIt: true });
+
+    // The conformance tests already in this codebase - its own, and those carried up from
+    // the modules below - are kept passing, even though none are written here.
+    const regression = result.passed
+      ? await ensureRegressionPasses({
+          buildDir: result.buildDir,
+          conformanceRoot: modulesRoot(options.cwd),
+          moduleName,
+          frids: [...getFrids(tree)].slice(0, [...getFrids(tree)].indexOf(request.frid) + 1),
+          tree,
+          required: getInheritedFunctionalSpecs(tree),
+          command: null,
+          model: options.model,
+          onDelta,
+        })
+      : undefined;
+    if (regression !== undefined && !regression.passed) {
+      prerequisites.push("the conformance tests already here are NOT passing after it, even after repairs.");
+    } else if (regression !== undefined && regression.repairs.length > 0) {
+      prerequisites.push(`${regression.repairs.length} regression repair(s) changed the code so the existing conformance tests pass.`);
+    }
+    const delivery = describeDelivery({
+      moduleName: result.moduleName,
+      frid: result.frid,
+      functionality: result.functionality,
+      buildDir: result.buildDir,
+      added: result.added,
+      runs: result.runs,
+      passed: result.passed,
+      tryIt: result.tryIt,
+    });
     return {
-      report: describeDelivery({
-        moduleName: result.moduleName,
-        frid: result.frid,
-        functionality: result.functionality,
-        buildDir: result.buildDir,
-        added: result.added,
-        runs: result.runs,
-        passed: result.passed,
-        tryIt: result.tryIt,
-      }),
-      details: { passed: result.passed, files: result.files },
+      report: prerequisites.length > 0 ? `${delivery}\n\n${prerequisites.map((p) => `Note: ${p}`).join("\n")}` : delivery,
+      details: { passed: result.passed, files: result.files, prerequisites: missing.map((entry) => entry.frid) },
     };
   };
 }

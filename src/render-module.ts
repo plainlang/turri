@@ -21,6 +21,7 @@ alongside it.
   --conformance-root <dir> default: plain_modules
   --template-dir <dir>     extra template directory (repeatable)
   --model <provider/id>    model for the agents
+  --try-it                 say how to try the last functionality built (off: long runs are unattended)
   --max-regression-rounds  repair attempts per regression failure (default 3)
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
@@ -36,7 +37,13 @@ function parseArgs(argv: string[]) {
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
-    } else if (arg === "--only" || arg === "--force" || arg === "--conformance" || arg === "--no-conformance") {
+    } else if (
+      arg === "--only" ||
+      arg === "--force" ||
+      arg === "--conformance" ||
+      arg === "--no-conformance" ||
+      arg === "--try-it"
+    ) {
       options[arg.slice(2)] = "yes";
     }
     else if (arg.startsWith("--")) options[arg.slice(2)] = argv[++i];
@@ -59,6 +66,7 @@ async function main() {
     templateDirs,
     force: options.force !== undefined,
     skipRequires: options.only !== undefined,
+    tryIt: options["try-it"] !== undefined,
     conformance:
       options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : undefined,
     onChainEvent: (event) => {

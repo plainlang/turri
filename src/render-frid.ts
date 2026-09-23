@@ -16,6 +16,7 @@ const USAGE = `usage: npm run render -- <file.plain> [frid] [options]
   --list                 list the functionality IDs and exit
   --dry-run              print the prompt without starting an agent
   --model <provider/id>  model for the agent, e.g. google/gemini-2.5-pro
+  --no-try-it            skip working out how to try it once it is built
 
   PLAIN_TEMPLATE_DIRS    colon-separated template directories (e.g. the standard library)`;
 
@@ -25,6 +26,7 @@ function parseArgs(argv: string[]) {
   let buildDir: string | undefined;
   let list = false;
   let dryRun = false;
+  let tryIt = true;
   let model: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -34,6 +36,7 @@ function parseArgs(argv: string[]) {
     else if (arg === "--list") list = true;
     else if (arg === "--dry-run") dryRun = true;
     else if (arg === "--model") model = argv[++i];
+    else if (arg === "--no-try-it") tryIt = false;
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
@@ -43,7 +46,7 @@ function parseArgs(argv: string[]) {
     } else positional.push(arg);
   }
 
-  return { plainFile: positional[0], frid: positional[1], templateDirs, buildDir, list, dryRun, model };
+  return { plainFile: positional[0], frid: positional[1], templateDirs, buildDir, list, dryRun, model, tryIt };
 }
 
 async function main() {
@@ -67,6 +70,7 @@ async function main() {
     buildDir: args.buildDir,
     dryRun: args.dryRun,
     model: args.model,
+    tryIt: args.tryIt,
     onDelta: (delta) => process.stdout.write(delta),
     onRun: (command, exitCode) =>
       console.log(

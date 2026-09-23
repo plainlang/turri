@@ -1,19 +1,22 @@
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { getFrids, getSpecificationsForFrid, type MarshalledPlainSource } from "../plain/spec.ts";
+import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
+import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
+import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, tryDirFor } from "./paths.ts";
-import { recordFunctionality, specStateFor, STATE_FILE } from "./state.ts";
-import { buildRenderPrompt } from "./prompt.ts";
+import { readState, recordFunctionality, recordRegeneration, specStateFor, STATE_FILE, type RequiredSpec } from "./state.ts";
+import { buildRegeneratePrompt, buildRenderPrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
 import {
   createRunTestsTool,
   failingTestsPrompt,
   findTestRemovals,
   inventoryTests,
+  listFiles,
   removalChallengePrompt,
   runCommand,
   type TestRemoval,
@@ -57,6 +60,22 @@ export interface RenderFunctionalityOptions {
   onRun?: (command: string, exitCode: number) => void;
   /** "provider/model-id". Omitted: whatever pi is configured to use. */
   model?: string;
+  /**
+   * Work out how a person tries it, and check those steps, once the tests pass. Off unless
+   * asked for: it is an extra agent turn or two, worth it when someone is waiting to try
+   * the result and pure cost on a long unattended run.
+   */
+  tryIt?: boolean;
+  /**
+   * The functionality is already in the code and its spec changed: update it rather than
+   * build it. `in` is the codebase to update it in - the tip of the chain built on this
+   * module - when that is not the module's own.
+   */
+  regenerate?: {
+    in?: { moduleName: string; plainFile: string; buildDir: string };
+    /** Why, when it is asked for rather than caused by a change: what to do better. */
+    reason?: string;
+  };
 }
 
 export interface RenderFunctionalityResult {
@@ -112,24 +131,6 @@ export function listFrids(plainFile: string, templateDirs?: string[]): {
   return { moduleName, tree, frids: [...getFrids(tree)] };
 }
 
-function listFiles(root: string): string[] {
-  const found: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir)) {
-      // The state file is the harness's own bookkeeping, not part of the codebase: it is
-      // never shown to an agent as a file it wrote, copied forward to a requiring module,
-      // or counted when asking whether anything has been built.
-      if (entry === ".git" || entry === "node_modules" || entry === "__pycache__" || entry === STATE_FILE)
-        continue;
-      const full = join(dir, entry);
-      if (statSync(full).isDirectory()) walk(full);
-      else found.push(relative(root, full));
-    }
-  };
-  if (existsSync(root)) walk(root);
-  return found.sort();
-}
-
 /**
  * Parse a .plain file, build the context for one functionality, and hand it to a coding
  * agent in its own working directory.
@@ -156,8 +157,40 @@ export async function renderFunctionality(
   const [specifications] = getSpecificationsForFrid(tree, frid);
   const linkedResources = loadLinkedResources(tree, frid, templateDirs);
 
-  const prompt = buildRenderPrompt({ moduleName, frid, specifications, linkedResources });
-  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
+  const host = options.regenerate?.in !== undefined && options.regenerate.in.moduleName !== moduleName
+    ? options.regenerate.in
+    : undefined;
+  const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName));
+  const required = getInheritedFunctionalSpecs(tree);
+
+  let prompt: string;
+  if (options.regenerate === undefined) {
+    const codebase = codebaseMap(tree, buildDir, frid);
+    prompt = buildRenderPrompt({ moduleName, frid, specifications, linkedResources, codebase, required });
+  } else {
+    const context = regenerationContext({
+      moduleName,
+      frid,
+      plainFile: options.plainFile,
+      templateDirs,
+      buildDir,
+      host,
+      current: { spec: targetFunctionality(specifications), acceptanceTests: specifications[ACCEPTANCE_TESTS] },
+    });
+    prompt = buildRegeneratePrompt({
+      moduleName,
+      frid,
+      specifications,
+      linkedResources,
+      previous: context.previous,
+      added: context.added,
+      unchanged: context.unchanged,
+      reason: options.regenerate.reason,
+      implemented: context.implemented,
+      codebaseOf: host?.moduleName,
+      codebase: context.codebase,
+    });
+  }
 
   if (options.dryRun) {
     return {
@@ -176,6 +209,7 @@ export async function renderFunctionality(
   }
 
   const filesBefore = new Set(listFiles(buildDir));
+  const digestsBefore = digestFiles(buildDir);
 
   mkdirSync(buildDir, { recursive: true });
 
@@ -239,7 +273,7 @@ export async function renderFunctionality(
     // Asked only once the tests pass: instructions for software that does not work yet
     // would be instructions for something else.
     let files = listFiles(buildDir);
-    if (runs[runs.length - 1]?.exitCode === 0) {
+    if (options.tryIt === true && runs[runs.length - 1]?.exitCode === 0) {
       tryIt = undefined;
       stage("working out how you can try it");
       await ask(executor, tryItPrompt(frid), options.onDelta);
@@ -272,11 +306,24 @@ export async function renderFunctionality(
     // into a render - the queue behind start_render, the CLI, renderModule - has to leave
     // the state file behind it, or nothing downstream can tell a functionality that was
     // built from one that was never attempted.
-    recordFunctionality(buildDir, moduleName, {
-      frid,
-      ...specStateFor(tree, frid),
-      unitTests: passed ? "passed" : "failed",
-    });
+    const built = {
+      unitTests: passed ? ("passed" as const) : ("failed" as const),
+      // What the next render is told about where this functionality lives.
+      files: diffFiles(digestsBefore, digestFiles(buildDir)),
+      testCommand: runs.filter((run) => run.exitCode === 0).at(-1)?.command,
+    };
+    if (host === undefined) {
+      recordFunctionality(buildDir, moduleName, { frid, ...specStateFor(tree, frid), ...built, required });
+    } else {
+      // Updated in a later module's codebase: that codebase's record says so. This module's
+      // own build is left as it was - an older snapshot, no longer where the code lives.
+      recordRegeneration(buildDir, host.moduleName, {
+        module: moduleName,
+        frid,
+        required: requiredFunctionalSpecs(host.plainFile, options.templateDirs),
+        build: { specHash: specStateFor(tree, frid).specHash, ...built },
+      });
+    }
 
     return {
       moduleName,
@@ -297,6 +344,52 @@ export async function renderFunctionality(
   }
 }
 
+
+/**
+ * What an update is made against: every other functional spec in the codebase, the spec
+ * this code was built from, and the map of the codebase as it stands.
+ *
+ * The codebase is `host`'s when there is one: its required modules' specs, as it records
+ * them, and its own built ones. Otherwise it is the module's own: what it requires, and
+ * every functionality of it that is built - those after this one too, since they are in
+ * the code and have to survive the change.
+ */
+function regenerationContext(input: {
+  moduleName: string;
+  frid: string;
+  plainFile: string;
+  templateDirs: string[];
+  buildDir: string;
+  host?: { moduleName: string; plainFile: string };
+  /** The functionality's spec as it is now. */
+  current: { spec: string; acceptanceTests?: string[] };
+}): { implemented: RequiredSpec[]; previous?: string; added: boolean; unchanged: boolean; codebase: string | null } {
+  const owner = input.host ?? { moduleName: input.moduleName, plainFile: input.plainFile };
+  const state = readState(input.buildDir);
+  const [, ownerTree] = plainFileParser(basename(owner.plainFile), resolveTemplateDirs(owner.plainFile, input.templateDirs));
+
+  const ownBuilt: RequiredSpec[] = Object.values(state?.functionalities ?? {})
+    .sort((a, b) => Number(a.frid) - Number(b.frid))
+    .map((entry) => ({ module: owner.moduleName, frid: entry.frid, spec: entry.spec }));
+  const everything = [...requiredFunctionalSpecs(owner.plainFile, input.templateDirs), ...ownBuilt];
+  const implemented = everything.filter((spec) => !(spec.module === input.moduleName && spec.frid === input.frid));
+
+  const recorded =
+    input.host === undefined
+      ? state?.functionalities[input.frid]
+      : state?.required.find((spec) => spec.module === input.moduleName && spec.frid === input.frid);
+  // Missing from a record that lists everything else means it is new since the build. A
+  // record without the list says nothing either way, so it is treated as a change.
+  const listsEverything = input.host === undefined ? state !== null : (state?.required.length ?? 0) > 0;
+  const added = recorded === undefined && listsEverything;
+
+  const unchanged =
+    recorded !== undefined &&
+    recorded.spec === input.current.spec &&
+    JSON.stringify(recorded.acceptanceTests ?? []) === JSON.stringify(input.current.acceptanceTests ?? []);
+
+  return { implemented, previous: recorded?.spec, added, unchanged, codebase: codebaseMap(ownerTree, input.buildDir) };
+}
 
 /** The functionality just built: the last of the ones in scope. */
 function targetFunctionality(specifications: { "functional specs": string[] }): string {

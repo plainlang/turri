@@ -110,3 +110,47 @@ describe("the progress tracker", () => {
     expect(t.lines()[0]).toContain("queued");
   });
 });
+
+describe("a long chain, compact", () => {
+  const long = Array.from({ length: 19 }, (_, i) => ({
+    moduleName: `m${String(i + 1).padStart(2, "0")}`,
+    plainFile: `/x/m${i + 1}.plain`,
+    buildDir: `/x/m${i + 1}`,
+    requires: i === 0 ? null : `m${String(i).padStart(2, "0")}`,
+    frids: ["1", "2"],
+  })) as ChainEntry[];
+
+  function fiveBuiltSixthBuilding() {
+    const t = createProgressTracker();
+    t.onChainEvent({ type: "chain", chain: long });
+    for (const [index, entry] of long.slice(0, 6).entries()) {
+      t.onChainEvent({ type: "module_start", module: entry.moduleName, index: index + 1, total: long.length });
+      if (index < 5) t.onChainEvent({ type: "module_done", module: entry.moduleName, passed: true });
+    }
+    return t;
+  }
+
+  it("counts what is built, keeps the module being built, and puts the rest on one counted line", () => {
+    const lines = fiveBuiltSixthBuilding().compactLines();
+    expect(lines[0]).toBe("5/19 modules built");
+    expect(lines[1]).toMatch(/^• m06 /);
+    expect(lines[2]).toMatch(/^ {2}queued \(13\): m07 → m08 → .* → m19$/);
+    expect(lines.at(-1)).toContain("ctrl+o");
+    expect(lines.length).toBeLessThanOrEqual(10);
+  });
+
+  it("keeps a module that stopped in full", () => {
+    const t = fiveBuiltSixthBuilding();
+    t.onChainEvent({ type: "module_done", module: "m06", passed: false });
+    expect(t.compactLines().some((line) => line.startsWith("✗ m06"))).toBe(true);
+  });
+
+  it("still lists every module in full, for ctrl+o", () => {
+    expect(fiveBuiltSixthBuilding().lines()).toHaveLength(19);
+  });
+
+  it("shows a short chain in full either way", () => {
+    const t = started();
+    expect(t.compactLines()).toEqual(t.lines());
+  });
+});

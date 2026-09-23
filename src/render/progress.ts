@@ -27,14 +27,23 @@ interface ModuleProgress {
 export interface ProgressTracker {
   onChainEvent(event: ChainEvent): void;
   onModuleEvent(event: ModuleEvent): void;
-  /** The widget's contents. Empty before the chain is known. */
+  /** Every module, one line each. Empty before the chain is known. */
   lines(): string[];
+  /**
+   * The same, sized for a long chain: finished modules counted rather than listed, the
+   * waiting ones on one counted line. Nothing that matters is dropped - the module being
+   * built and any that stopped keep their full line - and a short chain is shown in full.
+   */
+  compactLines(): string[];
   /** One line for the status bar. */
   summary(): string;
   done(): boolean;
 }
 
 const MARK = { built: "✓", building: "•", queued: " ", skipped: "–", stopped: "✗" } as const;
+
+/** A chain this short is shown in full even when compact. */
+const COMPACT_THRESHOLD = 6;
 
 export function createProgressTracker(): ProgressTracker {
   let modules: ModuleProgress[] = [];
@@ -116,6 +125,22 @@ export function createProgressTracker(): ProgressTracker {
         const repairs = m.repairs > 0 ? `  ${m.repairs} repair${m.repairs === 1 ? "" : "s"}` : "";
         return `${mark} ${name}  ${detail}${repairs}`;
       });
+    },
+
+    compactLines() {
+      const all = this.lines();
+      if (modules.length <= COMPACT_THRESHOLD) return all;
+
+      const finished = modules.filter((m) => m.state === "built" || m.state === "skipped").length;
+      const lines = [`${finished}/${modules.length} modules built`];
+      const waiting: string[] = [];
+      modules.forEach((m, index) => {
+        if (m.state === "building" || m.state === "stopped") lines.push(all[index]!);
+        else if (m.state === "queued") waiting.push(m.module);
+      });
+      if (waiting.length > 0) lines.push(`  queued (${waiting.length}): ${waiting.join(" → ")}`);
+      lines.push("  ctrl+o shows every module");
+      return lines;
     },
 
     summary() {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { STATE_FILE } from "../../src/render/state.ts";
 import { describe, expect, it } from "vitest";
-import { buildRenderPrompt } from "../../src/render/prompt.ts";
+import { buildCodeFixPrompt, buildConformancePrompt, buildRegressionFixPrompt, buildRenderPrompt } from "../../src/render/prompt.ts";
 import { listFrids, renderFunctionality, resolveTemplateDirs } from "../../src/render/render.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -56,8 +56,8 @@ describe("buildRenderPrompt", () => {
 
     expect(prompt).toContain('<functionality id="3">\n- Build this one.\n</functionality>');
     expect(prompt).toContain(
-      '<already implemented>\n<functionality id="1" status="implemented">\n- Already built one.\n</functionality>\n\n' +
-        '<functionality id="2" status="implemented">\n- Already built two.\n</functionality>\n</already implemented>',
+      '<already implemented>\n<functionality module="demo" id="1" status="implemented">\n- Already built one.\n</functionality>\n\n' +
+        '<functionality module="demo" id="2" status="implemented">\n- Already built two.\n</functionality>\n</already implemented>',
     );
     // The target must not also appear as context.
     expect(prompt.split("- Build this one.")).toHaveLength(2);
@@ -105,8 +105,42 @@ describe("buildRenderPrompt", () => {
       linkedResources: [],
     });
 
-    expect(prompt).toContain("Nothing is implemented yet: functionality 1 is the first");
+    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 is its first.");
     expect(prompt).not.toContain("Do not implement");
+  });
+
+  it("lists the required modules' functional specs first, as already implemented", () => {
+    const prompt = buildRenderPrompt({
+      moduleName: "demo",
+      frid: "2",
+      specifications: { ...specifications, [FUNCTIONAL_REQUIREMENTS]: ["- Mine one.", "- Mine two."] },
+      linkedResources: [],
+      required: [
+        { module: "c", frid: "1", spec: "- From c." },
+        { module: "b", frid: "1", spec: "- From b." },
+      ],
+    });
+
+    const c = prompt.indexOf('<functionality module="c" id="1" status="implemented">\n- From c.');
+    const b = prompt.indexOf('<functionality module="b" id="1" status="implemented">\n- From b.');
+    const mine = prompt.indexOf('<functionality module="demo" id="1" status="implemented">\n- Mine one.');
+    expect(c).toBeGreaterThan(-1);
+    expect(b).toBeGreaterThan(c);
+    expect(mine).toBeGreaterThan(b);
+    expect(prompt).toContain("It builds on `c` and `b`, whose 2 functional specs are implemented in this codebase too");
+    expect(prompt).toContain("Functionality 1 and the functionalities of c and b exist. Do not implement them");
+  });
+
+  it("tells the first functionality of a requiring module what it builds on", () => {
+    const prompt = buildRenderPrompt({
+      moduleName: "demo",
+      frid: "1",
+      specifications: { ...specifications, [FUNCTIONAL_REQUIREMENTS]: ["- Mine one."] },
+      linkedResources: [],
+      required: [{ module: "b", frid: "1", spec: "- From b." }],
+    });
+    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 is its first. It builds on `b`");
+    expect(prompt).toContain("The functionalities of b exist. Do not implement them again");
   });
 
   it("omits sections that are empty", () => {
@@ -182,5 +216,52 @@ describe("renderFunctionality", () => {
     await expect(renderFunctionality({ plainFile: "README.md", dryRun: true })).rejects.toThrow(
       "Expected a .plain file",
     );
+  });
+});
+
+describe("what the other agents are told is already implemented", () => {
+  const specifications = {
+    [DEFINITIONS]: ["- :App: is a console application."],
+    [NON_FUNCTIONAL_REQUIREMENTS]: ["- :Implementation: should be in Python."],
+    [TEST_REQUIREMENTS]: ["- Tests use unittest."],
+    [FUNCTIONAL_REQUIREMENTS]: ["- Mine one.", "- Mine two."],
+    [ACCEPTANCE_TESTS]: ["- It should exit 0."],
+  };
+  const required = [
+    { module: "c", frid: "1", spec: "- From c." },
+    { module: "b", frid: "1", spec: "- From b." },
+  ];
+
+  function inOrder(prompt: string) {
+    const c = prompt.indexOf('<functionality module="c" id="1" status="implemented">');
+    const b = prompt.indexOf('<functionality module="b" id="1" status="implemented">');
+    const mine = prompt.indexOf('<functionality module="demo" id="1" status="implemented">\n- Mine one.');
+    return c > -1 && b > c && mine > b;
+  }
+
+  it("the conformance test writer: context to set up from, with only the target under test", () => {
+    const prompt = buildConformancePrompt({
+      moduleName: "demo", frid: "2", specifications, linkedResources: [], manifest: ["app.py"], required,
+    });
+    expect(inOrder(prompt)).toBe(true);
+    expect(prompt).toContain('<functionality id="2">\n- Mine two.\n</functionality>');
+    expect(prompt).not.toContain('module="demo" id="2" status="implemented"');
+    expect(prompt).toContain("Test functionality 2 only.");
+  });
+
+  it("the code fixer: what must keep working while it fixes this one", () => {
+    const prompt = buildCodeFixPrompt({
+      moduleName: "demo", frid: "2", specifications, required, triage: "wrong status", failure: "exit 1",
+    });
+    expect(inOrder(prompt)).toBe(true);
+    expect(prompt).toContain("Fix this functionality without\n  breaking them.");
+  });
+
+  it("the regression repairer: every functionality in the code, required modules included", () => {
+    const prompt = buildRegressionFixPrompt({
+      moduleName: "demo", frids: ["1", "2"], specifications, required, failure: "exit 1",
+    });
+    expect(inOrder(prompt)).toBe(true);
+    expect(prompt).toContain('<functionality module="demo" id="2" status="implemented">\n- Mine two.');
   });
 });

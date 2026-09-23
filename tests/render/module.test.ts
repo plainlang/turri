@@ -23,8 +23,8 @@ afterEach(() => {
 });
 
 describe("conformanceDirFor", () => {
-  it("gives each functionality its own directory", () => {
-    expect(conformanceDirFor("demo", "2", "/tmp/conf")).toBe("/tmp/conf/demo/tests/2");
+  it("gives the module one directory, organised however its tests need", () => {
+    expect(conformanceDirFor("demo", "/tmp/conf")).toBe("/tmp/conf/demo/tests");
   });
 });
 
@@ -88,20 +88,19 @@ describe("ensureRegressionPasses", () => {
     expect(result.runs).toEqual([]);
   });
 
-  it("runs every functionality's tests together", async () => {
+  it("runs every functionality's tests together, however they are organised", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
-    for (const frid of ["1", "2"]) {
-      const dir = conformanceDirFor("demo", frid, join(root, "conformance"));
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, `check_${frid}.sh`), "cat app.txt");
-    }
+    const dir = conformanceDirFor("demo", join(root, "conformance"));
+    mkdirSync(join(dir, "auth"), { recursive: true });
+    writeFileSync(join(dir, "check_1.sh"), "cat app.txt");
+    writeFileSync(join(dir, "auth", "check_2.sh"), "cat app.txt");
 
     const result = await ensureRegressionPasses({
       ...base,
       buildDir,
       conformanceRoot: join(root, "conformance"),
       frids: ["1", "2"],
-      command: "sh check_1.sh && sh check_2.sh",
+      command: "sh check_1.sh && sh auth/check_2.sh",
     });
 
     expect(result.passed).toBe(true);
@@ -110,7 +109,7 @@ describe("ensureRegressionPasses", () => {
   });
 
   it("reports failure without repairing when no rounds are allowed", async () => {
-    const dir = conformanceDirFor("demo", "1", join(root, "conformance"));
+    const dir = conformanceDirFor("demo", join(root, "conformance"));
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "check.sh"), "exit 1");
 

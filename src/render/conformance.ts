@@ -5,9 +5,10 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS } from "../plain/spec.ts";
+import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
+import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder } from "./paths.ts";
 import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
@@ -46,11 +47,12 @@ const FIX_TOOLS = ["run_unit_tests"];
 const DEFAULT_MAX_ROUNDS = 3;
 
 /**
- * Each functionality's conformance tests live in their own directory, so a regression run
- * can merge exactly the ones built so far.
+ * A module's conformance tests: one directory, `plain_modules/<module>/tests`, organised
+ * however the tests are best organised. It holds the tests of the modules it requires too,
+ * copied up with their code, so running it is the regression suite of the whole chain.
  */
-export function conformanceDirFor(moduleName: string, frid: string, root?: string): string {
-  return join(testsDirUnder(root ?? modulesRoot(), moduleName), frid);
+export function conformanceDirFor(moduleName: string, root?: string): string {
+  return testsDirUnder(root ?? modulesRoot(), moduleName);
 }
 
 const MAX_OUTPUT_CHARS = 20000;
@@ -62,7 +64,7 @@ export interface RenderConformanceTestsOptions {
   templateDirs?: string[];
   /** The rendered code under test. Must exist and be non-empty. */
   buildDir?: string;
-  /** Where the tests are written. Defaults to `<cwd>/plain_modules/<module>/tests/<frid>`. */
+  /** Where the tests are written. Defaults to `<cwd>/plain_modules/<module>/tests`. */
   conformanceDir?: string;
   onDelta?: (delta: string) => void;
   onRun?: (command: string, exitCode: number) => void;
@@ -72,6 +74,8 @@ export interface RenderConformanceTestsOptions {
   /** "provider/model-id". Omitted: whatever pi is configured to use. */
   model?: string;
   dryRun?: boolean;
+  /** Update the tests for a spec change, given as a diff, rather than for one functionality. */
+  diff?: string;
 }
 
 export type Fault = "test_at_fault" | "code_at_fault";
@@ -243,7 +247,7 @@ export async function renderConformanceTests(
   }
 
   const conformanceDir = resolve(
-    options.conformanceDir ?? conformanceDirFor(moduleName, frid),
+    options.conformanceDir ?? conformanceDirFor(moduleName),
   );
 
   const [specifications] = getSpecificationsForFrid(tree, frid);
@@ -260,6 +264,7 @@ export async function renderConformanceTests(
   }
 
   const linkedResources = loadLinkedResources(tree, frid, templateDirs);
+  const required = getInheritedFunctionalSpecs(tree);
   const prompt = buildConformancePrompt({
     moduleName,
     frid,
@@ -267,6 +272,8 @@ export async function renderConformanceTests(
     linkedResources,
     manifest,
     existingTests: listFiles(conformanceDir),
+    required,
+    diff: options.diff,
   });
 
   if (options.dryRun) {
@@ -393,6 +400,7 @@ export async function renderConformanceTests(
         moduleName,
         frid,
         specifications,
+        required,
         verdict,
         failure: lastOutput.value,
         onDelta: options.onDelta,
@@ -447,6 +455,7 @@ async function runCodeFix(input: {
   moduleName: string;
   frid: string;
   specifications: Parameters<typeof buildCodeFixPrompt>[0]["specifications"];
+  required: RequiredSpec[];
   verdict: TriageVerdict;
   failure: string;
   onDelta?: (delta: string) => void;
@@ -481,6 +490,7 @@ async function runCodeFix(input: {
         moduleName: input.moduleName,
         frid: input.frid,
         specifications: input.specifications,
+        required: input.required,
         triage: input.verdict.reasoning,
         failure: input.failure,
       }),

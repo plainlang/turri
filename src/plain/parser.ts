@@ -38,6 +38,8 @@ import {
   NON_FUNCTIONAL_REQUIREMENTS,
   TEST_REQUIREMENTS,
   getSpecificationItems,
+  REQUIRED_FUNCTIONAL_SPECS,
+  type InheritedSpecificationItem,
   type MarshalledPlainSource,
   type SpecificationItem,
 } from "./spec.ts";
@@ -728,10 +730,97 @@ export function processExportedDefinitions(
  *
  * Returns the module name, the tree, and the modules it requires.
  */
+export interface ParseOptions {
+  /**
+   * Accept a module with no functional specs yet. Not renderable one functionality at a
+   * time - there is none - but a spec change can already be built from it: a module whose
+   * product interview has so far given it definitions and reqs.
+   */
+  allowNoFunctionalities?: boolean;
+}
+
 export function plainFileParser(
   plainSourceFileName: string,
   templateDirs: string[],
+  options: ParseOptions = {},
 ): [string, MarshalledPlainSource, string[]] {
+  if (activeCache === undefined) return parseModule(plainSourceFileName, templateDirs, new Map(), options);
+  const key = `${options.allowNoFunctionalities ? "any" : "renderable"}\0${templateDirs.join("\0")}\0${plainSourceFileName}`;
+  let parsed = activeCache.get(key);
+  if (parsed === undefined) {
+    parsed = parseModule(plainSourceFileName, templateDirs, activeCache.modules, options);
+    activeCache.set(key, parsed);
+  }
+  return parsed;
+}
+
+/**
+ * One parse per file for the length of `run`, however many times it is asked for.
+ *
+ * Walking a requires chain parses each module in it, and each parse gathers what it inherits
+ * by parsing the modules below - so looking across a project of long chains asks for the
+ * same files thousands of times. Inside `run` they are parsed once. Outside it nothing is
+ * kept, so an edit made between two calls is always seen: the cache is for one question
+ * about the specs, not for the life of the process.
+ */
+export function withParseCache<T>(run: () => T): T {
+  if (activeCache !== undefined) return run();
+  activeCache = Object.assign(new Map<string, ParsedModule>(), { modules: new Map<string, ParsedModule>() });
+  try {
+    return run();
+  } finally {
+    activeCache = undefined;
+  }
+}
+
+let activeCache: (Map<string, ParsedModule> & { modules: Map<string, ParsedModule> }) | undefined;
+
+type ParsedModule = [string, MarshalledPlainSource, string[]];
+
+/**
+ * The functional specs a module inherits through `requires`, bottom of the chain first.
+ *
+ * This is what `requires` means: the required module's code is this module's starting
+ * point, so its functional specs - and, transitively, its ancestors' - are previous
+ * functional specs here. Each required module's own tree already carries what it inherits,
+ * so taking that and then its own specs walks the whole chain; a module reached twice, as
+ * when `requires` lists ancestors for their exported concepts, is counted once.
+ */
+function inheritFunctionalSpecs(
+  requires: string[],
+  templateDirs: string[],
+  cache: Map<string, ParsedModule>,
+): InheritedSpecificationItem[] {
+  const inherited: InheritedSpecificationItem[] = [];
+  const seen = new Set<string>();
+  const add = (item: InheritedSpecificationItem) => {
+    const key = `${item.module}/${item.frid}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    inherited.push(item);
+  };
+
+  for (const name of requires) {
+    let parsed = cache.get(name);
+    if (parsed === undefined) {
+      parsed = parseModule(`${name}${PLAIN_SOURCE_FILE_EXTENSION}`, templateDirs, cache);
+      cache.set(name, parsed);
+    }
+    const [moduleName, tree] = parsed;
+    for (const item of (tree[REQUIRED_FUNCTIONAL_SPECS] as InheritedSpecificationItem[] | undefined) ?? []) add(item);
+    (getSpecificationItems(tree, FUNCTIONAL_REQUIREMENTS) ?? []).forEach((item, index) =>
+      add({ ...item, module: moduleName, frid: String(index + 1) }),
+    );
+  }
+  return inherited;
+}
+
+function parseModule(
+  plainSourceFileName: string,
+  templateDirs: string[],
+  cache: Map<string, ParsedModule>,
+  options: ParseOptions = {},
+): ParsedModule {
   const suffix = extname(plainSourceFileName);
   if (suffix !== PLAIN_SOURCE_FILE_EXTENSION) {
     throw new PlainSyntaxError(
@@ -755,7 +844,7 @@ export function plainFileParser(
     );
   }
 
-  if (!hasFunctionalSpecsSection(result.plainSource)) {
+  if (!options.allowNoFunctionalities && !hasFunctionalSpecsSection(result.plainSource)) {
     // Valid as an import, but not renderable.
     throw new MissingFunctionalitiesError(
       `Module '${moduleName}' does not have any functionality specified. ` +
@@ -763,7 +852,7 @@ export function plainFileParser(
     );
   }
 
-  if (countFunctionalities(result.plainSource) === 0) {
+  if (!options.allowNoFunctionalities && countFunctionalities(result.plainSource) === 0) {
     throw new PlainSyntaxError(
       `Plain syntax error: Module '${moduleName}' has an empty '${FUNCTIONAL_REQUIREMENTS}' section. ` +
         "At least one functionality must be specified.",
@@ -792,6 +881,11 @@ export function plainFileParser(
 
   const definitions = getSpecificationItems(marshalled, DEFINITIONS);
   if (definitions !== undefined) sortDefinitions(definitions);
+
+  // What `import` brings - definitions, implementation reqs, test reqs - is already merged
+  // into the module's own sections. What `requires` brings is the functional specs.
+  const inherited = inheritFunctionalSpecs(result.requiredModules, templateDirs, cache);
+  if (inherited.length > 0) marshalled[REQUIRED_FUNCTIONAL_SPECS] = inherited;
 
   return [moduleName, marshalled, result.requiredModules];
 }

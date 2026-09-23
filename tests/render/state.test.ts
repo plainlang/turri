@@ -106,17 +106,67 @@ describe("what needs building", () => {
 });
 
 describe("the state file", () => {
-  it("stores the whole specification each functionality was built from", () => {
+  it("stores the shared sections once and each functional spec as it is built", () => {
     const t = tree();
+    build_(t, "1");
     build_(t, "2");
 
-    const state = readState(build)!;
-    const entry = state.functionalities["2"]!;
+    const stored = JSON.parse(readFileSync(join(build, STATE_FILE), "utf8"));
+    expect(stored.version).toBe(2);
+    expect(stored["implementation reqs"]).toEqual(["- A requirement."]);
+    expect(stored["functional specs"].map((e: { frid: string; spec: string }) => [e.frid, e.spec])).toEqual([
+      ["1", "- One."],
+      ["2", "- Two."],
+    ]);
+    expect(stored["functional specs"][1].specHash).toHaveLength(64);
+    expect(stored["functional specs"][1].renderedAt).toMatch(/^\d{4}-/);
+    // No per-functionality copy of the whole context any more.
+    expect(stored["functional specs"][1].specifications).toBeUndefined();
+  });
 
-    expect(entry.specifications["functional specs"]).toEqual(["- One.", "- Two."]);
-    expect(entry.specifications["implementation reqs"]).toEqual(["- A requirement."]);
-    expect(entry.specHash).toHaveLength(64);
-    expect(entry.renderedAt).toMatch(/^\d{4}-/);
+  it("puts the required modules' functional specs first, without build details", () => {
+    const t = tree();
+    recordFunctionality(build, "app", {
+      frid: "1", ...specStateFor(t, "1"), unitTests: "passed",
+      required: [
+        { module: "c", frid: "1", spec: "- From c." },
+        { module: "b", frid: "1", spec: "- From b.", acceptanceTests: ["- b works."] },
+      ],
+    });
+
+    const stored = JSON.parse(readFileSync(join(build, STATE_FILE), "utf8"));
+    expect(stored["functional specs"]).toEqual([
+      { module: "c", frid: "1", spec: "- From c." },
+      { module: "b", frid: "1", spec: "- From b.", "acceptance tests": ["- b works."] },
+      expect.objectContaining({ module: "app", frid: "1", spec: "- One.", unitTests: "passed" }),
+    ]);
+    const state = readState(build)!;
+    expect(state.required.map((r) => r.module)).toEqual(["c", "b"]);
+    expect(Object.keys(state.functionalities)).toEqual(["1"]);
+  });
+
+  it("reads a build recorded in the first format, so it is not mistaken for unbuilt", () => {
+    const t = tree();
+    const { specHash } = specStateFor(t, "1");
+    mkdirSync(build, { recursive: true });
+    writeFileSync(
+      join(build, STATE_FILE),
+      JSON.stringify({
+        module: "app",
+        updatedAt: "2026-09-22T00:00:00.000Z",
+        functionalities: {
+          "1": {
+            frid: "1", specHash, renderedAt: "2026-09-22T00:00:00.000Z", unitTests: "passed",
+            specifications: {
+              definitions: [], "implementation reqs": ["- A requirement."], "test reqs": [], "functional specs": ["- One."],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(pendingFrids(t, build, "1")).toEqual([]);
+    expect(readState(build)!.sections["implementation reqs"]).toEqual(["- A requirement."]);
   });
 
   it("updates one functionality without disturbing the others", () => {

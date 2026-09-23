@@ -1,4 +1,5 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { describeUsage } from "./activity.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 
 /**
@@ -52,7 +53,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
 
   for (const job of running) {
     if (lines.length > 0) lines.push("");
-    lines.push(`${spinner(now)} ${job.summary} · ${formatDuration(job)}  (job ${job.id})`);
+    const spent = describeUsage(job.usage);
+    lines.push(`${spinner(now)} ${job.summary} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`);
     lines.push(`    ${job.stage ?? "starting"}`);
     const activity = expanded ? job.activity : job.activity.slice(-COMPACT_ACTIVITY);
     if (activity.length < job.activity.length) hidden = true;
@@ -76,8 +78,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     }
   }
 
-  if (expanded) lines.push("  ctrl+o to collapse · /jobs lists everything");
-  else if (hidden) lines.push("  ctrl+o for the full queue and activity · /jobs lists everything");
+  if (expanded) lines.push("  ctrl+o to collapse · /watch reads a job's transcript · /jobs lists everything");
+  else if (hidden) lines.push("  ctrl+o for the full queue and activity · /watch reads a job's transcript");
   return lines;
 }
 

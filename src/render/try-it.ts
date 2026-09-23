@@ -1,7 +1,8 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { cpSync, rmSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { ensureInScratch, scratchDir } from "./paths.ts";
 import { STATE_FILE } from "./state.ts";
 import { runCommand, truncateOutput } from "./testing.ts";
 
@@ -128,12 +129,8 @@ const NOT_COPIED = new Set([".git", "node_modules", ".venv", "venv", "__pycache_
  */
 export function prepareTryDir(buildDir: string, dest: string): string {
   rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dirname(dest), { recursive: true });
+  ensureInScratch(scratchDir(buildDir), dirname(dest));
   cpSync(buildDir, dest, { recursive: true, filter: (source) => !NOT_COPIED.has(basename(source)) });
-  // The copies are the person's scratch space, never part of the project's history, so the
-  // folder they live in - `.plainwright`, three up from `try/<module>/fs-<frid>` - ignores itself.
-  const scratch = dirname(dirname(dirname(dest)));
-  if (!existsSync(join(scratch, ".gitignore"))) writeFileSync(join(scratch, ".gitignore"), "*\n");
   return dest;
 }
 

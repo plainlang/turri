@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { withActivity } from "./activity.ts";
+import { JobStoppedError, withActivity, type TranscriptEntry, type UsageReport } from "./activity.ts";
 
 /**
  * Background jobs for conversation mode.
@@ -10,7 +10,7 @@ import { withActivity } from "./activity.ts";
  * carries on while the agents work.
  */
 
-export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "stopped";
 
 export interface Job {
   id: string;
@@ -34,6 +34,10 @@ export interface Job {
   activity: string[];
   /** What is happening right now, and since when. */
   now?: { label: string; since: number };
+  /** Every model response its agents have had, added up. */
+  usage: UsageReport;
+  /** The whole conversation of its agents, oldest dropped first past a size limit. */
+  transcript: TranscriptEntry[];
   /** What to tell the agent when it asks how the job went. */
   report?: string;
   /** What to tell the person when it lands, if shorter than the report. */
@@ -66,6 +70,12 @@ export interface StartJobInput {
 
 export interface JobRegistry {
   start(input: StartJobInput): Job;
+  /**
+   * Stop a job. A queued one never starts; a running one has its agent's turn aborted and
+   * ends as stopped. Returns the job, or undefined when there is no such job or it has
+   * already finished.
+   */
+  stop(id: string): Job | undefined;
   get(id: string): Job | undefined;
   list(): Job[];
   /** Resolves when the job settles. Used by callers that asked to wait. */
@@ -75,10 +85,9 @@ export interface JobRegistry {
 const DEFAULT_TAIL_CHARS = 4000;
 
 const ACTIVITY_LINES = 6;
+/** A long render's full transcript is kept, up to about this much text. */
+const MAX_TRANSCRIPT_CHARS = 600_000;
 
-function isUnsettled(job: Job | undefined): boolean {
-  return job !== undefined && (job.status === "queued" || job.status === "running");
-}
 
 export function createJobRegistry(options?: {
   onFinish?: (job: Job) => void;
@@ -91,6 +100,13 @@ export function createJobRegistry(options?: {
   const tailChars = options?.tailChars ?? DEFAULT_TAIL_CHARS;
   /** The last job to claim each lane. A new job waits for it and becomes the new tail. */
   const lanes = new Map<string, string>();
+  const controllers = new Map<string, AbortController>();
+  /**
+   * Jobs whose work is over. Not the same as a finished status: a queued job that was
+   * stopped says "stopped" at once, but still sits in its lanes until the job ahead of it
+   * settles - and whatever queues behind it has to wait that long too.
+   */
+  const done = new Set<string>();
   let sequence = 0;
 
   return {
@@ -101,7 +117,7 @@ export function createJobRegistry(options?: {
         ...new Set(
           claimed
             .map((lane) => lanes.get(lane))
-            .filter((other): other is string => other !== undefined && isUnsettled(jobs.get(other))),
+            .filter((other): other is string => other !== undefined && jobs.has(other) && !done.has(other)),
         ),
       ];
       for (const lane of claimed) lanes.set(lane, id);
@@ -118,8 +134,11 @@ export function createJobRegistry(options?: {
         waitingOn: blockers,
         tail: "",
         activity: [],
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+        transcript: [],
       };
       jobs.set(job.id, job);
+      let transcriptChars = 0;
 
       const changed = () => {
         // Like onFinish: a display that throws must not take the job down.
@@ -131,13 +150,40 @@ export function createJobRegistry(options?: {
       };
       changed();
 
+      const controller = new AbortController();
+      controllers.set(id, controller);
       const sink = {
+        signal: controller.signal,
         stage(label: string) {
           job.stage = label;
+          this.transcript({ kind: "stage", text: label });
           changed();
+        },
+        transcript(entry: TranscriptEntry) {
+          const last = job.transcript.at(-1);
+          // Deltas of a running reply join the entry they continue.
+          if ((entry.kind === "text" || entry.kind === "thinking") && last?.kind === entry.kind) {
+            last.text += entry.text;
+          } else {
+            job.transcript.push({ ...entry });
+          }
+          transcriptChars += entry.text.length;
+          while (transcriptChars > MAX_TRANSCRIPT_CHARS && job.transcript.length > 1) {
+            transcriptChars -= job.transcript.shift()!.text.length;
+          }
         },
         activity(line: string) {
           job.activity = [...job.activity, line].slice(-ACTIVITY_LINES);
+          changed();
+        },
+        usage(spent: UsageReport) {
+          job.usage = {
+            input: job.usage.input + spent.input,
+            output: job.usage.output + spent.output,
+            cacheRead: job.usage.cacheRead + spent.cacheRead,
+            cacheWrite: job.usage.cacheWrite + spent.cacheWrite,
+            cost: job.usage.cost + spent.cost,
+          };
           changed();
         },
         now(label: string | undefined, opts?: { keepSince?: boolean }) {
@@ -155,6 +201,8 @@ export function createJobRegistry(options?: {
 
       const promise = turn
         .then(() => {
+          // Stopped while it waited: it never starts.
+          if (controller.signal.aborted) throw new JobStoppedError();
           if (job.status === "queued") {
             job.status = "running";
             job.startedAt = Date.now();
@@ -176,8 +224,9 @@ export function createJobRegistry(options?: {
             return job;
           },
           (error: unknown) => {
-            job.status = "failed";
-            job.error = error instanceof Error ? error.message : String(error);
+            // Asked to stop is not a failure, whatever the work threw as it unwound.
+            job.status = controller.signal.aborted ? "stopped" : "failed";
+            job.error = controller.signal.aborted ? "Stopped on request." : error instanceof Error ? error.message : String(error);
             return job;
           },
         )
@@ -195,6 +244,8 @@ export function createJobRegistry(options?: {
 
       settled.set(job.id, promise);
       promise.then(() => {
+        controllers.delete(id);
+        done.add(id);
         // Release the lanes this job still holds, so a later job does not wait on a ghost.
         for (const lane of claimed) if (lanes.get(lane) === id) lanes.delete(lane);
       });
@@ -203,6 +254,22 @@ export function createJobRegistry(options?: {
 
     get(id) {
       return jobs.get(id);
+    },
+
+    stop(id) {
+      const job = jobs.get(id);
+      const controller = controllers.get(id);
+      if (job === undefined || controller === undefined || done.has(id) || job.status === "stopped") return undefined;
+      controller.abort();
+      // A queued job is done with at once, so the queue behind it shows it gone; a running
+      // one stays running until its agent has actually stopped.
+      if (job.status === "queued") {
+        job.status = "stopped";
+        job.waitingOn = [];
+        job.error = "Stopped on request.";
+        options?.onChange?.(job);
+      }
+      return job;
     },
 
     list() {
@@ -241,6 +308,7 @@ export function describeJob(job: Job): string {
     ].join("\n");
   }
   if (job.status === "failed") return `${header}\n\n${job.error ?? "no error recorded"}`;
+  if (job.status === "stopped") return `${header}\n\nStopped on request. Whatever it changed before it stopped is still on disk.`;
   return `${header}\n\n${job.report ?? "(no report)"}`;
 }
 

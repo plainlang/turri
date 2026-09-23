@@ -1,5 +1,5 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { Command, MemorySaver } from "@langchain/langgraph";
 import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -7,9 +7,10 @@ import { createExecutor } from "./pi.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
-import { createFunctionalSpecTools } from "./spec-tools.ts";
+import { createFunctionalSpecTools, createSpecDiffTools } from "./spec-tools.ts";
 
 const WRITE_FUNCTIONAL_SPEC = "write_functional_spec";
+const WRITE_SPEC_DIFF = "write_spec_diff";
 import type { RenderQueue } from "./render/queue.ts";
 
 export interface EscalationRequest {
@@ -47,10 +48,26 @@ export async function runSkill(opts: {
   renderQueue?: RenderQueue;
   /** What the user has already said, so the skill does not re-ask it. */
   context?: string;
+  /** Pick up the run of this skill that was interrupted here, rather than start a new one. */
+  resume?: boolean;
 }): Promise<RunSkillResult> {
   const skill = loadSkill(opts.skillDir);
   const runDir = resolve(opts.runDir);
-  rmSync(runDir, { recursive: true, force: true });
+
+  // A resumed run keeps its folder - the artifacts are in it - and starts where it stopped.
+  let resumed: RunManifest | undefined;
+  if (opts.resume === true) {
+    resumed = readManifest(runDir);
+    if (resumed === undefined || resumed.skill !== skill.name || resumed.status !== "running") {
+      throw new Error(
+        resumed === undefined || resumed.skill !== skill.name
+          ? `There is no interrupted run of ${skill.name} to resume here.`
+          : `The last run of ${skill.name} here ${resumed.status === "finished" ? "finished" : "was stopped"}; there is nothing to resume.`,
+      );
+    }
+  } else {
+    rmSync(runDir, { recursive: true, force: true });
+  }
   mkdirSync(runDir, { recursive: true });
 
   // The executor has to exist before a reviewer can borrow its auth, and the reviewer has
@@ -83,15 +100,32 @@ export async function runSkill(opts: {
       ? createFunctionalSpecTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy })
       : undefined;
 
-  if (opts.askUser !== undefined) customTools.push(createAskUserTool(opts.askUser, () => specs?.pace.answered()));
+  // A skill whose unit of work is a spec change gets write_spec_diff: the change is applied
+  // and its build queued in one step.
+  const diffs =
+    opts.renderQueue !== undefined && skill.allowedTools.includes(WRITE_SPEC_DIFF)
+      ? createSpecDiffTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy })
+      : undefined;
+
+  if (opts.askUser !== undefined) {
+    customTools.push(
+      createAskUserTool(opts.askUser, () => {
+        specs?.pace.answered();
+        diffs?.pace.answered();
+      }),
+    );
+  }
   if (opts.renderQueue !== undefined) {
     customTools.push(...createRenderTools(opts.renderQueue, opts.cwd, liveProxy));
   }
   if (specs !== undefined) customTools.push(...specs.tools);
+  if (diffs !== undefined) customTools.push(...diffs.tools);
 
   const names = customTools.map((tool) => tool.name);
   // Tools this harness provides are never pi built-ins, even when it did not provide them.
-  const builtins = skill.allowedTools.filter((t) => !names.includes(t) && t !== WRITE_FUNCTIONAL_SPEC);
+  const builtins = skill.allowedTools.filter(
+    (t) => !names.includes(t) && t !== WRITE_FUNCTIONAL_SPEC && t !== WRITE_SPEC_DIFF,
+  );
   const executor = await createExecutor({
     cwd: opts.cwd,
     customTools,
@@ -99,7 +133,23 @@ export async function runSkill(opts: {
     model: opts.model,
     // A skill writes specs; the rules it is held to are in its system prompt.
     rules: true,
+    resumeFrom: resumed?.sessionFile,
   });
+
+  const manifest: RunManifest = resumed ?? {
+    skill: skill.name,
+    status: "running",
+    artifacts: {},
+    attempts: {},
+    updatedAt: "",
+  };
+  manifest.sessionFile = executor.sessionFile;
+  writeManifest(runDir, manifest);
+
+  // Built renders were lost with the process; queue what the specs hold that is not built.
+  if (resumed !== undefined && opts.renderQueue !== undefined) {
+    for (const file of plainFilesIn(opts.cwd)) opts.renderQueue.catchUp(file);
+  }
 
   if (liveStep !== undefined && liveProxy !== undefined) {
     const continuous = liveStep.gate!.continuous!;
@@ -124,12 +174,23 @@ export async function runSkill(opts: {
       model: opts.model,
       context: opts.context,
       liveReviewers,
+      startAt: resumed?.step,
+      // Where the run is, written as each step starts: what a resume picks up from.
+      onStepStart: (step, state) => {
+        manifest.step = step;
+        manifest.artifacts = state.artifacts;
+        manifest.attempts = state.attempts;
+        writeManifest(runDir, manifest);
+      },
     }).compile({
       checkpointer: new MemorySaver(),
     });
     const config = { configurable: { thread_id: `forge-${Date.now()}` }, recursionLimit: 50 };
 
-    let result = await app.invoke({}, config);
+    let result = await app.invoke(
+      resumed !== undefined ? { artifacts: resumed.artifacts, attempts: resumed.attempts } : {},
+      config,
+    );
 
     // Escalation surfaces as a LangGraph interrupt: the graph is paused, not
     // finished, and nothing advances until the handler answers.
@@ -140,6 +201,8 @@ export async function runSkill(opts: {
 
     const artifacts: Record<string, string> = result.artifacts ?? {};
     const lastStep = skill.steps[skill.steps.length - 1]!.name;
+    manifest.status = result.decision === "abort" ? "stopped" : "finished";
+    writeManifest(runDir, manifest);
     return {
       skill,
       ok: result.decision !== "abort",
@@ -149,6 +212,55 @@ export async function runSkill(opts: {
   } finally {
     executor.dispose();
   }
+}
+
+/**
+ * Where a skill run is, kept in its run folder: enough to pick it up after the process that
+ * ran it is gone - the agent's saved session, the step it was in, and the state that step
+ * started from. Written as each step starts; `status` stays "running" until the run ends.
+ */
+interface RunManifest {
+  skill: string;
+  status: "running" | "finished" | "stopped";
+  sessionFile?: string;
+  step?: string;
+  artifacts: Record<string, string>;
+  attempts: Record<string, number>;
+  updatedAt: string;
+}
+
+const MANIFEST = "run.json";
+
+function readManifest(runDir: string): RunManifest | undefined {
+  try {
+    return JSON.parse(readFileSync(join(runDir, MANIFEST), "utf8")) as RunManifest;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeManifest(runDir: string, manifest: RunManifest): void {
+  manifest.updatedAt = new Date().toISOString();
+  writeFileSync(join(runDir, MANIFEST), JSON.stringify(manifest, null, 2));
+}
+
+/** The .plain files at the top of a project. */
+function plainFilesIn(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+      .filter((name) => name.endsWith(".plain"))
+      .map((name) => join(dir, name));
+  } catch {
+    return [];
+  }
+}
+
+/** Whether there is a run of this skill here that was interrupted, and could be resumed. */
+export function interruptedRun(runDir: string, skillName: string): { step?: string; updatedAt: string } | undefined {
+  const manifest = readManifest(resolve(runDir));
+  return manifest?.skill === skillName && manifest.status === "running"
+    ? { step: manifest.step, updatedAt: manifest.updatedAt }
+    : undefined;
 }
 
 /** Human-readable one-liner per step, for logs and tool output. */

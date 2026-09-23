@@ -2,9 +2,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { describeGates, runSkill } from "./forge.ts";
+import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
 import { listFrids } from "./render/render.ts";
@@ -17,8 +17,12 @@ import { describeDelivery } from "./render/delivery.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
+import { createTranscriptView } from "./render/transcript-view.ts";
+import { describeUsage } from "./render/activity.ts";
 import { inheritThinkingLevel } from "./pi.ts";
 import { moduleLanes } from "./render/lanes.ts";
+import { findCodebaseTip } from "./render/requires.ts";
+import { describeSpecDiff, renderSpecDiff } from "./render/spec-change.ts";
 import { beginCapture, captureConsole, describeCaptured } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
@@ -129,7 +133,9 @@ export default function (pi: ExtensionAPI) {
           content:
             job.status === "succeeded"
               ? `Background job ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
-              : `Background job ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`,
+              : job.status === "stopped"
+                ? `Background job ${job.id} (${job.kind}) was stopped by the user after ${formatDuration(job)}. What it built before it stopped is on disk, but the functionality it was on counts as not built.`
+                : `Background job ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`,
           display: false,
           details: { jobId: job.id, status: job.status },
         },
@@ -185,6 +191,7 @@ export default function (pi: ExtensionAPI) {
   registerCheckPlain(pi, cwd);
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
+  registerRenderSpecDiff(pi, cwd, jobs);
 
   const { skills, pending } = discoveredSkills;
   if (skills.length === 0) return;
@@ -206,6 +213,7 @@ export default function (pi: ExtensionAPI) {
       "run_skill returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
       "If run_skill fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
       "Always pass `context` to run_skill, summarising what the user has already told you. The skill starts with an empty session and will re-ask everything you omit, which reads as it not having listened.",
+      "When the user wants to continue a skill that was interrupted - pi restarted, the process died - call run_skill with resume: true. It picks the run up in the step it was in, with its session as it was.",
     ],
     parameters: Type.Object({
       skill: Type.String({
@@ -220,6 +228,18 @@ export default function (pi: ExtensionAPI) {
             "will ask again.",
         }),
       ),
+      resume: Type.Optional(
+        Type.Boolean({
+          description:
+            "Continue the run of this skill that was interrupted here - by a restart, a crash - from the step " +
+            "it was in, with its session as it was. Use when the user wants to carry on where they left off.",
+        }),
+      ),
+      fresh: Type.Optional(
+        Type.Boolean({
+          description: "Start a new run even though an interrupted one exists here, discarding it.",
+        }),
+      ),
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const skill = skills.find((s) => s.name === params.skill);
@@ -227,6 +247,25 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text" as const, text: `Unknown skill '${params.skill}'. Available: ${skills.map((s) => s.name).join(", ")}` }],
           details: {},
+        };
+      }
+
+      // A new run clears the run folder. An interrupted one is not thrown away by accident:
+      // whether to pick it up or start over is the user's call.
+      const runDir = resolve(cwd, ".forge/run", skill.name);
+      const interrupted = interruptedRun(runDir, skill.name);
+      if (interrupted !== undefined && params.resume !== true && params.fresh !== true) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `There is an interrupted run of ${skill.name} here${interrupted.step ? `, stopped in its ${interrupted.step} step` : ""} ` +
+                `(last active ${interrupted.updatedAt}). Ask the user whether to continue it or start over, then call ` +
+                "run_skill again with resume: true or fresh: true. Nothing has been started.",
+            },
+          ],
+          details: { interrupted },
         };
       }
 
@@ -263,7 +302,8 @@ export default function (pi: ExtensionAPI) {
         runSkill({
         skillDir: skill.dir,
         cwd,
-        runDir: resolve(cwd, ".forge/run", skill.name),
+        runDir,
+        resume: params.resume === true && interrupted !== undefined,
         report,
         context: conversationContext(ctx, params.context),
         askUser: askUserVia(ctx, (question, answer) => {
@@ -322,7 +362,8 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
       "When asked to implement or render a .plain specification, call render_functionality rather than reading the file and writing the code yourself - it assembles the specification context deterministically.",
       "Call render_functionality without a frid first when the user has not said which functionality they mean; it returns the available IDs.",
       "Asking for one functionality builds its prerequisites too. Do not call render_functionality repeatedly to walk a module - one call with the last functionality does it.",
-      "After render_functionality succeeds, offer render_conformance_tests for the same functionality - unit tests are written by the implementer, conformance tests are not.",
+      "Conformance tests are written as each functionality is built wherever the module has test reqs. Pass conformance: false when the user asks to render without them.",
+      "When conformance was off for a module - no test reqs, or the user asked - offer render_conformance_tests afterwards if the user wants them.",
       "These tools return a job id and keep working in the background. Say what has started and carry on talking; do not sit waiting for it, and do not claim it finished until the job reports back or check_job says so.",
     ],
     parameters: Type.Object({
@@ -333,6 +374,14 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
       build_dir: Type.Optional(
         Type.String({ description: "Where the agent works. Default: plain_modules/<module>/code" }),
       ),
+      try_it: Type.Optional(
+        Type.Boolean({
+          description:
+            "Work out and check how the user can try the functionality asked for. Default true - they " +
+            "asked for this one. Never done for the prerequisites built on the way.",
+        }),
+      ),
+      conformance: CONFORMANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -370,6 +419,8 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
             to: params.frid,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
+            tryIt: params.try_it ?? true,
+            conformance: conformanceOption(params.conformance),
             onDelta,
           });
           return {
@@ -427,7 +478,9 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
     label: "Render conformance tests",
     description:
       "Write black-box conformance tests for code that already exists, and run them against it. " +
-      "Rendering and conformance are separate jobs: name one functionality, several, a range, the whole " +
+      "The tests are written and run in the chain's current codebase - the furthest-built module that requires " +
+      "the one named - since that is where the code now lives; they are carried up to every module built on it " +
+      "later. Rendering and conformance are separate jobs: name one functionality, several, a range, the whole " +
       "module (the default) or the whole requires chain. The test author never sees the implementation - " +
       "it works from the specification and the acceptance tests, invoking the built functionality from " +
       "the outside. Needs test reqs, which is what conformance tests are written from.",
@@ -450,6 +503,9 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
         Type.Boolean({ description: "Every module this one requires, each in full" }),
       ),
       force: Type.Optional(Type.Boolean({ description: "Rewrite suites that already pass" })),
+      in_module: Type.Optional(
+        Type.String({ description: "The codebase to test in, when modules built on this one branch" }),
+      ),
       build_dir: Type.Optional(
         Type.String({ description: "The rendered code under test. Default: plain_modules/<module>/code" }),
       ),
@@ -471,7 +527,10 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
         model,
         wait: params.wait,
         mode: ctx.mode,
-        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
+        lanes: moduleLanes(
+          params.build_dir === undefined ? codebasePlainFile(resolve(cwd, params.plain_file), params.in_module) : resolve(cwd, params.plain_file),
+          params.build_dir ? resolve(cwd, params.build_dir) : undefined,
+        ),
         onUpdate,
         run: async (onDelta) => {
           const result = await renderConformanceSuite({
@@ -480,6 +539,7 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
             range: params.range,
             chain: params.chain,
             force: params.force,
+            inModule: params.in_module,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
             onDelta,
@@ -496,6 +556,9 @@ function suiteReport(result: Awaited<ReturnType<typeof renderConformanceSuite>>)
   const failing = written.filter((o) => o.result && !o.result.passed);
 
   const lines = [
+    ...(result.codebaseOf !== undefined
+      ? [`Written and run in the codebase of ${result.codebaseOf}, where the chain's code now lives; carried up to every module built on it.`, ""]
+      : []),
     result.passed
       ? `Conformance suite passes for ${result.targets.map((t) => t.moduleName).join(", ")}.`
       : `Conformance suite is NOT passing. ${failing.length} of ${written.length} failed.`,
@@ -565,6 +628,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     promptSnippet: "render_module: build every functionality of a .plain specification in order",
     promptGuidelines: [
       "Prefer render_module over looping render_functionality yourself: it enforces the regression gate between functionalities.",
+      "Pass conformance: false when the user asks to render without conformance tests; otherwise leave it out, and each module with test reqs gets them.",
       "Report which functionalities completed and where it stopped. Do not describe an incomplete module as finished.",
       "render_module takes a long time and runs in the background. Report the job id, keep talking, and check_job when the user asks.",
     ],
@@ -578,14 +642,15 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       force: Type.Optional(
         Type.Boolean({ description: "Rebuild modules that are already complete" }),
       ),
-      conformance: Type.Optional(
+      conformance: CONFORMANCE_PARAM,
+      build_dir: Type.Optional(Type.String({ description: "Default: plain_modules/<module>/code" })),
+      try_it: Type.Optional(
         Type.Boolean({
           description:
-            "Write conformance tests. Defaults to whether the module has test reqs, which is what they " +
-            "are written from. Setting it true without them fails.",
+            "Work out and check how the user can try the last functionality built. Default false: a " +
+            "module build usually runs unattended for a long time. Set it when the user is waiting.",
         }),
       ),
-      build_dir: Type.Optional(Type.String({ description: "Default: plain_modules/<module>/code" })),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -603,10 +668,32 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
           // A render runs in the background, so the tool result is long gone before the
           // work is. The widget is what the person actually watches.
           const progress = createProgressTracker();
+          // A component rather than lines: pi cuts a list of lines off at ten, and a chain can
+          // be far longer. It lays itself out on every render - compact, or every module while
+          // ctrl+o has tool output expanded - so it never loses the end of the chain.
+          let tui: { requestRender(): void } | undefined;
+          let mounted = false;
           const show = () => {
             if (!ctx.hasUI) return;
             try {
-              ctx.ui.setWidget("plainwright-render", progress.lines(), { placement: "aboveEditor" });
+              if (!mounted) {
+                mounted = true;
+                const ui = ctx.ui;
+                type ComponentWidget = Extract<Parameters<typeof ui.setWidget>[1], (...args: never[]) => unknown>;
+                const widget: ComponentWidget = (next) => {
+                  tui = next;
+                  return {
+                    render: (width: number) =>
+                      (ui.getToolsExpanded() ? progress.lines() : progress.compactLines()).map((line) =>
+                        truncateToWidth(line, width),
+                      ),
+                    invalidate() {},
+                  };
+                };
+                ui.setWidget("plainwright-render", widget, { placement: "aboveEditor" });
+              } else {
+                tui?.requestRender();
+              }
               ctx.ui.setStatus("plainwright-render", progress.summary());
             } catch {
               // The widget is a convenience; losing it must not fail the render.
@@ -622,6 +709,8 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
               skipRequires: params.only,
               force: params.force,
               model,
+              tryIt: params.try_it === true,
+              conformance: conformanceOption(params.conformance),
               onDelta,
               onChainEvent: (event) => {
                 progress.onChainEvent(event);
@@ -687,6 +776,12 @@ function chainReport(result: Awaited<ReturnType<typeof renderChain>>): string {
   ];
 
   for (const outcome of result.outcomes) {
+    for (const regenerated of outcome.regenerated ?? []) {
+      lines.push(
+        `${regenerated.moduleName} fs ${regenerated.frid}: spec changed, regenerated in ${outcome.module}'s codebase - ` +
+          (regenerated.passed ? "passes" : `stopped at ${regenerated.stoppedAt}`),
+      );
+    }
     if (outcome.skipped) {
       lines.push(`${outcome.module}: already built, skipped`);
       continue;
@@ -695,6 +790,7 @@ function chainReport(result: Awaited<ReturnType<typeof renderChain>>): string {
     lines.push(
       `${outcome.module}: ${inner?.passed ? "done" : "incomplete"}` +
         (inner ? `, ${inner.completed.length}/${inner.frids.length} functionalities` : "") +
+        (inner ? `, conformance ${inner.conformance}` : "") +
         (outcome.copied > 0 ? `, ${outcome.copied} files copied from ${result.chain.find((c) => c.moduleName === outcome.module)?.requires}` : ""),
     );
   }
@@ -710,7 +806,12 @@ function moduleReport(result: RenderModuleResult): string {
     result.passed
       ? `Built all of ${result.moduleName}: ${result.completed.join(", ")}.`
       : `${result.moduleName} is incomplete. Completed: ${result.completed.join(", ") || "none"}.`,
-    `Build in ${result.buildDir}, tests in ${result.conformanceRoot}/${result.moduleName}/<frid>.`,
+    `Build in ${result.buildDir}, conformance tests in ${result.conformanceRoot}/${result.moduleName}/tests.`,
+    {
+      on: "Conformance tests were written and run.",
+      "off: no test reqs": "Conformance tests were not written: the module has no test reqs.",
+      "off: asked": "Conformance tests were not written, as asked.",
+    }[result.conformance],
     "",
     "<functionalities>",
     ...result.outcomes.map((outcome) => {
@@ -723,42 +824,140 @@ function moduleReport(result: RenderModuleResult): string {
   ].join("\n");
 }
 
+/**
+ * Render a change to the specs, given as a git diff of the .plain files: one agent makes the
+ * code match it, then conformance, the whole suite and the record, in that order.
+ */
+function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "render_spec_diff",
+    label: "Render spec diff",
+    description:
+      "Render a change to the ***plain specs, given as a git diff of the .plain files - any change: specs " +
+      "added, changed or removed, in any section, across any number of them; a diff that adds everything " +
+      "builds from scratch. The diff is applied with git unless it already is. One agent, given the diff and " +
+      "every spec as it now stands, makes the code match, in the chain's current codebase. Then the " +
+      "conformance tests are brought in line with it, the whole suite runs, and the build record is rewritten.",
+    promptSnippet: "render_spec_diff: make the code match a git diff of the .plain specs",
+    promptGuidelines: [
+      "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
+      "Pass conformance: false when the user asks to render without conformance tests.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
+      diff: Type.String({ description: "The change, as a git diff of the .plain files" }),
+      in_module: Type.Optional(
+        Type.String({ description: "The codebase to render in, when modules built on this one branch" }),
+      ),
+      conformance: CONFORMANCE_PARAM,
+      model: MODEL_PARAM,
+      wait: WAIT_PARAM,
+    }),
+    async execute(_id, params, _signal, onUpdate, ctx) {
+      const model = conversationModel(ctx, params.model);
+      const plainFile = resolve(cwd, params.plain_file);
+      // The job writes the codebase the change lands in, so it claims that chain's modules.
+      let lanesFrom = plainFile;
+      try {
+        lanesFrom = findCodebaseTip(plainFile, { inModule: params.in_module }).tip.plainFile;
+      } catch {
+        // A module the diff creates is not there to resolve yet; its own file will do.
+      }
+      return deliver(jobs, {
+        kind: "render_spec_diff",
+        summary: `${basename(params.plain_file)} render spec diff`,
+        model,
+        wait: params.wait,
+        mode: ctx.mode,
+        lanes: moduleLanes(lanesFrom),
+        onUpdate,
+        run: async (onDelta) => {
+          const result = await renderSpecDiff({
+            plainFile,
+            diff: params.diff,
+            cwd,
+            inModule: params.in_module,
+            conformance: conformanceOption(params.conformance),
+            model,
+            onDelta,
+          });
+          return { report: describeSpecDiff(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
+        },
+      });
+    },
+  });
+}
+
+
 /** Rebuild one functionality whose specification changed, then re-run the whole suite. */
 function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "regenerate_functionality",
     label: "Regenerate functionality",
     description:
-      "Rebuild one functionality whose specification changed, over code that already exists. Updates the " +
-      "code, its unit tests and its conformance tests to the current specification, then runs the whole " +
-      "module's conformance suite - because a changed specification can break a functionality built " +
-      "later just as easily as an earlier one. Fails if there is no existing build.",
+      "Rebuild one functionality over code that already exists - because its specification changed, or " +
+      "because the user wants it redone even though it did not. The change is " +
+      "made in the current codebase: the furthest-built module whose requires chain includes this one, not " +
+      "this module's own older build. Updates the code, its unit tests and its conformance tests to the " +
+      "current specification, then runs the conformance suite of every module up to that codebase - " +
+      "because a changed specification can break something built later just as easily as earlier. Fails " +
+      "if there is no existing build.",
     promptSnippet: "regenerate_functionality: rebuild a functionality after its specification changed",
     promptGuidelines: [
       "Use regenerate_functionality, not render_functionality, when the code already exists and the specification changed.",
       "A regression repair means the implementation was changed beyond the functionality asked for; say so when reporting.",
+      "Say which codebase the change was made in when it is a later module's.",
+      "It also works when the spec has not changed - to redo a functionality whose code came out badly. Pass the user's reason, so the redo addresses it.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
       frid: Type.String({ description: "Functionality id whose specification changed" }),
-      build_dir: Type.Optional(Type.String({ description: "Default: plain_modules/<module>/code" })),
+      reason: Type.Optional(
+        Type.String({
+          description:
+            "Why it is being regenerated, in the user's words - most useful when the spec has not changed and " +
+            "the code is being redone, e.g. \"the error handling is a mess\".",
+        }),
+      ),
+      in_module: Type.Optional(
+        Type.String({
+          description:
+            "The module whose codebase to regenerate in. Only needed when modules built on this one sit on " +
+            "different branches; otherwise the furthest-built one is found.",
+        }),
+      ),
+      build_dir: Type.Optional(
+        Type.String({ description: "Regenerate in exactly this build instead of finding the current codebase" }),
+      ),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const model = conversationModel(ctx, params.model);
+      const plainFile = resolve(cwd, params.plain_file);
+      // The job writes the codebase it regenerates in, so it claims that chain's modules.
+      let lanesFrom = plainFile;
+      if (params.build_dir === undefined) {
+        try {
+          lanesFrom = findCodebaseTip(plainFile, { inModule: params.in_module }).tip.plainFile;
+        } catch {
+          // The job itself reports why no codebase could be chosen.
+        }
+      }
       return deliver(jobs, {
         kind: "regenerate_functionality",
         summary: `${basename(params.plain_file)} fs ${params.frid} (rebuild)`,
         model,
         wait: params.wait,
         mode: ctx.mode,
-        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
+        lanes: moduleLanes(lanesFrom, params.build_dir ? resolve(cwd, params.build_dir) : undefined),
         onUpdate,
         run: async (onDelta) => {
           const result = await regenerateFunctionality({
-            plainFile: resolve(cwd, params.plain_file),
+            plainFile,
             frid: params.frid,
+            inModule: params.in_module,
+            reason: params.reason,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
             onDelta,
@@ -780,12 +979,33 @@ function regenerateReport(result: Awaited<ReturnType<typeof regenerateFunctional
       ? `Regenerated ${result.moduleName} functionality ${result.frid}; the whole conformance suite passes.`
       : `Regeneration of ${result.moduleName} functionality ${result.frid} stopped at ${result.stoppedAt}.`,
     repairs > 0 ? `${repairs} regression repair(s) changed the implementation beyond this functionality.` : "",
-    `Build in ${result.buildDir}.`,
+    result.codebaseOf !== undefined
+      ? `Regenerated in the codebase of ${result.codebaseOf} (${result.buildDir}), where the chain's code now lives; ` +
+        `${result.moduleName}'s own build was left as it was.`
+      : `Build in ${result.buildDir}.`,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
+
+const CONFORMANCE_PARAM = Type.Optional(
+  Type.Boolean({
+    description:
+      "Write and run black-box conformance tests as each functionality is built. Default: on for every " +
+      "module that has test reqs - which is what they are written from - and off for every module that " +
+      "does not. Set false when the user asks to render without conformance tests.",
+  }),
+);
+
+/**
+ * The conformance setting for a chain. Off, when asked, for every module. Otherwise each
+ * module decides by its own test reqs: a chain can mix modules that have them with modules
+ * that do not, and asking for conformance must not fail on the ones that cannot have it.
+ */
+function conformanceOption(asked: boolean | undefined): false | undefined {
+  return asked === false ? false : undefined;
+}
 
 const MODEL_PARAM = Type.Optional(
   Type.String({
@@ -939,6 +1159,82 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
 
   // The panel is compact and ctrl+o only lasts as long as the work does. This is the whole
   // list, finished jobs included, put in the transcript where it stays.
+  pi.registerTool({
+    name: "stop_job",
+    label: "Stop job",
+    description:
+      "Stop a background job: a queued one never starts, a running one has its agent stopped at once. Jobs " +
+      "queued behind it move up. Code a running job already changed stays on disk; the functionality it " +
+      "was building counts as not built.",
+    promptSnippet: "stop_job: stop a queued or running background job",
+    promptGuidelines: [
+      "Stop a job only when the user asks. Name which one, and say which jobs were queued behind it - they will now run.",
+    ],
+    parameters: Type.Object({
+      job_id: Type.String({ description: "The job's id, or the start of it" }),
+    }),
+    async execute(_id, params) {
+      const text = stopJob(jobs, params.job_id);
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  pi.registerCommand("stop", {
+    description: "Stop a queued or running background job: /stop [job id]",
+    handler: async (args, ctx) => {
+      if (!ctx.hasUI) return;
+      const live = jobs.list().filter((job) => job.status === "running" || job.status === "queued");
+      let id = args.trim();
+      if (id === "") {
+        if (live.length === 0) return ctx.ui.notify("Nothing is running or queued.", "info");
+        const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${job.summary}`;
+        const picked = await ctx.ui.select("Stop which job?", live.map(label));
+        const job = live.find((candidate) => picked !== undefined && label(candidate) === picked);
+        if (job === undefined) return;
+        id = job.id;
+      }
+      ctx.ui.notify(stopJob(jobs, id), "info");
+    },
+  });
+
+  // Read a job's agents at work: its whole transcript, live, in an overlay.
+  pi.registerCommand("watch", {
+    description: "Read a background job's full transcript as it happens: /watch [job id]",
+    handler: async (args, ctx) => {
+      if (!ctx.hasUI) return;
+      const job = await chooseJob(jobs, args.trim(), ctx.ui);
+      if (job === undefined) return;
+      await ctx.ui.custom<void>(
+        (tui, theme, _keybindings, done) => {
+          const view = createTranscriptView({
+            job: () => jobs.get(job.id),
+            rows: () => Math.floor(tui.terminal.rows * 0.9) - 2,
+            style: {
+              heading: (text) => theme.bold(theme.fg("accent", text)),
+              muted: (text) => theme.fg("muted", text),
+              accent: (text) => theme.fg("accent", text),
+              error: (text) => theme.fg("error", text),
+            },
+            close: () => done(undefined),
+          });
+          // A running job keeps writing; redraw so the overlay follows it.
+          const timer = setInterval(() => tui.requestRender(), WATCH_REDRAW_MS);
+          timer.unref?.();
+          return {
+            render: (width: number) => view.render(width),
+            handleInput: (data: string) => {
+              view.handleInput(data);
+              tui.requestRender();
+            },
+            invalidate: () => view.invalidate(),
+            dispose: () => clearInterval(timer),
+          };
+        },
+        { overlay: true, overlayOptions: { width: "95%", maxHeight: "90%" } },
+      );
+    },
+  });
+
   // An entry rather than a message, so it shows straight away even while a skill is
   // running - which is exactly when someone wants to know what the queue is doing.
   pi.registerCommand("jobs", {
@@ -949,6 +1245,57 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry) {
   });
 }
 
+const WATCH_REDRAW_MS = 500;
+
+/** The spec of the codebase a job on this module would write: the tip built on it, or itself. */
+function codebasePlainFile(plainFile: string, inModule?: string): string {
+  try {
+    return findCodebaseTip(plainFile, { inModule }).tip.plainFile;
+  } catch {
+    return plainFile;
+  }
+}
+
+/** Stop a job by id or id prefix, and say what that means for the queue. */
+function stopJob(jobs: JobRegistry, named: string): string {
+  const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
+  if (matches.length === 0) return `No job ${named}. /jobs lists them.`;
+  if (matches.length > 1) return `'${named}' matches ${matches.map((job) => job.id).join(", ")}. Give more of the id.`;
+  const target = matches[0]!;
+  const behind = jobs.list().filter((job) => job.status === "queued" && job.waitingOn.includes(target.id));
+  const stopped = jobs.stop(target.id);
+  if (stopped === undefined) return `Job ${target.id} (${target.summary}) is already ${target.status}.`;
+  const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
+  return stopped.status === "stopped"
+    ? `Stopped ${target.summary} (${target.id}) before it started.${queued}`
+    : `Stopping ${target.summary} (${target.id}): its agent is being stopped now.${queued}`;
+}
+
+/**
+ * The job to watch: the one named, or the only one running, or the one picked from a list.
+ */
+async function chooseJob(
+  jobs: JobRegistry,
+  named: string,
+  ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(message: string, type?: "info" | "warning" | "error"): void },
+): Promise<Job | undefined> {
+  const all = jobs.list();
+  if (named !== "") {
+    const found = all.find((job) => job.id.startsWith(named));
+    if (found === undefined) ui.notify(`No job ${named}. /jobs lists them.`, "warning");
+    return found;
+  }
+  if (all.length === 0) {
+    ui.notify("No jobs have been started.", "info");
+    return undefined;
+  }
+  const running = all.filter((job) => job.status === "running");
+  if (running.length === 1) return running[0];
+  const label = (job: Job) => `${job.id}  ${job.status.padEnd(9)} ${job.summary}`;
+  const picked = await ui.select("Watch which job?", all.map(label));
+  return all.find((job) => picked !== undefined && label(job) === picked);
+}
+
 /** Every job, in the order it was started, with what a queued one is waiting for. */
 function listJobs(jobs: JobRegistry): string {
   const all = [...jobs.list()].reverse();
@@ -957,7 +1304,8 @@ function listJobs(jobs: JobRegistry): string {
     .map((job) => {
       const time = job.status === "queued" ? "waiting" : formatDuration(job);
       const after = job.status === "queued" ? `  (after ${job.waitingOn.join(", ")})` : "";
-      return `${job.id}  ${job.status.padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${after}`;
+      const spent = describeUsage(job.usage);
+      return `${job.id}  ${job.status.padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${after}${spent ? `  · ${spent}` : ""}`;
     })
     .join("\n");
 }
@@ -1013,19 +1361,27 @@ const JOBS_LIST_ENTRY = "plainwright_jobs";
 interface JobAnnouncement {
   id: string;
   summary: string;
-  status: "succeeded" | "failed";
+  status: "succeeded" | "failed" | "stopped";
   duration: string;
+  /** Tokens and cost, when any were spent. */
+  spent?: string;
   text: string;
 }
 
 function announceJob(pi: ExtensionAPI, job: Job): void {
-  if (job.status !== "succeeded" && job.status !== "failed") return;
+  if (job.status !== "succeeded" && job.status !== "failed" && job.status !== "stopped") return;
   const announcement: JobAnnouncement = {
     id: job.id,
     summary: job.summary,
     status: job.status,
     duration: formatDuration(job),
-    text: job.status === "succeeded" ? (job.announce ?? job.report ?? "") : (job.error ?? "no error recorded"),
+    spent: describeUsage(job.usage) || undefined,
+    text:
+      job.status === "succeeded"
+        ? (job.announce ?? job.report ?? "")
+        : job.status === "stopped"
+          ? "Stopped on request. Whatever it changed before it stopped is still on disk; the functionality it was on counts as not built."
+          : (job.error ?? "no error recorded"),
   };
   try {
     pi.appendEntry(JOB_ENTRY, announcement);
@@ -1065,11 +1421,15 @@ function registerInterviewLog(pi: ExtensionAPI) {
     const data = entry.data as JobAnnouncement | undefined;
     if (data === undefined) return undefined;
     const ok = data.status === "succeeded";
-    const header = ok
-      ? `${theme.fg("success", "✓")} ${theme.fg("text", data.summary)} ${theme.fg("muted", `finished after ${data.duration}`)}`
-      : `${theme.fg("error", "✗")} ${theme.fg("text", data.summary)} ${theme.fg("error", `failed after ${data.duration}`)}`;
+    const header =
+      data.status === "succeeded"
+        ? `${theme.fg("success", "✓")} ${theme.fg("text", data.summary)} ${theme.fg("muted", `finished after ${data.duration}`)}`
+        : data.status === "stopped"
+          ? `${theme.fg("warning", "■")} ${theme.fg("text", data.summary)} ${theme.fg("warning", `stopped after ${data.duration}`)}`
+          : `${theme.fg("error", "✗")} ${theme.fg("text", data.summary)} ${theme.fg("error", `failed after ${data.duration}`)}`;
+    const spent = data.spent ? ` ${theme.fg("muted", `· ${data.spent}`)}` : "";
     const box = new Box(1, 0);
-    box.addChild(new Text([header, "", theme.fg(ok ? "text" : "muted", data.text.trim())].join("\n"), 0, 0));
+    box.addChild(new Text([header + spent, "", theme.fg(ok ? "text" : "muted", data.text.trim())].join("\n"), 0, 0));
     return box;
   });
 

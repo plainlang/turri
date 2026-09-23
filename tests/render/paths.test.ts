@@ -9,9 +9,7 @@ describe("module layout", () => {
 
   it("puts conformance tests under plain_modules/<module>/tests", () => {
     expect(defaultTestsDir("demo", "/proj")).toBe("/proj/plain_modules/demo/tests");
-    expect(conformanceDirFor("demo", "2", "/proj/plain_modules")).toBe(
-      "/proj/plain_modules/demo/tests/2",
-    );
+    expect(conformanceDirFor("demo", "/proj/plain_modules")).toBe("/proj/plain_modules/demo/tests");
   });
 
   it("keeps the same layout under an overridden root", () => {

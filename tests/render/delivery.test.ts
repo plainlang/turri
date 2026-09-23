@@ -51,7 +51,7 @@ describe("the notification when a functionality lands", () => {
   });
 
   it("admits when the build did not say how to run it", () => {
-    expect(describeDelivery({ ...base, tryIt: undefined })).toContain("did not say how to run it");
+    expect(describeDelivery({ ...base, tryIt: undefined })).toContain("how to try it was not worked out");
   });
 
   it("keeps the tests to a footnote, with the command that actually passed", () => {

@@ -40,7 +40,9 @@ export function checkPlainFile(file: string, templateDirs: string[] = []): Check
 
   try {
     const dirs = resolveTemplateDirs(path, templateDirs);
-    const [moduleName, tree, requiredModules] = plainFileParser(basename(path), dirs);
+    // A module with no functional specs yet is valid - it is how every module starts, and how
+    // an import module always is. It is reported, not failed.
+    const [moduleName, tree, requiredModules] = plainFileParser(basename(path), dirs, { allowNoFunctionalities: true });
     return {
       file,
       ok: true,
@@ -85,7 +87,11 @@ export function formatCheckResults(results: CheckResult[]): string {
         result.requiredModules && result.requiredModules.length > 0
           ? `, requires ${result.requiredModules.join(", ")}`
           : "";
-      lines.push(`PASS  ${name}  ${frids.length} functionalit${frids.length === 1 ? "y" : "ies"} (${frids.join(", ")})${requires}`);
+      lines.push(
+        frids.length === 0
+          ? `PASS  ${name}  no functional specs yet${requires}`
+          : `PASS  ${name}  ${frids.length} functionalit${frids.length === 1 ? "y" : "ies"} (${frids.join(", ")})${requires}`,
+      );
     } else {
       lines.push(`FAIL  ${name}  ${result.errorType ?? "Error"}`);
       for (const line of (result.error ?? "").split("\n")) lines.push(`        ${line}`);
