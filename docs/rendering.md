@@ -51,12 +51,16 @@ Template search order: the plain file's own directory, then a sibling `template/
 
 ### The tests must actually pass
 
-`run_unit_tests` runs the suite in the [sandbox](sandbox.md) and hands the exit code back to the
-harness, so whether the tests pass is something the harness observes rather than something the
-agent reports. After each turn it checks two things and sends the agent back if either is wrong,
-up to 4 times:
+The agent runs its tests through `run_unit_tests`, which runs them in the [sandbox](sandbox.md) and
+records the result for the harness. But the agent chooses those commands, so a functionality is
+not done on the agent's run: once its own run passes, **the harness runs the whole unit test suite
+itself**, and only that run counts. It uses the unit-test script the codebase carries - the one the
+spec links to - or else the agent's last passing command, if that command runs the whole suite. A
+run that only ever named one file, or ran nothing, is sent back to run everything. After each turn
+the harness checks three things and sends the agent back if any is wrong, up to 20 times:
 
 - **The suite is not green**, or was never run at all.
+- **The harness's own run fails**, or the agent never ran the whole suite.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
 
@@ -83,8 +87,9 @@ plainwright module <file.plain> --from 3 --to 5
 For each functionality in order: render the code and unit tests, write its conformance tests,
 then run **every** conformance test in the codebase as one suite. It advances only when that whole
 suite is green. When it goes red, a repair agent works on the code with the module's spec and the
-failure, and cannot touch the tests; the suite runs again after each repair, up to
-`--max-regression-rounds` (default 3). A functionality is finished when it passes alongside
+failure; the suite runs again after each repair, up to `--max-regression-rounds` (default 20). The
+repair agent is not allowed to change the tests: the harness photographs them before it starts,
+and puts back anything it changed before sending it to fix the code instead. A functionality is finished when it passes alongside
 everything before it.
 
 ### Regenerating after a spec change
@@ -153,11 +158,12 @@ misread the spec. The test author decides, from the spec and the failure, throug
 - **`test_at_fault`** - the test asserts something the spec does not require. The author fixes its
   own test and runs again.
 - **`code_at_fault`** - the spec says one thing and the run shows another. The failure goes to a
-  second agent that fixes the code, keeps the unit tests green, and cannot touch the conformance
-  tests; the harness then re-runs the conformance command itself, so whether the fix worked does
-  not depend on either agent's account of it.
+  second agent that fixes the code and keeps the unit tests green. It is not allowed to change the
+  conformance tests - the harness compares them with how they were before the fix, and puts back
+  anything it changed - and the harness then re-runs the conformance command itself, so whether
+  the fix worked does not depend on either agent's account of it.
 
-That loop runs up to 3 times, and conformance tests cannot be deleted to get a pass either.
+That loop runs up to 20 times, and conformance tests cannot be deleted to get a pass either.
 
 ### Verified
 

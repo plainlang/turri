@@ -18,6 +18,7 @@ import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
+import { ATTEMPTS, describeStop, type StopFacts } from "./stop-report.ts";
 import {
   copyRequiredCode,
   findCodebaseTip,
@@ -44,11 +45,12 @@ import {
   listFiles,
   runCommand,
   type TestRun,
+  keepingTestsUnchanged,
 } from "./testing.ts";
 
 /** On top of the file tools, which are fenced to the build directory by `confine.ts`. */
 const FIX_TOOLS = ["run_unit_tests"];
-const DEFAULT_MAX_REGRESSION_ROUNDS = 3;
+const DEFAULT_MAX_REGRESSION_ROUNDS = ATTEMPTS.regression;
 
 export interface RegressionRun extends TestRun {
   /** Functionalities whose tests took part in this run. */
@@ -140,6 +142,8 @@ function conformanceDirs(conformanceRoot: string, moduleName: string): string[] 
 
 /** Repair the implementation after the merged suite went red. */
 async function repairRegression(input: {
+  /** The conformance tests the repair is not allowed to change. */
+  testsDirs: string[];
   buildDir: string;
   moduleName: string;
   frids: string[];
@@ -170,17 +174,26 @@ async function repairRegression(input: {
   });
 
   try {
-    return await ask(
-      session,
-      buildRegressionFixPrompt({
-        moduleName: input.moduleName,
-        frids: input.frids,
-        specifications,
-        required: input.required,
-        failure: input.failure,
-      }),
-      input.onDelta,
-    );
+    const { report, restored } = await keepingTestsUnchanged({
+      dirs: input.testsDirs,
+      label: input.moduleName,
+      start: () =>
+        ask(
+          session,
+          buildRegressionFixPrompt({
+            moduleName: input.moduleName,
+            frids: input.frids,
+            specifications,
+            required: input.required,
+            failure: input.failure,
+          }),
+          input.onDelta,
+        ),
+      again: (prompt) => ask(session, prompt, input.onDelta),
+    });
+    return restored.length > 0
+      ? `${report}\n\n(The harness put back ${restored.length} conformance test file(s) this repair changed.)`
+      : report;
   } finally {
     session.dispose();
   }
@@ -250,6 +263,7 @@ export async function ensureRegressionPasses(input: {
     reportStage(`${input.moduleName}: an earlier functionality broke - repairing (round ${round + 1} of ${maxRounds})`);
     repairs.push(
       await repairRegression({
+        testsDirs: dirs,
         buildDir: input.buildDir,
         moduleName: input.moduleName,
         frids: input.frids,
@@ -784,4 +798,38 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
   }
 
   return { chain, outcomes, passed: true };
+}
+
+/** The facts of where a functionality's build stopped, for describeStop. */
+function stopFacts(moduleName: string, outcome: Pick<FunctionalityOutcome, "frid" | "render" | "conformance" | "regression" | "stoppedAt">): StopFacts | undefined {
+  if (outcome.stoppedAt === null) return undefined;
+  return {
+    moduleName,
+    frid: outcome.frid,
+    at: outcome.stoppedAt,
+    runs: outcome.render.runs,
+    conformance: outcome.conformance,
+    repairs: outcome.regression?.repairs.length,
+  };
+}
+
+/** Where a chain stopped, why, and what to do - or nothing when it did not stop. */
+export function describeChainStop(result: RenderChainResult): string | undefined {
+  for (const outcome of result.outcomes) {
+    for (const regenerated of outcome.regenerated ?? []) {
+      const facts = stopFacts(regenerated.moduleName, regenerated);
+      if (facts) return describeStop(facts);
+    }
+    for (const functionality of outcome.result?.outcomes ?? []) {
+      const facts = stopFacts(outcome.module, functionality);
+      if (facts) return describeStop(facts);
+    }
+  }
+  return undefined;
+}
+
+/** Where a regeneration stopped, why, and what to do - or nothing when it passed. */
+export function describeRegenerationStop(result: RegenerateFunctionalityResult): string | undefined {
+  const facts = stopFacts(result.moduleName, result);
+  return facts ? describeStop(facts) : undefined;
 }

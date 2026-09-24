@@ -1,5 +1,5 @@
 import { c, reportEvent } from "./module-report.ts";
-import { renderChain } from "./render/module.ts";
+import { renderChain, describeChainStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
 
 const USAGE = `usage: npm run module -- <file.plain> [options]
@@ -22,7 +22,7 @@ alongside it.
   --template-dir <dir>     extra template directory (repeatable)
   --model <provider/id>    model for the agents
   --try-it                 say how to try the last functionality built (off: long runs are unattended)
-  --max-regression-rounds  repair attempts per regression failure (default 3)
+  --max-regression-rounds  repair attempts per regression failure (default 20)
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
@@ -111,6 +111,10 @@ async function main() {
       `  ${outcome.module}: ${inner?.passed ? c.green("done") : c.red("incomplete")} ${c.dim(detail)}`,
     );
   }
+
+  // Where it stopped, why, and what to do about it.
+  const stop = describeChainStop(result);
+  if (stop !== undefined) console.log(`\n${stop}`);
 
   process.exit(result.passed ? 0 : 1);
 }

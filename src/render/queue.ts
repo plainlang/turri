@@ -6,11 +6,12 @@ import { describeDelivery } from "./delivery.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { renderFunctionality } from "./render.ts";
-import { ensureRegressionPasses, regenerateFunctionality } from "./module.ts";
+import { ensureRegressionPasses, regenerateFunctionality, describeRegenerationStop } from "./module.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { moduleLanes } from "./lanes.ts";
 import { findCodebaseTip } from "./requires.ts";
 import type { RenderWork } from "./models.ts";
+import { describeStop, type StopPoint } from "./stop-report.ts";
 import { describeSpecDiff, renderSpecDiff, type SpecSnapshot } from "./spec-change.ts";
 import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
@@ -252,7 +253,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
       return {
         report: result.passed
           ? `Regenerated functionality ${result.frid}; the conformance suite passes.`
-          : `Regeneration of functionality ${result.frid} stopped at ${result.stoppedAt}.`,
+          : (describeRegenerationStop(result) ?? `Regeneration of functionality ${result.frid} stopped at ${result.stoppedAt}.`),
         details: { passed: result.passed },
       };
     }
@@ -291,20 +292,31 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
         })
       : undefined;
     if (regression !== undefined && !regression.passed) {
-      prerequisites.push("the conformance tests already here are NOT passing after it, even after repairs.");
+      // Said in full by the stop report below.
     } else if (regression !== undefined && regression.repairs.length > 0) {
       prerequisites.push(`${regression.repairs.length} regression repair(s) changed the code so the existing conformance tests pass.`);
     }
-    const delivery = describeDelivery({
-      moduleName: result.moduleName,
-      frid: result.frid,
-      functionality: result.functionality,
-      buildDir: result.buildDir,
-      added: result.added,
-      runs: result.runs,
-      passed: result.passed,
-      tryIt: result.tryIt,
-    });
+    // A build that stopped says where, why and what to do; one that landed, how to try it.
+    const stopped: StopPoint | undefined = !result.passed ? "unit tests" : regression !== undefined && !regression.passed ? "regression" : undefined;
+    const delivery =
+      stopped !== undefined
+        ? describeStop({
+            moduleName: result.moduleName,
+            frid: result.frid,
+            at: stopped,
+            runs: result.runs,
+            repairs: regression?.repairs.length,
+          })
+        : describeDelivery({
+            moduleName: result.moduleName,
+            frid: result.frid,
+            functionality: result.functionality,
+            buildDir: result.buildDir,
+            added: result.added,
+            runs: result.runs,
+            passed: result.passed,
+            tryIt: result.tryIt,
+          });
     return {
       report: prerequisites.length > 0 ? `${delivery}\n\n${prerequisites.map((p) => `Note: ${p}`).join("\n")}` : delivery,
       details: { passed: result.passed, files: result.files, prerequisites: missing.map((entry) => entry.frid) },

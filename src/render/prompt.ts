@@ -490,7 +490,7 @@ export function buildCodeFixPrompt(input: CodeFixPromptInput): string {
     "",
     "Change the implementation so it does what the specification says.",
     "",
-    "- The conformance tests are not in this directory and you cannot edit them. Fix the code.",
+    "- The conformance tests are not yours to change: the harness checks, and puts back any change you make to them. Fix the code.",
     "- Do not special-case the test. Make the behaviour the specification describes actually true.",
     "- Everything listed as already implemented must keep working. Fix this functionality without",
     "  breaking them.",

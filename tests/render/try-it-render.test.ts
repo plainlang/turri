@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The agent is stubbed: it runs the unit tests, and when asked how to try what it built, it
+ * The agent is stubbed: it writes a unit test and runs the suite, and when asked how to try what it built, it
  * answers with `answers` in turn. The steps themselves are run for real, in the project's VM.
  */
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
@@ -23,7 +23,12 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         const answer = answers.shift();
         if (answer !== undefined) await tool("describe_how_to_try_it").execute("id", answer);
       } else {
-        await tool("run_unit_tests").execute("id", { command: "true" });
+        // As a real agent would: a unit test, then the whole suite.
+        await tool("write").execute("id", {
+          path: "test_app.py",
+          content: "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
+        });
+        await tool("run_unit_tests").execute("id", { command: "python3 -m unittest discover" });
       }
       return "Done.";
     }),

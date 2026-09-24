@@ -62,6 +62,9 @@ other, jobs on different modules run side by side.
 - **`/jobs`** lists every job, **`/stop <id>`** stops one - a queued one never starts.
 - **When a job finishes** it says what was built and how to try it - the try-it steps were run
   first, in a fresh copy, and each is marked with whether it worked.
+- **When a job stops** - a gate still failing after 20 attempts - it says where it stopped, why in
+  plain words, and what to do: which spec to change and how, or what the machine is missing.
+  Running the same build again picks up from there.
 
 In `print`, `json` and `rpc` modes the process ends when the answer is written, so the tools wait
 for the work there instead. Jobs live in memory for the session; the work itself is on disk.

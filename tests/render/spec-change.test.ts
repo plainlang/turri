@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/** The agent is stubbed: it runs the unit tests once, and they pass. */
+/** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
 const prompts: string[] = [];
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
@@ -11,7 +11,14 @@ async function agentRunning(command: string, session: StubSession, prompt: strin
   await session.tools.find((tool) => tool.name === "run_unit_tests")!.execute("id", { command });
   return "Done.";
 }
-const passingAgent = (session: StubSession, prompt: string) => agentRunning("true", session, prompt);
+/** As a real agent would: a unit test, then the whole suite - the run the harness then repeats. */
+async function passingAgent(session: StubSession, prompt: string) {
+  await session.tools.find((tool) => tool.name === "write")!.execute("id", {
+    path: "test_app.py",
+    content: "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",
+  });
+  return agentRunning("python3 -m unittest discover", session, prompt);
+}
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {

@@ -1,4 +1,5 @@
 import { listFrids, renderFunctionality } from "./render/render.ts";
+import { describeStop } from "./render/stop-report.ts";
 
 const c = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -103,6 +104,10 @@ async function main() {
       );
     }
     console.log(c.dim("  the agent was challenged on each; its justification is in the report above"));
+  }
+
+  if (!result.passed) {
+    console.log(`\n${describeStop({ moduleName: result.moduleName, frid: result.frid, at: "unit tests", runs: result.runs })}`);
   }
 
   process.exit(result.passed ? 0 : 1);

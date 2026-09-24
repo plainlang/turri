@@ -55,7 +55,7 @@ Useful options - `plainwright module --help` lists all of them:
 | `--no-conformance` | skip conformance tests - faster, weaker |
 | `--from <frid>`, `--to <frid>` | build a range of functionalities |
 | `--only` | build just this module, not the ones it requires |
-| `--max-regression-rounds <n>` | repair attempts when earlier tests break (default 3) |
+| `--max-regression-rounds <n>` | repair attempts when earlier tests break (default 20) |
 | `--try-it` | work out and check how to try the last functionality built |
 
 ## In the morning

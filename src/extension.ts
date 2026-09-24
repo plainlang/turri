@@ -12,7 +12,7 @@ import { loadSkill, skillStatus, type Skill } from "./skill.ts";
 import { listFrids } from "./render/render.ts";
 import { renderConformanceSuite } from "./render/conformance-suite.ts";
 import type { RenderConformanceTestsResult } from "./render/conformance.ts";
-import { regenerateFunctionality, renderChain, type RenderModuleResult } from "./render/module.ts";
+import { regenerateFunctionality, renderChain, type RenderModuleResult, describeChainStop, describeRegenerationStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
 import { createProgressTracker } from "./render/progress.ts";
 import { describeDelivery } from "./render/delivery.ts";
@@ -778,8 +778,10 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
   });
 }
 
-/** For the person: how to try what was built, or where the chain stopped. */
+/** For the person: how to try what was built, or where the chain stopped, why, and what to do. */
 function chainAnnouncement(result: Awaited<ReturnType<typeof renderChain>>): string {
+  const stop = describeChainStop(result);
+  if (stop !== undefined) return stop;
   const built = result.outcomes.at(-1)?.result;
   const delivery = built ? deliveryReport(built) : undefined;
   if (delivery !== undefined) return delivery;
@@ -793,7 +795,7 @@ function chainReport(result: Awaited<ReturnType<typeof renderChain>>): string {
     ...(delivery ? [delivery, ""] : []),
     result.passed
       ? `Built the whole chain: ${result.outcomes.map((o) => o.module).join(" -> ")}.`
-      : "The chain is incomplete.",
+      : (describeChainStop(result) ?? "The chain is incomplete."),
     "",
     "<chain>",
     describeChain(result.chain),
@@ -1006,7 +1008,7 @@ function regenerateReport(result: Awaited<ReturnType<typeof regenerateFunctional
   return [
     result.passed
       ? `Regenerated ${result.moduleName} functionality ${result.frid}; the whole conformance suite passes.`
-      : `Regeneration of ${result.moduleName} functionality ${result.frid} stopped at ${result.stoppedAt}.`,
+      : (describeRegenerationStop(result) ?? `Regeneration of ${result.moduleName} functionality ${result.frid} stopped at ${result.stoppedAt}.`),
     repairs > 0 ? `${repairs} regression repair(s) changed the implementation beyond this functionality.` : "",
     result.codebaseOf !== undefined
       ? `Regenerated in the codebase of ${result.codebaseOf} (${result.buildDir}), where the chain's code now lives; ` +

@@ -1,5 +1,5 @@
 import { c, reportEvent } from "./module-report.ts";
-import { regenerateFunctionality } from "./render/module.ts";
+import { regenerateFunctionality, describeRegenerationStop } from "./render/module.ts";
 
 const USAGE = `usage: plainwright regenerate <file.plain> <frid> [options]
 
@@ -12,7 +12,7 @@ To change what it does, change its spec first: the spec is what the code is buil
 
   --in <module>            the codebase to rebuild in, when modules built on this one branch
   --model <provider/id>    model for the agents
-  --max-regression-rounds  repair attempts per regression failure (default 3)
+  --max-regression-rounds  repair attempts per regression failure (default 20)
   --build-dir <dir>        default: plain_modules/<module>/code
   --conformance-root <dir> default: plain_modules
   --template-dir <dir>     extra template directory (repeatable)`;
@@ -68,7 +68,8 @@ async function main() {
       c.dim(`${result.moduleName} functionality ${result.frid}`),
   );
   if (result.codebaseOf) console.log(c.dim(`  rebuilt in ${result.codebaseOf}'s codebase`));
-  if (result.stoppedAt) console.log(c.dim(`  stopped at: ${result.stoppedAt}`));
+  const stop = describeRegenerationStop(result);
+  if (stop !== undefined) console.log(`\n${stop}\n`);
   const repairs = result.regression?.repairs.length ?? 0;
   if (repairs > 0) console.log(c.dim(`  regression repairs: ${repairs}`));
   console.log(c.dim(`  build dir: ${result.buildDir}`));

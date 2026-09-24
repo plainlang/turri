@@ -9,6 +9,7 @@ import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunc
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
+import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
@@ -24,6 +25,7 @@ import {
   truncateOutput,
   type TestRemoval,
   type TestRun,
+  keepingTestsUnchanged,
 } from "./testing.ts";
 
 /**
@@ -45,7 +47,7 @@ const CONFORMANCE_TOOLS = [
 /** Tools the code-fixing agent gets: the mirror image - the code, never the tests. */
 const FIX_TOOLS = ["run_unit_tests"];
 
-const DEFAULT_MAX_ROUNDS = 3;
+const DEFAULT_MAX_ROUNDS = ATTEMPTS.conformance;
 
 /**
  * A module's conformance tests: one directory, `plain_modules/<module>/tests`, organised
@@ -99,6 +101,8 @@ export interface TriageVerdict {
 export interface CodeFix {
   reasoning: string;
   report: string;
+  /** Conformance test files the fixer changed, which the harness put back. */
+  restoredTests?: string[];
 }
 
 export interface RenderConformanceTestsResult {
@@ -412,10 +416,11 @@ export async function renderConformanceTests(
         continue;
       }
 
-      // The code is at fault, and this agent cannot see the code. Hand the failure to one
-      // that can - and which in turn cannot see or edit the tests.
+      // The code is at fault. Hand the failure to an agent that fixes code - and whose changes
+      // to the tests, if it makes any, the harness undoes.
       stage("the code is at fault - fixing the implementation");
       const fix = await runCodeFix({
+        testsDirs: [conformanceDir],
         buildDir,
         moduleName,
         frid,
@@ -479,6 +484,8 @@ export async function renderConformanceTests(
 
 /** Run a coding agent against the build to fix what conformance caught. */
 async function runCodeFix(input: {
+  /** The conformance tests the fix is not allowed to change. */
+  testsDirs: string[];
   buildDir: string;
   moduleName: string;
   frid: string;
@@ -508,19 +515,25 @@ async function runCodeFix(input: {
   });
 
   try {
-    const report = await ask(
-      session,
-      buildCodeFixPrompt({
-        moduleName: input.moduleName,
-        frid: input.frid,
-        specifications: input.specifications,
-        required: input.required,
-        triage: input.verdict.reasoning,
-        failure: input.failure,
-      }),
-      input.onDelta,
-    );
-    return { reasoning: input.verdict.reasoning, report };
+    const { report, restored } = await keepingTestsUnchanged({
+      dirs: input.testsDirs,
+      label: `${input.moduleName} ${input.frid}`,
+      start: () =>
+        ask(
+          session,
+          buildCodeFixPrompt({
+            moduleName: input.moduleName,
+            frid: input.frid,
+            specifications: input.specifications,
+            required: input.required,
+            triage: input.verdict.reasoning,
+            failure: input.failure,
+          }),
+          input.onDelta,
+        ),
+      again: (prompt) => ask(session, prompt, input.onDelta),
+    });
+    return { reasoning: input.verdict.reasoning, report, ...(restored.length > 0 ? { restoredTests: restored } : {}) };
   } finally {
     session.dispose();
   }

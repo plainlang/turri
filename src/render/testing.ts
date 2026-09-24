@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { reportActivity } from "./activity.ts";
 import { STATE_FILE } from "./state.ts";
 import { runInVm } from "./vm.ts";
 
@@ -223,4 +224,138 @@ export function chooseRegressionCommand(runs: TestRun[]): { command: string | nu
   }
   const fallback = passing[passing.length - 1];
   return fallback ? { command: fallback.command, narrow: true } : { command: null, narrow: false };
+}
+
+/** A unit-test runner script the codebase carries, by the name the implement skill gives it. */
+const UNIT_SCRIPT = /^test_scripts\/run_unit_?tests[^/]*\.sh$/i;
+
+export type UnitVerdict =
+  | { ok: true; command: string }
+  | { ok: false; command?: string; prompt: string };
+
+/**
+ * The harness's own run of the unit tests, which is what a render's "the tests pass" rests on.
+ *
+ * The agent chooses the commands it runs while it works, and a gate that took the last of them
+ * would pass on a command that runs one file, or nothing. So before a functionality counts as
+ * done, the harness runs the whole suite itself: with the unit-test script the codebase carries
+ * when there is one - it is what the spec links to - and otherwise with the agent's own last
+ * passing command, but only one that runs the whole suite. A run that only ever covered part
+ * of the suite is sent back, not guessed at: the command that works depends on where the
+ * project installed its test runner, and the agent knows that.
+ */
+export async function verifyUnitSuite(buildDir: string, runs: TestRun[], toolName = "run_unit_tests"): Promise<UnitVerdict> {
+  const script = listFiles(buildDir).find((file) => UNIT_SCRIPT.test(file));
+  const lastPassing = runs.filter((run) => run.exitCode === 0).at(-1)?.command;
+  const command = script !== undefined ? `bash ${script} .` : lastPassing !== undefined && isWholeSuiteCommand(lastPassing) ? lastPassing : undefined;
+
+  if (command === undefined) {
+    return {
+      ok: false,
+      prompt:
+        lastPassing === undefined
+          ? failingTestsPrompt(runs, toolName)
+          : [
+              `Your last passing run, \`${lastPassing}\`, does not run the whole unit test suite - it names one target.`,
+              "",
+              `Call ${toolName} with the command that runs every unit test in the working directory (e.g. \`pytest\`,`,
+              "`python -m unittest discover`, `npm test`, `go test ./...`, `cargo test`) and fix whatever it reports.",
+            ].join("\n"),
+    };
+  }
+
+  const result = await runCommand(buildDir, command);
+  runs.push({ command, exitCode: result.exitCode });
+  if (result.exitCode === 0) return { ok: true, command };
+  return {
+    ok: false,
+    command,
+    prompt: [
+      `The harness ran the whole unit test suite itself - \`${command}\` - and it failed (exit ${result.exitCode}):`,
+      "",
+      result.output.trimEnd(),
+      "",
+      `Fix the cause and call ${toolName} with that command until it passes. Do not remove or weaken a test to get a pass.`,
+    ].join("\n"),
+  };
+}
+
+/** Every file of the test code under `dirs`, by path, as it is now. */
+export function snapshotFiles(dirs: string[]): Map<string, Buffer> {
+  const snapshot = new Map<string, Buffer>();
+  for (const dir of dirs) {
+    for (const file of listFiles(dir)) snapshot.set(join(dir, file), readFileSync(join(dir, file)));
+  }
+  return snapshot;
+}
+
+/** The files under `dirs` that differ from the snapshot: changed, added or deleted. */
+export function changedSince(snapshot: Map<string, Buffer>, dirs: string[]): string[] {
+  const now = snapshotFiles(dirs);
+  const changed = new Set<string>();
+  for (const [path, content] of now) {
+    const before = snapshot.get(path);
+    if (before === undefined || !before.equals(content)) changed.add(path);
+  }
+  for (const path of snapshot.keys()) if (!now.has(path)) changed.add(path);
+  return [...changed].sort();
+}
+
+/** Put the files under `dirs` back to the snapshot: its files restored, any others removed. */
+export function restoreSnapshot(snapshot: Map<string, Buffer>, dirs: string[]): void {
+  for (const path of changedSince(snapshot, dirs)) {
+    const before = snapshot.get(path);
+    if (before === undefined) rmSync(path, { force: true });
+    else {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, before);
+    }
+  }
+}
+
+const TEST_GUARD_ROUNDS = 3;
+
+/**
+ * Run an agent that fixes code with the conformance tests out of its reach - by the harness,
+ * not by its file access, which covers the whole of `plain_modules`.
+ *
+ * The tests say what the specification requires; an agent told to make them pass could
+ * otherwise do it by changing a test. So they are photographed before it starts and compared
+ * when it finishes. Anything it changed is put back, and it is sent to fix the code instead,
+ * until it leaves the tests alone or the rounds run out - after which the tests are put back
+ * all the same. Returns the agent's last report and every test file it had to have restored.
+ */
+export async function keepingTestsUnchanged(input: {
+  dirs: string[];
+  /** The agent's first turn. */
+  start: () => Promise<string>;
+  /** Another turn, with this prompt. */
+  again: (prompt: string) => Promise<string>;
+  /** For the activity line: whose code is being fixed. */
+  label: string;
+}): Promise<{ report: string; restored: string[] }> {
+  const dirs = input.dirs.filter((dir) => existsSync(dir));
+  const snapshot = snapshotFiles(dirs);
+  let report = await input.start();
+  const restored = new Set<string>();
+  for (let round = 0; round < TEST_GUARD_ROUNDS; round += 1) {
+    const changed = changedSince(snapshot, dirs);
+    if (changed.length === 0) break;
+    restoreSnapshot(snapshot, dirs);
+    for (const path of changed) restored.add(path);
+    reportActivity(`${input.label}: the fixer changed ${changed.length} conformance test file${changed.length === 1 ? "" : "s"} - put back`);
+    if (round === TEST_GUARD_ROUNDS - 1) break;
+    report = await input.again(
+      [
+        "You changed conformance tests, which you must not do:",
+        "",
+        ...changed.map((path) => `- ${path}`),
+        "",
+        "They have been put back as they were. The tests state what the specification requires; a failing",
+        "test is fixed by changing the code so the behaviour is what the specification describes. Fix the",
+        "code, and leave every conformance test as it is.",
+      ].join("\n"),
+    );
+  }
+  return { report, restored: [...restored].sort() };
 }

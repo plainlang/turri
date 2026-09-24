@@ -6,6 +6,7 @@ import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPl
 import { reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
+import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, tryDirFor } from "./paths.ts";
@@ -22,6 +23,7 @@ import {
   runCommand,
   type TestRemoval,
   type TestRun,
+  verifyUnitSuite,
 } from "./testing.ts";
 import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 
@@ -34,7 +36,7 @@ import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.
 const EXTRA_CODING_TOOLS = ["run_unit_tests", "describe_how_to_try_it"];
 
 /** How many times the harness will send the agent back before giving up. */
-const DEFAULT_MAX_FOLLOW_UPS = 4;
+const DEFAULT_MAX_FOLLOW_UPS = ATTEMPTS["unit tests"];
 
 export interface RenderFunctionalityOptions {
   /** Path to the .plain file. */
@@ -241,6 +243,7 @@ export async function renderFunctionality(
     let response = await ask(executor, prompt, options.onDelta);
 
     const maxFollowUps = options.maxFollowUps ?? DEFAULT_MAX_FOLLOW_UPS;
+    let verified = false;
     for (let followUp = 0; followUp < maxFollowUps; followUp += 1) {
       const current = inventoryTests(buildDir);
       const removals = findTestRemovals(inventory, current);
@@ -261,12 +264,21 @@ export async function renderFunctionality(
         continue;
       }
 
+      // The agent's own run passed. Whether the functionality is done is the harness's run.
+      stage("checking the whole unit test suite");
+      const verdict = await verifyUnitSuite(buildDir, runs);
+      if (!verdict.ok) {
+        stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${maxFollowUps})`);
+        response = await ask(executor, verdict.prompt, options.onDelta);
+        continue;
+      }
+      verified = true;
       break;
     }
 
     // Asked only once the tests pass: instructions for software that does not work yet
     // would be instructions for something else.
-    if (options.tryIt === true && runs[runs.length - 1]?.exitCode === 0) {
+    if (options.tryIt === true && verified) {
       tryIt = await settleTryIt({
         buildDir,
         tryDir: tryDirFor(buildDir, moduleName, frid),
@@ -281,9 +293,9 @@ export async function renderFunctionality(
     }
     const files = listFiles(buildDir);
 
-    // A fix to the instructions may have touched the code, so this is the last run, not
-    // the one before the question was asked.
-    const passed = runs[runs.length - 1]?.exitCode === 0;
+    // Passing means the harness's own run of the whole suite passed. Working out how to try it
+    // may have touched the code since, so that run is repeated when it did.
+    const passed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs)).ok);
 
     // Record what this build now contains, here rather than in each caller. Every route
     // into a render - the queue behind start_render, the CLI, renderModule - has to leave

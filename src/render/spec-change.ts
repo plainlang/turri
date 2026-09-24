@@ -23,6 +23,7 @@ import { describeTryIt } from "./delivery.ts";
 import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
+import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.ts";
@@ -39,6 +40,7 @@ import {
   runCommand,
   type TestRemoval,
   type TestRun,
+  verifyUnitSuite,
 } from "./testing.ts";
 
 /**
@@ -60,7 +62,7 @@ import {
  * rewritten.
  */
 
-const MAX_FOLLOW_UPS = 4;
+const MAX_FOLLOW_UPS = ATTEMPTS["unit tests"];
 
 /**
  * Bring the .plain files to the state the diff describes, with git. A diff that is already
@@ -246,6 +248,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   });
 
   let response: string;
+  let verified = false;
   const testRemovals: TestRemoval[] = [];
   try {
     reportStage(`${moduleName}: implementing the spec change`);
@@ -267,12 +270,21 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         response = await ask(executor, failingTestsPrompt(runs, "run_unit_tests"), options.onDelta);
         continue;
       }
+      // The agent's own run passed. Whether the change is done is the harness's run.
+      reportStage(`${moduleName}: checking the whole unit test suite`);
+      const verdict = await verifyUnitSuite(buildDir, runs);
+      if (!verdict.ok) {
+        reportStage(`${moduleName}: unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
+        response = await ask(executor, verdict.prompt, options.onDelta);
+        continue;
+      }
+      verified = true;
       break;
     }
 
     // Asked only once the tests pass: instructions for software that does not work yet would
     // be instructions for something else.
-    if (options.tryIt === true && runs.at(-1)?.exitCode === 0) {
+    if (options.tryIt === true && verified) {
       tryIt = await settleTryIt({
         buildDir,
         tryDir: specChangeTryDirFor(buildDir, moduleName),
@@ -289,7 +301,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     executor.dispose();
   }
 
-  const unitPassed = runs.at(-1)?.exitCode === 0;
+  // Passing means the harness's own run of the whole suite passed - again after try-it, which
+  // may have touched the code.
+  const unitPassed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs)).ok);
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
   const base = { moduleName, buildDir, diff: applied, response, runs, testRemovals, files, tryIt };
 
@@ -372,7 +386,13 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
   return [
     result.passed
       ? `Rendered the spec change in ${result.moduleName}'s codebase (${result.buildDir}).`
-      : `The spec change in ${result.moduleName}'s codebase stopped at ${result.stoppedAt}.`,
+      : describeStop({
+          moduleName: result.moduleName,
+          at: result.stoppedAt!,
+          runs: result.runs,
+          conformance: result.conformance,
+          repairs: result.regression?.repairs.length,
+        }),
     result.diff === "applied" ? "The diff was applied to the .plain files." : "The diff was already applied.",
     `Files: ${added.length} added, ${changed.length} changed, ${removed.length} removed.`,
     result.conformance === undefined
