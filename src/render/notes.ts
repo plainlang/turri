@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { reportActivity } from "./activity.ts";
 
 /**
  * Working notes: what one agent on a codebase leaves the next.
@@ -17,6 +18,10 @@ import { Type } from "typebox";
  * something, and the assumptions it made are written down - so the next agent builds on the
  * same ones instead of guessing afresh, and changes one the moment the code or the spec shows
  * it to be wrong.
+ *
+ * Leaving them is not optional, and neither is how: only update_notes writes the file. The file
+ * tools refuse it, a change made any other way - a shell, a script - is undone, and an agent
+ * that finishes without calling update_notes is asked again until it does.
  *
  * The notes are disposable: delete the file and nothing breaks, the next agent just explores a
  * little more. They live beside the code, so they travel with it - copied up with it to a module
@@ -162,7 +167,7 @@ export function applyNotesChanges(notes: Notes, changes: NotesChange[]): { notes
 }
 
 /** `update_notes`: lines added, changed or removed, never the notes rewritten. */
-export function createNotesTool(buildDir: string, onWrite: () => void) {
+export function createNotesTool(buildDir: string, onWrite: (text: string) => void, before: () => void = () => {}) {
   return defineTool({
     name: "update_notes",
     label: "Update notes",
@@ -186,6 +191,7 @@ export function createNotesTool(buildDir: string, onWrite: () => void) {
       ),
     }),
     async execute(_id, params) {
+      before();
       const { notes, problems } = applyNotesChanges(readNotes(buildDir), params.changes as NotesChange[]);
       if (problems.length > 0) {
         throw new Error(`Nothing saved - fix these and call update_notes again:\n\n${problems.join("\n\n")}`);
@@ -198,29 +204,65 @@ export function createNotesTool(buildDir: string, onWrite: () => void) {
         );
       }
       writeFileSync(notesPath(buildDir), text);
-      onWrite();
+      onWrite(text);
       return { content: [{ type: "text" as const, text: "Notes updated." }], details: { characters: text.length } };
     },
   });
 }
 
+/** How many times an agent that finishes without update_notes is asked to call it. */
+export const NOTES_ASKS = 3;
+
+function current(buildDir: string): string | undefined {
+  const path = notesPath(buildDir);
+  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+}
+
 /**
- * The notes tool for one agent's session, and the check that it was used: an agent that
- * finishes without updating the notes is asked to, once.
+ * The notes tool for one agent's session, and the check that it was used. The notes as they
+ * were when the agent started, or as update_notes last left them, are the only notes: a change
+ * made to the file any other way is undone. An agent that finishes without calling update_notes
+ * is asked to, until it has.
  */
 export function notesForSession(buildDir: string) {
   let written = false;
+  let known = current(buildDir);
+
+  /** Put back what update_notes did not write; whether there was anything to put back. */
+  const undoDirectWrites = (): boolean => {
+    if (current(buildDir) === known) return false;
+    if (known === undefined) rmSync(notesPath(buildDir), { force: true });
+    else writeFileSync(notesPath(buildDir), known);
+    return true;
+  };
+
   return {
-    tool: createNotesTool(buildDir, () => {
-      written = true;
-    }),
-    /** Ask for the notes if this agent has not updated them. */
-    async ensureWritten(ask: (prompt: string) => Promise<unknown>): Promise<void> {
-      if (written) return;
-      await ask(
-        "Before you finish: call update_notes - add what you learned about this codebase, change what is no longer " +
-          "true, and record the assumptions you made where the specification is silent.",
-      );
+    tool: createNotesTool(
+      buildDir,
+      (text) => {
+        written = true;
+        known = text;
+      },
+      undoDirectWrites,
+    ),
+    /** Ask for the notes until this agent has updated them; whether it has. */
+    async ensureWritten(ask: (prompt: string) => Promise<unknown>): Promise<boolean> {
+      for (let round = 0; round < NOTES_ASKS && !written; round++) {
+        const undone = undoDirectWrites();
+        await ask(
+          (undone
+            ? `You changed ${NOTES_FILE} directly, and that was undone: the notes are written only through update_notes. `
+            : "") +
+            "Before you finish: call update_notes - add what you learned about this codebase, change what is no longer " +
+            "true, and record the assumptions you made where the specification is silent. Call the tool itself; " +
+            "writing the file does not count.",
+        );
+      }
+      undoDirectWrites();
+      if (!written) {
+        reportActivity(`${basename(dirname(buildDir))}: its agent left no notes, though asked ${NOTES_ASKS} times`);
+      }
+      return written;
     },
   };
 }

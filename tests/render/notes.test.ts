@@ -12,6 +12,7 @@ import {
   readNotes,
   withNotes,
 } from "../../src/render/notes.ts";
+import { confinedTools } from "../../src/render/confine.ts";
 import { copyRequiredCode } from "../../src/render/requires.ts";
 import { listFiles } from "../../src/render/testing.ts";
 
@@ -87,14 +88,58 @@ describe("the update_notes tool", () => {
     expect(existsSync(join(code, NOTES_FILE))).toBe(false);
   });
 
-  it("is asked for, once, when an agent finishes without it", async () => {
+  it("is asked for until the agent calls it, and not once it has", async () => {
     const asked: string[] = [];
     const session = notesForSession(code);
-    await session.ensureWritten(async (prompt) => asked.push(prompt));
-    expect(asked).toHaveLength(1);
-    await call(session.tool, [{ section: "where", action: "add", text: "x" }]);
-    await session.ensureWritten(async (prompt) => asked.push(prompt));
-    expect(asked).toHaveLength(1);
+    expect(
+      await session.ensureWritten(async (prompt) => {
+        asked.push(prompt);
+        if (asked.length === 2) await call(session.tool, [{ section: "where", action: "add", text: "x" }]);
+      }),
+    ).toBe(true);
+    expect(asked).toHaveLength(2);
+    expect(await session.ensureWritten(async (prompt) => asked.push(prompt))).toBe(true);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("gives up after asking three times, and says the agent left none", async () => {
+    const asked: string[] = [];
+    expect(await notesForSession(code).ensureWritten(async (prompt) => asked.push(prompt))).toBe(false);
+    expect(asked).toHaveLength(3);
+  });
+
+  it("undoes notes written as a file, and says so", async () => {
+    writeFileSync(join(code, NOTES_FILE), formatNotes(start));
+    const asked: string[] = [];
+    const session = notesForSession(code);
+    // Written by the shell, not the tool: a rewrite that drops what was there.
+    writeFileSync(join(code, NOTES_FILE), "# my notes\n\n- everything is fine\n");
+    await session.ensureWritten(async (prompt) => {
+      asked.push(prompt);
+      await call(session.tool, [{ section: "pitfalls", action: "add", text: "mvn needs -q" }]);
+    });
+    expect(asked[0]).toContain(`You changed ${NOTES_FILE} directly, and that was undone`);
+    expect(readNotes(code)).toEqual({ ...start, pitfalls: ["mvn needs -q"] });
+  });
+
+  it("builds on the notes update_notes left, not on a file written in between", async () => {
+    const session = notesForSession(code);
+    await call(session.tool, [{ section: "where", action: "add", text: "Entry: Main.java" }]);
+    writeFileSync(join(code, NOTES_FILE), "- rewritten\n");
+    await call(session.tool, [{ section: "run", action: "add", text: "mvn test" }]);
+    expect(readNotes(code)).toEqual({ where: ["Entry: Main.java"], run: ["mvn test"], assumptions: [], pitfalls: [] });
+  });
+
+  it("cannot be bypassed with the file tools", async () => {
+    const fence = confinedTools({ workdir: code });
+    const run = (name: string, params: object) =>
+      (fence.tools.find((tool) => tool.name === name) as any).execute("id", params, undefined, undefined, {} as never);
+    await expect(run("write", { path: NOTES_FILE, content: "- mine\n" })).rejects.toThrow(/Call update_notes/);
+    writeFileSync(join(code, NOTES_FILE), formatNotes(start));
+    await expect(run("edit", { path: join(code, NOTES_FILE), edits: [{ oldText: "Entry", newText: "Exit" }] })).rejects.toThrow(
+      /Call update_notes/,
+    );
+    expect(readNotes(code)).toEqual(start);
   });
 });
 

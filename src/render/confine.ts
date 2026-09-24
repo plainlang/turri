@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -13,6 +13,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { NOTES_FILE } from "./notes.ts";
 import { modulesRootOf } from "./paths.ts";
 import { truncateOutput } from "./testing.ts";
 import { installSystemPackages, vmBashOperations, vmEnvironmentNote, vmSupported } from "./vm.ts";
@@ -89,10 +90,19 @@ function refuse(path: string, roots: string[], verb: string): never {
   );
 }
 
+/** The working notes are written through update_notes, a line at a time - never as a file. */
+function refuseNotes(path: string): void {
+  if (basename(path) !== NOTES_FILE) return;
+  throw new ConfinementError(
+    `${NOTES_FILE} is not written as a file. Call update_notes to add, change or remove its lines.`,
+  );
+}
+
 function check(raw: string | undefined, cwd: string, roots: string[], verb: "read" | "write"): void {
   if (raw === undefined) return;
   const path = absolutize(raw, cwd);
   if (!insideAny(path, roots)) refuse(path, roots, verb);
+  if (verb === "write") refuseNotes(path);
 }
 
 /** A glob is a path too: `../../*` escapes just as well as `..`. */
@@ -129,6 +139,7 @@ function guard(def: AnyTool, inspect: (params: any) => void): AnyTool {
 function guardedOps(roots: string[], verb: "read" | "write") {
   return (path: string) => {
     if (!insideAny(path, roots)) refuse(path, roots, verb);
+    if (verb === "write") refuseNotes(path);
   };
 }
 

@@ -198,6 +198,11 @@ Stubborn on the specs, flexible on the assumptions: the spec is never an assumpt
 copied into the notes, and where the two disagree the spec wins. An agent builds on the assumptions
 already there, and changes one the moment the code or the spec shows it wrong.
 
+Leaving notes is required, and only through the `update_notes` tool. The file tools refuse the
+notes file, and a change made to it any other way - from the shell, by a script - is undone. An agent
+that finishes without calling `update_notes` is asked again, up to three times; if it still has not,
+the activity log says so.
+
 The notes are disposable - delete the file and nothing breaks; the next agent just explores a little
 more. They live in the code folder, so they are committed with it, reset with it after an
 interrupted run, and copied up with it to a module that requires this one. They are not part of the
