@@ -4,7 +4,7 @@
   <img src="docs/assets/banner.png" alt="plainwright - coding agent with the power of regenerative software.">
 </p>
 
-<h1 align="center">plainwright coding agent<br>with the power of<br>regenerative software<br>&nbsp;</h1>
+<h1 align="center">plainwright<br>coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
 You and an agent write down what the system should do, as \*\*\*plain specs. The agent builds the
 code from them. From then on the specs are the durable source of truth: the code can always be
