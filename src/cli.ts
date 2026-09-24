@@ -22,11 +22,12 @@ import { extensionInstalledGlobally, PACKAGE_ROOT, themesInstalledGlobally } fro
 const DEFAULT_THEME = "forge";
 
 function chat(args: string[]): never {
-  const pi = join(PACKAGE_ROOT, "node_modules", ".bin", "pi");
-  if (!existsSync(pi)) {
+  if (!existsSync(join(PACKAGE_ROOT, "node_modules", "@earendil-works", "pi-coding-agent"))) {
     console.error(`pi is not installed in ${PACKAGE_ROOT}. Run npm install there first.`);
     process.exit(1);
   }
+  // pi itself, through a launcher that leaves out pi's startup header - see pi-launch.ts.
+  const launcher = join(PACKAGE_ROOT, "src", "pi-launch.ts");
 
   // Loading the same extension twice is an error in pi, not a no-op, so the explicit
   // -e is only for the case where it is not already installed globally.
@@ -38,7 +39,7 @@ function chat(args: string[]): never {
   // are left as they are, so a plain `pi` keeps its theme.
   const useTheme = args.some((arg) => arg === "--use-theme" || arg.startsWith("--use-theme=")) ? [] : ["--use-theme", DEFAULT_THEME];
 
-  const result = spawnSync(pi, [...extension, ...themes, ...useTheme, ...args], {
+  const result = spawnSync(process.execPath, [launcher, ...extension, ...themes, ...useTheme, ...args], {
     stdio: "inherit",
     cwd: process.cwd(),
   });

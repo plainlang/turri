@@ -4,7 +4,7 @@
 
 <h1 align="center">plainwright coding agent<br>with the power of<br>regenerative software</h1>
 
-You and an agent write down what the system should do, as ***plain*** specs. The agent builds the
+You and an agent write down what the system should do, as \*\*\*plain specs. The agent builds the
 code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
 
@@ -23,7 +23,7 @@ the agent grows with the software rather than against it.
 So with plainwright you maintain software at the level of its definition, not its code:
 
 1. **Define.** Write the specs with the agent: it interviews you one question at a time and writes
-   the `.plain` files, held to the ***plain authoring rules and reviewed by independent judges.
+   the `.plain` files, held to the \*\*\*plain authoring rules and reviewed by independent judges.
 2. **Generate.** The agent builds the code one functionality at a time, each on top of the ones
    before it, into `plain_modules/`.
 3. **Validate.** The harness - not the agent - runs the unit tests and black-box conformance tests
@@ -142,10 +142,10 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [Installation](docs/installation.md) | setup and doctor, the VM image, plainwright in every `pi`, environment variables |
 | [Using plainwright](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
-| [Authoring ***plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
+| [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
 | [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance tests, the build record |
 | [The sandbox](docs/sandbox.md) | what agents can reach, and the VM every command runs in |
 | [Skills and gates](docs/skills-and-gates.md) | the gate syntax, what the harness enforces, judges, rules |
-| [The ***plain parser](docs/parser.md) | the TypeScript port, `plainwright check`, fidelity to the reference parser |
+| [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `plainwright check`, fidelity to the reference parser |
 | [Theming](docs/theming.md) | the two brand themes |
 | [Development](docs/development.md) | tests, layout, known edges |

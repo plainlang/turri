@@ -7,7 +7,9 @@ cd ~/my-project
 plainwright chat
 ```
 
-That is pi, with plainwright's tools, skills and themes loaded. Talk to it: ask it to start a
+That is pi, with plainwright's tools, skills and themes loaded. It opens with plainwright's own
+banner - where commands will run, the rules and skills loaded - rather than pi's startup header
+and resource list; `plainwright chat --verbose` shows those too. Talk to it: ask it to start a
 project, add a feature, render a module, fix a spec. It decides which skill or tool applies - but
 not *how* a skill runs: `run_skill` hands the work to the gated runner, which owns the steps, the
 gates and the judges (see [skills and gates](skills-and-gates.md)).
@@ -21,7 +23,7 @@ The skills that build from scratch:
 
 `skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
-[authoring ***plain](authoring-plain.md#the-skills). A skill run that is interrupted can be resumed
+[authoring \*\*\*plain](authoring-plain.md#the-skills). A skill run that is interrupted can be resumed
 where it stopped.
 
 ## The tools

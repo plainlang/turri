@@ -1,6 +1,6 @@
-# The ***plain parser
+# The \*\*\*plain parser
 
-`src/plain/` is a TypeScript port of the reference ***plain*** parser - `plain_file.py`,
+`src/plain/` is a TypeScript port of the reference \*\*\*plain parser - `plain_file.py`,
 `plain_spec.py`, `concept_utils.py`, and the `file_utils.py` helpers they depend on.
 
 | module | ports |

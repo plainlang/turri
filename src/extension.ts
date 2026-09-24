@@ -1770,8 +1770,8 @@ const BANNER_ENTRY = "plainwright_banner";
  * The name on the door.
  *
  * Pi's own startup header is a built-in component an extension cannot replace, so this
- * adds a wordmark of its own at the top of the session. Set `quietStartup: true` in
- * settings to hide pi's and leave only this one.
+ * adds a wordmark of its own at the top of the session. `plainwright chat` starts pi without
+ * its header (see pi-launch.ts), leaving only this one.
  */
 function registerBranding(
   pi: ExtensionAPI,

@@ -22,7 +22,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/forge.ts` | `runSkill()` - the one entry point the CLI and the extension share |
 | `src/pi.ts` | pi session factories for executors, sub-agents and judges |
 | `src/spec-tools.ts` | `write_functional_spec`, `write_spec_diff` |
-| `src/plain/` | the ***plain parser - see [parser](parser.md) |
+| `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) |
 | `src/render/render.ts` | one functionality to code |
 | `src/render/module.ts` | whole-module builds, regression runs, regeneration |
 | `src/render/conformance.ts` | conformance tests, triage, code fixes |
@@ -34,7 +34,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/render/models.ts` | choosing and resolving render models |
 | `src/render/job-panel.ts`, `src/render/transcript-view.ts` | the job panel and `/watch` |
 | `vm/image.json` | what goes into the VM image |
-| `skills/`, `forge/rules/` | the skill library and the ***plain authoring rules |
+| `skills/`, `forge/rules/` | the skill library and the \*\*\*plain authoring rules |
 
 ## Known edges
 

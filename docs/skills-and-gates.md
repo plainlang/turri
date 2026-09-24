@@ -89,7 +89,7 @@ stopped.
 
 ## Rules
 
-`forge/rules/` holds the ***plain authoring rules. Every rule, in full, is appended to the system
+`forge/rules/` holds the \*\*\*plain authoring rules. Every rule, in full, is appended to the system
 prompt of the conversation and of the agents that write specs - never of the ones that write code.
 The block is byte-identical every time, so it sits inside the cached prefix - but it is ~40k
 tokens. The trade is deliberate: a rule the model has to decide to go and read is a rule it can
