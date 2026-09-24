@@ -26,12 +26,24 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
       }
       prompts.push(prompt);
       const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
-      if (prompts.length === 1) {
-        // From the spec: the app prints hello.
+      if (prompt.includes("they are not labelled")) {
+        // Sent back for the acceptance test it left out: written as a test of its own.
+        await tool("write").execute("id", {
+          path: "test_acceptance_hello.py",
+          content:
+            "import subprocess, sys, unittest\n\nclass Acceptance(unittest.TestCase):\n" +
+            "    # acceptance test 1 of functionality 1: Running the app prints hello and exits 0.\n" +
+            "    def test_prints_hello_and_exits_0(self):\n" +
+            "        run = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True)\n" +
+            "        self.assertEqual((run.stdout.strip(), run.returncode), ('hello', 0))\n",
+        });
+      } else if (prompts.length === 1) {
+        // From the functional spec: the app prints hello.
         await tool("write").execute("id", {
           path: "test_conformance_hello.py",
           content:
-            "import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n    def test_prints_hello(self):\n" +
+            "# conformance tests of functionality 1\nimport subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n" +
+            "    def test_prints_hello(self):\n" +
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
             "        self.assertEqual(out.strip(), 'hello')\n",
         });
@@ -59,7 +71,7 @@ beforeEach(() => {
   writeFileSync(
     join(root, "app.plain"),
     "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest and run the app as a subprocess.\n\n" +
-      "***functional specs***\n\n- The app prints hello.\n",
+      "***functional specs***\n\n- The app prints hello.\n\n  ***acceptance tests***\n\n  - Running the app prints hello and exits 0.\n",
   );
   prompts.length = 0;
 });
@@ -82,8 +94,16 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(readFileSync(join(codeDir, "app.py"), "utf8")).toBe("print('hello')\n");
     // The failure went back to the same agent, with the spec as the judge.
     expect(prompts[1]).toContain("Work out, against the specification, what is wrong - your test or the code");
-    // Its own passing run, then the harness's.
-    expect(result.runs.map((run) => run.exitCode)).toEqual([1, 0, 0]);
+    // Conformance tests from the functional spec, and the acceptance test apart from them.
+    expect(prompts[0]).toContain("Conformance tests come from the functional spec itself");
+    expect(prompts[0]).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
+    // It left the acceptance test out, and was sent back for it before its pass counted.
+    expect(prompts[2]).toContain('No test is labelled "acceptance test 1 of functionality 1"');
+    expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_acceptance_hello.py"), "utf8")).toContain(
+      "# acceptance test 1 of functionality 1:",
+    );
+    // Its own runs, then the harness's.
+    expect(result.runs.map((run) => run.exitCode)).toEqual([1, 0, 0, 0]);
 
     // It started with no notes, and left some - which the next agent on this codebase starts with.
     expect(prompts[0]).toContain("No earlier agent has left notes on this codebase yet.");

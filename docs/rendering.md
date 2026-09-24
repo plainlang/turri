@@ -145,6 +145,25 @@ the module has `***test reqs***`, and can be turned off. Once a codebase has con
 they are always run and kept passing, whether or not the current render writes new ones, and they
 are carried up to the modules built on top of it.
 
+### Conformance tests and acceptance tests, kept apart
+
+The step writes two kinds of test, and never lets one stand in for the other:
+
+| | Written from | Labelled |
+| --- | --- | --- |
+| Conformance tests | the functional spec itself - what it says the functionality does, its edge cases, its errors - as if no acceptance tests had been given | files whose names say conformance, each starting with a comment `conformance tests of functionality 3` |
+| Acceptance tests | each acceptance test in the spec, implemented as a test of its own, doing what it says | files whose names say acceptance, each test with a comment `acceptance test 2 of functionality 3:` and the acceptance test's text |
+
+Even when the acceptance tests seem to cover the functionality, the conformance tests are written
+independently: tests drawn only from the acceptance tests check what the author thought to check,
+and nothing the spec says beyond that. The acceptance tests reach the agent numbered, as their
+labels number them.
+
+The labels are checked, not trusted: before a passing run counts, the harness reads the tests and
+sends the agent back for a functionality with no labelled conformance tests, or for any acceptance
+test that has no test of its own. Anyone reading the tests - or the next agent - sees at a glance
+which is which, and which acceptance test a test implements.
+
 ### Black box in shape, not in blindness
 
 The test author can read the implementation: to find out how the thing is invoked, never to decide
@@ -162,7 +181,8 @@ one - a test that misreads the spec is corrected, code that does not do what the
 fixed, and its unit tests kept passing. It is told never to change a test so it agrees with code
 that contradicts the spec, and a test it deletes is challenged by name.
 
-When its own run passes, the harness checks for itself: it runs the whole conformance suite - a run
+When its own run passes, the harness checks for itself: both kinds of test are there and labelled,
+then it runs the whole conformance suite - a run
 that only named one file is sent back - and, if the agent changed the code, the code's unit tests
 too. Only that counts. It goes back and forth up to 20 times.
 

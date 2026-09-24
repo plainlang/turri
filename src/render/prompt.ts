@@ -7,6 +7,7 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import type { LoadedResource } from "./resources.ts";
+import { acceptanceLabel, acceptanceText, conformanceLabel } from "./test-kinds.ts";
 import type { RequiredSpec } from "./state.ts";
 
 export interface PromptInput {
@@ -401,7 +402,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     input.diff !== undefined
       ? `<spec change>\n${input.diff.trim()}\n</spec change>`
       : `<functionality id="${input.frid}">\n${target}\n</functionality>`,
-    input.diff !== undefined ? null : section("acceptance tests", specifications[ACCEPTANCE_TESTS] ?? []),
+    input.diff !== undefined ? null : numberedAcceptanceTests(input.frid, specifications[ACCEPTANCE_TESTS] ?? []),
     `<files in the build>\n${input.manifest.join("\n")}\n</files in the build>`,
     input.existingTests && input.existingTests.length > 0
       ? [
@@ -435,7 +436,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "  directory rather than against your test file's own location.",
     "- Organise the tests however suits them - files, folders, shared helpers. Make it clear which",
     `  functionality a test covers, so functionality ${input.frid}'s tests can be found and updated later.`,
-    "- The acceptance tests above are the criteria. Cover each one.",
+    ...testKinds(input.frid, input.diff !== undefined ? undefined : (specifications[ACCEPTANCE_TESTS] ?? []).length),
     "- Test observable behaviour only: output, exit codes, files produced, values returned by the",
     "  public entry point. Never assert on internal names, private helpers or implementation detail.",
     "- The test reqs say how conformance tests must be written and run. Follow them.",
@@ -457,6 +458,39 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
   return parts.filter((part): part is string => part !== null).join("\n");
 }
 
+
+/** The functionality's acceptance tests, numbered as their tests are labelled. */
+function numberedAcceptanceTests(frid: string, items: string[]): string | null {
+  if (items.length === 0) return null;
+  const rendered = items.map((item, i) => `${acceptanceLabel(frid, i + 1)}: ${acceptanceText(item)}`);
+  return `<acceptance tests>\n${rendered.join("\n\n")}\n</acceptance tests>`;
+}
+
+/**
+ * The two kinds of test, kept apart and labelled (see test-kinds.ts). `acceptance` is how many
+ * acceptance tests the functionality has; for a spec change, it is left to the change.
+ */
+function testKinds(frid: string, acceptance: number | undefined): string[] {
+  const conformance = [
+    "- Conformance tests come from the functional spec itself: what it says the functionality does, its edge",
+    "  cases, its errors - written as if no acceptance tests had been given. They do not copy the acceptance",
+    "  tests, and do not stop where the acceptance tests stop.",
+    `- Label them: files whose names say conformance, each with a comment "${conformanceLabel(frid)}" at its top`,
+    "  (for a spec change, the functionality each covers).",
+  ];
+  if (acceptance === 0) return conformance;
+  return [
+    ...conformance,
+    acceptance === undefined
+      ? "- Acceptance tests - the ones the specs list under acceptance tests - are implemented separately from the"
+      : `- Separately from them, implement each of the ${acceptance} acceptance test${acceptance === 1 ? "" : "s"} above as its own test, doing what it`,
+    acceptance === undefined
+      ? "  conformance tests, each as its own test, doing what it says, in files whose names say acceptance."
+      : "  says, in files whose names say acceptance. Never fold one into a conformance test, even where they overlap.",
+    `- Label each acceptance test with a comment right above it: "${acceptanceLabel(frid, 1)}:" and the text`,
+    "  of the acceptance test, numbered as above.",
+  ];
+}
 
 export interface RegressionFixPromptInput {
   moduleName: string;

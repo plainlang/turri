@@ -5,11 +5,13 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
+import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import { labelsPrompt, missingTestLabels } from "./test-kinds.ts";
+import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
@@ -287,6 +289,7 @@ export async function renderConformanceTests(
     cwd: conformanceDir,
     customTools: [
       notes.tool,
+      ...createWebTools(),
       ...fence.tools,
       createRunTool(buildDir, conformanceDir, runs, lastOutput, options.onRun),
       createRunTestsTool({
@@ -297,7 +300,7 @@ export async function renderConformanceTests(
         runs: unitRuns,
       }),
     ],
-    tools: [...fence.names, ...CONFORMANCE_TOOLS, "update_notes"],
+    tools: [...fence.names, ...CONFORMANCE_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
   });
 
@@ -335,7 +338,18 @@ export async function renderConformanceTests(
         continue;
       }
 
-      // Its own run passed. Whether the functionality is done is the harness's run: the whole
+      // Its own run passed. The conformance tests and each acceptance test have to be there, and
+      // labelled as what they are, before anything else counts.
+      if (options.diff === undefined) {
+        const missing = missingTestLabels(conformanceDir, frid, specifications[ACCEPTANCE_TESTS] ?? []);
+        if (missing.length > 0) {
+          stage("labelling the conformance and acceptance tests");
+          response = await ask(executor, labelsPrompt(frid, missing), options.onDelta);
+          continue;
+        }
+      }
+
+      // Whether the functionality is done is the harness's run: the whole
       // suite, run by the harness - and the code's unit tests, when the agent changed the code.
       stage("checking the conformance tests");
       const suite = chooseRegressionCommand(runs);

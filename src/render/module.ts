@@ -19,6 +19,7 @@ import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS, describeStop, type StopFacts } from "./stop-report.ts";
 import {
   copyRequiredCode,
@@ -163,6 +164,7 @@ async function repairRegression(input: {
     cwd: input.buildDir,
     customTools: [
       notes.tool,
+      ...createWebTools(),
       ...fence.tools,
       createRunTestsTool({
         name: "run_unit_tests",
@@ -172,7 +174,7 @@ async function repairRegression(input: {
         runs,
       }),
     ],
-    tools: [...fence.names, ...FIX_TOOLS],
+    tools: [...fence.names, ...FIX_TOOLS, ...WEB_TOOLS],
     model: input.model,
   });
 

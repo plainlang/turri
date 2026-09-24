@@ -24,6 +24,7 @@ import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.
 import { buildSpecDiffPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
@@ -236,6 +237,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     cwd: buildDir,
     customTools: [
       notes.tool,
+      ...createWebTools(),
       createTryItTool((submitted) => (tryIt = submitted)),
       createRunTestsTool({
         name: "run_unit_tests",
@@ -246,7 +248,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       }),
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes"],
+    tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes", ...WEB_TOOLS],
     model: options.model,
   });
 

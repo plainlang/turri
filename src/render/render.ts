@@ -7,6 +7,7 @@ import { reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
@@ -232,8 +233,8 @@ export async function renderFunctionality(
   const notes = notesForSession(buildDir, `${moduleName} ${frid}`);
   const executor = await createExecutor({
     cwd: buildDir,
-    customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...fence.tools],
-    tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes"],
+    customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...createWebTools(), ...fence.tools],
+    tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
   });
 

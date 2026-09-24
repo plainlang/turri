@@ -33,12 +33,32 @@ read or write. So it does not run on the host at all. Every command - the agent'
 - The network reaches the package registries (Alpine, PyPI, npm, Go, crates.io, Maven Central,
   Gradle) and any host named in `PLAINWRIGHT_ALLOWED_HOSTS`, nothing else.
 - Files on the mount are executable inside the VM: Gondolin's mounts drop mode changes, and a
-  built binary, a `./gradlew` or a test script has to run.
+  built binary, a `./gradlew` or a test script has to run. And they are owned by root, who runs
+  everything in there: a JVM ignores an attach request whose trigger file is not its own, which
+  would break Mockito's inline mocks, and git calls a repository owned by someone else dubious.
 
 The VM starts on the first command and is kept until pi exits. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent
 gets no shell and commands are refused, because there is no honest way to fence one on the host.
 `plainwright doctor` says which of those it is.
+
+## The web
+
+Every rendering agent - render, spec change, conformance, regression repair - can also search the
+web and read a page, for a library's documentation or an error it has not seen:
+
+| Tool | What it does |
+| --- | --- |
+| `web_search` | asks DuckDuckGo (no key needed) and returns title, address and snippet per result |
+| `web_fetch` | reads one page and returns it as text - HTML without its markup, text, JSON or XML as it is; long pages come in parts |
+
+Both run on the host, not in the VM, so the VM's network stays as it is: the code an agent builds
+and runs, its tests and the packages it installs still reach only the registries. `web_fetch` reads
+only the public web: localhost, the private ranges and the cloud metadata address are refused, and
+so is every redirect that leads to one, so it cannot reach through the host what the VM is kept from.
+
+DuckDuckGo is used without a key through its Lite page, which is not an official API: it rate-limits,
+and a search that is turned away tells the agent to wait or fetch a page it knows instead.
 
 ## What the VM needs beside the code
 
