@@ -8,7 +8,7 @@ import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts
 import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
-import { moduleDirOf, recordHistory } from "./history.ts";
+import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
 import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
@@ -82,6 +82,11 @@ export interface RenderConformanceTestsOptions {
    * later ones went into the file, so the file is not what this change is about.
    */
   spec?: { moduleName: string; tree: MarshalledPlainSource };
+  /**
+   * This is a later step of work already under way, whose changes are not committed yet - a
+   * spec diff's conformance step - so the module is not put back to its last commit first.
+   */
+  continuing?: boolean;
 }
 
 export type Fault = "test_at_fault" | "code_at_fault";
@@ -256,6 +261,12 @@ export async function renderConformanceTests(
   }
 
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
+  const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName));
+  // From the last known good state, unless this step continues work not yet committed.
+  if (!options.dryRun && options.continuing !== true) {
+    startFromLastCommit(buildDir, moduleName);
+    if (moduleDirOf(conformanceDir) !== moduleDirOf(buildDir)) startFromLastCommit(conformanceDir, moduleName);
+  }
   const manifest = listFiles(buildDir);
   if (manifest.length === 0) {
     throw new Error(
@@ -263,10 +274,6 @@ export async function renderConformanceTests(
         `Render the functionality first, for example: npm run render -- ${options.plainFile} ${frid}`,
     );
   }
-
-  const conformanceDir = resolve(
-    options.conformanceDir ?? conformanceDirFor(moduleName),
-  );
 
   const [specifications] = getSpecificationsForFrid(tree, frid);
 

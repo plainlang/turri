@@ -22,7 +22,7 @@ import { modulesRoot, specChangeTryDirFor } from "./paths.ts";
 import { describeTryIt } from "./delivery.ts";
 import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
-import { recordHistory } from "./history.ts";
+import { recordHistory, startFromLastCommit } from "./history.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.ts";
@@ -196,6 +196,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const spec = options.spec ?? snapshotSpec(options.plainFile, { cwd, templateDirs, inModule: options.inModule });
   const { moduleName, tree, chain } = spec;
   const tip = chain.at(-1)!;
+  // The change is made to the codebase's last known good state, not to what an interrupted
+  // run left half-written.
+  startFromLastCommit(tip.buildDir, moduleName);
   const frids = [...getFrids(tree)];
   const lastFrid = frids.at(-1);
   const sections = sectionsOf(tree);
@@ -337,6 +340,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     conformanceDir: conformanceDirFor(moduleName, conformanceRoot),
     diff: options.diff,
     spec: { moduleName, tree },
+    // The implementation of the change is not committed yet: it is committed with the record.
+    continuing: true,
     model: options.model,
     onDelta: options.onDelta,
   });

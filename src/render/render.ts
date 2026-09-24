@@ -5,7 +5,7 @@ import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
-import { recordHistory } from "./history.ts";
+import { recordHistory, startFromLastCommit } from "./history.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, tryDirFor } from "./paths.ts";
@@ -154,6 +154,9 @@ export async function renderFunctionality(
     : undefined;
   const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName));
   const required = getInheritedFunctionalSpecs(tree);
+  // Work starts from the last known good state of the codebase it is done in: whatever an
+  // interrupted run left half-written is gone before anything reads the code.
+  if (!options.dryRun) startFromLastCommit(buildDir, host?.moduleName ?? moduleName);
 
   let prompt: string;
   if (options.regenerate === undefined) {

@@ -42,6 +42,12 @@ where it stopped.
 
 What each render does, in order, is in [rendering](rendering.md).
 
+The agent does this work with these tools, never by running plainwright's command line - or
+another pi - through its shell: that would be a separate, headless run outside the job panel,
+`/watch` and `/stop`. The harness refuses such a command unless your message asks for the
+command line ("run it headless", "use the CLI", or the command itself). pi configuring itself -
+`pi install`, `update`, `list`, `config`, `auth`, its settings - is not affected.
+
 ## Background jobs
 
 A render takes minutes, so in the TUI every render tool starts the work as a background job and
@@ -98,7 +104,12 @@ rather than surfacing as an agent that said nothing.
 Each `plain_modules/<module>` is a git repository whose git directory is `.plaingit` rather than
 `.git`, so it stays plain files to your own repository. A commit is made after every step that
 changes the module - a render, a regeneration, a conformance run, a regression repair, a spec
-change. `/history [module]` and `module_history` show it; with git directly:
+change. `/history [module]` and `module_history` show it.
+
+The last commit is also the last known good state. Every render, regeneration, spec change and
+conformance run starts by putting the codebase it works in back to it, so if plainwright was
+stopped or restarted mid-job, whatever that job left half-written is undone first. Installed
+dependencies and caches are not in the history and stay. With git directly:
 
 ```bash
 git --git-dir=plain_modules/<module>/.plaingit --work-tree=plain_modules/<module> log

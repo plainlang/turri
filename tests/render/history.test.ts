@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { head, historyLog, historyShow, recordHistory } from "../../src/render/history.ts";
+import { head, historyLog, historyShow, recordHistory, resetToLastCommit } from "../../src/render/history.ts";
 import { ensureRegressionPasses } from "../../src/render/module.ts";
 import { copyRequiredCode } from "../../src/render/requires.ts";
 import { readState, recordFunctionality } from "../../src/render/state.ts";
@@ -92,5 +92,46 @@ describe("the conformance command", () => {
     });
 
     expect(readState(code)!.conformanceCommand).toBe("sh check.sh");
+  });
+});
+
+describe("starting from the last commit", () => {
+  it("puts back what an interrupted run left half-written, and keeps installed dependencies", () => {
+    const tests = join(root, "plain_modules", "app", "tests");
+    mkdirSync(tests, { recursive: true });
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    writeFileSync(join(tests, "test_app.py"), "assert True\n");
+    recordHistory(code, "render app fs 1");
+
+    // The run that was cut short: a file half-rewritten, one half-added, one deleted.
+    writeFileSync(join(code, "app.py"), "print('h");
+    writeFileSync(join(code, "half.py"), "def half(");
+    mkdirSync(join(code, "new_pkg"));
+    writeFileSync(join(code, "new_pkg", "mod.py"), "x = 1\n");
+    rmSync(join(tests, "test_app.py"));
+    // And what history never tracks: installed dependencies.
+    mkdirSync(join(code, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(code, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+
+    const undone = resetToLastCommit(code);
+
+    expect(undone.sort()).toEqual(["code/app.py", "code/half.py", "code/new_pkg/mod.py", "tests/test_app.py"]);
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('hi')\n");
+    expect(existsSync(join(code, "half.py"))).toBe(false);
+    expect(existsSync(join(code, "new_pkg"))).toBe(false);
+    expect(readFileSync(join(tests, "test_app.py"), "utf8")).toBe("assert True\n");
+    expect(existsSync(join(code, "node_modules", "left-pad", "index.js"))).toBe(true);
+  });
+
+  it("does nothing when everything is committed", () => {
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    recordHistory(code, "render app fs 1");
+    expect(resetToLastCommit(code)).toEqual([]);
+  });
+
+  it("leaves a module with no history alone - there is no good state to go back to", () => {
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    expect(resetToLastCommit(code)).toEqual([]);
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('hi')\n");
   });
 });

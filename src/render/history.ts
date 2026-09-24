@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { reportActivity } from "./activity.ts";
 import { projectRootOf } from "./paths.ts";
 
 /**
@@ -79,6 +80,51 @@ export function recordHistory(dir: string, subject: string, body?: string): stri
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Put a module back to its last commit before work starts on it.
+ *
+ * Every step commits what it did, so a module with changes nobody committed is one whose last
+ * step never finished - plainwright was stopped or restarted mid-job - and holds half-written
+ * code the next render would build on. Its last commit is the last known good state, so the
+ * working tree is reset to it: changed files restored, files nothing committed removed. What
+ * history does not track stays - installed dependencies, caches - so nothing needs installing
+ * again. A module with no history yet has no good state to go back to and is left alone.
+ *
+ * Returns the paths that were put back or removed, relative to the module folder.
+ */
+export function resetToLastCommit(dir: string): string[] {
+  try {
+    const moduleDir = moduleDirOf(dir);
+    if (!existsSync(join(moduleDir, HISTORY_DIR)) || head(dir) === undefined) return [];
+    const status = git(moduleDir, ["status", "--porcelain", "--untracked-files=all"]);
+    if (status.status !== 0) return [];
+    const changed = status.stdout
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => line.slice(3));
+    if (changed.length === 0) return [];
+    git(moduleDir, ["reset", "-q", "--hard", "HEAD"]);
+    git(moduleDir, ["clean", "-q", "-fd"]);
+    return changed;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The start of every step that writes a module's code or tests: back to its last commit, and
+ * say so when that undid anything.
+ */
+export function startFromLastCommit(dir: string, moduleName: string): void {
+  const undone = resetToLastCommit(dir);
+  if (undone.length === 0) return;
+  const shown = undone.slice(0, 5).join(", ");
+  reportActivity(
+    `${moduleName}: back to its last commit - ${undone.length} change${undone.length === 1 ? "" : "s"} an unfinished ` +
+      `run left behind undone (${shown}${undone.length > 5 ? ", …" : ""})`,
+  );
 }
 
 /** The current commit of a module's history, if it has one. */

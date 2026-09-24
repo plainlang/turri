@@ -17,7 +17,7 @@ import { reportActivity, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
-import { recordHistory } from "./history.ts";
+import { recordHistory, startFromLastCommit } from "./history.ts";
 import {
   copyRequiredCode,
   findCodebaseTip,
@@ -288,6 +288,8 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   const allFrids = [...getFrids(tree)];
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
   const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
+  // A module build starts from the last known good state of its codebase.
+  startFromLastCommit(buildDir, moduleName);
 
   const fromIndex = options.from ? allFrids.indexOf(options.from) : 0;
   if (fromIndex === -1) throw new Error(`Functionality ${options.from} does not exist.`);

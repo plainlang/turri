@@ -79,7 +79,8 @@ git --git-dir=plain_modules/<module>/.plaingit --work-tree=plain_modules/<module
 
 Run the same command again. Functionalities already built from the current spec are left alone,
 and modules that are complete are skipped, so it picks up where it stopped - after a crash, a
-provider outage, or a machine that went to sleep anyway. A functionality whose spec has changed
+provider outage, or a machine that went to sleep anyway. Whatever the stopped run left
+half-written is undone first: each step starts from the module's last commit. A functionality whose spec has changed
 since counts as not built, so editing the spec and re-running rebuilds what changed. `--force`
 rebuilds everything.
 

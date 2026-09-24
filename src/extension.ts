@@ -17,6 +17,7 @@ import { describeChain } from "./render/requires.ts";
 import { createProgressTracker } from "./render/progress.ts";
 import { describeDelivery } from "./render/delivery.ts";
 import { vmSummary } from "./render/vm.ts";
+import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue } from "./render/queue.ts";
@@ -152,13 +153,28 @@ export default function (pi: ExtensionAPI) {
 
   // The ***plain rules go into the system prompt in full, every turn. The block is
   // identical each time, so it sits inside the cached prefix rather than invalidating it.
+  // With them, the instruction to do plainwright's work with its tools rather than its command
+  // line - enforced below, not only asked for.
   const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"));
   const rulesBlock = renderRulesBlock(rules);
-  if (rulesBlock !== "") {
-    pi.on("before_agent_start", (event) => ({
-      systemPrompt: `${event.systemPrompt}\n\n${rulesBlock}`,
-    }));
-  }
+  pi.on("before_agent_start", (event) => ({
+    systemPrompt: [event.systemPrompt, TOOLS_NOT_CLI, rulesBlock].filter((part) => part !== "").join("\n\n"),
+  }));
+
+  // The conversation's agent does not run plainwright again through its shell, unless the person
+  // asked for the command line in the message it is answering.
+  let lastUserMessage = "";
+  pi.on("input", (event) => {
+    if (event.source !== "extension") lastUserMessage = event.text;
+    return { action: "continue" as const };
+  });
+  pi.on("tool_call", (event) => {
+    const command = (event.input as { command?: unknown }).command;
+    if (event.toolName !== "bash" || typeof command !== "string") return undefined;
+    const what = selfInvocation(command);
+    if (what === undefined || askedForCommandLine(lastUserMessage)) return undefined;
+    return { block: true, reason: refusal(what) };
+  });
 
   // A turn's own model calls happen inside pi's agent loop, outside any tool, so the
   // capture is bracketed around the turn itself. Without this, every model call writes
