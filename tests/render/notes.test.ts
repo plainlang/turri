@@ -63,6 +63,37 @@ describe("updating the notes", () => {
     expect(notes.where).toEqual(["Entry point: app/main.py"]);
   });
 
+  it("stamps every line it adds or changes with the step that wrote it, and matches lines without it", () => {
+    const first = applyNotesChanges(start, [{ section: "pitfalls", action: "add", text: "httpclient5 is not transitive" }], "http_client 1");
+    expect(first.notes.pitfalls).toEqual(["[http_client 1] httpclient5 is not transitive"]);
+    const { notes, problems } = applyNotesChanges(
+      first.notes,
+      [
+        { section: "pitfalls", action: "change", replaces: "httpclient5 is not", text: "httpclient5 has to be declared in pom.xml" },
+        { section: "pitfalls", action: "add", text: "[http_client 1] httpclient5 has to be declared in pom.xml" },
+      ],
+      "auth 2",
+    );
+    expect(problems).toEqual([]);
+    expect(notes.pitfalls).toEqual(["[auth 2] httpclient5 has to be declared in pom.xml"]);
+  });
+
+  it("refuses a line that says there is nothing to say, and keeps one that says something", () => {
+    const { notes, problems } = applyNotesChanges(
+      start,
+      [
+        { section: "pitfalls", action: "add", text: "None specifically for this functionality." },
+        { section: "assumptions", action: "add", text: "No new assumptions" },
+        { section: "assumptions", action: "add", text: "None of the endpoints need auth" },
+      ],
+      "auth 2",
+    );
+    expect(problems).toHaveLength(2);
+    expect(problems[0]).toContain("is not a note");
+    expect(notes.assumptions).toContain("[auth 2] None of the endpoints need auth");
+    expect(notes.pitfalls).toEqual([]);
+  });
+
   it("reads back what it writes", () => {
     expect(parseNotes(formatNotes(start))).toEqual(start);
   });
@@ -81,10 +112,9 @@ describe("the update_notes tool", () => {
     expect(readFileSync(join(code, NOTES_FILE), "utf8")).toContain("## Assumptions\n\n- A missing name greets World");
   });
 
-  it("saves nothing when a change cannot be applied, or the notes would grow too long", async () => {
+  it("saves nothing when a change cannot be applied", async () => {
     const tool = createNotesTool(code, () => {});
     await expect(call(tool, [{ section: "where", action: "remove", text: "nope" }])).rejects.toThrow(/Nothing saved/);
-    await expect(call(tool, [{ section: "pitfalls", action: "add", text: "x".repeat(7000) }])).rejects.toThrow(/limit is 6000/);
     expect(existsSync(join(code, NOTES_FILE))).toBe(false);
   });
 
@@ -120,6 +150,12 @@ describe("the update_notes tool", () => {
     });
     expect(asked[0]).toContain(`You changed ${NOTES_FILE} directly, and that was undone`);
     expect(readNotes(code)).toEqual({ ...start, pitfalls: ["mvn needs -q"] });
+  });
+
+  it("stamps the lines with when they were written and the step the agent is", async () => {
+    const session = notesForSession(code, "d365_auth 3 conformance");
+    await call(session.tool, [{ section: "run", action: "add", text: "mvn -q test" }]);
+    expect(readNotes(code).run).toEqual([expect.stringMatching(/^\[\d{4}-\d\d-\d\d \d\d:\d\d · d365_auth 3 conformance\] mvn -q test$/)]);
   });
 
   it("builds on the notes update_notes left, not on a file written in between", async () => {

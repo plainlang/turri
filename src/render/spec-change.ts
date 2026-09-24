@@ -231,7 +231,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const runs: TestRun[] = [];
   const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
-  const notes = notesForSession(buildDir);
+  const notes = notesForSession(buildDir, `${moduleName} spec change`);
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [

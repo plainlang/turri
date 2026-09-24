@@ -198,6 +198,19 @@ Stubborn on the specs, flexible on the assumptions: the spec is never an assumpt
 copied into the notes, and where the two disagree the spec wins. An agent builds on the assumptions
 already there, and changes one the moment the code or the spec shows it wrong.
 
+Every line says when and where it came from, stamped by the harness rather than written by the agent:
+
+```
+## Assumptions
+
+- [2026-09-24 16:39 · d365_version_api 1] VersionResponseObject capabilities follow the JSON in the spec
+- [2026-09-24 16:52 · d365_auth 1] Token responses carry `access_token` and `expires_in`
+```
+
+A line that is changed is stamped again, so an assumption one agent revised shows as newer than the
+ones around it. Where two lines disagree, the later one is right. A line that says nothing - "none",
+"N/A", "no new assumptions" - is refused: a section with nothing new is left alone.
+
 Leaving notes is required, and only through the `update_notes` tool. The file tools refuse the
 notes file, and a change made to it any other way - from the shell, by a script - is undone. An agent
 that finishes without calling `update_notes` is asked again, up to three times; if it still has not,

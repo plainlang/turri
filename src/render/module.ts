@@ -158,7 +158,7 @@ async function repairRegression(input: {
   const runs: TestRun[] = [];
 
   const fence = confinedTools({ workdir: input.buildDir });
-  const notes = notesForSession(input.buildDir);
+  const notes = notesForSession(input.buildDir, `${input.moduleName} ${input.frids.at(-1)} regression repair`);
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [

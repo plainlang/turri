@@ -229,7 +229,7 @@ export async function renderFunctionality(
   // nowhere else. Nothing above `plain_modules` is reachable, including this repo.
   const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
-  const notes = notesForSession(buildDir);
+  const notes = notesForSession(buildDir, `${moduleName} ${frid}`);
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...fence.tools],

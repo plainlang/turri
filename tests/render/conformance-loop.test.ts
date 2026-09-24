@@ -97,6 +97,6 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
       continuing: true,
     });
     expect(prompts[0]).toContain("<notes from earlier agents>");
-    expect(prompts[0]).toContain("- stub agent was here");
+    expect(prompts[0]).toMatch(/- \[[\d: -]+ · app 1 conformance\] stub agent was here/);
   });
 });

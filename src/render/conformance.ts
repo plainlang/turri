@@ -282,7 +282,7 @@ export async function renderConformanceTests(
   // when one fails it works out - against the spec - whether the test or the code is wrong, and
   // fixes that one. It works in its tests and sees plain_modules, the code included.
   const fence = confinedTools({ workdir: conformanceDir });
-  const notes = notesForSession(buildDir);
+  const notes = notesForSession(buildDir, `${moduleName} ${frid} conformance`);
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
