@@ -1,3 +1,5 @@
+<br>
+
 <p align="center">
   <img src="docs/assets/banner.png" alt="plainwright - coding agent with the power of regenerative software.">
 </p>
