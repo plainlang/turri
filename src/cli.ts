@@ -18,6 +18,9 @@ import { extensionInstalledGlobally, PACKAGE_ROOT, themesInstalledGlobally } fro
  * Saves both a global pi install and the `-e <absolute path>` that a project-local
  * extension otherwise needs before the project is trusted.
  */
+/** The theme `plainwright chat` starts in. */
+const DEFAULT_THEME = "forge";
+
 function chat(args: string[]): never {
   const pi = join(PACKAGE_ROOT, "node_modules", ".bin", "pi");
   if (!existsSync(pi)) {
@@ -31,8 +34,11 @@ function chat(args: string[]): never {
     ? []
     : ["-e", join(PACKAGE_ROOT, "src", "extension.ts")];
   const themes = themesInstalledGlobally() ? [] : ["--theme", join(PACKAGE_ROOT, ".pi", "themes")];
+  // plainwright's own theme, unless this run names another. For this run only: pi's settings
+  // are left as they are, so a plain `pi` keeps its theme.
+  const useTheme = args.some((arg) => arg === "--use-theme" || arg.startsWith("--use-theme=")) ? [] : ["--use-theme", DEFAULT_THEME];
 
-  const result = spawnSync(pi, [...extension, ...themes, ...args], {
+  const result = spawnSync(pi, [...extension, ...themes, ...useTheme, ...args], {
     stdio: "inherit",
     cwd: process.cwd(),
   });
@@ -59,7 +65,7 @@ const USAGE = [
   "usage: plainwright <command> [args]",
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
-  `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded`,
+  `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded (theme forge; --use-theme picks another)`,
   "",
   ...Object.entries(SETUP_COMMANDS).map(([name, blurb]) => `  ${name.padEnd(12)} ${blurb}`),
   "",

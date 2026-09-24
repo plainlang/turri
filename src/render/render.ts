@@ -67,8 +67,6 @@ export interface RenderFunctionalityOptions {
    */
   regenerate?: {
     in?: { moduleName: string; plainFile: string; buildDir: string };
-    /** Why, when it is asked for rather than caused by a change: what to do better. */
-    reason?: string;
   };
 }
 
@@ -179,7 +177,6 @@ export async function renderFunctionality(
       previous: context.previous,
       added: context.added,
       unchanged: context.unchanged,
-      reason: options.regenerate.reason,
       implemented: context.implemented,
       codebaseOf: host?.moduleName,
       codebase: context.codebase,

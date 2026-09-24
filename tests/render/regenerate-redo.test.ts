@@ -23,8 +23,8 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const prompt = async (reason?: string) =>
-  (await renderFunctionality({ plainFile: join(dir, "app.plain"), frid: "2", buildDir: build, dryRun: true, regenerate: { reason } }))
+const prompt = async () =>
+  (await renderFunctionality({ plainFile: join(dir, "app.plain"), frid: "2", buildDir: build, dryRun: true, regenerate: {} }))
     .prompt;
 
 describe("regenerating a functionality whose spec has not changed", () => {
@@ -33,12 +33,6 @@ describe("regenerating a functionality whose spec has not changed", () => {
     expect(text).toContain("is to be regenerated. Its spec has not changed since it was built.");
     expect(text).toContain("Replace its code rather than patching it");
     expect(text).not.toContain('version="as built"');
-  });
-
-  it("carries the reason it was asked for", async () => {
-    const text = await prompt("The error handling is a mess.");
-    expect(text).toContain("<why it is being regenerated>\nThe error handling is a mess.\n</why it is being regenerated>");
-    expect(text).toContain("Address the reason given above");
   });
 
   it("is still a change when the spec did move", async () => {

@@ -239,8 +239,6 @@ export interface RegeneratePromptInput {
   added?: boolean;
   /** The spec is exactly what the code was built from: regenerating by request, not because of a change. */
   unchanged?: boolean;
-  /** Why it is being regenerated, in the words of whoever asked. */
-  reason?: string;
   /** Everything else in the codebase: every functional spec it holds except this one. */
   implemented: RequiredSpec[];
   /** Whose codebase this is, when it is not the functionality's own module's. */
@@ -290,7 +288,6 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
     opening,
     "",
     task,
-    input.reason ? `\n<why it is being regenerated>\n${input.reason.trim()}\n</why it is being regenerated>` : null,
     "",
     section(DEFINITIONS, specifications[DEFINITIONS]),
     section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
@@ -313,13 +310,12 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
     "",
     mode === "redo"
       ? "- Replace its code rather than patching it: write it as you would from the spec alone. Keep its interface " +
-        "to the rest of the codebase - what other code calls, and what it calls - unless the reason above says otherwise."
+        "to the rest of the codebase - what other code calls, and what it calls."
       : mode === "changed"
         ? input.previous !== undefined
           ? "- Change what the new version changes, and nothing else. Where the two versions agree, the code stays."
           : "- The version it was built from is not recorded. Read the code for it, and change what no longer matches."
         : null,
-    mode === "redo" && input.reason ? "- Address the reason given above: it is why this is being redone." : null,
     "- Everything listed as already implemented exists and must keep working, including what was built",
     "  after this functionality. Do not reimplement it or rewrite it; change it only where this update needs to.",
     {

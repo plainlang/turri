@@ -1,16 +1,24 @@
 import { c, reportEvent } from "./module-report.ts";
 import { regenerateFunctionality } from "./render/module.ts";
 
-const USAGE = `usage: npm run regenerate -- <file.plain> <frid> [options]
+const USAGE = `usage: plainwright regenerate <file.plain> <frid> [options]
 
-Rebuilds one functionality whose specification changed, over code that already exists,
-then runs the whole module's conformance suite.
+Rebuilds one functionality over code that already exists - after its spec changed, or as it
+is - without rebuilding the ones before it. It works in the codebase the functionality now
+lives in: the furthest-built module whose requires chain includes it. Then runs every
+conformance test in that codebase.
 
+To change what it does, change its spec first: the spec is what the code is built from.
+
+  --in <module>            the codebase to rebuild in, when modules built on this one branch
+  --model <provider/id>    model for the agents
+  --max-regression-rounds  repair attempts per regression failure (default 3)
   --build-dir <dir>        default: plain_modules/<module>/code
   --conformance-root <dir> default: plain_modules
-  --template-dir <dir>     extra template directory (repeatable)
-  --model <provider/id>    model for the agents
-  --max-regression-rounds  repair attempts per regression failure (default 3)`;
+  --template-dir <dir>     extra template directory (repeatable)`;
+
+/** Options that take a value. Anything else starting with -- is a mistake, and says so. */
+const VALUED = new Set(["in", "model", "max-regression-rounds", "build-dir", "conformance-root"]);
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -24,8 +32,14 @@ async function main() {
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
-    } else if (arg.startsWith("--")) options[arg.slice(2)] = argv[++i];
-    else positional.push(arg);
+    } else if (arg.startsWith("--")) {
+      const name = arg.slice(2);
+      if (!VALUED.has(name)) {
+        console.error(`unknown option: ${arg}\n\n${USAGE}`);
+        process.exit(1);
+      }
+      options[name] = argv[++i];
+    } else positional.push(arg);
   }
 
   const [plainFile, frid] = positional;
@@ -41,6 +55,7 @@ async function main() {
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
     model: options.model,
+    inModule: options.in,
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])
       : undefined,
@@ -52,6 +67,7 @@ async function main() {
     `\n\n${result.passed ? c.green(c.bold("regenerated")) : c.red(c.bold("regeneration incomplete"))} ` +
       c.dim(`${result.moduleName} functionality ${result.frid}`),
   );
+  if (result.codebaseOf) console.log(c.dim(`  rebuilt in ${result.codebaseOf}'s codebase`));
   if (result.stoppedAt) console.log(c.dim(`  stopped at: ${result.stoppedAt}`));
   const repairs = result.regression?.repairs.length ?? 0;
   if (repairs > 0) console.log(c.dim(`  regression repairs: ${repairs}`));

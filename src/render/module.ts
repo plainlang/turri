@@ -469,8 +469,6 @@ export interface RegenerateFunctionalityOptions extends RenderModuleOptions {
    * requires chain includes this one - required only when those sit on different branches.
    */
   inModule?: string;
-  /** Why it is being regenerated, when its spec has not changed: what should come out better. */
-  reason?: string;
 }
 
 export interface RegenerateFunctionalityResult {
@@ -542,7 +540,7 @@ export async function regenerateFunctionality(
     templateDirs: options.templateDirs,
     buildDir,
     model: options.model,
-    regenerate: { in: host, reason: options.reason },
+    regenerate: { in: host },
     onDelta: options.onDelta,
     onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
   });

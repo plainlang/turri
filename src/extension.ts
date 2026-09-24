@@ -927,18 +927,11 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       "Use regenerate_functionality, not render_functionality, when the code already exists and the specification changed.",
       "A regression repair means the implementation was changed beyond the functionality asked for; say so when reporting.",
       "Say which codebase the change was made in when it is a later module's.",
-      "It also works when the spec has not changed - to redo a functionality whose code came out badly. Pass the user's reason, so the redo addresses it.",
+      "It also rebuilds a functionality whose spec has not changed, as it is. When the user wants it to come out differently, change its spec first - the spec is what persists - then regenerate.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
       frid: Type.String({ description: "Functionality id whose specification changed" }),
-      reason: Type.Optional(
-        Type.String({
-          description:
-            "Why it is being regenerated, in the user's words - most useful when the spec has not changed and " +
-            "the code is being redone, e.g. \"the error handling is a mess\".",
-        }),
-      ),
       in_module: Type.Optional(
         Type.String({
           description:
@@ -977,7 +970,6 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
             plainFile,
             frid: params.frid,
             inModule: params.in_module,
-            reason: params.reason,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
             onDelta,
