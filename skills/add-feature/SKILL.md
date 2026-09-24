@@ -19,11 +19,11 @@ description: >-
 
 This loop starts after Phase 0. Each iteration is a single question followed by an immediate write:
 
-1. **Ask** one focused question via `AskUserQuestion` — never bundle two. Shape it so any plausible answer maps directly to one writable snippet: a single behavior, concept, attribute, edge case, or constraint — not an open-ended design question. Bad shape: "How should the feature behave?" Good shape: "When the user submits an empty title, should the request be rejected with HTTP 400, accepted with a default title, or something else?" Offer concrete options plus a free-form catch-all whenever the answer space is predictable.
+1. **Ask** one focused question via `ask_user` — never bundle two. Shape it so any plausible answer maps directly to one writable snippet: a single behavior, concept, attribute, edge case, or constraint — not an open-ended design question. Bad shape: "How should the feature behave?" Good shape: "When the user submits an empty title, should the request be rejected with HTTP 400, accepted with a default title, or something else?" Offer concrete options plus a free-form catch-all whenever the answer space is predictable.
 2. **Author immediately** — the moment the user answers, write the snippet to disk (see *2b* for which skill to route to). Do not wait for "enough" context; eager writes are the point. A snippet that is wrong on the first try is expected — the next question corrects it, and the user can read exactly where things stand after every step.
 3. **Refine on the next question**, which often extends or corrects what was just written.
 
-**One question per call, but drill as deep as the topic needs.** "One question" governs the `AskUserQuestion` call, not the topic. If an answer is vague or leaves real choices open, the *next* question drills into the same topic — another iteration of the loop — until it is concrete enough to write. Stopping early and writing on top of a vague answer is worse than one more focused follow-up.
+**One question per call, but drill as deep as the topic needs.** "One question" governs the `ask_user` call, not the topic. If an answer is vague or leaves real choices open, the *next* question drills into the same topic — another iteration of the loop — until it is concrete enough to write. Stopping early and writing on top of a vague answer is worse than one more focused follow-up.
 
 **Fix contradictions in place.** If a later answer refines or contradicts a snippet already on disk, edit that snippet right now. Never leave stale intent on disk; surface a non-trivial change in the next question.
 
@@ -58,7 +58,7 @@ A single repeating cycle: exactly one question, then an immediate write. The loo
 
 ### 2a. Ask one question
 
-Ask one writable question per `AskUserQuestion` call, targeting exactly one of:
+Ask one writable question per `ask_user` call, targeting exactly one of:
 
 - **Behavior** — a single trigger and its outcome.
 - **A concept** — a new concept, or one single attribute of an existing one.

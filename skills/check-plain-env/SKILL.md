@@ -17,7 +17,7 @@ This skill answers one question: **does the host machine have everything the ***
 ## When to run
 
 - **First time you open a ***plain project on a new machine** — before the first `plainwright module <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
-- **At the start of `forge-plain` Phase 3 environment verification** — `forge-plain` historically did this inline; delegate to this skill instead so the same check runs the same way everywhere.
+- **In `forge-plain`'s testing phase** — its environment verification is this skill, so the same check runs the same way everywhere.
 - **After `add-feature`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
 - **Before a real render** — alongside `check_plain`. `check_plain` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.
 - **Onboarding** — when a teammate (or CI runner, or fresh dev container) is about to start using the project.
@@ -150,7 +150,7 @@ Add these to every requirement list regardless of project:
 
 ### Step 3 — Probe the host
 
-For every requirement the project produced in Step 2, run a check using the `terminal` tool. Capture stdout/stderr and exit code. Classify each result:
+For every requirement the project produced in Step 2, run a check using the `bash` tool. Capture stdout/stderr and exit code. Classify each result:
 
 - **PASS** — present and (where a version was specified) at or above the required version.
 - **WARN** — present but at a version that doesn't match what the project explicitly asks for (e.g. spec says Java 17, host has Java 21), or service binary present but the service itself isn't running, or a Category 4 sub-layer is mismatched against another (e.g. CUDA toolkit version doesn't match what the framework expects).
@@ -258,7 +258,7 @@ When the host OS detection in Step 1 was inconclusive (e.g. an unrecognized Linu
 - **Don't work only from `.plain` files.** Always cross-reference with `test_scripts/` — the scripts are the executable contract. If a script invokes a non-language binary the specs never mention, that binary is automatically a Category 3 requirement.
 - **Don't pre-bake a catalog.** Derive the requirement list at runtime from the project in front of you. A hard-coded "things to always check" table becomes wrong the moment any project deviates from the assumed shape — and every project does.
 - **Don't probe testing framework binaries as if they were independent.** `pytest`, `jest`, `vitest`, `phpunit`, `junit-console`, etc. are installed by the package manager via `requirements.txt` / `package.json` / `pom.xml`. The toolchain check (Category 1) is enough — the framework binary itself is out of scope.
-- **Don't probe in silence.** Use the `terminal` tool and capture the actual command output (version strings, exit codes). Telling the user "looks like Python is installed" without running `python3 --version` is guessing.
+- **Don't probe in silence.** Use the `bash` tool and capture the actual command output (version strings, exit codes). Telling the user "looks like Python is installed" without running `python3 --version` is guessing.
 - **Don't print secret values.** Check whether `DATABASE_URL`, provider API keys, etc. are set, not what they contain. Use `printenv VAR >/dev/null` not `printenv VAR`.
 - **Don't install anything on the user's behalf.** Even when the install command is obvious. The user needs to opt in.
 - **Don't stop at the first FAIL.** Run the full sweep so the report is complete in one pass.
@@ -274,7 +274,7 @@ When the host OS detection in Step 1 was inconclusive (e.g. an unrecognized Linu
 - [ ] Every script under `test_scripts/` opened and read; every non-language binary it invokes added to the Category 3 list.
 - [ ] Every external service named in the specs is in the Category 2 list, with both a binary probe and (when feasible) a reachability probe.
 - [ ] Every hardware / accelerator signal ("GPU", "fine-tune", "local inference", "CUDA", "MPS", etc.) triggered the layered Category 4 probe.
-- [ ] Every requirement probed via the `terminal` tool with an actual version / availability command (no "looks installed" guesses).
+- [ ] Every requirement probed via the `bash` tool with an actual version / availability command (no "looks installed" guesses).
 - [ ] GPU / accelerator chains probed layer-by-layer (driver → device visibility → toolkit → acceleration libs → framework-sees-it → version match), with each layer reported separately.
 - [ ] Each result classified as PASS / WARN / FAIL.
 - [ ] Report has the verdict on the first line.

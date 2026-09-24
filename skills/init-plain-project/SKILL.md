@@ -35,17 +35,17 @@ What this skill does **not** do:
 
 ### 1. Ask the project basics
 
-Use **AskUserQuestion** for one tight batch covering:
+Ask each with `ask_user`, one question per call, in this order:
 
-- **Project name** — used as the top module filename and as `:AppName:` later. Free-form.
-- **Base technology** — programming language and primary framework (e.g. Python + FastAPI, Node.js + Express, Go + net/http, Java + Spring Boot). Offer the most common stacks plus free-form.
-- **Project kind** — CLI tool, web app, REST API / backend service, library, desktop app, mobile app, other. Offer the common kinds plus free-form.
+- **Project name** — used as the top module filename and as `:AppName:` later. Free-form (`free_form: true`).
+- **Base technology** — programming language and primary framework (e.g. Python + FastAPI, Node.js + Express, Go + net/http, Java + Spring Boot). Offer the most common stacks as options.
+- **Project kind** — CLI tool, web app, REST API / backend service, library, desktop app, mobile app, other. Offer the common kinds as options.
 
-Follow up with a free-form prompt for anything the options didn't cover (e.g. specific Python version, monorepo layout).
+Follow up with one free-form question for anything the options didn't cover (e.g. specific Python version, monorepo layout).
 
 ### 2. Ask about testing
 
-Use **AskUserQuestion** for one tight batch covering:
+Ask each with `ask_user`, one question per call:
 
 - **Unit testing framework** — propose the canonical one for the chosen language (pytest, Jest, Go `testing`, JUnit, ...) and let the user override.
 - **Conformance testing** — enabled or not. If the user is unsure, briefly explain it adds a `run_conformance_tests` script and per-spec acceptance tests later.

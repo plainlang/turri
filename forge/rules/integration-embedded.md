@@ -14,8 +14,8 @@ Embedded means: the host codebase already exists, has its own language / framewo
 
 - Language, framework, dependency manager, packaging layout, coding standards, error model, logging library, and architecture are **inherited** from the host — they are **never chosen** by the integration spec
 - Do not re-ask the user about any of these in any phase — they are facts to be discovered from the host's manifest files (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, …) and other integrations.
-- If a Phase 3 (`forge-plain`) tech-stack question seems to push back on a host rule, treat the host as ground truth and rewrite the question
-- Implementation reqs added in Phase 3 are **transcribed** from the host stack verbatim — host language and exact version, host framework + version, dependency manager and manifest path, packaging layout, host conventions the contract must follow, and every host-package version the contract pins
+- If a `forge-plain` stack-phase question seems to push back on a host rule, treat the host as ground truth and rewrite the question
+- Implementation reqs added in the stack phase are **transcribed** from the host stack verbatim — host language and exact version, host framework + version, dependency manager and manifest path, packaging layout, host conventions the contract must follow, and every host-package version the contract pins
 
 ## Project layout — the integration lives under `plain/` at the host root
 
@@ -44,7 +44,7 @@ This keeps the integration self-contained in one directory the user can `cd` int
 
 ## Discover before you ask
 
-Run host discovery **before** the first Phase 1 question. Treat the results as ground truth for everything that follows.
+Run host discovery **before** the first interview question. Treat the results as ground truth for everything that follows.
 
 1. **Locate the host's `.plain` setup (if any).** Look for an existing `.plain` file or directory, a `plain_modules/`, a `resources/`, and a `test_scripts/`. If the host already has a `.plain` setup, **adopt it verbatim**: the new integration module lands inside the existing `plain_source_dir` and `requires` the relevant base module (use `create-requires-module`). Do not create a parallel layout.
 2. **Read every existing integration in the host.** For each one, extract: intent and scope, host base class / interface / protocol the integration subclasses or implements, package path and naming convention, configuration pattern (env vars, settings module, secret manager), error / exception hierarchy, logging / metrics / tracing conventions, testing pattern (live vs recorded vs mocked, fixture location, conformance-test layout). The new integration must follow the same patterns unless the user explicitly opts out.
@@ -56,7 +56,7 @@ Run host discovery **before** the first Phase 1 question. Treat the results as g
    - Fully qualified import path of any host class / interface / struct / protocol the integration must conform to (e.g. `host_project.integrations.base.IntegrationContract`)
    - Host conventions (custom base classes, Pydantic major version, sync vs. async style, exception hierarchy, dependency-injection seams, logging library)
    - Target generated-class fully qualified name under `plain_modules/` (e.g. `plain_modules.integrations.<provider>.Client`) and the host base class it should subclass
-4. **Only ask the user what the codebase cannot tell you.** The user's time goes into the third-party API itself (provider, docs, endpoints, edge cases, webhooks) and authentication / credentials. Everything else is a deduction. If a deduction is ambiguous (two existing integrations subclass two different base classes), surface the ambiguity with a single-question `AskUserQuestion` that quotes both code locations — the question is about resolving a conflict the host already contains, not about asking the user to design the integration.
+4. **Only ask the user what the codebase cannot tell you.** The user's time goes into the third-party API itself (provider, docs, endpoints, edge cases, webhooks) and authentication / credentials. Everything else is a deduction. If a deduction is ambiguous (two existing integrations subclass two different base classes), surface the ambiguity with a single `ask_user` question that quotes both code locations — the question is about resolving a conflict the host already contains, not about asking the user to design the integration.
 
 ## Reference host symbols by fully qualified import path
 
@@ -145,7 +145,7 @@ Before declaring an embedded integration done, in addition to the shared checkli
 - [ ] Contract spec carries renderer directives (target language, target file path, target class name, host base class to subclass, host-package pins) and **links** to the contract schema; no class body is inlined
 - [ ] Every host symbol referenced in any spec uses its fully qualified import path and is tagged "imported from the host codebase; do not redefine"
 - [ ] Every host file the integration touches is linked at its **original host-relative path** — no host file has been copied into `resources/host/` or anywhere else, and no host file contents are inlined in any spec
-- [ ] `forge-plain` Phase 2's tech-stack decisions are transcribed verbatim from the host (no independent stack choices)
+- [ ] `forge-plain`'s stack-phase decisions are transcribed verbatim from the host (no independent stack choices)
 - [ ] Host-package version pins are copied into `***implementation reqs***`
 - [ ] `prepare_environment` copies `$1` into the host's source tree at the module's package path, cleans the host's build-output directory, and runs the host's install / build so the conformance suite can resolve the integration from the local dependency cache
 - [ ] `run_unittests` runs the same copy-into-host sequence (self-contained — does not depend on `prepare_environment` having run) and invokes the host's test runner scoped to the module's package

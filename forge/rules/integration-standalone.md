@@ -10,7 +10,7 @@ Standalone means: the integration is a complete application in its own right, pi
 
 ## The integration owns its tech stack
 
-Unlike embedded integrations, a standalone integration has no host to inherit from. Every stack decision is **explicit**, captured during `forge-plain` Phase 2, and recorded in `***implementation reqs***`:
+Unlike embedded integrations, a standalone integration has no host to inherit from. Every stack decision is **explicit**, captured during `forge-plain`'s stack phase, and recorded in `***implementation reqs***`:
 
 - **Implementation language** and its exact version
 - **HTTP client library** (e.g. `httpx`, `requests`, `node-fetch`, `axios`, `go-resty`, `reqwest`) — pinned, with the auth/retry/timeout features the integration uses called out
@@ -58,7 +58,7 @@ A standalone integration exposes one or more **entry points** to its consumers. 
 | Library | Public package surface (functions, classes) | JSON Schema for I/O + published-package manifest |
 | Webhook receiver | Provider-driven inbound HTTP | JSON Schema per event type under `resources/webhooks/` (shared with embedded — see [`integrations.md`](integrations.md)) |
 
-Each entry point gets its own functional spec describing what calling it does end-to-end (which Phase 1 specs it composes — auth, the endpoint call, the retry policy, the error handling).
+Each entry point gets its own functional spec describing what calling it does end-to-end (which earlier functional specs it composes — auth, the endpoint call, the retry policy, the error handling).
 
 ## Side effects are first-class — spell them out
 
@@ -77,7 +77,7 @@ Standalone integrations face concurrent load that an embedded library doesn't. T
 - **Expected peak throughput** (RPS) the consumer will issue
 - **Connection pool size**
 - **Request queue depth**
-- **Backpressure behavior** when the rate limit (from Phase 1 topic 10 — see [`integrations.md`](integrations.md)) and the consumer's demand collide — drop, queue, block with timeout, or 429 the consumer
+- **Backpressure behavior** when the provider's rate limit and the consumer's demand collide — drop, queue, block with timeout, or 429 the consumer
 - **Concurrency limits on mutating operations** — when the provider has its own per-resource serialization constraints
 
 Capture all of this as a concurrency concept and one functional spec for "apply backpressure when local demand exceeds rate-limit budget".
@@ -131,5 +131,5 @@ Before declaring a standalone integration done, in addition to the shared checkl
 - **Inlining fields from `resources/contract/<entry-point>.schema.json` into a functional spec.** The schema is the source of truth and is **published** — duplicating fields in spec text guarantees drift
 - **Mutating a published schema's `$id` / version path** instead of shipping a new file. Consumers may already be pinning the old version
 - **Treating configuration as "whatever env vars seem useful at runtime".** Every key lives in `resources/config.schema.json` with type, default, and validation; the loader fails fast on missing required values
-- **Picking a tech stack incrementally during Phase 3.** Decide it once at the top of `forge-plain` Phase 2 and transcribe into `***implementation reqs***`; don't accrete a stack across several specs
+- **Picking a tech stack incrementally while writing functional specs.** Decide it once in `forge-plain`'s stack phase and transcribe into `***implementation reqs***`; don't accrete a stack across several specs
 - **Hitting the live provider in rate-limit (429) or destructive-error (500) tests.** Use a local mock; live calls are for the happy path and for sandbox-safe error paths

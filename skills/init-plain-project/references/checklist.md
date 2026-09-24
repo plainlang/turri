@@ -7,8 +7,8 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 
 ## Ask the basics
 
-- [ ] Asked project basics in one `AskUserQuestion` batch (project name, base technology, project kind) plus a free-form catch-all.
-- [ ] Asked testing in one `AskUserQuestion` batch (unit-test framework, conformance on/off, and prepare-environment only if conformance was enabled).
+- [ ] Asked the project basics with `ask_user`, one question per call (project name, base technology, project kind), plus a free-form catch-all.
+- [ ] Asked testing with `ask_user`, one question per call (unit-test framework, conformance on/off, and prepare-environment only if conformance was enabled).
 
 ## Author the modules
 

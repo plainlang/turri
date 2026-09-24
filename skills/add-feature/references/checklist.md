@@ -20,7 +20,7 @@ Use this to verify the workflow was followed — never as a substitute for it. R
 
 ## Every loop iteration (Phase 2)
 
-- [ ] Asked exactly one focused question via `AskUserQuestion` — not two bundled together — targeting one writable snippet (behavior, one concept/attribute, one edge case, one constraint, implementation guidance, or verification).
+- [ ] Asked exactly one focused question via `ask_user` — not two bundled together — targeting one writable snippet (behavior, one concept/attribute, one edge case, one constraint, implementation guidance, or verification).
 - [ ] Wrote the snippet to disk immediately after the answer via the dedicated edit skill — never hand-authored a `***plain` section.
 - [ ] Every functional spec was authored via `add-functional-spec` (never hand-written); if it reported "too complex", split it via a follow-up question rather than alone.
 - [ ] New concepts defined before they are referenced, with no circular references.
