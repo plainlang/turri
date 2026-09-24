@@ -109,7 +109,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   for (const job of running) {
     if (lines.length > 0) lines.push("");
     const spent = describeUsage(job.usage);
-    lines.push(`${spinner(now)} ${job.summary} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`);
+    const model = job.model ? ` · ${shortModel(job.model)}` : "";
+    lines.push(`${spinner(now)} ${job.summary}${model} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`);
     if (job.diff !== undefined) {
       lines.push(`    ${summarizeDiff(job.diff, diffStyle)}`);
       if (expanded) {
@@ -246,4 +247,10 @@ export function createJobPanel(list: () => Job[]): JobPanel {
       pending.unref?.();
     },
   };
+}
+
+/** A model as the panel shows it: its id without the provider - "gemini-3.1-flash-lite". */
+export function shortModel(model: string): string {
+  const slash = model.indexOf("/");
+  return slash === -1 ? model : model.slice(slash + 1);
 }

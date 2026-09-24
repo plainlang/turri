@@ -10,6 +10,7 @@ import { ensureRegressionPasses, regenerateFunctionality } from "./module.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { moduleLanes } from "./lanes.ts";
 import { findCodebaseTip } from "./requires.ts";
+import type { RenderWork } from "./models.ts";
 import { describeSpecDiff, renderSpecDiff, type SpecSnapshot } from "./spec-change.ts";
 import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
@@ -30,6 +31,8 @@ export interface RenderRequest {
   frid: string;
   /** The specification changed after this functionality was already built. */
   regenerate?: boolean;
+  /** "provider/model-id" to render it on, settled when it was queued. */
+  model?: string;
 }
 
 export interface QueuedRender extends RenderRequest {
@@ -79,10 +82,17 @@ export function createRenderQueue(options: {
   registry: JobRegistry;
   cwd: string;
   buildDir?: string;
+  /** The model when modelFor is not given. */
   model?: string;
+  /**
+   * The model for a kind of work, asked when a job is queued - so a job keeps the model it was
+   * asked with, and one queued after the person chose another model gets that one.
+   */
+  modelFor?: (work: RenderWork) => string | undefined;
   /** Defaults to actually rendering. */
   run?: RenderRunner;
 }): RenderQueue {
+  const modelOf = (work: RenderWork) => (options.modelFor ? options.modelFor(work) : options.model);
   const runner: RenderRunner = options.run ?? defaultRunner(options);
   const queued: QueuedRender[] = [];
   const jobs = new Map<string, Job>();
@@ -96,10 +106,12 @@ export function createRenderQueue(options: {
   return {
     enqueueSpecDiff(request) {
       const plainFile = resolve(options.cwd, request.plainFile);
+      const model = modelOf("spec_changes");
       const job = options.registry.start({
         kind: "render_spec_diff",
         summary: `${basename(plainFile)} render spec diff`,
         diff: request.diff,
+        model,
         lanes: [queueLane, ...moduleLanes(codebaseOf(plainFile), options.buildDir)],
         run: async (onDelta) => {
           // write_spec_diff applied it, and parsed the spec, when it was written; later changes
@@ -108,7 +120,7 @@ export function createRenderQueue(options: {
             plainFile,
             diff: request.diff,
             cwd: options.cwd,
-            model: options.model,
+            model,
             applied: request.applied,
             spec: request.spec,
             // Queued from an interview: the person is there, trying each change as it lands.
@@ -125,13 +137,15 @@ export function createRenderQueue(options: {
 
     enqueue(request) {
       const plainFile = resolve(options.cwd, request.plainFile);
+      const model = request.model ?? modelOf("functionalities");
 
       const job = options.registry.start({
         kind: request.regenerate ? "regenerate" : "render",
+        model,
         // Short enough to read in a one-line queue: the file's name, not its path.
         summary: `${basename(plainFile)} fs ${request.frid}${request.regenerate ? " (rebuild)" : ""}`,
         lanes: [queueLane, ...moduleLanes(request.regenerate ? codebaseOf(plainFile) : plainFile, options.buildDir)],
-        run: (onDelta) => runner({ ...request, plainFile }, onDelta),
+        run: (onDelta) => runner({ ...request, plainFile, model }, onDelta),
       });
 
       jobs.set(job.id, job);
@@ -229,7 +243,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
       plainFile: request.plainFile,
       frid: request.frid,
       buildDir: options.buildDir,
-      model: options.model,
+      model: request.model ?? options.model,
       onDelta,
     };
 

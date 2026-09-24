@@ -84,7 +84,7 @@ export function transcriptLines(job: Job, width: number, style: TranscriptStyle 
 
 function header(job: Job): string {
   const spent = describeUsage(job.usage);
-  return `${job.summary} · ${job.status} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`;
+  return `${job.summary} · ${job.status}${job.model ? ` · ${job.model}` : ""} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`;
 }
 
 export interface TranscriptViewOptions {

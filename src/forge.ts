@@ -50,6 +50,11 @@ export async function runSkill(opts: {
   context?: string;
   /** Pick up the run of this skill that was interrupted here, rather than start a new one. */
   resume?: boolean;
+  /**
+   * Tools the conversation's agent has that the skill's agent needs as well, because the person
+   * talks to the skill's agent while it runs - choosing the render model, for one.
+   */
+  sharedTools?: ToolDefinition[];
 }): Promise<RunSkillResult> {
   const skill = loadSkill(opts.skillDir);
   const runDir = resolve(opts.runDir);
@@ -120,6 +125,7 @@ export async function runSkill(opts: {
   }
   if (specs !== undefined) customTools.push(...specs.tools);
   if (diffs !== undefined) customTools.push(...diffs.tools);
+  customTools.push(...(opts.sharedTools ?? []));
 
   const names = customTools.map((tool) => tool.name);
   // Tools this harness provides are never pi built-ins, even when it did not provide them.

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
@@ -16,6 +17,7 @@ import { describeChain } from "./render/requires.ts";
 import { createProgressTracker } from "./render/progress.ts";
 import { describeDelivery } from "./render/delivery.ts";
 import { vmSummary } from "./render/vm.ts";
+import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
@@ -196,6 +198,7 @@ export default function (pi: ExtensionAPI) {
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
+  registerRenderModels(pi);
 
   const { skills, pending } = discoveredSkills;
   if (skills.length === 0) return;
@@ -318,7 +321,10 @@ export default function (pi: ExtensionAPI) {
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
         // check_job and list_jobs see them without knowing a skill started them.
-        renderQueue: createRenderQueue({ registry: jobs, cwd, model: conversationModel(ctx) }),
+        // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
+        renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work) => modelFor(chosenModels, work, chatModelOf(ctx)) }),
+        // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
+        sharedTools: [setRenderModelTool(pi, ctx)],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -391,7 +397,7 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const plainFile = resolve(cwd, params.plain_file);
-      const model = conversationModel(ctx, params.model);
+      const model = jobModel(ctx, "functionalities", params.model);
 
       if (params.frid === undefined) {
         const { moduleName, frids } = listFrids(plainFile);
@@ -517,7 +523,7 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      const model = conversationModel(ctx, params.model);
+      const model = jobModel(ctx, "functionalities", params.model);
       const scope = params.chain
         ? "whole chain"
         : params.frids !== undefined
@@ -659,7 +665,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      const model = conversationModel(ctx, params.model);
+      const model = jobModel(ctx, "functionalities", params.model);
       return deliver(jobs, {
         kind: "render_module",
         summary: `${basename(params.plain_file)} module${params.from ? ` from fs ${params.from}` : ""}${params.to ? ` to fs ${params.to}` : ""}`,
@@ -866,7 +872,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      const model = conversationModel(ctx, params.model);
+      const model = jobModel(ctx, "spec_changes", params.model);
       const plainFile = resolve(cwd, params.plain_file);
       // Applied and parsed now, with the call: that parse is what the job builds and records,
       // whatever changes reach the files while it waits its turn.
@@ -947,7 +953,7 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      const model = conversationModel(ctx, params.model);
+      const model = jobModel(ctx, "functionalities", params.model);
       const plainFile = resolve(cwd, params.plain_file);
       // The job writes the codebase it regenerates in, so it claims that chain's modules.
       let lanesFrom = plainFile;
@@ -1024,8 +1030,9 @@ function conformanceOption(asked: boolean | undefined): false | undefined {
 const MODEL_PARAM = Type.Optional(
   Type.String({
     description:
-      '"provider/model-id" for the agents this tool spawns. Defaults to the model this ' +
-      "conversation is using.",
+      "The model for the agents of this one call: a provider/model-id, or its name as the user said it. " +
+      "Omitted: the model chosen for this kind of work with set_render_model, else the conversation's. " +
+      "To change it for every later render, use set_render_model instead.",
   }),
 );
 
@@ -1039,6 +1046,112 @@ const MODEL_PARAM = Type.Optional(
 function conversationModel(ctx: ExtensionContext, override?: string): string | undefined {
   if (override !== undefined) return override;
   return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+}
+
+/**
+ * The chat's model, read now - it can change while a skill runs - or, from a context that has
+ * gone stale since, the model it had when it was last readable.
+ */
+function chatModelOf(ctx: ExtensionContext): string | undefined {
+  try {
+    const now = conversationModel(ctx);
+    lastChatModel = now ?? lastChatModel;
+    return now;
+  } catch {
+    return lastChatModel;
+  }
+}
+let lastChatModel: string | undefined;
+
+/** The models chosen in this session, by kind of work. Saved in the session, so a resume keeps them. */
+const chosenModels: ModelChoices = {};
+const MODEL_CHOICE_ENTRY = "plainwright_render_models";
+
+/**
+ * The model a job's agents run on: the one named on the call, checked now so a wrong name fails
+ * here and not minutes later in the background; else the one chosen for its kind of work; else
+ * the conversation's.
+ */
+function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string): string | undefined {
+  if (named !== undefined && named.trim() !== "") {
+    const resolved = resolveModel(named, ctx.modelRegistry);
+    if (!resolved.ok) throw new Error(describeResolution(resolved));
+    return resolved.model;
+  }
+  return modelFor(chosenModels, work, chatModelOf(ctx));
+}
+
+/**
+ * set_render_model, for the conversation's agent and for a skill's agent - whom the person talks
+ * to while the skill runs - alike: both write the same choice. `conversation` is the context to
+ * read models and the chat's model from; omitted, the one the tool is called with.
+ */
+function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
+  return defineTool({
+    name: "set_render_model",
+    label: "Set render model",
+    description:
+      "Choose which model the agents that render run on, for the rest of this session: for spec changes " +
+      "(render spec diff jobs, and the ones write_spec_diff queues), for functionalities (render, module, " +
+      "regenerate, conformance, and the ones write_functional_spec queues), or for everything. By default " +
+      "each runs on the conversation's model. The model may be given as provider/model-id or by name as " +
+      "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
+      "list - ask the user which they meant, never pick one yourself. Jobs already queued keep their model.",
+    promptSnippet: "set_render_model: choose the model that renders spec changes or functionalities",
+    promptGuidelines: [
+      "When the user says which model should render or build something, call set_render_model - once; it holds for the rest of the session.",
+      "If set_render_model returns several candidates, ask the user which one with ask_user or in your reply, then call it again with the exact provider/model-id.",
+      "Say which model a render will run on when you start one on something other than the conversation's model.",
+    ],
+    parameters: Type.Object({
+      work: Type.Union([Type.Literal("spec_changes"), Type.Literal("functionalities"), Type.Literal("all")], {
+        description: "spec_changes, functionalities, or all of it",
+      }),
+      model: Type.String({
+        description: 'provider/model-id, or the model\'s name as the user said it. "chat" goes back to the conversation\'s model.',
+      }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, called) {
+      const ctx = conversation ?? called;
+      const works: Array<RenderWork | "all"> = params.work === "all" ? ["all", "spec_changes", "functionalities"] : [params.work];
+      if (/^(chat|default|conversation)$/i.test(params.model.trim())) {
+        for (const work of works) delete chosenModels[work];
+      } else {
+        const resolved = resolveModel(params.model, ctx.modelRegistry);
+        if (!resolved.ok) throw new Error(describeResolution(resolved));
+        if (params.work === "all") {
+          delete chosenModels.spec_changes;
+          delete chosenModels.functionalities;
+        }
+        chosenModels[params.work] = resolved.model;
+      }
+      pi.appendEntry(MODEL_CHOICE_ENTRY, { ...chosenModels });
+      const text = `Renders now run on:\n${describeChoices(chosenModels, chatModelOf(ctx))}`;
+      return { content: [{ type: "text" as const, text }], details: { ...chosenModels } };
+    },
+  });
+}
+
+/** Choosing which model renders what, for the rest of the session. */
+function registerRenderModels(pi: ExtensionAPI) {
+  pi.on("session_start", (_event, ctx) => {
+    for (const key of Object.keys(chosenModels)) delete chosenModels[key as keyof ModelChoices];
+    const saved = ctx.sessionManager
+      .getBranch()
+      .filter((entry) => entry.type === "custom" && (entry as { customType?: string }).customType === MODEL_CHOICE_ENTRY)
+      .at(-1) as { data?: ModelChoices } | undefined;
+    Object.assign(chosenModels, saved?.data ?? {});
+  });
+
+  pi.registerTool(setRenderModelTool(pi));
+
+  pi.registerCommand("render-model", {
+    description: "Show which model renders spec changes and functionalities. To change it, tell the agent.",
+    handler: async (_args, ctx) => {
+      const text = `Renders run on:\n${describeChoices(chosenModels, chatModelOf(ctx))}\n\nTo change it, say so - e.g. "render spec changes with gpt 5.5".`;
+      if (ctx.hasUI) ctx.ui.notify(text, "info");
+    },
+  });
 }
 
 const WAIT_PARAM = Type.Optional(
@@ -1096,6 +1209,7 @@ async function deliver(
     kind: input.kind,
     summary,
     diff: input.diff,
+    model: input.model,
     lanes: input.lanes,
     // Background work writes through the same terminal the TUI is drawing on, so its
     // console output is collected rather than printed.
@@ -1418,7 +1532,8 @@ function listJobs(jobs: JobRegistry): string {
       const time = job.status === "queued" ? "waiting" : formatDuration(job);
       const after = job.status === "queued" ? `  (after ${job.waitingOn.join(", ")})` : "";
       const spent = describeUsage(job.usage);
-      return `${job.id}  ${job.status.padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${after}${spent ? `  · ${spent}` : ""}`;
+      const model = job.model ? `  · ${job.model}` : "";
+      return `${job.id}  ${job.status.padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${model}${after}${spent ? `  · ${spent}` : ""}`;
     })
     .join("\n");
 }

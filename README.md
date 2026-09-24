@@ -464,7 +464,31 @@ Set it in iTerm2 / Ghostty / Alacritty, not here.
 
 ## Choosing a model
 
-Both tools use whatever pi is configured to use, or `--model provider/model-id` per run:
+In a conversation, every render runs on the conversation's model unless you say otherwise.
+Say it in words - "render spec changes with gpt 5.5", "build the functionalities on Gemini 3.6
+Flash", "use Claude for everything" - and the agent calls `set_render_model`, which holds for
+the rest of the session (a resumed one too):
+
+| kind of work | covers |
+| --- | --- |
+| spec changes | render spec diff jobs, including the ones forge-diff queues as you answer |
+| functionalities | render functionality, render module, regenerate, conformance, including the ones forge-plain queues |
+| everything | both |
+
+It works mid-interview as well: the skill's agent has the same tool. Jobs already queued keep
+the model they were queued with; `"chat"` goes back to the conversation's model. `/render-model`
+shows what each kind of work runs on, and each job shows its model in the panel, in `/watch`
+and in `/jobs`. A render tool can also be given a model for that one call.
+
+Names are resolved strictly, because pi's own matching guesses and says nothing ("gpt-5" can
+land on a Bedrock model you have no key for). An exact `provider/model-id` is taken as it is. A
+looser name is taken when it fits exactly one model you have credentials for, or is exactly one
+model's id in other words ("gpt 5.5" is `openai/gpt-5.5`, not `gpt-5.5-pro`). Anything else
+comes back as a short list - "gemini flash 3.1" fits Gemini 3.1 Flash Lite and its preview - and
+the agent asks you which one; a model whose provider has no credentials is never picked, and it
+says which provider needs a key.
+
+From the command line, the tools use whatever pi is configured to use, or `--model provider/model-id` per run:
 
 ```bash
 npm run render -- <file.plain> 1 --model google/gemini-3.1-pro-preview
