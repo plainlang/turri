@@ -1,5 +1,7 @@
+# plainwright - coding agent with the power of regenerative software
+
 <p align="center">
-  <img src="docs/assets/banner.png" alt="plainwright - Regenerative software.">
+  <img src="docs/assets/banner.png" alt="plainwright - coding agent with the power of regenerative software.">
 </p>
 
 You and an agent write down what the system should do, as ***plain*** specs. The agent builds the
@@ -132,6 +134,8 @@ More: [using plainwright](docs/using.md); to render a spec overnight, see
 [running unattended](docs/headless.md).
 
 ## Documentation
+
+Start at the [documentation index](docs/README.md), or go straight to a page:
 
 | | |
 | --- | --- |
