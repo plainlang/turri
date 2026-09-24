@@ -7,12 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const prompts: string[] = [];
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
+  // Asked to leave notes, it does - and that is not a turn the test is about.
+  if (prompt.startsWith("Before you finish: call update_notes")) {
+    await session.tools.find((candidate) => candidate.name === "update_notes")!.execute("id", {
+      changes: [{ section: "where", action: "add", text: "stub agent was here" }],
+    });
+    return "Done.";
+  }
   prompts.push(prompt);
   await session.tools.find((tool) => tool.name === "run_unit_tests")!.execute("id", { command });
   return "Done.";
 }
 /** As a real agent would: a unit test, then the whole suite - the run the harness then repeats. */
 async function passingAgent(session: StubSession, prompt: string) {
+  if (prompt.startsWith("Before you finish: call update_notes")) return agentRunning("", session, prompt);
   await session.tools.find((tool) => tool.name === "write")!.execute("id", {
     path: "test_app.py",
     content: "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",

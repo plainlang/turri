@@ -3,6 +3,7 @@ import { basename, dirname } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ensureInVmScratch } from "./paths.ts";
+import { NOTES_FILE } from "./notes.ts";
 import { STATE_FILE } from "./state.ts";
 import { runCommand, truncateOutput } from "./testing.ts";
 
@@ -172,7 +173,7 @@ export function failedStepsPrompt(tryIt: TryIt, outputs: Map<string, string>): s
 }
 
 /** What is not copied: caches, installed dependencies, and the harness's own bookkeeping. */
-const NOT_COPIED = new Set([".git", ".plainwright", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", STATE_FILE]);
+const NOT_COPIED = new Set([".git", ".plainwright", NOTES_FILE, "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", STATE_FILE]);
 
 /**
  * A fresh copy of the build to try it from, replacing any earlier copy for this functionality.

@@ -6,6 +6,7 @@ import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPl
 import { reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
+import { notesForSession, withNotes } from "./notes.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
@@ -188,6 +189,9 @@ export async function renderFunctionality(
     });
   }
 
+  // Led by what earlier agents on this codebase left, and asked to leave the same.
+  prompt = withNotes(prompt, buildDir);
+
   if (options.dryRun) {
     return {
       moduleName,
@@ -225,10 +229,11 @@ export async function renderFunctionality(
   // nowhere else. Nothing above `plain_modules` is reachable, including this repo.
   const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
+  const notes = notesForSession(buildDir);
   const executor = await createExecutor({
     cwd: buildDir,
-    customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), ...fence.tools],
-    tools: [...fence.names, ...EXTRA_CODING_TOOLS],
+    customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...fence.tools],
+    tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes"],
     model: options.model,
   });
 
@@ -291,6 +296,7 @@ export async function renderFunctionality(
         stage,
       });
     }
+    await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const files = listFiles(buildDir);
 
     // Passing means the harness's own run of the whole suite passed. Working out how to try it

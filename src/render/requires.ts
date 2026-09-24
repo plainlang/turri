@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot } from "./paths.ts";
+import { notesPath } from "./notes.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { inheritRecord, STATE_FILE, type RequiredSpec, type SharedSections } from "./state.ts";
 import { head, recordHistory } from "./history.ts";
@@ -205,6 +206,8 @@ export function copyRequiredCode(
     copyFileSync(join(from, file), target);
     copied.push(file);
   }
+  // The working notes describe this code, so they come up with it.
+  if (existsSync(notesPath(from)) && !existsSync(notesPath(to))) copyFileSync(notesPath(from), notesPath(to));
   // The record comes with the code, as what the new module inherits - not as its own work.
   inheritRecord(from, to, toModule, sections);
 

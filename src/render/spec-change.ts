@@ -23,6 +23,7 @@ import { describeTryIt } from "./delivery.ts";
 import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
+import { notesForSession, withNotes } from "./notes.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
@@ -230,9 +231,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const runs: TestRun[] = [];
   const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
+  const notes = notesForSession(buildDir);
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [
+      notes.tool,
       createTryItTool((submitted) => (tryIt = submitted)),
       createRunTestsTool({
         name: "run_unit_tests",
@@ -243,7 +246,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       }),
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it"],
+    tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes"],
     model: options.model,
   });
 
@@ -253,7 +256,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   try {
     reportStage(`${moduleName}: implementing the spec change`);
     let inventory = inventoryTests(buildDir);
-    response = await ask(executor, prompt, options.onDelta);
+    response = await ask(executor, withNotes(prompt, buildDir), options.onDelta);
     for (let followUp = 0; followUp < MAX_FOLLOW_UPS; followUp += 1) {
       const current = inventoryTests(buildDir);
       const removals = findTestRemovals(inventory, current);
@@ -297,6 +300,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         stage: (label) => reportStage(`${moduleName}: ${label}`),
       });
     }
+    await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
   } finally {
     executor.dispose();
   }

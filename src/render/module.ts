@@ -18,6 +18,7 @@ import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
+import { notesForSession, withNotes } from "./notes.ts";
 import { ATTEMPTS, describeStop, type StopFacts } from "./stop-report.ts";
 import {
   copyRequiredCode,
@@ -49,7 +50,7 @@ import {
 } from "./testing.ts";
 
 /** On top of the file tools, which are fenced to the build directory by `confine.ts`. */
-const FIX_TOOLS = ["run_unit_tests"];
+const FIX_TOOLS = ["run_unit_tests", "update_notes"];
 const DEFAULT_MAX_REGRESSION_ROUNDS = ATTEMPTS.regression;
 
 export interface RegressionRun extends TestRun {
@@ -157,9 +158,11 @@ async function repairRegression(input: {
   const runs: TestRun[] = [];
 
   const fence = confinedTools({ workdir: input.buildDir });
+  const notes = notesForSession(input.buildDir);
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [
+      notes.tool,
       ...fence.tools,
       createRunTestsTool({
         name: "run_unit_tests",
@@ -180,17 +183,21 @@ async function repairRegression(input: {
       start: () =>
         ask(
           session,
-          buildRegressionFixPrompt({
-            moduleName: input.moduleName,
-            frids: input.frids,
-            specifications,
-            required: input.required,
-            failure: input.failure,
-          }),
+          withNotes(
+            buildRegressionFixPrompt({
+              moduleName: input.moduleName,
+              frids: input.frids,
+              specifications,
+              required: input.required,
+              failure: input.failure,
+            }),
+            input.buildDir,
+          ),
           input.onDelta,
         ),
       again: (prompt) => ask(session, prompt, input.onDelta),
     });
+    await notes.ensureWritten((next) => ask(session, next, input.onDelta));
     return restored.length > 0
       ? `${report}\n\n(The harness put back ${restored.length} conformance test file(s) this repair changed.)`
       : report;

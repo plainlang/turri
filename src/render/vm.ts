@@ -142,15 +142,23 @@ const FILE_TYPE = 0o170000;
 
 function executable(stats: Stats): Stats {
   if ((stats.mode & FILE_TYPE) === REGULAR_FILE) stats.mode |= 0o111;
+  // Owned by root, who runs everything in the VM - not by the host user's uid.
+  stats.uid = 0;
+  stats.gid = 0;
   return stats;
 }
 
 /**
- * The host folder, with every regular file executable.
+ * The host folder, with every regular file executable and owned by root.
  *
  * Gondolin's mounts cannot carry a mode change: a `chmod +x` is dropped, and what a compiler
  * writes lands as 0644, so a built binary, a `./gradlew` or a test script would not run. The
  * VM holds nothing but this folder, so marking its files executable gives nothing away.
+ *
+ * And they would show the host user's uid, while everything in the VM runs as root. Tools that
+ * check who owns a file then refuse it: a JVM ignores an attach request whose trigger file,
+ * written to its working directory, is not its own - which breaks Mockito's inline mocks and
+ * anything else that attaches an agent - and git calls such a repository dubious.
  */
 class ExecutableFSProvider extends RealFSProvider {
   override async stat(path: string, options?: object): Promise<Stats> {

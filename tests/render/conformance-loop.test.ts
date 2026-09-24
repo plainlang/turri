@@ -17,6 +17,13 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
     ...actual,
     createExecutor: async (opts: { customTools: StubSession["tools"] }) => ({ tools: opts.customTools, dispose() {} }),
     ask: vi.fn(async (session: StubSession, prompt: string) => {
+      // Asked to leave notes, it does - and that is not a turn the test is about.
+      if (prompt.startsWith("Before you finish: call update_notes")) {
+        await session.tools.find((candidate) => candidate.name === "update_notes")!.execute("id", {
+          changes: [{ section: "where", action: "add", text: "stub agent was here" }],
+        });
+        return "Done.";
+      }
       prompts.push(prompt);
       const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
       if (prompts.length === 1) {
@@ -77,5 +84,19 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(prompts[1]).toContain("Work out, against the specification, what is wrong - your test or the code");
     // Its own passing run, then the harness's.
     expect(result.runs.map((run) => run.exitCode)).toEqual([1, 0, 0]);
+
+    // It started with no notes, and left some - which the next agent on this codebase starts with.
+    expect(prompts[0]).toContain("No earlier agent has left notes on this codebase yet.");
+    prompts.length = 0;
+    writeFileSync(join(codeDir, "app.py"), "print('goodbye')\n");
+    await renderConformanceTests({
+      plainFile: join(root, "app.plain"),
+      frid: "1",
+      buildDir: codeDir,
+      conformanceDir: join(root, "plain_modules", "app", "tests"),
+      continuing: true,
+    });
+    expect(prompts[0]).toContain("<notes from earlier agents>");
+    expect(prompts[0]).toContain("- stub agent was here");
   });
 });

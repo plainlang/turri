@@ -185,6 +185,20 @@ describe.runIf(vmSupported() && vmImage() !== undefined)("the plainwright image"
     }
   });
 
+  it("lets a JVM in the code attach an agent to itself, as Mockito's inline mocks do", async () => {
+    // The JVM only answers an attach whose trigger file, written to its working directory, is
+    // its own - so the host folder's files have to be root's, as the VM's commands are.
+    writeFileSync(
+      join(code, "Self.java"),
+      "public class Self { public static void main(String[] a) throws Exception {\n" +
+        "  var vm = com.sun.tools.attach.VirtualMachine.attach(String.valueOf(ProcessHandle.current().pid()));\n" +
+        '  System.out.println("attached"); vm.detach(); } }\n',
+    );
+    const result = await runInVm("stat -c %u Self.java && java -Djdk.attach.allowAttachSelf=true Self.java", { cwd: code });
+    expect(result.output).toMatch(/^0\n/);
+    expect(result.output).toContain("attached");
+  });
+
   it("keeps a system package the agent installed, for every VM the project starts", async () => {
     const fence = confinedTools({ workdir: code });
     const install = fence.tools.find((t) => t.name === "install_system_packages")!;

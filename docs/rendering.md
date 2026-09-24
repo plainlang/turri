@@ -11,6 +11,7 @@ code or tests, and the harness decides what runs next and whether the work is do
 | `plain_modules/<module>/code/` | the implementation and its unit tests |
 | `plain_modules/<module>/tests/` | the black-box conformance tests, organised however suits them |
 | `plain_modules/<module>/code/.plainwright.json` | the build record - see [below](#the-build-record) |
+| `plain_modules/<module>/code/.plainwright-notes.md` | the agents' working notes - see [below](#working-notes) |
 | `plain_modules/<module>/.plaingit` | the module's history - see [using](using.md#module-history) |
 
 A module that `requires` another starts from a copy of that module's code and tests, and builds on
@@ -178,6 +179,29 @@ self.assertEqual(completed.stdout.strip(), "hello, world")
 
 Code that prints `goodbye` instead fails the test; the agent fixes the code, and the harness's own
 runs - the suite, then the unit tests of the changed code - pass (`tests/render/conformance-loop.test.ts`).
+
+## Working notes
+
+Every agent is a fresh session, and without help each one would spend its first turns finding its
+bearings. So each agent working on a codebase - render, spec change, conformance, regression repair -
+starts with the notes the agents before it left, and before it finishes it updates them: a line
+added, changed or removed, never the whole thing rewritten. Four sections:
+
+| | |
+| --- | --- |
+| Where things are | entry points, layout, where each functionality lives |
+| How to build, run and test | the commands that work, what had to be installed |
+| Assumptions | what an agent assumed where the spec is silent - a format, a default, a choice it leaves open |
+| Pitfalls | what went wrong and what fixed it |
+
+Stubborn on the specs, flexible on the assumptions: the spec is never an assumption and never
+copied into the notes, and where the two disagree the spec wins. An agent builds on the assumptions
+already there, and changes one the moment the code or the spec shows it wrong.
+
+The notes are disposable - delete the file and nothing breaks; the next agent just explores a little
+more. They live in the code folder, so they are committed with it, reset with it after an
+interrupted run, and copied up with it to a module that requires this one. They are not part of the
+codebase: they are left out of the code map, the file lists and the try-it copies.
 
 ## The build record
 

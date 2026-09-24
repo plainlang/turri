@@ -1,0 +1,130 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  applyNotesChanges,
+  createNotesTool,
+  formatNotes,
+  NOTES_FILE,
+  notesForSession,
+  parseNotes,
+  readNotes,
+  withNotes,
+} from "../../src/render/notes.ts";
+import { copyRequiredCode } from "../../src/render/requires.ts";
+import { listFiles } from "../../src/render/testing.ts";
+
+let root: string;
+let code: string;
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-notes-")));
+  code = join(root, "plain_modules", "app", "code");
+  mkdirSync(code, { recursive: true });
+});
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+const start = {
+  where: ["Entry point: app/main.py"],
+  run: ["Unit tests: .venv/bin/pytest"],
+  assumptions: ["Dates are stored as UTC ISO strings"],
+  pitfalls: [],
+};
+
+describe("updating the notes", () => {
+  it("adds, changes and removes single lines, and keeps the rest", () => {
+    const { notes, problems } = applyNotesChanges(start, [
+      { section: "where", action: "add", text: "Routes: app/routes/*.py" },
+      { section: "assumptions", action: "change", replaces: "Dates are stored", text: "Dates are stored as Unix seconds" },
+      { section: "run", action: "remove", text: "Unit tests: .venv/bin/pytest" },
+      { section: "pitfalls", action: "add", text: "pytest needs PYTHONPATH=." },
+    ]);
+    expect(problems).toEqual([]);
+    expect(notes).toEqual({
+      where: ["Entry point: app/main.py", "Routes: app/routes/*.py"],
+      run: [],
+      assumptions: ["Dates are stored as Unix seconds"],
+      pitfalls: ["pytest needs PYTHONPATH=."],
+    });
+  });
+
+  it("refuses to change or remove a line that is not there, and shows what is", () => {
+    const { problems } = applyNotesChanges(start, [
+      { section: "assumptions", action: "remove", text: "IDs are UUIDs" },
+      { section: "where", action: "change", text: "anything" },
+    ]);
+    expect(problems[0]).toContain('Assumptions has no line "IDs are UUIDs". Its lines now:\n  - Dates are stored as UTC ISO strings');
+    expect(problems[1]).toContain("has to name the line it replaces");
+  });
+
+  it("does not add the same line twice", () => {
+    const { notes } = applyNotesChanges(start, [{ section: "where", action: "add", text: "Entry point: app/main.py" }]);
+    expect(notes.where).toEqual(["Entry point: app/main.py"]);
+  });
+
+  it("reads back what it writes", () => {
+    expect(parseNotes(formatNotes(start))).toEqual(start);
+  });
+});
+
+describe("the update_notes tool", () => {
+  const call = (tool: ReturnType<typeof createNotesTool>, changes: unknown[]) =>
+    (tool as any).execute("id", { changes }, undefined, undefined, {} as never);
+
+  it("saves the notes beside the code, and says it was used", async () => {
+    let used = false;
+    const tool = createNotesTool(code, () => (used = true));
+    await call(tool, [{ section: "assumptions", action: "add", text: "A missing name greets World" }]);
+    expect(used).toBe(true);
+    expect(readNotes(code).assumptions).toEqual(["A missing name greets World"]);
+    expect(readFileSync(join(code, NOTES_FILE), "utf8")).toContain("## Assumptions\n\n- A missing name greets World");
+  });
+
+  it("saves nothing when a change cannot be applied, or the notes would grow too long", async () => {
+    const tool = createNotesTool(code, () => {});
+    await expect(call(tool, [{ section: "where", action: "remove", text: "nope" }])).rejects.toThrow(/Nothing saved/);
+    await expect(call(tool, [{ section: "pitfalls", action: "add", text: "x".repeat(7000) }])).rejects.toThrow(/limit is 6000/);
+    expect(existsSync(join(code, NOTES_FILE))).toBe(false);
+  });
+
+  it("is asked for, once, when an agent finishes without it", async () => {
+    const asked: string[] = [];
+    const session = notesForSession(code);
+    await session.ensureWritten(async (prompt) => asked.push(prompt));
+    expect(asked).toHaveLength(1);
+    await call(session.tool, [{ section: "where", action: "add", text: "x" }]);
+    await session.ensureWritten(async (prompt) => asked.push(prompt));
+    expect(asked).toHaveLength(1);
+  });
+});
+
+describe("what an agent is given when it starts", () => {
+  it("leads with the notes, and asks it to update them - stubborn on the specs, flexible on the assumptions", () => {
+    writeFileSync(join(code, NOTES_FILE), formatNotes(start));
+    const prompt = withNotes("Implement functionality 2.", code);
+    expect(prompt.indexOf("<notes from earlier agents>")).toBeLessThan(prompt.indexOf("Implement functionality 2."));
+    expect(prompt).toContain("- Dates are stored as UTC ISO strings");
+    expect(prompt).toContain("call update_notes");
+    expect(prompt).toContain("Stubborn on the specification, flexible on the assumptions");
+  });
+
+  it("says so when there are none yet", () => {
+    expect(withNotes("Implement functionality 1.", code)).toContain("No earlier agent has left notes on this codebase yet.");
+  });
+});
+
+describe("the notes, beside the code", () => {
+  it("are not code: not listed, not shown in the codebase", () => {
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    writeFileSync(join(code, NOTES_FILE), formatNotes(start));
+    expect(listFiles(code)).toEqual(["app.py"]);
+  });
+
+  it("come up with the code to a module that requires this one", () => {
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    writeFileSync(join(code, NOTES_FILE), formatNotes(start));
+    const next = join(root, "plain_modules", "next", "code");
+    copyRequiredCode(code, next, "next");
+    expect(readNotes(next)).toEqual(start);
+  });
+});

@@ -3,6 +3,7 @@ import { basename, dirname, join, relative } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
+import { NOTES_FILE } from "./notes.ts";
 import { STATE_FILE } from "./state.ts";
 import { runInVm } from "./vm.ts";
 
@@ -47,6 +48,8 @@ const NOT_CODE = new Set([
   ".mypy_cache",
   ".ruff_cache",
   ".plainwright",
+  // Working notes for the agents: not part of the codebase either (see notes.ts).
+  NOTES_FILE,
   STATE_FILE,
 ]);
 

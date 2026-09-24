@@ -17,6 +17,13 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
     ...actual,
     createExecutor: async (opts: { customTools: StubSession["tools"] }) => ({ tools: opts.customTools, dispose() {} }),
     ask: vi.fn(async (session: StubSession, prompt: string) => {
+      // Asked to leave notes, it does - and that is not a turn the test is about.
+      if (prompt.startsWith("Before you finish: call update_notes")) {
+        await session.tools.find((candidate) => candidate.name === "update_notes")!.execute("id", {
+          changes: [{ section: "where", action: "add", text: "stub agent was here" }],
+        });
+        return "Done.";
+      }
       prompts.push(prompt);
       const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
       if (prompt.includes("describe_how_to_try_it")) {

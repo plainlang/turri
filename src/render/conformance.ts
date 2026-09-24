@@ -9,6 +9,7 @@ import { getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunc
 import { reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
+import { notesForSession, withNotes } from "./notes.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
@@ -281,9 +282,11 @@ export async function renderConformanceTests(
   // when one fails it works out - against the spec - whether the test or the code is wrong, and
   // fixes that one. It works in its tests and sees plain_modules, the code included.
   const fence = confinedTools({ workdir: conformanceDir });
+  const notes = notesForSession(buildDir);
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
+      notes.tool,
       ...fence.tools,
       createRunTool(buildDir, conformanceDir, runs, lastOutput, options.onRun),
       createRunTestsTool({
@@ -294,7 +297,7 @@ export async function renderConformanceTests(
         runs: unitRuns,
       }),
     ],
-    tools: [...fence.names, ...CONFORMANCE_TOOLS],
+    tools: [...fence.names, ...CONFORMANCE_TOOLS, "update_notes"],
     model: options.model,
   });
 
@@ -302,7 +305,7 @@ export async function renderConformanceTests(
     let inventory = inventoryTests(conformanceDir);
     const stage = (label: string) => reportStage(`${moduleName} ${frid}: ${label}`);
     stage("writing conformance tests from the spec");
-    let response = await ask(executor, prompt, options.onDelta);
+    let response = await ask(executor, withNotes(prompt, buildDir), options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
     let verified = false;
@@ -381,6 +384,7 @@ export async function renderConformanceTests(
       break;
     }
 
+    await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const changed = codeChanged();
     // The tests, and the code when it changed: one commit if they share a module folder.
     const subject =
