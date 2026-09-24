@@ -4,7 +4,6 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 
 ## Setup
 
-- [ ] Invoked `load-plain-reference` first (unless already loaded this session).
 
 ## Ask the basics
 
@@ -18,14 +17,14 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 - [ ] No `***definitions***`, no `***functional specs***`, and no project-specific concepts in `template/base.plain`; only predefined concepts (`:Implementation:`, `:ConformanceTests:`) used; no `required_concepts` declared.
 - [ ] Created `<project>.plain` at the repo root with frontmatter only (`import: [base]`, `description`) and **no body sections** — the file exists on disk.
 
-## Generate scripts and config
+## Generate scripts
 
 - [ ] Generated `implement-unit-testing-script` (always).
 - [ ] Generated `implement-conformance-testing-script` only if conformance was enabled (activate-only variant when a prepare-environment script will also exist, otherwise install-inline).
 - [ ] Generated `implement-prepare-environment-script` only if conformance was enabled **and** the user opted in.
-- [ ] Wrote `config.yaml` at the project root with only the keys for scripts actually generated, plus `template_dir: template`, using the correct `.sh`/`.ps1` extension for the host OS.
-- [ ] Did **not** run `init-config-file`, `plain-healthcheck`, `check-plain-env`, or `plainwright check` (out of scope for this skill).
+- [ ] Every generated script is linked from `template/base.plain` (unit tests from `***implementation reqs***`, conformance and prepare-environment from `***test reqs***`), and every link resolves.
+- [ ] Did **not** run `check_plain` or `check-plain-env` (out of scope for this skill).
 
 ## Recap
 
-- [ ] Told the user what was written, suggested next steps (`add-concept`, `add-functional-spec(s)`, `add-feature`), and noted that no dry-run was run (they can run `plain-healthcheck` later).
+- [ ] Told the user what was written, suggested next steps (`add-concept`, `add-functional-spec(s)`, `add-feature`), and noted that `check_plain` has not been run.

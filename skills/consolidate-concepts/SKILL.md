@@ -9,8 +9,6 @@ description: >-
 
 # Consolidate Concepts
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## When to Use
 
 - Multiple modules define the same or closely related concepts independently.

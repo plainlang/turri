@@ -9,8 +9,6 @@ description: >-
 
 # Analyze Two Functional Specs
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## Input
 
 Two functional specs from a `.plain` file (or across `requires` modules). The user provides them directly or points to them by location in a file.

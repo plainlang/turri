@@ -8,8 +8,6 @@ description: >-
 
 # Add Template
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 Templates use Liquid syntax (`{% include %}`) to reuse the same spec content across multiple `.plain` files. Each inclusion can pass different parameters, producing tailored output from a single source. This is distinct from `import` and `requires` — templates are about textual reuse with parameterization, not module dependencies.
 
 ## When to Use Templates

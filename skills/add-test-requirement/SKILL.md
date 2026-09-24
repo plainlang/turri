@@ -9,8 +9,6 @@ description: >-
 
 # Add Test Requirement
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## Workflow
 
 1. **Identify the target `.plain` file.** If ambiguous, ask the user.

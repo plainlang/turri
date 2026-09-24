@@ -6,8 +6,8 @@ description: Rules for authoring the three test scripts that an embedded ***plai
 
 When an embedded integration ships its three `test_scripts/` (prepare-environment, unit,
 conformance), these rules apply on top of the contracts in the corresponding
-`implement-*-testing-script` skills. Use `load-plain-reference` for the rendering and testing
-workflow overview when needed.
+`implement-*-testing-script` skills. `project-model.md` covers the rendering and
+testing workflow.
 
 ## Staging model (read this first)
 
@@ -276,14 +276,14 @@ A working three-script set for a Java / Maven embedded integration lives under [
 - [`run_unittests_java.sh`](examples/integration-embedded-testing/run_unittests_java.sh) — re-stages into the host and runs `mvn test -Dtest='<module-pkg>.**.*Test' checkstyle:check`
 - [`run_conformance_tests_java.sh`](examples/integration-embedded-testing/run_conformance_tests_java.sh) — copies `$2` into `/tmp/java_conformance/` (system temp, removed again on exit), builds the conformance project, runs the suite, and parses the Surefire summary line per the strict pass criteria above
 
-Use them as a template when adding a new embedded integration in Java / Maven — copy, search-and-replace only the package segment and the `-Dtest` filter, then wire into `config.yaml`. For other languages (Python, Node.js, Go, Rust, …), the `implement-*-testing-script` skills generate the equivalent three-script set following the same contract.
+Use them as a template when adding a new embedded integration in Java / Maven — copy, search-and-replace only the package segment and the `-Dtest` filter, then link them from the module's specs. For other languages (Python, Node.js, Go, Rust, …), the `implement-*-testing-script` skills generate the equivalent three-script set following the same contract.
 
 ## Adding a script for a new module
 
 1. Copy the three scripts from a working embedded-integration module into the new module's directory
 2. Search-and-replace the package segment everywhere it appears — including the test-filter argument (the most commonly missed spot)
 3. `chmod +x` all three (and verify ACLs on Windows for the `.ps1` siblings)
-4. Wire them into the module's `config.yaml` via the `unittests-script`, `conformance-tests-script`, and `prepare-environment-script` keys. Use `init-config-file` to assemble the canonical form
+4. Link them from the module's specs with `add-resource`: the unit-test script from `***implementation reqs***`, the conformance and prepare-environment scripts from `***test reqs***`.
 5. Smoke-test by running each script manually with the renderer's output folder as `$1` (and the conformance-tests folder as `$2` for the conformance runner). Confirm exit codes match what the renderer expects
 
-For non-Java languages, the plain-forge skills [`implement-prepare-environment-script`](../skills/implement-prepare-environment-script/SKILL.md), [`implement-unit-testing-script`](../skills/implement-unit-testing-script/SKILL.md), and [`implement-conformance-testing-script`](../skills/implement-conformance-testing-script/SKILL.md) adapt the contract above to Python, Node.js, Go, Rust, Flutter, and others. Always route script creation through these skills so the cross-cutting rules above are applied uniformly.
+For non-Java languages, the skills [`implement-prepare-environment-script`](../../skills/implement-prepare-environment-script/SKILL.md), [`implement-unit-testing-script`](../../skills/implement-unit-testing-script/SKILL.md), and [`implement-conformance-testing-script`](../../skills/implement-conformance-testing-script/SKILL.md) adapt the contract above to Python, Node.js, Go, Rust, Flutter, and others. Always route script creation through these skills so the cross-cutting rules above are applied uniformly.

@@ -9,8 +9,6 @@ description: >-
 
 # Analyze Functional Specs
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## Input
 
 A **set of two or more functional specs** to check against each other. Callers typically supply one of:

@@ -94,7 +94,7 @@ describe("an empty skill", () => {
 
 describe("continuous review", () => {
   it("is off unless the gate asks for it", () => {
-    const skill = loadSkill("skills/plain-healthcheck");
+    const skill = loadSkill("skills/check-plain-env");
     expect(skill.steps.every((s) => s.gate?.continuous === undefined)).toBe(true);
   });
 

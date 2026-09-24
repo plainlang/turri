@@ -9,8 +9,6 @@ description: >-
 
 # Refactor Module
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## When to Use
 
 - A module has many functional specs spanning multiple distinct domains or feature areas.

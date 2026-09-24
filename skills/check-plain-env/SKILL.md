@@ -1,7 +1,7 @@
 ---
 name: check-plain-env
 description: >-
-  Read a ***plain project — its `.plain` files, `test_scripts/`, `config.yaml`(s),
+  Read a ***plain project — its `.plain` files, `test_scripts/`,
   and `resources/` — and determine every command-line tool, runtime, package
   manager, and external service the project needs on the host machine. Probe
   the host for each one, then emit a `PASS` / `FAIL` report listing what's
@@ -12,8 +12,6 @@ description: >-
 
 # Check Plain Env
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 This skill answers one question: **does the host machine have everything the ***plain project needs to render and test?** It reads the project, derives the requirement list, probes the machine, and returns a report. It never installs anything itself — that decision belongs to the user.
 
 ## When to run
@@ -21,19 +19,19 @@ This skill answers one question: **does the host machine have everything the ***
 - **First time you open a ***plain project on a new machine** — before the first `plainwright module <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
 - **At the start of `forge-plain` Phase 3 environment verification** — `forge-plain` historically did this inline; delegate to this skill instead so the same check runs the same way everywhere.
 - **After `add-feature`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
-- **Before a real render** — alongside `plain-healthcheck`. `plain-healthcheck` answers "are the specs renderable?"; this skill answers "can this machine render them?". Both should pass.
+- **Before a real render** — alongside `check_plain`. `check_plain` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.
 - **Onboarding** — when a teammate (or CI runner, or fresh dev container) is about to start using the project.
 - **Debugging a confusing failure** — when a test script exits with "command not found", "module not found", "could not connect", or similar before any test runs.
 - **On demand** — whenever the user asks "what do I need to install for this project?".
 
-This skill is **read-only and observational**. It does not edit `.plain` files, scripts, or configs, and it never invokes install commands on the user's behalf.
+This skill is **read-only and observational**. It does not edit `.plain` files or scripts, and it never invokes install commands on the user's behalf.
 
 ## What this skill does NOT do
 
 - It does **not** install anything. It only suggests install commands and lets the user run them.
-- It does **not** generate scripts, modify `config.yaml`, or change project files. Use `implement-*-testing-script`, `init-config-file`, etc. for that.
+- It does **not** generate scripts or change project files. Use the `implement-*-testing-script` skills for that.
 - It does **not** start services (databases, brokers, Docker daemons). It only checks whether the right binaries and (optionally) running endpoints are reachable.
-- It does **not** validate the specs themselves (syntax, dry-run, complexity). Use `plain-healthcheck` for that — the two skills are complementary.
+- It does **not** validate the specs themselves (syntax, structure, complexity). Use the `check_plain` tool for that — the two are complementary.
 - It does **not** print secrets. Check whether an env var is *set* (e.g. `printenv FOO >/dev/null && echo set || echo missing`), never echo its value.
 
 ## Workflow
@@ -44,10 +42,9 @@ The skill is a **derive → probe → report** pass. It does not stop at the fir
 
 1. **Detect the host OS** first. Run `uname -s 2>/dev/null || echo "$OS"`. Use the result to (a) pick the right script extensions to inspect (`.sh` vs `.ps1`) and (b) pick the right install commands later (Homebrew, apt, dnf, pacman, choco, scoop, winget).
 2. **List every `.plain` file** in the repo root and in any subdirectory that contains them. Note which are top modules (not `requires`-ed by anything) and which are import modules (under `template/`).
-3. **List every `config.yaml`** in the repo and read each one. Note the `*-script` keys it sets and the values they point at.
-4. **List every script under `test_scripts/`** (both `.sh` and `.ps1` — projects can ship both).
-5. **List every file under `resources/`** if the directory exists. Schemas and protocol files there often imply running services (e.g. a Postgres `.sql` schema implies a Postgres server).
-6. Print a one-line inventory summary, e.g. `Detected: 2 top modules (backend/api.plain, frontend/web.plain), 2 config.yaml(s), 4 test_scripts, 3 resources. Host: Darwin.`
+3. **List every script under `test_scripts/`** (both `.sh` and `.ps1` — projects can ship both).
+4. **List every file under `resources/`** if the directory exists. Schemas and protocol files there often imply running services (e.g. a Postgres `.sql` schema implies a Postgres server).
+5. Print a one-line inventory summary, e.g. `Detected: 2 top modules (backend/api.plain, frontend/web.plain), 4 test_scripts, 3 resources. Host: Darwin.`
 
 ### Step 2 — Derive the requirement list (at runtime, from what the project actually says)
 
@@ -147,8 +144,7 @@ Worked example — the GPU case:
 
 Add these to every requirement list regardless of project:
 
-- `plainwright` CLI on `PATH` — `plainwright --version`.
-- `PLAINWRIGHT_API_KEY` env var **set** — `printenv PLAINWRIGHT_API_KEY >/dev/null && echo set || echo missing` (never echo the value).
+- plainwright's own needs — Node, QEMU, the sandbox VM image, a model provider — are checked by `plainwright doctor --quick`. Run it and report its result; do not probe those separately.
 - A shell matching the testing scripts' extension (Bash for `.sh`, PowerShell for `.ps1`).
 - `git` (the renderer uses it; almost every plain project tracks itself in git).
 
@@ -163,7 +159,7 @@ For every requirement the project produced in Step 2, run a check using the `ter
 Probe in the same category order Step 2 produced them, so the report reads top-down:
 
 1. **Category 1 — Language toolchains.** Run the toolchain + package-manager probes listed in Step 2's Category 1 for the languages this project actually uses. Do not probe individual language packages.
-2. **Category 5 — Plainwright and `git`.** Always required, independent of the project. `plainwright --version`, `printenv PLAINWRIGHT_API_KEY >/dev/null`, `git --version`. Verify the shell flavor matches the scripts' extension; a `.sh`-only project on native Windows is a `FAIL` (suggest WSL).
+2. **Category 5 — plainwright and `git`.** Always required, independent of the project. `plainwright doctor --quick`, `git --version`. Verify the shell flavor matches the scripts' extension; a `.sh`-only project on native Windows is a `FAIL` (suggest WSL).
 3. **Category 2 — External services.** For each service identified at runtime, probe the CLI's presence first, then — if the CLI exists — check whether the service itself is reachable. Service binary present but daemon down → `WARN`, not `FAIL`.
 4. **Category 3 — System binaries that language packages wrap.** For each one identified in Step 2, check the system binary is on `PATH` (`which <bin>` / `<bin> --version`). The wrapper package itself isn't probed.
 5. **Category 4 — Hardware, drivers, accelerators.** Walk the layered probe from Step 2 in order (driver → device visibility → SDK → acceleration libs → framework-sees-it → version match), reporting each layer's result separately. Never collapse a multi-layer failure into a single "GPU not available" message — each layer has a different fix.
@@ -263,17 +259,17 @@ When the host OS detection in Step 1 was inconclusive (e.g. an unrecognized Linu
 - **Don't pre-bake a catalog.** Derive the requirement list at runtime from the project in front of you. A hard-coded "things to always check" table becomes wrong the moment any project deviates from the assumed shape — and every project does.
 - **Don't probe testing framework binaries as if they were independent.** `pytest`, `jest`, `vitest`, `phpunit`, `junit-console`, etc. are installed by the package manager via `requirements.txt` / `package.json` / `pom.xml`. The toolchain check (Category 1) is enough — the framework binary itself is out of scope.
 - **Don't probe in silence.** Use the `terminal` tool and capture the actual command output (version strings, exit codes). Telling the user "looks like Python is installed" without running `python3 --version` is guessing.
-- **Don't print secret values.** Check whether `PLAINWRIGHT_API_KEY`, `DATABASE_URL`, etc. are set, not what they contain. Use `printenv VAR >/dev/null` not `printenv VAR`.
+- **Don't print secret values.** Check whether `DATABASE_URL`, provider API keys, etc. are set, not what they contain. Use `printenv VAR >/dev/null` not `printenv VAR`.
 - **Don't install anything on the user's behalf.** Even when the install command is obvious. The user needs to opt in.
 - **Don't stop at the first FAIL.** Run the full sweep so the report is complete in one pass.
 - **Don't suggest `curl | sh` installs when a package manager works.** Reserve the upstream installer fallback for cases where no package-manager option exists (e.g. `rustup`, sometimes Go).
 - **Don't ignore version mismatches.** If a spec says Java 17 and the host has Java 21, surface that as a `WARN` so the user can decide — don't silently let it pass.
-- **Don't duplicate this check inline elsewhere.** Other skills (`forge-plain`, `add-feature`, `plain-healthcheck`) that need an env check should **delegate to `check-plain-env`** rather than re-implementing the probe themselves. This skill is the single source of truth.
+- **Don't duplicate this check inline elsewhere.** Other skills (`forge-plain`, `add-feature`) that need an env check should **delegate to `check-plain-env`** rather than re-implementing the probe themselves. This skill is the single source of truth.
 
 ## Validation Checklist
 
 - [ ] Host OS detected (`uname -s` / `$OS`) before any other action.
-- [ ] Requirement list derived **at runtime from this project's** `.plain` files, `test_scripts/`, `config.yaml`(s), and `resources/` — no pre-baked catalog used.
+- [ ] Requirement list derived **at runtime from this project's** `.plain` files, `test_scripts/`, and `resources/` — no pre-baked catalog used.
 - [ ] **No individual language packages probed.** Only the toolchain + package manager for each detected language.
 - [ ] Every script under `test_scripts/` opened and read; every non-language binary it invokes added to the Category 3 list.
 - [ ] Every external service named in the specs is in the Category 2 list, with both a binary probe and (when feasible) a reachability probe.

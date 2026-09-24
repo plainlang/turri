@@ -9,8 +9,6 @@ description: >-
 
 # Create Import Module
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## What an Import Module Is
 
 An import module is a `.plain` file that lives in the **`template/`** directory and contains **only** `***definitions***`, `***implementation reqs***`, and/or `***test reqs***`. It must **not** contain `***functional specs***` and must **not** use `requires` in its frontmatter. Other modules pull in its content via the `import` field in their YAML frontmatter, gaining access to its definitions and reqs.

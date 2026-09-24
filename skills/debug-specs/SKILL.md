@@ -9,8 +9,6 @@ description: >-
 
 # Debug Specs
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## When to Use
 
 - The user observes a bug in the running application (visual, behavioral, crash, performance).

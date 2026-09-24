@@ -8,8 +8,6 @@ description: >-
 
 # Add Acceptance Test
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## Workflow
 
 1. **Identify the target `.plain` file and the functional spec** to attach the acceptance test to. If ambiguous, ask the user.

@@ -9,8 +9,6 @@ description: >-
 
 # Add Resource
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 Linked resources are external files referenced from within a `.plain` spec using markdown link syntax. The file contents are passed to the renderer alongside the spec, providing additional context for code generation.
 
 ## Workflow

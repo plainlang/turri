@@ -69,7 +69,7 @@ when the functional specs phase begins.
 Phases 1–3 run this tight loop. Each iteration is a single question followed by an immediate write:
 
 1. **Ask** one focused question via `ask_user` — never bundle two. Always pass `options` so the user picks rather than types; they can still choose "Something else…" and type. Pass `multi_select: true` when several answers can apply at once. Reserve `free_form: true` for genuinely open prompts ("What is the app?") — a question with neither options nor `free_form` is refused and has to be asked again. Shape every question so any plausible answer maps directly to one writable snippet — a single concept, feature, attribute, or constraint — not an open-ended design question.
-2. **Author immediately, and write exactly one snippet** — the moment the user answers, write the snippet to disk (a `.plain` section, a script, or a `config.yaml` entry) using the right edit skill. A functional spec is written with `write_functional_spec`, never with `write` or `edit` — see step 3. **One answer produces at most one concept or one functional spec.** An answer that names three entities, or that decomposes into three functionalities, is three iterations of this loop — ask again for the second. Never batch. Do not wait for "enough" context either: a snippet that is wrong on the first try is expected — the next question corrects it, and the user can read exactly where things stand after every step.
+2. **Author immediately, and write exactly one snippet** — the moment the user answers, write the snippet to disk (a `.plain` section, or a script) using the right edit skill. A functional spec is written with `write_functional_spec`, never with `write` or `edit` — see step 3. **One answer produces at most one concept or one functional spec.** An answer that names three entities, or that decomposes into three functionalities, is three iterations of this loop — ask again for the second. Never batch. Do not wait for "enough" context either: a snippet that is wrong on the first try is expected — the next question corrects it, and the user can read exactly where things stand after every step.
 3. **A functional spec builds as it is written** — `write_functional_spec` writes it into `***functional specs***` and starts its build in the same call. Move straight on to the next question. Never wait for a build. See *Building while you interview*.
 
 **One question per call, but drill as deep as the topic needs.** "One question" governs the `ask_user` call, not the topic. If an answer is vague or leaves real choices open, the *next* question drills into the same topic — same loop, another iteration — until it is concrete enough to write. Stopping early and writing on top of a vague answer is worse than one more focused follow-up.
@@ -166,8 +166,7 @@ not ask for both.
 
 - **A user answer contradicts prior specs** → edit the affected snippet in place immediately, then continue the loop; surface a non-trivial change in the next question.
 - **`check-plain-env` returns `FAIL`** (testing phase) → walk each gap with the user; install, swap to an alternative, or explicitly acknowledge it before the handoff phase. Re-invoke after any install.
-- **`plain-healthcheck` returns `FAIL`** (handoff phase) → do not present the render command; work through its numbered list with the right edit skill and re-run until it passes.
-- **Environment failure** (`plainwright` not on PATH, `PLAINWRIGHT_API_KEY` unset) → tell the user exactly what is missing and how to fix it; never pretend the check passed.
+- **`check_plain` reports errors** (handoff phase) → do not hand off; fix each one in the `.plain` files with the right edit skill and run it again until every top module is valid.
 
 ## Reference
 
@@ -263,8 +262,7 @@ still queued, getting explicit confirmation, and writing the evidence record to
 
 ### testing
 
-Read `references/testing.md`. State the planned `config.yaml` split — one per part — and
-confirm it before the first topic.
+Read `references/testing.md`.
 
 Honor the hard partition: every `:UnitTests:` fact belongs in `***implementation reqs***`,
 every `:ConformanceTests:` fact in `***test reqs***`. Never share a bullet between them.
@@ -276,8 +274,8 @@ prepare-environment decisions explicitly; they are recorded decisions, not infer
 conformance is on, walk every functional spec one at a time and add acceptance tests via
 `add-acceptance-test`.
 
-Generate the needed scripts under `test_scripts/` via the `implement-*-script` skills, and add
-each `*-script:` entry to the right `config.yaml`.
+Generate the needed scripts under `test_scripts/` via the `implement-*-script` skills, and link
+each one from the requirement that says how its tests run.
 
 Deal here with any build that failed during the functional specs phase: use `render_status` to see what
 did not pass. Fix a spec that was wrong with `write_functional_spec` and `replaces`, which
@@ -293,13 +291,11 @@ Finish by recapping the testing strategy and getting explicit confirmation.
 Read `references/handoff.md`.
 
 Identify the render target: the last module in the dependency chain, or the single module.
-Run `init-config-file` to build the final `config.yaml`(s), resolving any precondition gap
-with the user before validating.
 
-Run `plain-healthcheck` and work its numbered list until it passes. Never present the build
-command on a `FAIL`.
+Run `check_plain` on every top module and fix what it reports until every one is valid. Never
+hand off while it reports errors.
 
 Wait for every queued build to finish, and report what was built: which functionalities
-succeeded, which did not, and where the code is. Then give the user the command to build
-anything outstanding, plus every side-channel script generated in the testing phase. Write the
+succeeded, which did not, and where the code is. Offer to render anything outstanding with
+`render_module`, and list every side-channel script generated in the testing phase. Write the
 evidence record to `handoff.md`.

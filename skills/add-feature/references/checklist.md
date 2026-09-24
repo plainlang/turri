@@ -4,7 +4,6 @@ Use this to verify the workflow was followed — never as a substitute for it. R
 
 ## Phase 0 — Feature intent
 
-- [ ] Invoked `load-plain-reference` first (unless already loaded this session).
 - [ ] Read `references/phase-0-intent.md` and asked its five core questions one at a time.
 - [ ] Asked no more than one focused clarification for an answer too vague to summarize.
 - [ ] Wrote no project or specification files during Phase 0.
@@ -27,7 +26,7 @@ Use this to verify the workflow was followed — never as a substitute for it. R
 - [ ] New concepts defined before they are referenced, with no circular references.
 - [ ] Any answer that contradicted an earlier snippet was fixed in place before the next question — no stale intent left on disk.
 - [ ] Every conflict / break / augment surfaced by the analyzers was put to the user as the *next* question (keep / augment / replace) and resolved before continuing.
-- [ ] `***test reqs***` / `***acceptance tests***` authored only when the Conformance gate holds (a `config.yaml` with a valid `conformance-tests-script` pointing at an existing script).
+- [ ] `***test reqs***` / `***acceptance tests***` authored only when the Conformance gate holds (test reqs linking a conformance-test script that exists under `test_scripts/`).
 - [ ] Asked the user whether the feature is fully covered before leaving the loop.
 
 ## Phase 3 — Final review
@@ -35,4 +34,4 @@ Use this to verify the workflow was followed — never as a substitute for it. R
 - [ ] Read the modified `.plain` file(s) in full.
 - [ ] Verified: concepts defined before use, no cycles, chronological ordering correct end-to-end, functional specs language-agnostic, every external interface explicit (endpoints, methods, CLI args, formats), acceptance tests consistent with their parent specs.
 - [ ] Presented the final diff once, at the end (change requests dropped back into the one-question loop, not a restart). Individual writes were narrated during the loop, not submitted for approval.
-- [ ] Ran `plain-healthcheck`; worked its numbered list to `PASS` (fixing only `.plain`/`config.yaml`/scripts — never generated code) before declaring the feature ready and reminding the user to re-render with `plainwright module <module>.plain`.
+- [ ] Ran `check_plain` on every top module and fixed what it reported (in `.plain` files only — never generated code) before declaring the feature ready and offering to render it with `render_module`.

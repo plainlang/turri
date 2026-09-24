@@ -6,8 +6,6 @@ description: >-
 
 # Resolve Section Ownership
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 This is the ownership counterpart to `break-down-func-spec`. That skill splits one functional spec into several because it is **too large**; this one moves facts between sections because they are in the **wrong place**. The two are unrelated: a correctly placed spec can be too large, and a one-line bullet can be misplaced.
 
 ## When to Use
@@ -39,7 +37,7 @@ The bullet, section, or `.plain` file to resolve.
 7. **Author each fact into its owning section** with the right edit skill — `add-concept`, `add-implementation-requirement`, `add-test-requirement`, `add-acceptance-test`. **Never hand-author `***functional specs***`**: a fact moving *into* that section goes through `add-functional-spec`, which runs the complexity and conflict analyzers for you.
 8. **Remove each fact from where it no longer belongs.** If a bullet is left stating nothing observable, delete the bullet; do not leave a stub. Deleting the last bullet of a section deletes the section.
 9. **Verify nothing was lost and nothing was duplicated.** Walk every fact from the original text and confirm it appears in exactly one section. A fact that now reads as obvious in its new home is still a cut decision — make it deliberately, per `concise-specs.md`.
-10. **Run `plain-healthcheck`.** Moving facts changes the renderable surface; do not finish on a `FAIL`.
+10. **Run `check_plain`** on the module. Moving facts changes the renderable surface; do not finish while it reports errors.
 11. **Read the file again** to confirm canonical section order (`***definitions***` → `***implementation reqs***` → `***test reqs***` → `***functional specs***`), correct syntax, and that every referenced concept is still defined before use.
 
 ## Error Handling

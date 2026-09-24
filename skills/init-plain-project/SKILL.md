@@ -5,19 +5,17 @@ description: >-
   technology and project kind, asks whether conformance testing is enabled,
   then scaffolds a template import module (with base implementation reqs and
   test reqs), a stub top-level module, the unit testing script, and
-  (optionally) the conformance and prepare-environment scripts plus a
-  config.yaml. Does NOT run `plainwright check`. Use when the user wants a
+  (optionally) the conformance and prepare-environment scripts, linked
+  from the specs. Does NOT run `check_plain`. Use when the user wants a
   quick project skeleton to start writing functional specs against, without
   the full forge-plain interview.
 ---
 
 # Init Plain Project
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## Scope
 
-This skill is intentionally **minimal**. It produces a runnable project skeleton — not a complete spec. **No `***definitions***` sections are written by this skill — not in the template module, not in the top module.** No functional specs, no concepts, no acceptance tests, no dry-run validation. The user will fill those in afterwards with `add-feature`, `add-concept`, `add-functional-spec`, etc.
+This skill is intentionally **minimal**. It produces a runnable project skeleton — not a complete spec. **No `***definitions***` sections are written by this skill — not in the template module, not in the top module.** No functional specs, no concepts, no acceptance tests, no validation. The user will fill those in afterwards with `add-feature`, `add-concept`, `add-functional-spec`, etc.
 
 What this skill writes:
 
@@ -26,11 +24,10 @@ What this skill writes:
 - `test_scripts/run_unittests_<lang>.<sh|ps1>` — always.
 - `test_scripts/run_conformance_tests_<lang>.<sh|ps1>` — only if conformance testing is enabled.
 - `test_scripts/prepare_environment_<lang>.<sh|ps1>` — only if conformance testing is enabled **and** the user opts in.
-- `config.yaml` at the project root — wired to whichever scripts were generated.
 
 What this skill does **not** do:
 
-- Run `plainwright check` or `plain-healthcheck`.
+- Run `check_plain`.
 - Author concepts, functional specs, or acceptance tests.
 - Probe the host environment (`check-plain-env` is a separate step the user can run later).
 
@@ -98,28 +95,19 @@ Call the corresponding implementation skills in order. Each skill knows how to w
 - `implement-conformance-testing-script` — only if conformance testing was enabled. If a prepare-environment script will also exist, choose the **activate-only** variant; otherwise the **install-inline** variant.
 - `implement-prepare-environment-script` — only if conformance testing was enabled **and** the user opted in.
 
-### 6. Write `config.yaml`
+### 6. Check the scripts are linked
 
-Create `config.yaml` at the project root with **only the keys for scripts that were actually generated**. Valid keys:
+Each `implement-*-script` skill links the script it wrote from the spec - the unit-test script from `template/base.plain`'s `***implementation reqs***`, the conformance and prepare-environment scripts from its `***test reqs***`. Read `template/base.plain` back and confirm every generated script is linked and every link resolves. The agents that write and run the tests find the scripts through those links.
 
-```yaml
-unittests-script: test_scripts/run_unittests_<lang>.<sh|ps1>
-conformance-tests-script: test_scripts/run_conformance_tests_<lang>.<sh|ps1>
-prepare-environment-script: test_scripts/prepare_environment_<lang>.<sh|ps1>
-template_dir: template
-```
-
-Always include `template_dir: template` because the project has a template import module from step 3. Use `.sh` on macOS/Linux and `.ps1` on Windows, matching whatever the implement-* skills produced.
-
-Do **not** invoke `init-config-file` or `plain-healthcheck` here — keeping this skill light is the whole point. The user can run them later if they want a strict canonicalization or a dry-run.
+Do **not** run `check_plain` here — keeping this skill light is the whole point. The user can run it when they want validation.
 
 ### 7. Recap
 
 Tell the user what was created and what's next:
 
-- Files written: `template/base.plain`, `<project>.plain`, the test scripts, `config.yaml`.
+- Files written: `template/base.plain`, `<project>.plain`, the test scripts.
 - Suggested next steps: add concepts with `add-concept`, add functional specs with `add-functional-spec` or `add-functional-specs`, or jump straight into `add-feature`.
-- Mention that `plainwright check <project>.plain` has not been run — they can run `plain-healthcheck` when they want validation.
+- Mention that `check_plain` has not been run on `<project>.plain` yet.
 
 ## Validation checklist
 

@@ -19,7 +19,6 @@ my-project/
   template/            # import modules: shared definitions and reqs
   resources/           # files specs link to: schemas, API specs, sample data
   test_scripts/        # scripts that run the unit and conformance tests
-  config.yaml          # the renderer's settings
   plain_modules/       # generated - code, tests, history; never edited by hand
 ```
 
@@ -121,8 +120,7 @@ Every skill in `skills/` can be run from a conversation; most are also used by t
 | check what is written | `analyze-if-func-spec-too-complex`, `analyze-2-func-specs`, `analyze-func-specs`, `resolve-section-ownership` |
 | fix what is written | `break-down-func-spec`, `resolve-spec-conflict`, `debug-specs` |
 | restructure modules | `create-import-module`, `create-requires-module`, `refactor-module`, `consolidate-concepts` |
-| set up the project to build | `implement-unit-testing-script`, `implement-conformance-testing-script`, `implement-prepare-environment-script`, `init-config-file`, `check-plain-env`, `plain-healthcheck` |
-| read the rules | `load-plain-reference` |
+| set up the project to build | `implement-unit-testing-script`, `implement-conformance-testing-script`, `implement-prepare-environment-script`, `check-plain-env` |
 
 `debug-specs` is the one for a running application that misbehaves: it reads the generated code
 to find the cause, traces it back to the spec, and fixes only the `.plain` files.
@@ -136,8 +134,8 @@ plainwright check app.plain     # or check_plain in a conversation
 It parses the spec with this repo's own parser, resolves its imports and required modules, and
 reports every syntax, concept and structure error with its line - no model, no API key. The
 interview skills run it before a phase ends, and `write_functional_spec` and `write_spec_diff`
-refuse a change that leaves a file that does not parse. `plain-healthcheck` checks the whole
-project: the configs, the scripts they point at, and every top module.
+refuse a change that leaves a file that does not parse. Pass the project directory to check every
+module at once.
 
 What `check` cannot see - a fact in the wrong section, a spec that is too big, two that conflict,
 wording no test can check - is what the rules, the skills and the reviewers are for.

@@ -132,7 +132,7 @@ Models and credentials come from your pi configuration (`~/.pi/agent`) or provid
 variables - the same resolution `pi` itself uses. Put the rest in your shell profile:
 
 ```bash
-export PLAIN_TEMPLATE_DIRS=~/Work/codeplain/codeplain/standard_template_library   # shared templates
+export PLAIN_TEMPLATE_DIRS=~/path/to/standard_template_library   # shared templates
 export GEMINI_API_KEY=...        # and leave GOOGLE_API_KEY unset
 export PLAINWRIGHT_ALLOWED_HOSTS=api.example.com   # hosts the VM may reach beyond the registries
 ```

@@ -10,8 +10,6 @@ description: >-
 
 # Analyze If Functional Spec Is Too Complex
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## Why This Matters
 
 The renderer enforces a hard complexity limit: each functional spec must imply a **maximum of 200 changed lines of code**. If a spec exceeds this, the renderer rejects it with "Functional spec too complex!" and the spec must be broken down. Catching this before insertion saves a failed render cycle.

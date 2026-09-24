@@ -9,8 +9,6 @@ description: >-
 
 # Resolve Spec Conflict
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## When This Applies
 
 A conflict exists (or is suspected) when:

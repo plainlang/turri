@@ -1,6 +1,6 @@
 # the handoff phase — Validate and hand off
 
-Two halves. First **the agent** validates every spec end-to-end with a `plainwright` dry-run so the user never wastes a real render — or any debugging time — on a fixable static error. Only after that passes does the agent **hand off** the render command (plus any side-channel commands) to the user.
+Two halves. First **the agent** validates every spec with the `check_plain` tool, so nothing is left in a state a render would fail on for a fixable static error. Only after that passes does the agent **hand off**: what was built during the interview, what is still outstanding, and how to try it.
 
 ## 4a. Identify the render target
 
@@ -9,41 +9,25 @@ Find the **last module in the dependency chain** — the module that is not `req
 - Chain `base.plain → features.plain → integrations.plain` → render target is `integrations.plain`.
 - Single module `my_app.plain` → render target is `my_app.plain`.
 
-## 4b. Build the final `config.yaml` with `init-config-file`
+## 4b. Validate every top module with `check_plain`
 
-Finalize the project's `config.yaml` file(s) before validation. the testing phase may have written provisional entries as scripts were generated; **this** is where they are consolidated into the canonical form the renderer expects. Invoke the `init-config-file` skill. It:
+Run the `check_plain` tool on every top module — the modules no other module `requires`; a multi-part project has one per part. Checking a top module checks everything it `import`s and `requires`. Pass the project directory as the target to check every `.plain` file at once.
 
-- enumerates every part of the project (one `config.yaml` per part — single-stack → root config; multi-part → one config per part),
-- assembles only the **valid** config keys derived from the `plainwright` CLI parser,
-- emits a clean YAML file per part (script paths first, then template/build folders, then copy/log settings),
-- verifies every `*-script` value resolves to a real file on disk,
-- refuses to write secrets (`api-key`) or per-invocation flags (`dry-run`, `full-plain`, `render-range`, `render-from`, `replay-with`) into the config.
+`check_plain` reports every syntax, concept and structure error with its file and line: undefined or cyclic concepts, broken `import` / `requires` chains, missing templates or linked resources, a module with no functional specs. Then:
 
-If `init-config-file` stops because a precondition isn't met (e.g. a `prepare-environment-script` exists but no conformance script does), resolve the gap with the user before continuing — do **not** hand a known-broken config to `plain-healthcheck`.
+- **All valid** → move on to 4c.
+- **Errors** → do **not** hand off. Fix each one in the `.plain` files with the appropriate edit skill — never in generated code under `plain_modules/` — and run `check_plain` again until every top module is valid. An error you cannot resolve without a decision (two contradictory specs, a concept whose meaning is unclear) becomes a concrete question to the user.
 
-## 4c. Validate the project with `plain-healthcheck`
+`check_plain` sees syntax and structure, not meaning: a spec that is too big, two that conflict, or a fact in the wrong section all pass it. Those were handled in the loop by the analyzers and the reviewer.
 
-Run the `plain-healthcheck` skill — the single source of truth for "is this project ready to render?". Do **not** run the dry-run inline. It:
+## 4c. Hand off
 
-- inventories every `.plain` module and identifies every top module,
-- validates every `config.yaml` (existence, parseability, script paths actually pointing at files in `test_scripts/`, no mixed stacks), and
-- runs `plainwright check <top>.plain` for **every** top module with the correct `--config-name` for multi-part projects.
+Every functional spec was queued for rendering the moment it was written. Wait for the queue to finish — `render_status` shows it — then report:
 
-The skill runs the full detect → fix → re-run loop itself (syntax errors, undefined concepts, broken `import` / `requires` chains, cyclic definitions, missing templates, complexity violations, conflicting reqs, config drift, missing scripts) and returns only once everything passes or a gap genuinely needs the user. Then:
+- which functionalities were built and pass their tests, and where the code is (`plain_modules/<module>/code/`);
+- which did not, and why, from each job's report;
+- how to try what was built: each finished job reported try-it steps that were already run and checked.
 
-- **`PASS`** → move on to step 4d.
-- **`FAIL`** → do **not** ask the user to render. Work through the numbered list it produced (each item references a specific `.plain` file, `config.yaml`, or script), resolve each one with the appropriate edit skill, and re-run `plain-healthcheck` until it returns `PASS`. Any item the skill could not auto-resolve will name the concrete question to put to the user.
-- **Environment failure** (e.g. `plainwright` not on PATH, `PLAINWRIGHT_API_KEY` not set) → `plain-healthcheck` surfaces this as a clearly-marked environment failure. Tell the user exactly what's missing and how to fix it before continuing. Do not pretend the healthcheck passed.
+If anything is outstanding — a functionality that failed, conformance tests the testing phase switched on after functionalities were built — offer to render it now with `render_module` on `<module>.plain`, which builds whatever is not built from the current spec and runs every conformance test. For a long run the user can leave, `plainwright module <module>.plain` does the same from the command line.
 
-## 4d. Present the render command
-
-Only after the dry-run passes, tell the user their specs are ready and present the render command:
-
-```
-`plainwright module <module>.plain`
-```
-
-- Chain `base.plain → features.plain → integrations.plain` → `plainwright integrations.plain`.
-- Single module `my_app.plain` → `plainwright my_app.plain`.
-
-Also remind the user of any **side-channel commands** they may want to run themselves per the the testing phase testing strategy — for example `./test_scripts/run_unittests.sh <module>`, `./test_scripts/prepare_environment.sh <module>`, or `./test_scripts/run_conformance_tests.sh <module> <conformance_tests_folder>`. Mention only the scripts that were actually generated in the testing phase.
+Also remind the user of any **side-channel commands** they may want to run themselves per the testing phase strategy — for example `./test_scripts/run_unittests.sh <module>`, `./test_scripts/prepare_environment.sh <module>`, or `./test_scripts/run_conformance_tests.sh <module> <conformance_tests_folder>`. Mention only the scripts that were actually generated in the testing phase.

@@ -12,8 +12,6 @@ description: >-
 
 # Add Functional Specs
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## When to Use
 
 - The user asks for several functional specs to be added in one go (e.g. "add these three specs", "spec out this feature in a few bullets").

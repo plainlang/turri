@@ -8,8 +8,6 @@ description: >-
 
 # Break Down Functional Spec
 
-Always use the skill `load-plain-reference` to retrieve the ***plain syntax rules — but only if you haven't done so yet.
-
 ## When to Use
 
 - `analyze-if-func-spec-too-complex` flagged a spec as TOO COMPLEX.

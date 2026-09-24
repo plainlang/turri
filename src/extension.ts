@@ -340,7 +340,8 @@ export default function (pi: ExtensionAPI) {
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
         renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work) => modelFor(chosenModels, work, chatModelOf(ctx)) }),
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
-        sharedTools: [setRenderModelTool(pi, ctx)],
+        // check_plain too: a skill validates what it wrote with the same check the conversation has.
+        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd)],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -1555,7 +1556,12 @@ function listJobs(jobs: JobRegistry): string {
  * to answer "is this spec valid?" without generating anything.
  */
 function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
-  pi.registerTool({
+  pi.registerTool(checkPlainTool(cwd));
+}
+
+/** check_plain, for the conversation and for the skills that write specs alike. */
+function checkPlainTool(cwd: string) {
+  return defineTool({
     name: "check_plain",
     label: "Check plain spec",
     description:

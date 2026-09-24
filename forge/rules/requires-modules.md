@@ -27,7 +27,7 @@ When creating or editing a `.plain` file that uses `requires`, or one that is re
 - Because the required module's generated code is copied as the starting point and the renderer continues building on top of it with a single toolchain, two modules can only be linked with `requires` when they target the **same language, framework, and runtime**
 - A runtime / network dependency between systems is **not** a reason to use `requires`
 - Example of the mistake: a React frontend that talks to a Python/FastAPI backend over HTTP must **not** `requires: [backend]` — the stacks differ
-- Model that pair as two independent root modules (each with its own `config.yaml` and test scripts) and express the contract through a shared API schema in `resources/` or shared concepts in an `import`ed module — never through `requires`
+- Model that pair as two independent root modules (each with its own test scripts) and express the contract through a shared API schema in `resources/` or shared concepts in an `import`ed module — never through `requires`
 
 ## Building upon but not necessarily extension
 
