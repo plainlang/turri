@@ -336,8 +336,10 @@ export interface ConformancePromptInput {
   frid: string;
   specifications: Specifications;
   linkedResources: LoadedResource[];
-  /** File names in the build directory. Names only - the code itself stays unseen. */
+  /** File names in the build directory. */
   manifest: string[];
+  /** Where the code is, for fixing it when it is what is wrong. */
+  codeDir?: string;
   /** Tests already in the conformance directory, from an earlier version of the spec. */
   existingTests?: string[];
   /** Functional specs of the modules this one requires, transitively. */
@@ -441,63 +443,16 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "- At least one of your runs must use the whole-suite command from the test reqs, the one that",
     "  discovers every test in the working directory. Narrowing to the file you just wrote is fine",
     "  while iterating, but the suite command is what the regression run will reuse.",
-    "- When a test fails, decide what is actually wrong: your test, or the code. Call submit_triage",
-    "  with that judgement. A test that misreads the specification is your bug; code that does not do",
-    "  what the specification says is the implementation's, and will be sent back to be fixed.",
+    "- When a test fails, work out against the specification what is wrong - the test or the code - and",
+    "  fix that one. A test that misreads the specification is corrected. Code that does not do what the",
+    input.codeDir
+      ? `  specification says is fixed, in ${input.codeDir}; then run its unit tests with run_unit_tests.`
+      : "  specification says is fixed; then run its unit tests with run_unit_tests.",
+    "- Never change a test so it agrees with code that contradicts the specification: the tests say what",
+    "  the specification requires, and the code is what has to meet it.",
     "- Never delete, skip or weaken a test to get a pass. A test may be removed only when it asserts",
     "  nothing meaningful, and you must say which test and why.",
   );
-
-  return parts.filter((part): part is string => part !== null).join("\n");
-}
-
-
-export interface CodeFixPromptInput {
-  moduleName: string;
-  frid: string;
-  specifications: Specifications;
-  /** Why the conformance run was judged to be the code's fault. */
-  triage: string;
-  /** Output of the failing conformance run. */
-  failure: string;
-  /** Functional specs of the modules this one requires, transitively. */
-  required?: RequiredSpec[];
-}
-
-/**
- * Build the prompt for fixing code that failed conformance.
- *
- * This agent can see and change the implementation; it cannot see or change the
- * conformance tests. That asymmetry is the point - the tests state what the
- * specification requires, and the code is what moves.
- */
-export function buildCodeFixPrompt(input: CodeFixPromptInput): string {
-  const { specifications } = input;
-  const functionalities = specifications[FUNCTIONAL_REQUIREMENTS];
-  const target = functionalities[functionalities.length - 1] ?? "";
-
-  const parts: Array<string | null> = [
-    `Conformance tests for \`${input.moduleName}\` functionality ${input.frid} are failing, and the`,
-    "failure has been judged to be in the code rather than in the tests.",
-    "",
-    section(DEFINITIONS, specifications[DEFINITIONS]),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
-    alreadyImplemented(input.moduleName, functionalities.slice(0, -1), input.required ?? []),
-    `<functionality id="${input.frid}">\n${target}\n</functionality>`,
-    section("acceptance tests", specifications[ACCEPTANCE_TESTS] ?? []),
-    `<why the code is at fault>\n${input.triage}\n</why the code is at fault>`,
-    `<conformance failure>\n${input.failure}\n</conformance failure>`,
-    "",
-    "Change the implementation so it does what the specification says.",
-    "",
-    "- The conformance tests are not yours to change: the harness checks, and puts back any change you make to them. Fix the code.",
-    "- Do not special-case the test. Make the behaviour the specification describes actually true.",
-    "- Everything listed as already implemented must keep working. Fix this functionality without",
-    "  breaking them.",
-    "- Keep the existing unit tests passing; call run_unit_tests to check.",
-    "- Never delete or weaken an existing test to get a pass.",
-    "- Report what you changed and why.",
-  ];
 
   return parts.filter((part): part is string => part !== null).join("\n");
 }

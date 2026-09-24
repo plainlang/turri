@@ -29,8 +29,8 @@ So with plainwright you maintain software at the level of its definition, not it
 2. **Generate.** The agent builds the code one functionality at a time, each on top of the ones
    before it, into `plain_modules/`.
 3. **Validate.** The harness - not the agent - runs the unit tests and black-box conformance tests
-   written from the spec, and moves on only when every test so far passes. A deleted test is
-   challenged; a failing one is triaged: is the test wrong, or the code?
+   written from the spec, and moves on only when every test so far passes - its own run, not the
+   agent's word. A deleted test is challenged.
 4. **Regenerate.** To change the system, change its definition. The functionalities whose spec
    changed are rebuilt, and everything built before is tested again. When code and spec disagree,
    the code is healed to match - never the other way round.

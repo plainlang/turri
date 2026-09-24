@@ -74,10 +74,12 @@ describe.runIf(vmSupported())("trying what a render built", { timeout: 120_000 }
     expect(prompts.some((prompt) => prompt.startsWith("Functionality 1 is built"))).toBe(true);
     expect(result.tryIt?.dir).toBe(join(dir, "plain_modules", ".plainwright", "try", "app", "fs-1"));
     expect(existsSync(join(result.tryIt!.dir!, "setup.log"))).toBe(true);
-    expect(result.tryIt?.steps.map((step) => step.exitCode)).toEqual([0, undefined]);
+    // The server was started and was still up; then stopped.
+    expect(result.tryIt?.steps.map((step) => step.exitCode)).toEqual([0, 0]);
     const delivery = describeDelivery({ ...result, passed: true });
     expect(delivery).toContain("Try it");
-    expect(delivery).toContain("python3 -c 'print(40 + 2)'  ✓ checked");
+    expect(delivery).toContain("1. $ python3 -c 'print(40 + 2)'   ✓");
+    expect(delivery).toContain("You should see: prints 42");
   });
 
   it("is worked out and checked for a spec change too", async () => {
@@ -104,7 +106,7 @@ describe.runIf(vmSupported())("trying what a render built", { timeout: 120_000 }
     expect(result.tryIt?.steps[0]?.exitCode).toBe(0);
     const report = describeSpecDiff(result);
     expect(report).toContain("Try it");
-    expect(report).toContain("✓ checked");
+    expect(report).toContain("   ✓");
     // Its report is the change it made, not its answer about trying it.
     expect(prompts.filter((prompt) => prompt.includes("describe_how_to_try_it"))).toHaveLength(1);
   });

@@ -12,7 +12,8 @@ import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
-import { buildCodeFixPrompt, buildConformancePrompt } from "./prompt.ts";
+import { buildConformancePrompt } from "./prompt.ts";
+import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import {
@@ -25,27 +26,15 @@ import {
   truncateOutput,
   type TestRemoval,
   type TestRun,
-  keepingTestsUnchanged,
+  chooseRegressionCommand,
+  verifyUnitSuite,
 } from "./testing.ts";
 
 /**
- * Tools the conformance agent gets.
- *
- * Deliberately short. There is no `read`, `grep`, `find` or `bash`, so nothing in this
- * set can open a file in the build directory - the black box stays closed by the shape
- * of the tool surface rather than by the prompt asking nicely.
+ * The conformance agent's own tools, beside its file tools and shell: running its tests, and -
+ * since it fixes the code when the code is what is wrong - running the code's unit tests.
  */
-const CONFORMANCE_TOOLS = [
-  "write",
-  "edit",
-  "ls",
-  "read_test_file",
-  "run_conformance_tests",
-  "submit_triage",
-];
-
-/** Tools the code-fixing agent gets: the mirror image - the code, never the tests. */
-const FIX_TOOLS = ["run_unit_tests"];
+const CONFORMANCE_TOOLS = ["run_conformance_tests", "run_unit_tests"];
 
 const DEFAULT_MAX_ROUNDS = ATTEMPTS.conformance;
 
@@ -71,9 +60,8 @@ export interface RenderConformanceTestsOptions {
   conformanceDir?: string;
   onDelta?: (delta: string) => void;
   onRun?: (command: string, exitCode: number) => void;
-  /** Rounds of triage-and-fix before giving up. */
+  /** Rounds of fixing a failing run before giving up. */
   maxRounds?: number;
-  onTriage?: (verdict: TriageVerdict) => void;
   /** "provider/model-id". Omitted: whatever pi is configured to use. */
   model?: string;
   dryRun?: boolean;
@@ -91,20 +79,6 @@ export interface RenderConformanceTestsOptions {
   continuing?: boolean;
 }
 
-export type Fault = "test_at_fault" | "code_at_fault";
-
-export interface TriageVerdict {
-  fault: Fault;
-  reasoning: string;
-}
-
-export interface CodeFix {
-  reasoning: string;
-  report: string;
-  /** Conformance test files the fixer changed, which the harness put back. */
-  restoredTests?: string[];
-}
-
 export interface RenderConformanceTestsResult {
   moduleName: string;
   frid: string;
@@ -114,12 +88,10 @@ export interface RenderConformanceTestsResult {
   response: string;
   files: string[];
   runs: TestRun[];
-  /** Whether the last observed conformance run passed. */
+  /** Whether the harness's own run of the whole suite passed - and the unit tests, when the code changed. */
   passed: boolean;
-  /** Each time a failure was attributed to the tests or to the code. */
-  triage: TriageVerdict[];
-  /** Fixes made to the implementation after a code_at_fault verdict. */
-  codeFixes: CodeFix[];
+  /** Whether the agent changed the code to make the tests pass. */
+  codeChanged: boolean;
   /** Conformance tests that went missing mid-run and had to be justified. */
   testRemovals: TestRemoval[];
 }
@@ -178,35 +150,6 @@ export async function runInSandbox(
     // Emptied, not removed: the next run reuses the path, and the VM mounted on it.
     for (const entry of readdirSync(sandbox)) rmSync(join(sandbox, entry), { recursive: true, force: true });
   }
-}
-
-function createTriageTool(onVerdict: (verdict: TriageVerdict) => void) {
-  return defineTool({
-    name: "submit_triage",
-    label: "Submit triage",
-    description:
-      "State whether a failing conformance run is the fault of your test or of the implementation. " +
-      "Call this once per failure, before fixing anything.",
-    parameters: Type.Object({
-      fault: Type.Union([Type.Literal("test_at_fault"), Type.Literal("code_at_fault")], {
-        description:
-          "test_at_fault when your test misreads the specification or is wrong; " +
-          "code_at_fault when the code does not do what the specification says.",
-      }),
-      reasoning: Type.String({
-        description:
-          "What the specification requires, what the run showed, and why that makes this the test's or the code's fault.",
-      }),
-    }),
-    async execute(_id, params) {
-      onVerdict(params as TriageVerdict);
-      return {
-        content: [{ type: "text" as const, text: `Recorded: ${params.fault}.` }],
-        details: params,
-        terminate: true,
-      };
-    },
-  });
 }
 
 function createRunTool(
@@ -300,6 +243,7 @@ export async function renderConformanceTests(
     specifications,
     linkedResources,
     manifest,
+    codeDir: buildDir,
     existingTests: listFiles(conformanceDir),
     required,
     diff: options.diff,
@@ -316,8 +260,7 @@ export async function renderConformanceTests(
       files: listFiles(conformanceDir),
       runs: [],
       passed: false,
-      triage: [],
-      codeFixes: [],
+      codeChanged: false,
       testRemovals: [],
     };
   }
@@ -325,23 +268,30 @@ export async function renderConformanceTests(
   mkdirSync(conformanceDir, { recursive: true });
 
   const runs: TestRun[] = [];
-  const triage: TriageVerdict[] = [];
-  const codeFixes: CodeFix[] = [];
+  const unitRuns: TestRun[] = [];
   const testRemovals: TestRemoval[] = [];
   const lastOutput = { value: "" };
+  const codeBefore = digestFiles(buildDir);
+  const codeChanged = () => {
+    const diff = diffFiles(codeBefore, digestFiles(buildDir));
+    return diff.added.length + diff.changed.length + diff.removed.length > 0;
+  };
 
-  let pendingTriage: TriageVerdict | undefined;
-  // Works in its tests. It sees plain_modules, the code included, and nothing above it.
+  // One agent, going back and forth until the tests pass: it writes them from the spec, and
+  // when one fails it works out - against the spec - whether the test or the code is wrong, and
+  // fixes that one. It works in its tests and sees plain_modules, the code included.
   const fence = confinedTools({ workdir: conformanceDir });
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
       ...fence.tools,
       createRunTool(buildDir, conformanceDir, runs, lastOutput, options.onRun),
-      createTriageTool((verdict) => {
-        pendingTriage = verdict;
-        triage.push(verdict);
-        options.onTriage?.(verdict);
+      createRunTestsTool({
+        name: "run_unit_tests",
+        label: "Run unit tests",
+        description: `Run the code's unit tests, in ${buildDir}, and return the exit code and output. Use it after changing the code.`,
+        run: (command) => runCommand(buildDir, command),
+        runs: unitRuns,
       }),
     ],
     tools: [...fence.names, ...CONFORMANCE_TOOLS],
@@ -355,23 +305,18 @@ export async function renderConformanceTests(
     let response = await ask(executor, prompt, options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
+    let verified = false;
     for (let round = 0; round < maxRounds; round += 1) {
       const current = inventoryTests(conformanceDir);
       const removals = findTestRemovals(inventory, current);
       if (removals.length > 0) {
         testRemovals.push(...removals);
         inventory = current;
-        response = await ask(
-          executor,
-          removalChallengePrompt(removals, "conformance tests"),
-          options.onDelta,
-        );
+        response = await ask(executor, removalChallengePrompt(removals, "conformance tests"), options.onDelta);
         continue;
       }
 
-      const last = runs[runs.length - 1];
-      if (last?.exitCode === 0) break;
-
+      const last = runs.at(-1);
       if (last === undefined) {
         response = await ask(
           executor,
@@ -381,85 +326,66 @@ export async function renderConformanceTests(
         continue;
       }
 
-      if (pendingTriage === undefined) {
-        stage("conformance tests failing - deciding whether the test or the code is wrong");
+      if (last.exitCode !== 0) {
+        stage(`conformance tests failing - fixing (round ${round + 1} of ${maxRounds})`);
+        response = await ask(executor, conformanceFailingPrompt(last.command, last.exitCode, lastOutput.value, buildDir), options.onDelta);
+        continue;
+      }
+
+      // Its own run passed. Whether the functionality is done is the harness's run: the whole
+      // suite, run by the harness - and the code's unit tests, when the agent changed the code.
+      stage("checking the conformance tests");
+      const suite = chooseRegressionCommand(runs);
+      if (suite.command === null || suite.narrow) {
         response = await ask(
           executor,
-          [
-            `\`${last.command}\` exited ${last.exitCode}. Before changing anything, decide where the`,
-            "fault lies and call submit_triage.",
-            "",
-            "Your test is at fault if it asserts something the specification does not require, or",
-            "misreads what it does require. The code is at fault if the specification says one thing",
-            "and the run shows another.",
-          ].join("\n"),
+          `Your last passing run, \`${last.command}\`, does not run the whole conformance suite. Call ` +
+            "run_conformance_tests with the whole-suite command from the test reqs, the one that discovers every " +
+            "test in the working directory, and fix whatever it reports.",
           options.onDelta,
         );
         continue;
       }
-
-      const verdict = pendingTriage;
-      pendingTriage = undefined;
-
-      if (verdict.fault === "test_at_fault") {
-        stage("correcting a conformance test");
-        response = await ask(
-          executor,
-          [
-            `You judged the test at fault: ${verdict.reasoning}`,
-            "",
-            "Correct the test so it checks what the specification actually requires, then call",
-            "run_conformance_tests again. Do not remove the test.",
-          ].join("\n"),
-          options.onDelta,
-        );
-        continue;
-      }
-
-      // The code is at fault. Hand the failure to an agent that fixes code - and whose changes
-      // to the tests, if it makes any, the harness undoes.
-      stage("the code is at fault - fixing the implementation");
-      const fix = await runCodeFix({
-        testsDirs: [conformanceDir],
-        buildDir,
-        moduleName,
-        frid,
-        specifications,
-        required,
-        verdict,
-        failure: lastOutput.value,
-        onDelta: options.onDelta,
-        model: options.model,
-      });
-      codeFixes.push(fix);
-
-      // The harness re-runs the same command itself, so the verdict on whether the fix
-      // worked does not depend on either agent reporting it.
-      stage("re-running the conformance tests against the fix");
-      const recheck = await runInSandbox(buildDir, conformanceDir, last.command);
-      runs.push({ command: last.command, exitCode: recheck.exitCode });
+      const recheck = await runInSandbox(buildDir, conformanceDir, suite.command);
+      runs.push({ command: suite.command, exitCode: recheck.exitCode });
       lastOutput.value = recheck.output;
-      options.onRun?.(last.command, recheck.exitCode);
-      if (recheck.exitCode === 0) break;
-
-      response = await ask(
-        executor,
-        [
-          "The implementation was changed to address your verdict, but the tests still fail:",
-          "",
-          recheck.output,
-          "",
-          "Triage again with submit_triage.",
-        ].join("\n"),
-        options.onDelta,
-      );
+      options.onRun?.(suite.command, recheck.exitCode);
+      if (recheck.exitCode !== 0) {
+        stage(`conformance tests failing when the harness runs them - fixing (round ${round + 1} of ${maxRounds})`);
+        response = await ask(
+          executor,
+          [
+            `The harness ran the whole conformance suite itself - \`${suite.command}\` - and it failed (exit ${recheck.exitCode}):`,
+            "",
+            recheck.output.trimEnd(),
+            "",
+            "Fix what is wrong - against the specification, the test or the code - and run it again.",
+          ].join("\n"),
+          options.onDelta,
+        );
+        continue;
+      }
+      if (codeChanged()) {
+        stage("the code changed - checking its unit tests");
+        const unit = await verifyUnitSuite(buildDir, unitRuns);
+        if (!unit.ok) {
+          response = await ask(
+            executor,
+            `You changed the code, so its unit tests must still pass.\n\n${unit.prompt}`,
+            options.onDelta,
+          );
+          continue;
+        }
+      }
+      verified = true;
+      break;
     }
 
-    const passed = runs[runs.length - 1]?.exitCode === 0;
-    // The tests, and the code when a fix changed it: one commit if they share a module folder.
+    const changed = codeChanged();
+    // The tests, and the code when it changed: one commit if they share a module folder.
     const subject =
       `conformance ${moduleName} ${options.diff !== undefined ? "for a spec change" : `fs ${frid}`} ` +
-      `(${passed ? "pass" : "NOT passing"}${codeFixes.length > 0 ? `, ${codeFixes.length} code fix(es)` : ""})`;
+      `(${verified ? "pass" : "NOT passing"}${changed ? ", code changed" : ""})`;
     recordHistory(conformanceDir, subject);
     if (moduleDirOf(buildDir) !== moduleDirOf(conformanceDir)) recordHistory(buildDir, subject);
 
@@ -472,9 +398,8 @@ export async function renderConformanceTests(
       response,
       files: listFiles(conformanceDir),
       runs,
-      passed,
-      triage,
-      codeFixes,
+      passed: verified,
+      codeChanged: changed,
       testRemovals,
     };
   } finally {
@@ -482,59 +407,18 @@ export async function renderConformanceTests(
   }
 }
 
-/** Run a coding agent against the build to fix what conformance caught. */
-async function runCodeFix(input: {
-  /** The conformance tests the fix is not allowed to change. */
-  testsDirs: string[];
-  buildDir: string;
-  moduleName: string;
-  frid: string;
-  specifications: Parameters<typeof buildCodeFixPrompt>[0]["specifications"];
-  required: RequiredSpec[];
-  verdict: TriageVerdict;
-  failure: string;
-  onDelta?: (delta: string) => void;
-  model?: string;
-}): Promise<CodeFix> {
-  const runs: TestRun[] = [];
-  const fixFence = confinedTools({ workdir: input.buildDir });
-  const session = await createExecutor({
-    cwd: input.buildDir,
-    customTools: [
-      ...fixFence.tools,
-      createRunTestsTool({
-        name: "run_unit_tests",
-        label: "Run unit tests",
-        description: "Run the unit test suite in the working directory and return its exit code and output.",
-        run: (command) => runCommand(input.buildDir, command),
-        runs,
-      }),
-    ],
-    tools: [...fixFence.names, ...FIX_TOOLS],
-    model: input.model,
-  });
-
-  try {
-    const { report, restored } = await keepingTestsUnchanged({
-      dirs: input.testsDirs,
-      label: `${input.moduleName} ${input.frid}`,
-      start: () =>
-        ask(
-          session,
-          buildCodeFixPrompt({
-            moduleName: input.moduleName,
-            frid: input.frid,
-            specifications: input.specifications,
-            required: input.required,
-            triage: input.verdict.reasoning,
-            failure: input.failure,
-          }),
-          input.onDelta,
-        ),
-      again: (prompt) => ask(session, prompt, input.onDelta),
-    });
-    return { reasoning: input.verdict.reasoning, report, ...(restored.length > 0 ? { restoredTests: restored } : {}) };
-  } finally {
-    session.dispose();
-  }
+/** A failing run, handed back to the conformance agent to fix - the test or the code. */
+function conformanceFailingPrompt(command: string, exitCode: number, output: string, codeDir: string): string {
+  return [
+    `\`${command}\` exited ${exitCode}:`,
+    "",
+    output.trimEnd(),
+    "",
+    "Work out, against the specification, what is wrong - your test or the code - and fix that one:",
+    "- A test that asserts something the specification does not require, or misreads it, is corrected.",
+    `- Code that does not do what the specification says is fixed, in ${codeDir}. Then run its unit tests`,
+    "  with run_unit_tests and keep them passing.",
+    "Never change a test so it agrees with code that contradicts the specification, and never delete, skip or",
+    "weaken a test to get a pass. Then run the tests again.",
+  ].join("\n");
 }

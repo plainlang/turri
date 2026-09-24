@@ -130,8 +130,6 @@ export function describeToolCall(name: string, args: Record<string, unknown> | u
       return `▶ ${name === "run_unit_tests" ? "unit tests" : "conformance tests"}: ${clip(command ?? "")}`;
     case "describe_how_to_try_it":
       return "  wrote the try-it steps";
-    case "submit_triage":
-      return `  triage: ${typeof args?.fault === "string" ? args.fault.replace(/_/g, " ") : "submitted"}`;
     default:
       return `  ${name}`;
   }

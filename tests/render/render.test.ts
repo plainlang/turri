@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { STATE_FILE } from "../../src/render/state.ts";
 import { describe, expect, it } from "vitest";
-import { buildCodeFixPrompt, buildConformancePrompt, buildRegressionFixPrompt, buildRenderPrompt } from "../../src/render/prompt.ts";
+import { buildConformancePrompt, buildRegressionFixPrompt, buildRenderPrompt } from "../../src/render/prompt.ts";
 import { listFrids, renderFunctionality, resolveTemplateDirs } from "../../src/render/render.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -247,14 +247,6 @@ describe("what the other agents are told is already implemented", () => {
     expect(prompt).toContain('<functionality id="2">\n- Mine two.\n</functionality>');
     expect(prompt).not.toContain('module="demo" id="2" status="implemented"');
     expect(prompt).toContain("Test functionality 2 only.");
-  });
-
-  it("the code fixer: what must keep working while it fixes this one", () => {
-    const prompt = buildCodeFixPrompt({
-      moduleName: "demo", frid: "2", specifications, required, triage: "wrong status", failure: "exit 1",
-    });
-    expect(inOrder(prompt)).toBe(true);
-    expect(prompt).toContain("Fix this functionality without\n  breaking them.");
   });
 
   it("the regression repairer: every functionality in the code, required modules included", () => {

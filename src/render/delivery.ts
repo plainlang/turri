@@ -37,16 +37,21 @@ function shortPath(buildDir: string): string {
   return fromHere === "" || fromHere.startsWith("..") ? buildDir : fromHere;
 }
 
-function stepLines(step: TryStep): string[] {
-  const verdict =
-    step.exitCode === undefined ? "" : step.exitCode === 0 ? "  ✓ checked" : `  ✗ failed when checked (exit ${step.exitCode})`;
+/** Whether a step worked when the harness ran it, as the mark after the command. */
+function mark(exitCode: number | undefined): string {
+  if (exitCode === undefined) return "";
+  return exitCode === 0 ? "   ✓" : "   ✗ did not work when checked";
+}
+
+function stepLines(step: TryStep, n: number): string[] {
+  const see = `     You should see: ${step.expect}`;
   switch (step.kind) {
     case "manual":
-      return [`  Then: ${step.do}`, `    → ${step.expect}`];
+      return [`  ${n}. ${step.do}`, see];
     case "long_running":
-      return [`  $ ${step.do}`, "    (keeps running - stop it with Ctrl-C)", `    → ${step.expect}`];
+      return [`  ${n}. Start it - it keeps running, so do the next steps in a second terminal:`, `     $ ${step.do}${mark(step.exitCode)}`, see];
     default:
-      return [`  $ ${step.do}${verdict}`, `    → ${step.expect}`];
+      return [`  ${n}. $ ${step.do}${mark(step.exitCode)}`, see];
   }
 }
 
@@ -54,24 +59,32 @@ function tryItLines(delivery: Delivery): string[] {
   return describeTryIt(delivery.tryIt, delivery.buildDir);
 }
 
-/** The "Try it" block: where to go, the setup, and each step with whether it worked when checked. */
+/**
+ * The "Try it" block, for a person reading it once: where to go, what to set up, then numbered
+ * steps - each one thing to run or do, and what they should see. Commands carry a ✓ when they
+ * worked when checked; one that did not is marked, and the block says so up front.
+ */
 export function describeTryIt(tryIt: TryIt | undefined, buildDir: string): string[] {
-  const lines = ["", "Try it", `  $ cd ${shortPath(tryIt?.dir ?? buildDir)}`];
-  if (tryIt?.dir !== undefined) {
-    lines.push("    (a copy of the build as it is now - later renders do not touch it)");
-  }
-
+  const lines = ["", "Try it"];
   if (tryIt === undefined) {
     lines.push("  (how to try it was not worked out for this build - ask, and it can be from the code)");
     return lines;
   }
 
-  for (const command of tryIt.setup) {
-    const failed = tryIt.failedSetup?.includes(command);
-    lines.push(`  $ ${command}${failed ? "  ✗ failed when checked" : ""}`);
+  const failed = (tryIt.failedSetup?.length ?? 0) > 0 || tryIt.steps.some((step) => step.exitCode !== undefined && step.exitCode !== 0);
+  if (failed) lines.push("  Some of these did not work when checked (marked ✗) - they may not work for you either.");
+  lines.push(`  In a fresh copy of the build:`, `  $ cd ${shortPath(tryIt.dir ?? buildDir)}`);
+
+  if (tryIt.setup.length > 0) {
+    lines.push("", "  Set up once:");
+    for (const command of tryIt.setup) {
+      const didFail = tryIt.failedSetup?.includes(command);
+      const wasRun = !didFail && !(tryIt.failedSetup?.length ?? 0);
+      lines.push(`  $ ${command}${didFail ? mark(1) : wasRun ? mark(0) : ""}`);
+    }
   }
-  if (tryIt.setup.length > 0) lines.push("    (one-off setup)");
-  for (const step of tryIt.steps) lines.push(...stepLines(step));
+  lines.push("");
+  tryIt.steps.forEach((step, index) => lines.push(...stepLines(step, index + 1)));
   return lines;
 }
 

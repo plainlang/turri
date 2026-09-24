@@ -73,9 +73,12 @@ starts, so breaking an earlier functionality's test is caught too.
 
 Once the unit tests pass: the conformance tests already in the codebase are run and kept passing
 (repairing the code if needed), the build record is updated, and a commit is made to the module's
-history. When someone is there to try it, the agent is also asked how to try the functionality,
-and the harness runs those steps in a fresh copy (`plain_modules/.plainwright/try/`) before
-handing them over, each marked with whether it worked.
+history. When someone is there to try it, the agent is also asked how to try the functionality:
+a few plain steps - a command to paste or a thing to click, and what you should see - at most
+five, one line each, and only commands that work in your own terminal. The harness runs every
+command first, in a fresh copy (`plain_modules/.plainwright/try/`): a server is started, checked
+to stay up, and the steps after it run against it before it is stopped. A step that does not work
+goes back to the agent, up to three times; one that still does not is shown marked as not working.
 
 ## A whole module
 
@@ -150,20 +153,17 @@ construction and can never catch it being wrong. `run_conformance_tests` copies 
 tests into a throwaway directory and runs a command there, so tests cannot accumulate state
 between attempts and nothing they write reaches the code.
 
-### When conformance fails, someone has to be wrong
+### When a conformance test fails
 
-A failing run means the code and the spec disagree - but the test could equally be the thing that
-misread the spec. The test author decides, from the spec and the failure, through `submit_triage`:
+It works like the unit tests: one agent goes back and forth until they pass. When a run fails, the
+failure goes back to the same agent, which works out against the spec what is wrong and fixes that
+one - a test that misreads the spec is corrected, code that does not do what the spec says is
+fixed, and its unit tests kept passing. It is told never to change a test so it agrees with code
+that contradicts the spec, and a test it deletes is challenged by name.
 
-- **`test_at_fault`** - the test asserts something the spec does not require. The author fixes its
-  own test and runs again.
-- **`code_at_fault`** - the spec says one thing and the run shows another. The failure goes to a
-  second agent that fixes the code and keeps the unit tests green. It is not allowed to change the
-  conformance tests - the harness compares them with how they were before the fix, and puts back
-  anything it changed - and the harness then re-runs the conformance command itself, so whether
-  the fix worked does not depend on either agent's account of it.
-
-That loop runs up to 20 times, and conformance tests cannot be deleted to get a pass either.
+When its own run passes, the harness checks for itself: it runs the whole conformance suite - a run
+that only named one file is sent back - and, if the agent changed the code, the code's unit tests
+too. Only that counts. It goes back and forth up to 20 times.
 
 ### Verified
 
@@ -176,8 +176,8 @@ self.assertEqual(completed.returncode, 0, msg=completed.stderr)
 self.assertEqual(completed.stdout.strip(), "hello, world")
 ```
 
-Mutating the implementation to print `goodbye, world` makes it fail, and the triage loop repairs
-it: `code_at_fault`, one code fix, and the harness's own re-run passes.
+Code that prints `goodbye` instead fails the test; the agent fixes the code, and the harness's own
+runs - the suite, then the unit tests of the changed code - pass (`tests/render/conformance-loop.test.ts`).
 
 ## The build record
 

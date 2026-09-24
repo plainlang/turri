@@ -60,10 +60,11 @@ other, jobs on different modules run side by side.
   screen of its own. `q` goes back to the chat and keeps your place; `alt+w` or `/watch` switches
   back. `g`/`G` jump to the top and bottom, `x` closes it.
 - **`/jobs`** lists every job, **`/stop <id>`** stops one - a queued one never starts.
-- **When a job finishes** it says what was built and how to try it - the try-it steps were run
-  first, in a fresh copy, and each is marked with whether it worked.
+- **When a job finishes** it says what was built and how to try it, in a few numbered steps: what
+  to run or do, and what you should see. Every command was run first, in a fresh copy - servers
+  included - and carries a ✓ when it worked.
 - **When a job stops** - a gate still failing after 20 attempts - it says where it stopped, why in
-  plain words, and what to do: which spec to change and how, or what the machine is missing.
+  plain words, and what to change in the spec - which section, and how.
   Running the same build again picks up from there.
 
 In `print`, `json` and `rpc` modes the process ends when the answer is written, so the tools wait

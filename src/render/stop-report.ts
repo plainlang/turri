@@ -26,17 +26,16 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "triage" | "runs">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
 }
 
-function lastRun(runs: TestRun[] | undefined): string {
-  const last = runs?.at(-1);
-  return last ? ` The last run was \`${last.command}\` (exit ${last.exitCode}).` : " The tests were never run.";
-}
-
-/** Where it stopped, why, and what to do about it - for the person, in a few lines. */
+/**
+ * Where it stopped, why, and what to do about it - for the person, in a few lines, and in terms
+ * of the spec. The spec is all the person works on: the code is generated from it, so every fix
+ * offered here is a change to a `.plain` file, never to code, tests or the machine.
+ */
 export function describeStop(facts: StopFacts): string {
   const what = facts.frid !== undefined ? `${facts.moduleName} functionality ${facts.frid}` : `the spec change in ${facts.moduleName}`;
   const tries = ATTEMPTS[facts.at];
@@ -44,50 +43,40 @@ export function describeStop(facts: StopFacts): string {
   let todo: string[];
 
   if (facts.at === "unit tests") {
-    why = `its unit tests still fail after ${tries} attempts to fix them.${lastRun(facts.runs)}`;
+    why = `after ${tries} attempts it still could not be built to pass its own unit tests.`;
     todo = [
-      "See why: `/watch` on this job shows every attempt and what failed.",
-      "Most often the spec is the cause: the functionality is too big for one build (check it with " +
-        "`analyze-if-func-spec-too-complex`, split it with `break-down-func-spec`), or it leaves a choice open " +
-        "that keeps coming out wrong. Change the spec, then build again.",
-      "If the failures are about the machine rather than the code - a missing tool or library, a download that " +
-        "was blocked - install it with `install_system_packages`, run `plainwright doctor`, or allow the host with " +
-        "PLAINWRIGHT_ALLOWED_HOSTS; then build again.",
+      "The functional spec is most likely too big for one functionality, or leaves a choice open that keeps coming " +
+        "out wrong. Split it into smaller functional specs (`analyze-if-func-spec-too-complex`, `break-down-func-spec`), " +
+        "or say exactly what it should do.",
+      "If it needs something the stack does not name - a library, a tool, a service - add it to the implementation reqs.",
+      "If its unit tests have to be run in a particular way, say how in the implementation reqs.",
     ];
   } else if (facts.at === "conformance") {
-    const verdict = facts.conformance?.triage.at(-1)?.fault;
-    const last = facts.conformance?.runs.at(-1);
-    why =
-      `its conformance tests still fail after ${tries} rounds of deciding who is wrong and fixing it` +
-      (verdict ? ` - the last verdict was that the ${verdict === "code_at_fault" ? "code" : "test"} was wrong` : "") +
-      "." +
-      (last ? ` The last run was \`${last.command}\` (exit ${last.exitCode}).` : "");
+    why = `after ${tries} rounds, its conformance tests and its code still disagree about what the spec means.`;
     todo = [
-      "The tests and the code keep disagreeing about what the spec means, which usually means the spec can be " +
-        "read more than one way. Make the functional spec and its acceptance tests say exactly what should happen, " +
-        "then regenerate the functionality.",
-      "If the tests are run the wrong way - wrong framework, command or setup - fix the test reqs or the " +
-        "conformance-test script instead.",
-      "`/watch` on this job shows each verdict and why it was reached.",
+      "The functional spec can be read more than one way. Say exactly what should happen - the inputs, the outputs, " +
+        "the edge cases - and add acceptance tests that pin down the expected result.",
+      "If the conformance tests are meant to be written or run differently - framework, command, setup - change the test reqs.",
     ];
   } else {
     why =
-      `building it broke tests of what was built before it, and ${facts.repairs ?? tries} repair` +
-      `${facts.repairs === 1 ? "" : "s"} to the code did not make them pass again.`;
+      `building it broke what was built before it, and ${facts.repairs ?? tries} attempt${facts.repairs === 1 ? "" : "s"} ` +
+      "to reconcile the two did not succeed.";
     todo = [
-      "This most often means the new spec contradicts an earlier one. Check it against the earlier specs " +
-        "(`analyze-func-specs`, `resolve-spec-conflict`), change whichever is wrong, then regenerate.",
-      "If an earlier test was wrong all along, fix that functionality's spec or acceptance tests and regenerate it.",
-      "`/watch` on this job shows which tests broke and what each repair tried.",
+      "This most often means its spec contradicts an earlier one. Compare them (`analyze-func-specs`, " +
+        "`resolve-spec-conflict`) and change whichever is wrong.",
+      "If the new behaviour is meant to change what an earlier functionality does, change that earlier spec and its " +
+        "acceptance tests to say so.",
     ];
   }
 
   return [
     `Stopped at ${what}: ${why}`,
-    "Nothing after it was built - the functionalities after it, and the modules built on this one, wait on it. " +
-      "Running the same build again picks up here: what is built stays built.",
+    "Nothing after it was built - the functionalities after it, and the modules built on this one, wait on it.",
     "",
-    "What to do:",
+    "What to change in the spec:",
     ...todo.map((line) => `- ${line}`),
+    "",
+    "Then build again: it picks up here, and what is built stays built.",
   ].join("\n");
 }

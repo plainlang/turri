@@ -25,7 +25,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) |
 | `src/render/render.ts` | one functionality to code |
 | `src/render/module.ts` | whole-module builds, regression runs, regeneration |
-| `src/render/conformance.ts` | conformance tests, triage, code fixes |
+| `src/render/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
 | `src/render/spec-change.ts` | rendering a spec diff |
 | `src/render/queue.ts`, `src/render/jobs.ts` | the render queue and background jobs |
 | `src/render/state.ts` | the build record, `.plainwright.json` |

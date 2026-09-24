@@ -13,7 +13,7 @@ vi.mock("../../src/render/conformance.ts", async (importOriginal) => {
       conformanceRuns.push({ plainFile: options.plainFile, frid: options.frid, buildDir: options.buildDir, conformanceDir: options.conformanceDir });
       return {
         moduleName: "x", frid: options.frid, buildDir: options.buildDir, conformanceDir: options.conformanceDir, prompt: "", response: "",
-        files: [], runs: [{ command: "sh check.sh", exitCode: 0 }], passed: true, triage: [], codeFixes: [], testRemovals: [],
+        files: [], runs: [{ command: "sh check.sh", exitCode: 0 }], passed: true, codeChanged: false, testRemovals: [],
       };
     },
   };

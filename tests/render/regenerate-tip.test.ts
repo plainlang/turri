@@ -27,7 +27,7 @@ vi.mock("../../src/render/conformance.ts", async (importOriginal) => {
     ...actual,
     renderConformanceTests: async (options: { frid: string; buildDir: string }) => ({
       moduleName: "x", frid: options.frid, buildDir: options.buildDir, conformanceDir: "", response: "", files: [],
-      runs: [{ command: "true", exitCode: 0 }], passed: true, triage: [], codeFixes: [], testRemovals: [],
+      runs: [{ command: "true", exitCode: 0 }], passed: true, codeChanged: false, testRemovals: [],
     }),
   };
 });

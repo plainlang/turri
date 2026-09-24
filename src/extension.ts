@@ -614,8 +614,8 @@ function conformanceReport(result: RenderConformanceTestsResult): string {
       ? `Conformance tests pass for ${result.moduleName} functionality ${result.frid}.`
       : `Conformance tests are NOT passing for ${result.moduleName} functionality ${result.frid}.`,
     `Tests in ${result.conformanceDir}, run against ${result.buildDir}.`,
-    result.codeFixes.length > 0
-      ? `${result.codeFixes.length} triage verdict(s) blamed the code, and the implementation was changed.`
+    result.codeChanged
+      ? "The implementation was changed to make the conformance tests pass."
       : "",
     "",
     "<files>",

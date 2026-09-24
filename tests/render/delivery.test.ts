@@ -33,21 +33,23 @@ describe("the notification when a functionality lands", () => {
   it("says how to run it, from where, with setup first", () => {
     const text = describeDelivery(base);
     expect(text).toContain("$ cd build/greeter");
+    expect(text.indexOf("Set up once:")).toBeLessThan(text.indexOf("pip install"));
     expect(text.indexOf("pip install")).toBeLessThan(text.indexOf("python3 greeter.py Ana"));
-    expect(text).toContain('→ prints "Hello, Ana!"');
+    expect(text).toContain('You should see: prints "Hello, Ana!"');
   });
 
-  it("marks the steps the harness ran, and how each kind is meant to be used", () => {
+  it("numbers the steps, marks the ones the harness ran, and says how each kind is used", () => {
     const text = describeDelivery(base);
-    expect(text).toMatch(/python3 greeter\.py Ana {2}✓ checked/);
-    expect(text).toContain("keeps running");
-    expect(text).toContain("Then: open http://localhost:8000/?name=Ana");
+    expect(text).toContain("  1. $ python3 greeter.py Ana   ✓");
+    expect(text).toContain("  2. Start it - it keeps running, so do the next steps in a second terminal:");
+    expect(text).toContain("  3. open http://localhost:8000/?name=Ana");
   });
 
   it("says when a step did not work when checked", () => {
     const steps = [{ ...base.tryIt.steps[0]!, exitCode: 1 }];
     const text = describeDelivery({ ...base, tryIt: { setup: [], steps } });
-    expect(text).toContain("✗ failed when checked (exit 1)");
+    expect(text).toContain("✗ did not work when checked");
+    expect(text).toContain("Some of these did not work when checked");
   });
 
   it("admits when the build did not say how to run it", () => {
