@@ -6,6 +6,8 @@
 
 <h1 align="center">plainwright coding agent<br>with the power of<br>regenerative software</h1>
 
+<br>
+
 You and an agent write down what the system should do, as \*\*\*plain specs. The agent builds the
 code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
