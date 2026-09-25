@@ -155,11 +155,11 @@ const SKILL: Record<ScriptKind, { skill: string; file: string; what: string }> =
 
 /** Raised before a build starts when the script that would decide it is done is missing. */
 export class MissingTestScriptError extends Error {
-  constructor(
-    readonly moduleName: string,
-    readonly kind: ScriptKind,
-    note?: string,
-  ) {
+  // Declared fields, not parameter properties: node's own type stripping cannot run those.
+  readonly moduleName: string;
+  readonly kind: ScriptKind;
+
+  constructor(moduleName: string, kind: ScriptKind, note?: string) {
     const { skill, file, what } = SKILL[kind];
     super(
       [
@@ -175,6 +175,8 @@ export class MissingTestScriptError extends Error {
       ].join("\n"),
     );
     this.name = "MissingTestScriptError";
+    this.moduleName = moduleName;
+    this.kind = kind;
   }
 }
 
