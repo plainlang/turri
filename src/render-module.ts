@@ -1,8 +1,10 @@
+import { existsSync, readFileSync } from "node:fs";
+import { load as loadYaml } from "js-yaml";
 import { c, reportEvent } from "./module-report.ts";
 import { renderChain, describeChainStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
 
-const USAGE = `usage: npm run module -- <file.plain> [options]
+const USAGE = `usage: npm run module -- [file.plain] [options]
 
 Builds the module and everything it requires, bottom first. A required module's code is
 copied into the build before this module starts, so it is finished first.
@@ -10,6 +12,9 @@ copied into the build before this module starts, so it is finished first.
 Within each module, a functionality advances only when its unit tests pass, its own
 conformance tests pass, and every earlier functionality's conformance tests still pass
 alongside it.
+
+Without a file, module, model and conformance_tests are read from plainwright_config.yaml
+in the current directory; options given here win over it.
 
   --no-conformance         skip conformance tests (they need test reqs)
   --conformance            require conformance tests, failing if there are no test reqs
@@ -55,7 +60,12 @@ function parseArgs(argv: string[]) {
 
 async function main() {
   const { positional, templateDirs, options } = parseArgs(process.argv.slice(2));
-  const plainFile = positional[0];
+  // Without a file, the project's plainwright_config.yaml says what to build.
+  const config: { module?: string; model?: string; conformance_tests?: boolean } =
+    positional[0] === undefined && existsSync("plainwright_config.yaml")
+      ? ((loadYaml(readFileSync("plainwright_config.yaml", "utf8")) as object | null) ?? {})
+      : {};
+  const plainFile = positional[0] ?? config.module;
   if (!plainFile) {
     console.error(USAGE);
     process.exit(1);
@@ -68,7 +78,7 @@ async function main() {
     skipRequires: options.only !== undefined,
     tryIt: options["try-it"] !== undefined,
     conformance:
-      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : undefined,
+      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : config.conformance_tests,
     onChainEvent: (event) => {
       if (event.type === "chain") {
         console.log(`\n${c.bold("build chain")}\n${describeChain(event.chain)}`);
@@ -86,7 +96,7 @@ async function main() {
     to: options.to,
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
-    model: options.model,
+    model: options.model ?? config.model,
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])
       : undefined,
