@@ -14,7 +14,7 @@ const TOOL_FOR: Record<string, string> = {
   render: "render_functionality",
   module: "render_module",
   regenerate: "regenerate_functionality",
-  conformance: "render_conformance_tests",
+  conformance: "render_functionality_conformance",
   skill: "run_skill",
   forge: "run_skill",
   chat: "nothing - you are the conversation already",
@@ -104,7 +104,7 @@ export function refusal(what: string): string {
 export const TOOLS_NOT_CLI = [
   "<plainwright-tools>",
   "In this conversation, plainwright's work is done with its tools - render_functionality, render_module,",
-  "regenerate_functionality, render_spec_diff, render_conformance_tests, run_skill and the rest - which run as",
+  "regenerate_functionality, render_spec_diff, render_functionality_conformance, run_skill and the rest - which run as",
   "background jobs the user can watch and stop. Never run plainwright's command line (plainwright render,",
   "module, regenerate, conformance, skill, chat; npm run render and the like) or start another pi through bash:",
   "that is a separate headless run the user cannot see or stop. Only when the user explicitly asks for the",

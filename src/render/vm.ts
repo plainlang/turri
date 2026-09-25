@@ -17,8 +17,8 @@ import { ensureInVmScratch, MODULES_DIR, modulesRootOf, vmScratchDir } from "./p
  * to fence a shell on the host, the command runs in a small Linux VM whose only view of the
  * machine is `plain_modules/<module>` and `plain_modules/.plainwright`, mounted read-write at the
  * paths they have on the host. Everything else - the other modules, the specs above them, the
- * home directory, other projects - does not exist in there. The network reaches the package
- * registries and nothing else.
+ * home directory, other projects - does not exist in there. The network is open - the web and
+ * this machine's localhost (see HOST_ALIAS); the files are what is fenced.
  *
  * What the VM needs beside the code sits in `plain_modules/.plainwright`: the package caches, so
  * a dependency is fetched once; the copies test runs happen in; and the system packages the
@@ -60,32 +60,115 @@ function cacheEnv(cache: string): Record<string, string> {
   };
 }
 
-/** Hosts a VM may reach: the package registries, plus any named in PLAINWRIGHT_ALLOWED_HOSTS. */
-const REGISTRIES = [
-  "dl-cdn.alpinelinux.org",
-  "pypi.org",
-  "files.pythonhosted.org",
-  "registry.npmjs.org",
-  "registry.yarnpkg.com",
-  "proxy.golang.org",
-  "sum.golang.org",
-  "index.crates.io",
-  "static.crates.io",
-  "crates.io",
-  "repo.maven.apache.org",
-  "repo1.maven.org",
-  "services.gradle.org",
-  "downloads.gradle.org",
-  "plugins.gradle.org",
-  "plugins-artifacts.gradle.org",
-];
+/**
+ * The network is open: a command reaches any host on the web, internal addresses included, and
+ * this machine's localhost - a storage service or a mock API the tests talk to, running here.
+ *
+ * The web goes through Gondolin's HTTP(S) proxy, which lets everything through. This machine is
+ * reached at HOST_ALIAS, on any port, mapped to its 127.0.0.1. And `localhost` in the VM is both:
+ * every connection to it goes through a small proxy in the VM (LOCALHOST_PROXY) that connects to
+ * a server the VM itself runs on that port - the app under test - and to this machine's when there
+ * is none. So a spec that says a service is at `http://localhost:6000` means what it says.
+ */
+const HOST_ALIAS = "host.plainwright.internal";
+const HOST_PORTS: Record<string, string> = Object.fromEntries(
+  Array.from({ length: 65535 }, (_, index) => [`${HOST_ALIAS}:${index + 1}`, `127.0.0.1:${index + 1}`]),
+);
+/** Where the localhost proxy listens in the VM; connections to it are never redirected. */
+const PROXY_PORT = 65081;
+/** The mark on the proxy's own connections: they go where they are addressed, not back to it. */
+const PROXY_MARK = 0x706c;
 
-function allowedHosts(): string[] {
-  const extra = (process.env.PLAINWRIGHT_ALLOWED_HOSTS ?? "")
-    .split(",")
-    .map((host) => host.trim())
-    .filter(Boolean);
-  return [...REGISTRIES, ...extra];
+const LOCALHOST_PROXY = String.raw`
+import asyncio, socket, struct
+SO_ORIGINAL_DST = 80
+SO_MARK = 36
+
+def original_port(sock):
+    try:
+        if sock.family == socket.AF_INET6:
+            return struct.unpack_from("!H", sock.getsockopt(socket.IPPROTO_IPV6, SO_ORIGINAL_DST, 28), 2)[0]
+        return struct.unpack_from("!H", sock.getsockopt(socket.SOL_IP, SO_ORIGINAL_DST, 16), 2)[0]
+    except OSError:
+        return None
+
+async def pipe(reader, writer):
+    try:
+        while data := await reader.read(65536):
+            writer.write(data)
+            await writer.drain()
+    except Exception:
+        pass
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+async def connect(family, host, port):
+    # Marked, so the redirect lets it through to where it is addressed.
+    info = (await asyncio.get_running_loop().getaddrinfo(host, port, family=family, type=socket.SOCK_STREAM))[0]
+    sock = socket.socket(info[0], socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, SO_MARK, ${PROXY_MARK})
+    sock.setblocking(False)
+    try:
+        await asyncio.get_running_loop().sock_connect(sock, info[4])
+    except OSError:
+        sock.close()
+        raise
+    return await asyncio.open_connection(sock=sock)
+
+async def handle(reader, writer):
+    sock = writer.get_extra_info("socket")
+    port = original_port(sock)
+    if port is None:
+        writer.close()
+        return
+    # A server in the VM on that port, on either loopback address - localhost is both - and
+    # this machine's when there is none.
+    local = [(socket.AF_INET6, "::1"), (socket.AF_INET, "127.0.0.1")]
+    if sock.family == socket.AF_INET:
+        local.reverse()
+    upstream = None
+    for family, host in [*local, (socket.AF_INET, "${HOST_ALIAS}")]:
+        try:
+            upstream = await connect(family, host, port)
+            break
+        except OSError:
+            pass
+    if upstream is None:
+        writer.close()
+        return
+    await asyncio.gather(pipe(reader, upstream[1]), pipe(upstream[0], writer))
+
+async def main():
+    servers = []
+    for host in ("127.0.0.1", "::1"):
+        try:
+            servers.append(await asyncio.start_server(handle, host, ${PROXY_PORT}))
+        except OSError:
+            pass
+    open("/tmp/plainwright-localhost.ready", "w").close()
+    await asyncio.gather(*(server.serve_forever() for server in servers))
+
+asyncio.run(main())
+`;
+
+/** Make `localhost` in the VM reach this machine too, for ports the VM itself does not serve. */
+function localhostSetup(): string {
+  const rule = (tool: string, address: string) =>
+    `${tool} -t nat -A OUTPUT -o lo -p tcp -d ${address} ! --dport ${PROXY_PORT} -m mark ! --mark ${PROXY_MARK} -j REDIRECT --to-ports ${PROXY_PORT}`;
+  return [
+    "set -e",
+    "command -v iptables > /dev/null || apk add --no-progress iptables ip6tables > /dev/null",
+    `cat > /usr/local/lib/plainwright-localhost.py <<'PLAINWRIGHT_PROXY'\n${LOCALHOST_PROXY}\nPLAINWRIGHT_PROXY`,
+    "(setsid python3 /usr/local/lib/plainwright-localhost.py > /tmp/plainwright-localhost.log 2>&1 &)",
+    // Redirected only once it listens: before, a connection to localhost would find nothing.
+    "for i in $(seq 100); do [ -f /tmp/plainwright-localhost.ready ] && break; sleep 0.05; done",
+    "[ -f /tmp/plainwright-localhost.ready ] || { cat /tmp/plainwright-localhost.log; echo 'the localhost proxy did not start'; exit 1; }",
+    rule("iptables", "127.0.0.1"),
+    `${rule("ip6tables", "::1")} || true`,
+  ].join("\n");
 }
 
 const JAVA_HOME = "/usr/lib/jvm/java-21-openjdk";
@@ -303,10 +386,14 @@ async function start(project: string, mounts: string[]): Promise<VM> {
   const started = Date.now();
   const holds = mounts.map((mount) => relative(dirname(project), mount)).join(" and ");
   reportActivity(`  starting the sandbox VM for ${holds} (${image ? image.tag : "stock image"}) - the first command waits for it`);
-  const { httpHooks } = createHttpHooks({ allowedHosts: allowedHosts() });
+  // Every host, internal ones included: the network is open (see HOST_ALIAS).
+  const { httpHooks } = createHttpHooks({ blockInternalRanges: false });
   const vm = await VM.create({
     vfs: { mounts: Object.fromEntries(mounts.map((mount) => [mount, new ExecutableFSProvider(mount)])) },
     httpHooks,
+    // This machine's localhost, on any port: TCP mapping needs a name per host, so DNS is synthetic.
+    dns: { mode: "synthetic", syntheticHostMapping: "per-host" },
+    tcp: { hosts: HOST_PORTS },
     sessionLabel: "plainwright",
     memory: VM_MEMORY,
     cpus: VM_CPUS,
@@ -322,6 +409,11 @@ async function start(project: string, mounts: string[]): Promise<VM> {
     setup.push(`apk add --no-progress ${packages.join(" ")}`);
   }
   await exec(vm, setup.join(" && "), { cwd: mounts[0]!, env: guestEnv(cache) });
+  const localhost = await exec(vm, localhostSetup(), { cwd: mounts[0]!, env: guestEnv(cache) });
+  if (localhost.exitCode !== 0) {
+    // The VM is still usable; only this machine's localhost is out of reach.
+    reportActivity(`  this machine's localhost could not be made reachable from the VM: ${localhost.output.trim().split("\n").at(-1) ?? ""}`);
+  }
   reportActivity(`  sandbox VM ready after ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return vm;
 }
@@ -539,7 +631,9 @@ export function vmEnvironmentNote(): string {
   const where =
     "Commands run in an Alpine Linux VM that holds only this module's folder in plain_modules, and plain_modules/.plainwright; " +
     "nothing else of the machine exists in it - not the other modules either.";
-  const network = "The network reaches the package registries only.";
+  const network =
+    "The network is open: any host on the web, and this machine's localhost - `localhost:<port>` reaches a server the VM " +
+    `runs on that port, and this machine's when it runs none (also at ${HOST_ALIAS}:<port>).`;
   if (vmImage() === undefined) {
     // The stock image: say what it cannot do, so a project it cannot build is reported, not fought.
     return [

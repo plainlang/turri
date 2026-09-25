@@ -18,6 +18,7 @@ import { describeSpecDiff, renderSpecDiff, type SpecSnapshot } from "./spec-chan
 import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage } from "./activity.ts";
+import { summarizeDiff } from "./job-panel.ts";
 
 /**
  * Renders queued while an interview carries on.
@@ -49,6 +50,17 @@ export type RenderRunner = (
   onDelta: (delta: string) => void,
 ) => Promise<{ report: string; details?: unknown }>;
 
+/** One line of the queue, as shown: what the job builds, and how it is doing. */
+export interface QueueEntry {
+  position: number;
+  jobId: string;
+  /** "functionality 3", "functionality 3 (rebuild)", or "spec diff: <what it changes>". */
+  what: string;
+  /** For a functionality's render. */
+  frid?: string;
+  status: Job["status"];
+}
+
 export interface RenderQueue {
   enqueue(request: RenderRequest): QueuedRender;
   /**
@@ -76,7 +88,8 @@ export interface RenderQueue {
   /** The entry for a functionality that is queued or building right now, if there is one. */
   inFlight(plainFile: string, frid: string): QueuedRender | undefined;
   /** What has been queued, in order, with each job's current state. */
-  status(): Array<QueuedRender & { status: Job["status"] }>;
+  /** Everything queued - functionalities and spec diffs - in order, with each job's current state. */
+  status(): QueueEntry[];
   /** Resolves when everything queued so far has finished. */
   drain(): Promise<void>;
 }
@@ -98,6 +111,8 @@ export function createRenderQueue(options: {
   const modelOf = (work: RenderWork, plainFile?: string) => (options.modelFor ? options.modelFor(work, plainFile) : options.model);
   const runner: RenderRunner = options.run ?? defaultRunner(options);
   const queued: QueuedRender[] = [];
+  // Everything asked for, in order: a spec diff's render is not a functionality's, but it waits its turn all the same.
+  const shown: Array<Omit<QueueEntry, "position" | "status">> = [];
   const jobs = new Map<string, Job>();
 
   // Ordering is the registry's: every entry claims this queue's own lane, so they run one
@@ -137,7 +152,8 @@ export function createRenderQueue(options: {
       });
       jobs.set(job.id, job);
       last = job.id;
-      return { jobId: job.id, position: jobs.size };
+      shown.push({ jobId: job.id, what: `spec diff: ${summarizeDiff(request.diff)}` });
+      return { jobId: job.id, position: shown.length };
     },
 
     enqueue(request) {
@@ -157,7 +173,8 @@ export function createRenderQueue(options: {
       last = job.id;
 
       // Stored resolved, so the same file named two ways is recognised as one.
-      const entry: QueuedRender = { ...request, plainFile, jobId: job.id, position: queued.length + 1 };
+      shown.push({ jobId: job.id, what: `functionality ${request.frid}${request.regenerate ? " (rebuild)" : ""}`, frid: request.frid });
+      const entry: QueuedRender = { ...request, plainFile, jobId: job.id, position: shown.length };
       queued.push(entry);
       return entry;
     },
@@ -220,8 +237,9 @@ export function createRenderQueue(options: {
     },
 
     status() {
-      return queued.map((entry) => ({
+      return shown.map((entry, index) => ({
         ...entry,
+        position: index + 1,
         status: jobs.get(entry.jobId)?.status ?? "running",
       }));
     },

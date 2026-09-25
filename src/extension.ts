@@ -36,6 +36,7 @@ import { inheritThinkingLevel } from "./pi.ts";
 import { moduleLanes } from "./render/lanes.ts";
 import { findCodebaseTip } from "./render/requires.ts";
 import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from "./render/spec-change.ts";
+import { describeSpecDiffConformance, renderSpecDiffConformance } from "./render/spec-change-conformance.ts";
 import { beginCapture, captureConsole, describeCaptured } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
@@ -240,11 +241,12 @@ export default function (pi: ExtensionAPI) {
   registerInterviewLog(pi);
   registerJobTools(pi, jobs, cwd);
   registerRenderFunctionality(pi, cwd, jobs);
-  registerRenderConformanceTests(pi, cwd, jobs);
+  registerRenderFunctionalityConformance(pi, cwd, jobs);
   registerCheckPlain(pi, cwd);
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
+  registerRenderSpecDiffConformance(pi, cwd, jobs);
   registerRenderModels(pi);
 
   const { skills, pending } = discoveredSkills;
@@ -372,7 +374,7 @@ export default function (pi: ExtensionAPI) {
         renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(ctx, plainFile) ?? chatModelOf(ctx)) }),
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
-        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderConformanceTestsTool(cwd, jobs, ctx), ...createWebTools()],
+        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderFunctionalityConformanceTool(cwd, jobs, ctx), ...createWebTools()],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -421,7 +423,7 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
       "Call render_functionality without a frid first when the user has not said which functionality they mean; it returns the available IDs.",
       "Asking for one functionality builds its prerequisites too. Do not call render_functionality repeatedly to walk a module - one call with the last functionality does it.",
       "Conformance tests are written as each functionality is built wherever the module has test reqs. Pass conformance: false when the user asks to render without them.",
-      "When conformance was off for a module - no test reqs, or the user asked - offer render_conformance_tests afterwards if the user wants them.",
+      "When conformance was off for a module - no test reqs, or the user asked - offer render_functionality_conformance afterwards if the user wants them.",
       "These tools return a job id and keep working in the background. Say what has started and carry on talking; do not sit waiting for it, and do not claim it finished until the job reports back or check_job says so.",
     ],
     parameters: Type.Object({
@@ -532,19 +534,19 @@ function deliveryReport(result: RenderModuleResult): string | undefined {
  * wrong one to decide whether the code matches the specification. This one never sees
  * the implementation - its tool surface cannot open it.
  */
-function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool(renderConformanceTestsTool(cwd, jobs));
+function registerRenderFunctionalityConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool(renderFunctionalityConformanceTool(cwd, jobs));
 }
 
 /**
- * render_conformance_tests, for the conversation's agent and for a skill's - forge-plain's testing
+ * render_functionality_conformance, for the conversation's agent and for a skill's - forge-plain's testing
  * phase starts the conformance tests the person picks. `conversation` is the context to read models
  * and the mode from; omitted, the one the tool is called with.
  */
-function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation?: ExtensionContext) {
+function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conversation?: ExtensionContext) {
   return defineTool({
-    name: "render_conformance_tests",
-    label: "Render conformance tests",
+    name: "render_functionality_conformance",
+    label: "Render functionality conformance",
     description:
       "Write black-box conformance tests for code that already exists, and run them against it. " +
       "The tests are written and run in the chain's current codebase - the furthest-built module that requires " +
@@ -553,9 +555,9 @@ function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation
       "module (the default) or the whole requires chain. The test author never sees the implementation - " +
       "it works from the specification and the acceptance tests, invoking the built functionality from " +
       "the outside. Needs test reqs, which is what conformance tests are written from.",
-    promptSnippet: "render_conformance_tests: black-box tests for a rendered functionality",
+    promptSnippet: "render_functionality_conformance: black-box tests for a rendered functionality",
     promptGuidelines: [
-      "render_conformance_tests requires the functionality to have been rendered first; it fails if the build directory is empty.",
+      "render_functionality_conformance requires the functionality to have been rendered first; it fails if the build directory is empty.",
       "Report a failing conformance test as a mismatch between the code and the specification. Do not edit the tests to make them pass.",
     ],
     parameters: Type.Object({
@@ -594,7 +596,7 @@ function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation
             ? `functionalities ${params.range}`
             : "whole module";
       return deliver(jobs, {
-        kind: "render_conformance_tests",
+        kind: "render_functionality_conformance",
         summary: `${basename(params.plain_file)} conformance, ${scope}`,
         model,
         wait: params.wait,
@@ -983,6 +985,75 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
 }
 
 
+/**
+ * Bring the conformance tests in line with a change to the specs, given as a git diff: the spec
+ * diff's counterpart of render_functionality_conformance. Nothing of the change itself is rendered.
+ */
+function registerRenderSpecDiffConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "render_spec_diff_conformance",
+    label: "Render spec diff conformance",
+    description:
+      "Bring the conformance tests in line with a change to the ***plain specs, given as a git diff of the .plain " +
+      "files - any change: a functional spec, its acceptance tests, the test reqs, a definition the tests rely on. " +
+      "The diff is applied with git unless it already is. One agent, given the diff and every spec as it now " +
+      "stands, writes, changes and removes conformance tests so they check what the spec says; then the whole " +
+      "suite runs. The tests are written in the chain's current codebase - the furthest-built module whose chain " +
+      "includes the one changed - even when the change is to a module it requires. Rendering and conformance are " +
+      "separate jobs: this renders nothing of the change itself. Needs test reqs.",
+    promptSnippet: "render_spec_diff_conformance: bring the conformance tests in line with a git diff of the .plain specs",
+    promptGuidelines: [
+      "Use it for a spec diff that was rendered without conformance, or one only the tests follow - test reqs, acceptance tests.",
+      "A change the code has not been built for yet is rendered first, with render_spec_diff: conformance tests check code, they do not build it.",
+      "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
+      "Report a failing conformance test as a mismatch between the code and the specification.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
+      working_dir: WORKING_DIR_PARAM,
+      diff: Type.String({ description: "The change, as a git diff of the .plain files" }),
+      in_module: Type.Optional(
+        Type.String({ description: "The codebase to test in, when modules built on this one branch" }),
+      ),
+      model: MODEL_PARAM,
+      wait: WAIT_PARAM,
+    }),
+    async execute(_id, given, _signal, onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
+      const model = jobModel(ctx, "spec_changes", params.model, params.plain_file);
+      const plainFile = resolve(cwd, params.plain_file);
+      // Applied and parsed now, with the call: that parse is what the job tests against, whatever
+      // changes reach the files while it waits its turn.
+      const applied = applySpecDiff(params.diff, params.base);
+      const spec = snapshotSpec(plainFile, { cwd: params.base, inModule: params.in_module });
+      return deliver(jobs, {
+        kind: "render_spec_diff_conformance",
+        summary: `${basename(params.plain_file)} spec diff conformance`,
+        diff: params.diff,
+        model,
+        wait: params.wait,
+        mode: ctx.mode,
+        // It writes the tests - and, where a test shows it wrong, the code - of the codebase the change lands in.
+        lanes: moduleLanes(spec.plainFile),
+        onUpdate,
+        run: async (onDelta) => {
+          const result = await renderSpecDiffConformance({
+            plainFile,
+            diff: params.diff,
+            cwd: params.base,
+            inModule: params.in_module,
+            applied,
+            spec,
+            model,
+            onDelta,
+          });
+          return { report: describeSpecDiffConformance(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
+        },
+      });
+    },
+  });
+}
+
 /** Rebuild one functionality whose specification changed, then re-run the whole suite. */
 function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
@@ -1307,7 +1378,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
     description:
       "Choose which model the agents that render run on, for the rest of this session: for spec changes " +
       "(render spec diff jobs, and the ones write_spec_diff queues), for functionalities (render, module, " +
-      "regenerate, conformance, and the ones write_functional_spec queues), or for everything. By default " +
+      "regenerate, conformance), or for everything. By default " +
       "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Jobs already queued keep their model.",

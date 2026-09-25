@@ -80,7 +80,6 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 
 import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
 import type { RenderQueue } from "./render/queue.ts";
-import { bulkWriteWarning, createSpecPacing } from "./render/pacing.ts";
 import { describeFindings, describeQuestions, type LiveReviewer } from "./review/live.ts";
 
 export type { AskUser, AskUserRequest };
@@ -163,109 +162,13 @@ export function reviewNote(liveReview: LiveReviewer | undefined): string {
 export type { LiveReviewer };
 
 /**
- * Lets a step start building a functionality and carry straight on.
+ * What a skill run is told about its builds: the render queue behind it, and - with a live
+ * reviewer - a way to answer the reviewer's questions.
  *
- * The interview is the thing the person is waiting on, so it never waits for a render.
- * The queue keeps the renders themselves in order behind it.
+ * The builds themselves are started by the tool that writes the spec change (`write_spec_diff`):
+ * the interview never waits for one, and never starts one on its own.
  */
-export function createRenderTools(
-  queue: RenderQueue,
-  cwd = process.cwd(),
-  liveReview?: LiveReviewer,
-) {
-  const pacing = createSpecPacing(cwd);
-  const start = defineTool({
-    name: "start_render",
-    label: "Start render",
-    description:
-      "Start building one functionality in the background and return immediately. Queued behind any " +
-      "render already running, so functionalities are built in the order you ask for them. Use " +
-      "regenerate when the functionality was already built and its specification has since changed.",
-    promptSnippet: "start_render: build a functionality in the background, then carry on",
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file" }),
-      frid: Type.String({ description: 'Functionality id, e.g. "1" or "4"' }),
-      regenerate: Type.Optional(
-        Type.Boolean({ description: "The functionality was already built and its spec has changed" }),
-      ),
-    }),
-    async execute(_id, params) {
-      // Anything already built whose spec has since changed is re-queued first, so a
-      // functionality edited three questions ago is rebuilt before the new one goes on
-      // top of it. The harness does this rather than relying on the caller to remember.
-      const stale = params.regenerate === true ? [] : queue.requeueStale(params.plain_file);
-
-      // One functional spec per queued render. More than that and the interview has run
-      // ahead of the user, who was never asked about the ones in between.
-      const observation = pacing.observe(params.plain_file);
-
-      // The reviewer reads the file as it now stands, while the next question is being
-      // asked. Its findings arrive on a later tool result, not this one.
-      liveReview?.notice(`${params.plain_file}, up to and including functionality ${params.frid}`);
-
-      const entry = queue.enqueue({
-        plainFile: params.plain_file,
-        frid: params.frid,
-        regenerate: params.regenerate,
-      });
-
-      const staleNote =
-        stale.length > 0
-          ? ` Functionality ${stale.map((s) => s.frid).join(", ")} changed since being built and ${stale.length === 1 ? "was" : "were"} queued for regeneration first.`
-          : "";
-
-      const pacingNote = observation.bulk ? `\n\n${bulkWriteWarning(observation)}` : "";
-      const review = reviewNote(liveReview);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              `Queued functionality ${entry.frid} as job ${entry.jobId} (position ${entry.position}).${staleNote} ` +
-              "It builds in the background. Carry on with the interview - do not wait for it." +
-              pacingNote +
-              review,
-          },
-        ],
-        details: {
-          jobId: entry.jobId,
-          position: entry.position,
-          regenerated: stale.map((s) => s.frid),
-          specsAdded: observation.added,
-        },
-      };
-    },
-  });
-
-  const sync = defineTool({
-    name: "requeue_stale_renders",
-    label: "Requeue stale renders",
-    description:
-      "Queue a regeneration for every functionality whose built code no longer matches its " +
-      "specification. Only functionalities that were actually built count - a spec edited before it " +
-      "was ever rendered has nothing to regenerate.",
-    promptSnippet: "requeue_stale_renders: rebuild functionalities whose spec has changed",
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file" }),
-    }),
-    async execute(_id, params) {
-      const queued = queue.requeueStale(params.plain_file);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              queued.length === 0
-                ? "Every built functionality still matches its specification. Nothing to regenerate."
-                : `Queued regeneration of functionality ${queued.map((q) => q.frid).join(", ")}.`,
-          },
-        ],
-        details: { requeued: queued.map((q) => q.frid) },
-      };
-    },
-  });
-
+export function createRenderTools(queue: RenderQueue, liveReview?: LiveReviewer) {
   const status = defineTool({
     name: "render_status",
     label: "Render status",
@@ -278,7 +181,7 @@ export function createRenderTools(
         entries.length === 0
           ? "Nothing has been queued for building yet."
           : entries
-              .map((e) => `${e.position}. functionality ${e.frid}  ${e.status}  (job ${e.jobId})`)
+              .map((e) => `${e.position}. ${e.what}  ${e.status}  (job ${e.jobId})`)
               .join("\n");
       return {
         content: [{ type: "text" as const, text: text + reviewNote(liveReview) }],
@@ -287,7 +190,7 @@ export function createRenderTools(
     },
   });
 
-  if (liveReview === undefined) return [start, sync, status];
+  if (liveReview === undefined) return [status];
 
   const reply = defineTool({
     name: "reply_to_review",
@@ -316,5 +219,5 @@ export function createRenderTools(
     },
   });
 
-  return [start, sync, status, reply];
+  return [status, reply];
 }

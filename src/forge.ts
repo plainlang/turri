@@ -7,9 +7,8 @@ import { createExecutor } from "./pi.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
-import { createFunctionalSpecTools, createSpecDiffTools } from "./spec-tools.ts";
+import { createSpecDiffTools } from "./spec-tools.ts";
 
-const WRITE_FUNCTIONAL_SPEC = "write_functional_spec";
 const WRITE_SPEC_DIFF = "write_spec_diff";
 import type { RenderQueue } from "./render/queue.ts";
 
@@ -97,14 +96,6 @@ export async function runSkill(opts: {
   const writeArtifact = createWriteArtifactTool(runDir);
   const customTools: ToolDefinition[] = [writeArtifact];
 
-  // A skill that lists write_functional_spec gets it, and with it write and edit tools that
-  // leave the functional specs alone - so every spec is built because of how it was
-  // written, not because a separate call was remembered.
-  const specs =
-    opts.renderQueue !== undefined && skill.allowedTools.includes(WRITE_FUNCTIONAL_SPEC)
-      ? createFunctionalSpecTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy })
-      : undefined;
-
   // A skill whose unit of work is a spec change gets write_spec_diff: the change is applied
   // and its build queued in one step.
   const diffs =
@@ -115,22 +106,20 @@ export async function runSkill(opts: {
   if (opts.askUser !== undefined) {
     customTools.push(
       createAskUserTool(opts.askUser, () => {
-        specs?.pace.answered();
         diffs?.pace.answered();
       }),
     );
   }
   if (opts.renderQueue !== undefined) {
-    customTools.push(...createRenderTools(opts.renderQueue, opts.cwd, liveProxy));
+    customTools.push(...createRenderTools(opts.renderQueue, liveProxy));
   }
-  if (specs !== undefined) customTools.push(...specs.tools);
   if (diffs !== undefined) customTools.push(...diffs.tools);
   customTools.push(...(opts.sharedTools ?? []));
 
   const names = customTools.map((tool) => tool.name);
   // Tools this harness provides are never pi built-ins, even when it did not provide them.
   const builtins = skill.allowedTools.filter(
-    (t) => !names.includes(t) && t !== WRITE_FUNCTIONAL_SPEC && t !== WRITE_SPEC_DIFF,
+    (t) => !names.includes(t) && t !== WRITE_SPEC_DIFF,
   );
   const executor = await createExecutor({
     cwd: opts.cwd,

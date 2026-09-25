@@ -490,7 +490,7 @@ function timedOutFailure(run: ScriptRun, what: string): string {
     "that does not finish. Most often a test waits for something that never comes:",
     "- a server or a watcher started in the foreground, instead of in the background and stopped afterwards;",
     "- a prompt waiting for input, or a command that pages its output;",
-    "- a network call to a host the VM cannot reach - the network reaches the package registries only;",
+    "- a network call that never answers - a service on localhost that is not running, a host that is down;",
     "- a lock, a queue or a thread nothing releases, or a loop that never ends.",
     "Find it - run the tests on their own with bash, under `timeout`, a file or a case at a time - and fix what is wrong,",
     `in the test or in the code, against the specification. If the tests are only slow, make them faster: every run has`,

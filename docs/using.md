@@ -33,7 +33,8 @@ where it stopped.
 | `render_module` | build every functionality in order, each advancing only when every conformance test so far passes |
 | `regenerate_functionality` | rebuild just one functionality - after its spec changed, or as it is |
 | `render_spec_diff` | make the code match a change to the specs, given as a git diff |
-| `render_conformance_tests` | write and run black-box tests for a functionality |
+| `render_functionality_conformance` | write and run black-box tests for a functionality |
+| `render_spec_diff_conformance` | bring the conformance tests in line with a change to the specs, given as a git diff |
 | `check_plain` | validate a spec without rendering |
 | `set_render_model` | choose the model renders run on - see [below](#choosing-a-model) |
 | `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |

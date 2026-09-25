@@ -21,7 +21,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/judge.ts` | runs independent judges, applies the quorum, builds the critique |
 | `src/forge.ts` | `runSkill()` - the one entry point the CLI and the extension share |
 | `src/pi.ts` | pi session factories for executors, sub-agents and judges |
-| `src/spec-tools.ts` | `write_functional_spec`, `write_spec_diff` |
+| `src/spec-tools.ts` | `write_spec_diff` |
 | `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) |
 | `src/render/render.ts` | one functionality to code |
 | `src/render/module.ts` | whole-module builds, regression runs, regeneration |

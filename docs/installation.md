@@ -134,7 +134,6 @@ variables - the same resolution `pi` itself uses. Put the rest in your shell pro
 ```bash
 export PLAIN_TEMPLATE_DIRS=~/path/to/standard_template_library   # shared templates
 export GEMINI_API_KEY=...        # and leave GOOGLE_API_KEY unset
-export PLAINWRIGHT_ALLOWED_HOSTS=api.example.com   # hosts the VM may reach beyond the registries
 ```
 
 For Gemini, `GEMINI_API_KEY` is what makes pi *offer* the google provider, but when
@@ -143,7 +142,6 @@ For Gemini, `GEMINI_API_KEY` is what makes pi *offer* the google provider, but w
 | variable | |
 | --- | --- |
 | `PLAIN_TEMPLATE_DIRS` | colon-separated template directories, e.g. the standard library |
-| `PLAINWRIGHT_ALLOWED_HOSTS` | comma-separated hosts the sandbox VM may reach, beyond the package registries |
 | `PLAINWRIGHT_VM_IMAGE` | a different Gondolin image to boot (default `plainwright:latest`) |
 | `PLAINWRIGHT_VM_DISK`, `PLAINWRIGHT_VM_MEMORY`, `PLAINWRIGHT_VM_CPUS` | the VM's size (default `8G`, `2G`, `2`) |
 | `PLAINWRIGHT_COMMAND_TIMEOUT` | seconds a command in the VM may run before it is stopped - an agent's own, its tests, an install (default `120`) |

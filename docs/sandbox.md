@@ -39,8 +39,13 @@ works in:
   the host. The other modules, the specs, the home directory and every other project do not exist
   in there.
 - The host environment is not passed in, so the provider's API keys stay out.
-- The network reaches the package registries (Alpine, PyPI, npm, Go, crates.io, Maven Central,
-  Gradle) and any host named in `PLAINWRIGHT_ALLOWED_HOSTS`, nothing else.
+- The network is open: any host on the web, internal addresses included, and this machine's
+  localhost on any port - a storage service or a mock API the tests talk to, running here. In the VM,
+  `localhost:<port>` reaches a server the VM runs on that port - the app under test - and this
+  machine's when it runs none; `host.plainwright.internal:<port>` is always this machine's. A small
+  proxy in the VM does that, started with it: every connection to the VM's loopback is redirected
+  through it (iptables), and it tries the VM's own server first. Only HTTP(S) goes out to the web -
+  Gondolin proxies it - so a raw TCP connection to a remote host, a database elsewhere, does not.
 - Files on the mount are executable inside the VM: Gondolin's mounts drop mode changes, and a
   built binary, a `./gradlew` or a test script has to run. And they are owned by root, who runs
   everything in there: a JVM ignores an attach request whose trigger file is not its own, which
@@ -75,10 +80,9 @@ web and read a page, for a library's documentation or an error it has not seen:
 | `web_search` | asks DuckDuckGo (no key needed) and returns title, address and snippet per result |
 | `web_fetch` | reads one page and returns it as text - HTML without its markup, text, JSON or XML as it is; long pages come in parts |
 
-Both run on the host, not in the VM, so the VM's network stays as it is: the code an agent builds
-and runs, its tests and the packages it installs still reach only the registries. `web_fetch` reads
-only the public web: localhost, the private ranges and the cloud metadata address are refused, and
-so is every redirect that leads to one, so it cannot reach through the host what the VM is kept from.
+Both run on the host, not in the VM. `web_fetch` reads only the public web: localhost, the private
+ranges and the cloud metadata address are refused, and so is every redirect that leads to one - what
+the code talks to on this machine, the agent reaches with its commands in the VM.
 
 DuckDuckGo is used without a key through its Lite page, which is not an official API: it rate-limits,
 and a search that is turned away tells the agent to wait or fetch a page it knows instead.

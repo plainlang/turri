@@ -38,7 +38,7 @@ Act as a `***plain` spec writer. The only output is `.plain` specification files
 
 In the product phase, every change you make to the specs is a **spec diff**: a git diff of the `.plain` files, written with `write_spec_diff`, which applies it and starts building it. The spec diffs are the output of the interview; the builds follow from them.
 
-The testing phase is the exception: it changes only `***test reqs***`, which builds nothing, so it writes them with the ordinary file tools and never with `write_spec_diff`. The conformance tests it starts, it starts with `render_conformance_tests`.
+The testing phase is the exception: it changes only `***test reqs***`, which builds nothing, so it writes them with the ordinary file tools and never with `write_spec_diff`. The conformance tests it starts, it starts with `render_functionality_conformance`.
 
 ## How the phases end
 
@@ -176,7 +176,7 @@ has its conformance testing script - `implement-conformance-testing-script` writ
 `test_scripts/` when plainwright finds none - and run `check_plain` on what you changed.
 
 Last, ask which of the functional specs already built to write and run conformance tests for now,
-and start them with `render_conformance_tests`. Do not wait for them.
+and start them with `render_functionality_conformance`. Do not wait for them.
 
 Finish by summarizing the decision, the test reqs, the script and the conformance jobs started, and
 getting explicit confirmation. There is no gate on this phase.

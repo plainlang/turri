@@ -11,6 +11,8 @@
       "bash",
       "ca-certificates",
       "curl",
+      "iptables",
+      "ip6tables",
       "e2fsprogs",
       "e2fsprogs-extra",
       "openssh",

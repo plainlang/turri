@@ -132,8 +132,8 @@ plainwright check app.plain     # or check_plain in a conversation
 
 It parses the spec with this repo's own parser, resolves its imports and required modules, and
 reports every syntax, concept and structure error with its line - no model, no API key. The
-interview skills run it before a phase ends, and `write_functional_spec` and `write_spec_diff`
-refuse a change that leaves a file that does not parse. Pass the project directory to check every
+interview skills run it before a phase ends, and `write_spec_diff`
+refuses a change that leaves a file that does not parse. Pass the project directory to check every
 module at once.
 
 What `check` cannot see - a fact in the wrong section, a spec that is too big, two that conflict,

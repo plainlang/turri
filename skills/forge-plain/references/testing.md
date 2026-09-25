@@ -52,6 +52,6 @@ tests for now. Offer each functional spec that is already built - `render_status
 its id and first line, plus "all of them" and "none for now". A functional spec that is not built
 yet cannot be tested; say so, and that its tests come with its build once conformance is on.
 
-For the ones chosen, call `render_conformance_tests` with the module's `.plain` file and their ids
+For the ones chosen, call `render_functionality_conformance` with the module's `.plain` file and their ids
 (`frids`), once per module. It starts a background job and returns at once - do not wait for it;
 say what started.

@@ -331,7 +331,7 @@ export async function renderFunctionality(
     const passed = verified;
 
     // Record what this build now contains, here rather than in each caller. Every route
-    // into a render - the queue behind start_render, the CLI, renderModule - has to leave
+    // into a render - the render queue, the CLI, renderModule - has to leave
     // the state file behind it, or nothing downstream can tell a functionality that was
     // built from one that was never attempted.
     const built = {

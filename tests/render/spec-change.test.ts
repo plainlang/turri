@@ -262,9 +262,12 @@ describe("renders queued behind the interview", () => {
       queue.enqueueSpecDiff({ plainFile: "app.plain", diff: first, applied: "applied", spec: afterFirst }),
       queue.enqueueSpecDiff({ plainFile: "app.plain", diff: second, applied: "applied", spec: afterSecond }),
     ];
+    // Both are on the queue as it is shown - render_status reads this - as spec diffs, in order.
+    expect(queue.status().map((entry) => [entry.position, entry.what.startsWith("spec diff: ")])).toEqual([[1, true], [2, true]]);
     await queue.drain();
 
     expect(jobs.map((job) => registry.get(job.jobId)!.status)).toEqual(["succeeded", "succeeded"]);
+    expect(queue.status().map((entry) => entry.status)).toEqual(["succeeded", "succeeded"]);
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
     // Each was built from the spec as it stood with its own change in, not as the file is now.
     const changes = prompts.filter((prompt) => !prompt.includes("describe_how_to_try_it"));

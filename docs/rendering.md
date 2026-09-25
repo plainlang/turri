@@ -208,6 +208,15 @@ The build record is rewritten from the spec as parsed when the diff went in - ev
 only the functional specs - and the diff is added to its `specDiffs`. A diff queued behind others
 is rendered from its own parse, not from the files as they are by the time it runs.
 
+`render_spec_diff_conformance` is its conformance half, on its own - what `render_functionality_conformance`
+is to `render_functionality`. It takes the same diff, applies it unless it already is, and has one
+agent bring the conformance tests in line with it: write, change and remove them, from the diff and
+the spec as it now stands. Then the whole suite runs. Nothing of the change itself is rendered, so it
+is for a change that was rendered without conformance, or one only the tests follow - test reqs, an
+acceptance test. The tests go where the code they check lives: the chain's current codebase, even
+when the change is to a module it requires. Which functionalities have tests is read from their
+labels, and their verdict goes on the record.
+
 ## Conformance tests
 
 The unit tests are written by the agent that wrote the code. Conformance tests are the other half:
