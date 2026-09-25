@@ -88,12 +88,6 @@ export interface BuildState {
   /** This module's own, by functionality id. */
   functionalities: Record<string, FunctionalityState>;
   /**
-   * The command that last ran this codebase's whole conformance suite and passed. Kept so
-   * the tests it has - its own, and those carried up from the modules below - can be run
-   * again by a build that writes none of its own.
-   */
-  conformanceCommand?: string;
-  /**
    * Every spec diff rendered in this codebase, oldest first. The rest of the record is the
    * spec as it stood when the last of them was written.
    */
@@ -130,7 +124,6 @@ interface StoredState extends SharedSections {
   version: number;
   module: string;
   updatedAt: string;
-  conformanceCommand?: string;
   specDiffs?: SpecDiffRecord[];
   /** Written by the first version of spec diff rendering, which kept only the last one. */
   specDiff?: SpecDiffRecord;
@@ -153,7 +146,6 @@ function fromStored(stored: StoredState): BuildState {
   return {
     module: stored.module,
     updatedAt: stored.updatedAt,
-    conformanceCommand: stored.conformanceCommand,
     specDiffs: stored.specDiffs ?? (stored.specDiff ? [stored.specDiff] : []),
     sections: {
       [DEFINITIONS]: stored[DEFINITIONS] ?? [],
@@ -249,7 +241,6 @@ export function writeState(buildDir: string, state: BuildState): void {
     version: STATE_VERSION,
     module: state.module,
     updatedAt: state.updatedAt,
-    ...(state.conformanceCommand ? { conformanceCommand: state.conformanceCommand } : {}),
     ...(state.specDiffs?.length ? { specDiffs: state.specDiffs } : {}),
     ...state.sections,
     [FUNCTIONAL_REQUIREMENTS]: [
@@ -436,8 +427,6 @@ export function inheritRecord(
   };
   target.module = toModule;
   target.required = carried;
-  // The conformance tests come up with the code, and so does the command that runs them.
-  target.conformanceCommand ??= source.conformanceCommand;
   if (sections !== undefined) target.sections = sections;
   target.updatedAt = new Date().toISOString();
   writeState(toBuildDir, target);
@@ -471,7 +460,6 @@ export function rewriteRecord(
   const state: BuildState = {
     module: moduleName,
     updatedAt: now,
-    conformanceCommand: previous?.conformanceCommand,
     specDiffs: [...(previous?.specDiffs ?? []), ...(input.specDiff !== undefined ? [{ diff: input.specDiff, renderedAt: now }] : [])],
     sections: input.sections,
     required: mergeRequired(previous?.required ?? [], input.required),
@@ -493,15 +481,6 @@ export function rewriteRecord(
   };
   writeState(buildDir, state);
   return state;
-}
-
-/** Remember the command that just ran the codebase's whole conformance suite, and passed. */
-export function recordConformanceCommand(buildDir: string, command: string): void {
-  const state = readState(buildDir);
-  if (state === null || state.conformanceCommand === command) return;
-  state.conformanceCommand = command;
-  state.updatedAt = new Date().toISOString();
-  writeState(buildDir, state);
 }
 
 /**

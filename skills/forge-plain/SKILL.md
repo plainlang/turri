@@ -267,15 +267,16 @@ Read `references/testing.md`.
 Honor the hard partition: every `:UnitTests:` fact belongs in `***implementation reqs***`,
 every `:ConformanceTests:` fact in `***test reqs***`. Never share a bullet between them.
 
-Walk the topics in order: unit test types and architecture, the conformance decision, the
-prepare-environment decision, layout, execution, other constraints, anything else. The unit
-test framework was settled in the stack phase — do not ask again. Ask the conformance and
-prepare-environment decisions explicitly; they are recorded decisions, not inferences. If
+Walk the topics in order: unit test types and architecture, the conformance decision,
+layout, execution, other constraints, anything else. The unit test framework was settled in
+the stack phase — do not ask again. Ask the conformance decision explicitly; it is a recorded
+decision, not an inference. If
 conformance is on, walk every functional spec one at a time and add acceptance tests via
 `add-acceptance-test`.
 
-Generate the needed scripts under `test_scripts/` via the `implement-*-script` skills, and link
-each one from the requirement that says how its tests run.
+Generate the needed scripts under `test_scripts/` via the `implement-*-script` skills. Do not
+link them from the specs: plainwright finds them in `config.yaml`, the project root, or
+`test_scripts/`, and shows them to the agents itself.
 
 Deal here with any build that failed during the functional specs phase: use `render_status` to see what
 did not pass. Fix a spec that was wrong with `write_functional_spec` and `replaces`, which

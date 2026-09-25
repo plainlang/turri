@@ -263,8 +263,6 @@ GOOD:
 - :ConformanceTests: run against the live :ProviderApi: sandbox — no recorded fixtures and no mocking of provider calls.
   - Credentials come from `PROVIDER_CLIENT_ID` and `PROVIDER_CLIENT_SECRET` in the environment.
   - The `429` and forced-`5xx` paths mock that endpoint alone; every other path is live.
-
-- :ConformanceTests: are executed via the run script [test_scripts/run_conformance_tests_python.sh](test_scripts/run_conformance_tests_python.sh).
 ```
 
 A policy that holds for every endpoint is stated once. Enumerate an endpoint only where it departs

@@ -32,7 +32,7 @@ vi.mock("../../src/render/render.ts", async (importOriginal) => {
 const { renderConformanceSuite } = await import("../../src/render/conformance-suite.ts");
 const { ensureRegressionPasses, renderModule } = await import("../../src/render/module.ts");
 const { copyRequiredCode, requiredFunctionalSpecs } = await import("../../src/render/requires.ts");
-const { readState, recordConformanceCommand, recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
+const { readState, recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/render/render.ts");
 
@@ -89,41 +89,63 @@ describe("conformance for a module that later modules are built on", () => {
 });
 
 describe("the tests already in a codebase", () => {
-  it("come up the chain with the command that runs them", () => {
-    built("base");
-    mkdirSync(testsOf("base"), { recursive: true });
-    writeFileSync(join(testsOf("base"), "check.sh"), "exit 0\n");
-    recordConformanceCommand(buildOf("base"), "sh check.sh");
+  // The project's scripts, in test_scripts/ beside the specs: every check in the suite, run from the build.
+  const scripts = () => {
+    mkdirSync(join(dir, "test_scripts"), { recursive: true });
+    writeFileSync(join(dir, "test_scripts", "run_unittests_sh.sh"), "exit 0\n");
+    writeFileSync(
+      join(dir, "test_scripts", "run_conformance_tests_sh.sh"),
+      'cd "$1" || exit 2\nfor check in $(cd "$2" && find . -name "*.sh" | sort); do sh "$2/$check" || exit 1; done\n',
+    );
+    return { unit: join(dir, "test_scripts", "run_unittests_sh.sh"), conformance: join(dir, "test_scripts", "run_conformance_tests_sh.sh") };
+  };
 
-    copyRequiredCode(buildOf("base"), buildOf("top"), "top");
-    expect(readState(buildOf("top"))!.conformanceCommand).toBe("sh check.sh");
-  });
-
-  it("are run with that command when no other is given, and said not to have run when there is none", async () => {
+  it("are run with the project's conformance testing script - and without one, nothing runs them and nothing passes", async () => {
     built("top");
     mkdirSync(testsOf("top"), { recursive: true });
     writeFileSync(join(testsOf("top"), "check.sh"), "exit 0\n");
     const [, tree] = plainFileParser("top.plain", resolveTemplateDirs(file("top")));
-    const run = () =>
-      ensureRegressionPasses({ buildDir: buildOf("top"), conformanceRoot: join(dir, "plain_modules"), moduleName: "top", frids: ["1"], tree, required: [], command: null, maxRounds: 0 });
+    const run = (given: { conformance?: string }) =>
+      ensureRegressionPasses({ buildDir: buildOf("top"), conformanceRoot: join(dir, "plain_modules"), moduleName: "top", frids: ["1"], tree, required: [], scripts: given, maxRounds: 0 });
 
-    expect(await run()).toMatchObject({ passed: true, unrun: true });
-    recordConformanceCommand(buildOf("top"), "sh check.sh");
-    const ran = await run();
-    expect(ran.runs.map((r) => [r.command, r.exitCode])).toEqual([["sh check.sh", 0]]);
+    await expect(run({})).rejects.toThrow("it has no conformance testing script");
+    const ran = await run(scripts());
+    expect(ran.runs.map((r) => [r.command, r.exitCode])).toEqual([["test_scripts/run_conformance_tests_sh.sh", 0]]);
   });
 
-  it("are kept passing by a render that writes no conformance tests of its own", async () => {
+  it("are kept passing by a render that writes none of its own because its module has no test reqs", async () => {
     built("top");
+    scripts();
     mkdirSync(testsOf("top"), { recursive: true });
     writeFileSync(join(testsOf("top"), "check.sh"), "exit 0\n");
-    recordConformanceCommand(buildOf("top"), "sh check.sh");
+    writeFileSync(file("top"), "---\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- Top one.\n\n- Top two.\n");
+
+    const result = await renderModule({ plainFile: file("top"), buildDir: buildOf("top") });
+
+    expect(conformanceRuns).toEqual([]);
+    expect(result.outcomes.at(-1)!.regression?.runs.map((r) => r.command)).toEqual(["test_scripts/run_conformance_tests_sh.sh"]);
+    expect(result.passed).toBe(true);
+  });
+
+  it("are not run at all when conformance is turned off - the script is ignored, found or not", async () => {
+    built("top");
+    scripts();
+    mkdirSync(testsOf("top"), { recursive: true });
+    // It would fail: turned off, nothing runs it.
+    writeFileSync(join(testsOf("top"), "check.sh"), "exit 1\n");
     writeFileSync(file("top"), module_(["- Top one.", "- Top two."], "base"));
 
     const result = await renderModule({ plainFile: file("top"), buildDir: buildOf("top"), conformance: false });
 
     expect(conformanceRuns).toEqual([]);
-    expect(result.outcomes.at(-1)!.regression?.runs.map((r) => r.command)).toEqual(["sh check.sh"]);
+    expect(result.outcomes.at(-1)!.regression).toMatchObject({ passed: true, runs: [], conformanceOff: true });
     expect(result.passed).toBe(true);
+  });
+
+  it("stop a build before it starts when the project has no unit testing script", async () => {
+    built("top");
+    await expect(renderModule({ plainFile: file("top"), buildDir: buildOf("top"), conformance: false })).rejects.toThrow(
+      /Stopped before building top: it has no unit testing script[\s\S]*implement-unit-testing-script/,
+    );
   });
 });

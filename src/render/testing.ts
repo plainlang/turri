@@ -4,7 +4,9 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
 import { NOTES_FILE } from "./notes.ts";
+import { vmScratchDir } from "./paths.ts";
 import { STATE_FILE } from "./state.ts";
+import { runUnitScript, scriptFailure } from "./test-scripts.ts";
 import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
@@ -18,9 +20,51 @@ const MAX_OUTPUT_CHARS = 20000;
 /** A test run has the same time limit as any command: see COMMAND_TIMEOUT_MS. */
 export const RUN_TIMEOUT_MS = COMMAND_TIMEOUT_MS;
 
-export function truncateOutput(text: string): string {
+/** How much of a long output is kept from its start - what ran, with which toolchain. The rest is its end. */
+const HEAD_CHARS = 2000;
+/** Full outputs kept per project, newest first; older ones are removed. */
+const MAX_LOGS = 100;
+
+/**
+ * Output as an agent is shown it: whole, or - when it is too long - its start and its end.
+ *
+ * A test run says what failed and why at the end: the failures, the stack traces, the summary.
+ * The start says what ran, with which toolchain. The middle - dependency installs, build logs -
+ * is what goes. With `log` the whole output is kept in that file too, and the cut says where.
+ */
+export function truncateOutput(text: string, log?: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;
-  return `${text.slice(0, MAX_OUTPUT_CHARS)}\n... [truncated, ${text.length} characters total]`;
+  const tail = MAX_OUTPUT_CHARS - HEAD_CHARS;
+  const cut = text.length - MAX_OUTPUT_CHARS;
+  const where = log !== undefined ? ` - the whole output is in ${log}` : "";
+  return `${text.slice(0, HEAD_CHARS)}\n\n... [${cut} characters cut from the middle${where}] ...\n\n${text.slice(-tail)}`;
+}
+
+/**
+ * Keep a run's whole output where an agent can read it, when it is too long to be shown whole:
+ * in the project's scratch area, inside plain_modules. Returns the file, or nothing when the
+ * output fits.
+ */
+export function keepFullOutput(dir: string, label: string, output: string): string | undefined {
+  if (output.length <= MAX_OUTPUT_CHARS) return undefined;
+  try {
+    const logs = join(vmScratchDir(dir), "logs");
+    mkdirSync(logs, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const name = label.replace(/[^\w.-]+/g, "_").slice(0, 60);
+    const file = join(logs, `${stamp}-${name}.log`);
+    writeFileSync(file, output);
+    const all = readdirSync(logs).sort();
+    for (const old of all.slice(0, Math.max(0, all.length - MAX_LOGS))) rmSync(join(logs, old), { force: true });
+    return file;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Output as an agent is shown it, with the whole of it kept in a file when it had to be cut. */
+export function shownOutput(dir: string, label: string, output: string): string {
+  return truncateOutput(output, keepFullOutput(dir, label, output));
 }
 
 /**
@@ -32,7 +76,7 @@ export function truncateOutput(text: string): string {
  */
 export async function runCommand(cwd: string, command: string): Promise<{ exitCode: number; output: string }> {
   const { exitCode, output } = await runInVm(command, { cwd, timeoutMs: RUN_TIMEOUT_MS });
-  return { exitCode, output: truncateOutput(output) };
+  return { exitCode, output: shownOutput(cwd, command, output) };
 }
 
 /**
@@ -72,34 +116,6 @@ export function listFiles(root: string): string[] {
 }
 
 /** A tool that runs the tests and lets the harness see the result, rather than taking the agent's word. */
-export function createRunTestsTool(options: {
-  name: string;
-  label: string;
-  description: string;
-  run: (command: string) => Promise<{ exitCode: number; output: string }>;
-  runs: TestRun[];
-  onRun?: (command: string, exitCode: number) => void;
-}) {
-  return defineTool({
-    name: options.name,
-    label: options.label,
-    description: options.description,
-    promptSnippet: `${options.name}: run the tests and see the result`,
-    parameters: Type.Object({
-      command: Type.String({ description: 'Shell command, e.g. "python -m unittest discover"' }),
-    }),
-    async execute(_id, params) {
-      const { exitCode, output } = await options.run(params.command);
-      options.runs.push({ command: params.command, exitCode });
-      options.onRun?.(params.command, exitCode);
-      return {
-        content: [{ type: "text" as const, text: `exit code: ${exitCode}\n\n${output}` }],
-        details: { command: params.command, exitCode },
-      };
-    },
-  });
-}
-
 const TEST_FILE_PATTERN = /(^|[._/-])(test|spec)|test[._-]|Test\.|\.test\.|_test\./i;
 const TEST_CASE_PATTERN = /\bdef\s+test\w*|\bit\s*\(|\btest\s*\(|@Test\b|\bfunc\s+Test\w*/g;
 
@@ -175,113 +191,24 @@ export function removalChallengePrompt(removals: TestRemoval[], subject: string)
   ].join("\n");
 }
 
-export function failingTestsPrompt(runs: TestRun[], toolName: string): string {
-  const last = runs[runs.length - 1];
-  if (last === undefined) {
-    return [
-      `You have not run the tests yet. Call ${toolName} with the command the specification`,
-      "gives, and fix whatever it reports until it passes.",
-    ].join("\n");
-  }
-  return [
-    `The last run of \`${last.command}\` exited ${last.exitCode}. The tests are not passing.`,
-    "",
-    `Fix the cause and call ${toolName} again. Do not remove or weaken a test to get a pass.`,
-  ].join("\n");
-}
 
-
-/**
- * Commands that run everything in the working directory, rather than one named target.
- *
- * A regression run merges every functionality's tests into one directory, so the command
- * has to be one that discovers them all. An agent left to its own devices will narrow to
- * the module it just wrote - which passes while telling you nothing about the others.
- */
-const WHOLE_SUITE_PATTERNS = [
-  /\bdiscover\b/,
-  /\bpytest\b(?!.*(::|\.py\b))/,
-  /\bnpm\s+(run\s+)?test\b/,
-  /\bvitest\s+run\b(?!\s+\S)/,
-  /\bgo\s+test\b.*\.\.\./,
-  /\bmvn\s+(test|verify)\b/,
-  /\bgradle\s+(test|check)\b/,
-  /\bcargo\s+test\b(?!\s+\S)/,
-  /\bctest\b/,
-];
-
-export function isWholeSuiteCommand(command: string): boolean {
-  return WHOLE_SUITE_PATTERNS.some((pattern) => pattern.test(command));
-}
-
-/**
- * Pick the command a regression run should use.
- *
- * `narrow` means nothing that ran everything was found, so the chosen command probably
- * exercises only part of the suite - a caveat the caller should surface rather than
- * report as a clean pass.
- */
-export function chooseRegressionCommand(runs: TestRun[]): { command: string | null; narrow: boolean } {
-  const passing = runs.filter((run) => run.exitCode === 0);
-  for (let i = passing.length - 1; i >= 0; i -= 1) {
-    if (isWholeSuiteCommand(passing[i]!.command)) return { command: passing[i]!.command, narrow: false };
-  }
-  const fallback = passing[passing.length - 1];
-  return fallback ? { command: fallback.command, narrow: true } : { command: null, narrow: false };
-}
-
-/** A unit-test runner script the codebase carries, by the name the implement skill gives it. */
-const UNIT_SCRIPT = /^test_scripts\/run_unit_?tests[^/]*\.sh$/i;
 
 export type UnitVerdict =
   | { ok: true; command: string }
   | { ok: false; command?: string; prompt: string };
 
 /**
- * The harness's own run of the unit tests, which is what a render's "the tests pass" rests on.
+ * The harness's own run of the unit tests, which is what "the tests pass" rests on.
  *
- * The agent chooses the commands it runs while it works, and a gate that took the last of them
- * would pass on a command that runs one file, or nothing. So before a functionality counts as
- * done, the harness runs the whole suite itself: with the unit-test script the codebase carries
- * when there is one - it is what the spec links to - and otherwise with the agent's own last
- * passing command, but only one that runs the whole suite. A run that only ever covered part
- * of the suite is sent back, not guessed at: the command that works depends on where the
- * project installed its test runner, and the agent knows that.
+ * The agent runs whatever commands it likes while it works. Whether the code is done is the
+ * project's unit testing script, run by the harness on the code as it now is - the same script,
+ * the same way, every time (see test-scripts.ts).
  */
-export async function verifyUnitSuite(buildDir: string, runs: TestRun[], toolName = "run_unit_tests"): Promise<UnitVerdict> {
-  const script = listFiles(buildDir).find((file) => UNIT_SCRIPT.test(file));
-  const lastPassing = runs.filter((run) => run.exitCode === 0).at(-1)?.command;
-  const command = script !== undefined ? `bash ${script} .` : lastPassing !== undefined && isWholeSuiteCommand(lastPassing) ? lastPassing : undefined;
-
-  if (command === undefined) {
-    return {
-      ok: false,
-      prompt:
-        lastPassing === undefined
-          ? failingTestsPrompt(runs, toolName)
-          : [
-              `Your last passing run, \`${lastPassing}\`, does not run the whole unit test suite - it names one target.`,
-              "",
-              `Call ${toolName} with the command that runs every unit test in the working directory (e.g. \`pytest\`,`,
-              "`python -m unittest discover`, `npm test`, `go test ./...`, `cargo test`) and fix whatever it reports.",
-            ].join("\n"),
-    };
-  }
-
-  const result = await runCommand(buildDir, command);
-  runs.push({ command, exitCode: result.exitCode });
-  if (result.exitCode === 0) return { ok: true, command };
-  return {
-    ok: false,
-    command,
-    prompt: [
-      `The harness ran the whole unit test suite itself - \`${command}\` - and it failed (exit ${result.exitCode}):`,
-      "",
-      result.output.trimEnd(),
-      "",
-      `Fix the cause and call ${toolName} with that command until it passes. Do not remove or weaken a test to get a pass.`,
-    ].join("\n"),
-  };
+export async function verifyUnitSuite(buildDir: string, runs: TestRun[], script: string): Promise<UnitVerdict> {
+  const run = await runUnitScript(buildDir, script);
+  runs.push({ command: run.command, exitCode: run.exitCode });
+  if (run.exitCode === 0) return { ok: true, command: run.command };
+  return { ok: false, command: run.command, prompt: scriptFailure(run, "unit testing") };
 }
 
 /** Every file of the test code under `dirs`, by path, as it is now. */

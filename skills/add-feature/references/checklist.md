@@ -26,7 +26,7 @@ Use this to verify the workflow was followed — never as a substitute for it. R
 - [ ] New concepts defined before they are referenced, with no circular references.
 - [ ] Any answer that contradicted an earlier snippet was fixed in place before the next question — no stale intent left on disk.
 - [ ] Every conflict / break / augment surfaced by the analyzers was put to the user as the *next* question (keep / augment / replace) and resolved before continuing.
-- [ ] `***test reqs***` / `***acceptance tests***` authored only when the Conformance gate holds (test reqs linking a conformance-test script that exists under `test_scripts/`).
+- [ ] `***test reqs***` / `***acceptance tests***` authored only when the Conformance gate holds (test reqs, and a conformance testing script plainwright finds via `config.yaml`, the project root, or `test_scripts/`).
 - [ ] Asked the user whether the feature is fully covered before leaving the loop.
 
 ## Phase 3 — Final review

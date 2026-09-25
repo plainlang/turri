@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeTestScripts } from "../test-scripts.ts";
 
 const calls: Array<{ frid: string; tryIt: boolean | undefined }> = [];
 
@@ -24,6 +25,7 @@ const { renderModule } = await import("../../src/render/module.ts");
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "plainwright-try-scope-"));
+  writeTestScripts(dir);
   writeFileSync(join(dir, "app.plain"), "***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- One.\n\n- Two.\n\n- Three.\n");
   calls.length = 0;
 });

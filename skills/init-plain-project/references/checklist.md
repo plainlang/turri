@@ -8,7 +8,7 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 ## Ask the basics
 
 - [ ] Asked the project basics with `ask_user`, one question per call (project name, base technology, project kind), plus a free-form catch-all.
-- [ ] Asked testing with `ask_user`, one question per call (unit-test framework, conformance on/off, and prepare-environment only if conformance was enabled).
+- [ ] Asked testing with `ask_user`, one question per call (unit-test framework, conformance on/off).
 
 ## Author the modules
 
@@ -20,9 +20,8 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 ## Generate scripts
 
 - [ ] Generated `implement-unit-testing-script` (always).
-- [ ] Generated `implement-conformance-testing-script` only if conformance was enabled (activate-only variant when a prepare-environment script will also exist, otherwise install-inline).
-- [ ] Generated `implement-prepare-environment-script` only if conformance was enabled **and** the user opted in.
-- [ ] Every generated script is linked from `template/base.plain` (unit tests from `***implementation reqs***`, conformance and prepare-environment from `***test reqs***`), and every link resolves.
+- [ ] Generated `implement-conformance-testing-script` only if conformance was enabled.
+- [ ] Every generated script is in `test_scripts/`, the only one of its kind there - or named in a `config.yaml` at the root (`unittests-script:`, `conformance-tests-script:`) whose paths resolve. No script is linked from the specs.
 - [ ] Did **not** run `check_plain` or `check-plain-env` (out of scope for this skill).
 
 ## Recap

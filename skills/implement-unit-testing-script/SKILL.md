@@ -1,7 +1,7 @@
 ---
 name: implement-unit-testing-script
 description: >-
-  Implement a unit-test runner script (Bash on macOS/Linux, PowerShell on
+  Implement a unit-test runner script (Bash, which plainwright runs; a PowerShell copy on request, for
   Windows) for an arbitrary programming language, following the same conceptual
   pattern as the bundled Java reference script in assets/. Use when the user
   wants to add a testing script for a new language (Python, Node.js, Go, Rust,
@@ -15,14 +15,11 @@ This skill produces a single executable script that runs the unit tests for a ge
 
 The reference implementation is [assets/run_unittests_java.sh](assets/run_unittests_java.sh). Read it first — every script you produce must be a faithful translation of that pattern into the target language's tooling **and** the user's shell environment. There are also Windows PowerShell equivalents of these scripts in [assets/run_unittests_*.ps1](assets/run_unittests_*.ps1).
 
-## Pick the Shell First
+## Always Bash
 
-Before writing anything, decide which shell flavor the script must target — it depends on the user's environment, not on the language:
+plainwright requires this script and runs it itself, as `bash run_unittests_<lang>.sh <build_folder>` in its Linux (Alpine) VM: its exit code decides whether a functionality's unit tests pass. So the script is always **Bash (`.sh`)**, and stays Alpine/BusyBox-friendly.
 
-- **Bash (`.sh`)** — macOS, Linux, WSL, CI runners on Linux. Default unless the user is on native Windows.
-- **PowerShell (`.ps1`)** — native Windows / PowerShell-only environments.
-
-If you can't tell from the project (no obvious OS hints, no existing scripts), ask the user.
+A **PowerShell (`.ps1`)** copy is written only when the user asks for one, to run the tests by hand on native Windows. plainwright never runs it, so a project with only a `.ps1` has no unit testing script.
 
 The same seven-step pattern applies to both. Only the syntax changes.
 
@@ -97,14 +94,14 @@ Notes:
 ### Bash specifics
 
 - **Shebang:** `#!/bin/bash`.
-- **File naming:** `run_unittests_<lang>.sh`, placed in `assets/`.
+- **File naming:** `run_unittests_<lang>.sh`, placed in `assets/` (skill reference) or `test_scripts/` (target project).
 - **Argument:** `$1`.
-- **Make it executable:** `chmod +x assets/run_unittests_<lang>.sh`.
+- **Make it executable:** `chmod +x test_scripts/run_unittests_<lang>.sh`.
 
 ### PowerShell specifics
 
 - **No shebang.** Use a `param([Parameter(Mandatory=$true)][string]$Subfolder)` block at the top instead.
-- **File naming:** `run_unittests_<lang>.ps1`, placed in `assets/`.
+- **File naming:** `run_unittests_<lang>.ps1`, placed next to the `.sh` script.
 - **Exit codes:** use `exit 69` etc. (PowerShell honors them just like Bash).
 - **Toolchain check:** prefer `Get-Command <tool> -ErrorAction SilentlyContinue` and, where a specific version is needed, parse the tool's `--version` output.
 - **Filesystem:** use `Test-Path`, `Remove-Item -Recurse -Force`, `New-Item -ItemType Directory`, `Copy-Item -Recurse`, `Set-Location`. Quote paths to handle spaces.
@@ -116,8 +113,8 @@ Notes:
 2. Read [assets/run_unittests_java.sh](assets/run_unittests_java.sh) to refresh the exact structure.
 3. Translate each of the seven steps above into the equivalent commands for the target language **and** shell. The toolchain check, dependency install, and test invocation are the language-specific parts; the rest is mechanical translation between Bash and PowerShell syntax.
 4. Pick the dependency-isolation mechanism from the [Dependency isolation](#dependency-isolation) table and use it consistently in both step 6 and step 7.
-5. Save the new script to `assets/run_unittests_<lang>.sh` or `assets/run_unittests_<lang>.ps1`. For Bash, `chmod +x` it.
-6. **Link the script into the base `.plain` files as a linked resource.** Once the script exists on disk, it must be referenced from the project's base `.plain` module(s) into its ***implementation reqs*** section using the `add-resource` skill. After linking, read the spec back to confirm the link path resolves to the script you just wrote.
+5. Save the new script as `test_scripts/run_unittests_<lang>.sh` (a `.ps1` copy next to it only if the user wants to run it by hand on Windows). For Bash, `chmod +x` it.
+6. **Make sure plainwright finds the script.** Do not link it from the specs - plainwright finds the unit testing script in the project root (the folder that holds `plain_modules/`) and puts it, whole, into the prompt of the coding agent itself; a link to it from a spec is ignored. It looks, in order, at `config.yaml` in the root (`unittests-script: <path relative to the root>`), then for the one `run_unittests*.sh` in the root, then for the one in `test_scripts/`. Saving the script in `test_scripts/` (or the root) is enough when it is the only one there. If the project has more than one unit testing script (e.g. a Python backend and a React frontend), or keeps it elsewhere, name the one to use in `config.yaml` as `unittests-script:` - plainwright never guesses between two. The script is required: a build without one stops before it starts.
 
 ## Anti-Patterns
 
@@ -130,5 +127,5 @@ Notes:
 - Don't write a cross-shell hybrid (e.g. a `.sh` that detects PowerShell, or vice versa). Ship one script per shell, named with the appropriate extension.
 - Don't install dependencies into the user's global location (`~/.m2`, system-wide `pip`, `~/.cargo`, etc.). Always isolate inside `$WORKING_FOLDER` so concurrent runs and other projects can't interfere.
 - Don't run the test command without first verifying the install step succeeded. A failed install followed by a "test" run produces misleading errors that look like test failures.
-- **Don't forget to link the script as a resource in the base `.plain` files.** The link is how the agents that write and run the tests find the script. Use the `add-resource` skill to add a markdown link to the script from the `.plain` module that owns the unit-testing test reqs (see Workflow step 6). Omitting the linked resource means the model authors and reviews test-related code without ever seeing the actual runner it has to satisfy.
+- **Don't link the script from the specs, and don't leave plainwright guessing.** plainwright finds the script in `config.yaml`, the project root, or `test_scripts/`, and shows it to the coding agent itself; a link to it from a spec is ignored. Put it where it is found, and when there are two unit testing scripts in one folder, name the one to use in `config.yaml` as `unittests-script:` (see Workflow step 6).
 - **Don't write a terse script.** Silent steps, `>/dev/null` redirects on the install output, missing `--version` prints, and absent failure banners all make the script harder to debug than the code it is testing. Follow the *Logging — be as verbose as possible* rule under [Conventions](#conventions) literally: every step announces itself, every command is echoed, every failure prints what was about to run and where.

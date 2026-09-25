@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { describeStop } from "../../src/render/stop-report.ts";
 import { keepingTestsUnchanged, type TestRun, verifyUnitSuite } from "../../src/render/testing.ts";
 import { closeAllVms, vmSupported } from "../../src/render/vm.ts";
+import { UNIT_SCRIPT, writeTestScripts } from "../test-scripts.ts";
 
 let root: string;
 let code: string;
@@ -25,41 +26,52 @@ const passingTest = "import unittest\n\nclass T(unittest.TestCase):\n    def tes
 const failingTest = "import unittest\n\nclass T(unittest.TestCase):\n    def test_broken(self):\n        self.assertEqual(1, 2)\n";
 
 describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeout: 120_000 }, () => {
-  it("does not take a run that only named one target", async () => {
-    const runs: TestRun[] = [{ command: "python3 -m pytest tests/test_one.py", exitCode: 0 }];
-    const verdict = await verifyUnitSuite(code, runs);
-    expect(verdict.ok).toBe(false);
-    if (!verdict.ok) expect(verdict.prompt).toContain("does not run the whole unit test suite");
-  });
+  const script = () => join(root, "test_scripts", "run_unittests_python.sh");
+  beforeEach(() => writeTestScripts(root));
 
-  it("does not take a command that runs nothing", async () => {
-    const verdict = await verifyUnitSuite(code, [{ command: "true", exitCode: 0 }]);
-    expect(verdict.ok).toBe(false);
-  });
-
-  it("runs the whole suite itself, and sends back what it saw failing", async () => {
+  it("is the project's unit testing script, whatever the agent ran - and sends back what it saw failing", async () => {
     writeFileSync(join(code, "test_app.py"), failingTest);
-    const runs: TestRun[] = [{ command: "python3 -m unittest discover", exitCode: 0 }];
-    const verdict = await verifyUnitSuite(code, runs);
+    // The agent's own run passed - on a command that runs nothing.
+    const runs: TestRun[] = [{ command: "true", exitCode: 0 }];
+    const verdict = await verifyUnitSuite(code, runs, script());
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) {
-      expect(verdict.prompt).toContain("The harness ran the whole unit test suite itself");
+      expect(verdict.prompt).toContain("The harness ran the project's unit testing script, `test_scripts/run_unittests_python.sh`");
       expect(verdict.prompt).toContain("test_broken");
     }
-    expect(runs.at(-1)).toMatchObject({ command: "python3 -m unittest discover", exitCode: 1 });
+    expect(runs.at(-1)).toMatchObject({ command: "test_scripts/run_unittests_python.sh", exitCode: 1 });
   });
 
-  it("passes when its own run passes", async () => {
+  it("passes when the script passes", async () => {
     writeFileSync(join(code, "test_app.py"), passingTest);
-    const verdict = await verifyUnitSuite(code, [{ command: "python3 -m unittest discover", exitCode: 0 }]);
-    expect(verdict).toEqual({ ok: true, command: "python3 -m unittest discover" });
+    expect(await verifyUnitSuite(code, [], script())).toEqual({ ok: true, command: "test_scripts/run_unittests_python.sh" });
   });
 
-  it("uses the unit-test script the codebase carries over the agent's command", async () => {
-    mkdirSync(join(code, "test_scripts"));
-    writeFileSync(join(code, "test_scripts", "run_unittests_python.sh"), "#!/bin/bash\necho from-the-script\nexit 0\n");
-    const verdict = await verifyUnitSuite(code, [{ command: "true", exitCode: 0 }]);
-    expect(verdict).toEqual({ ok: true, command: "bash test_scripts/run_unittests_python.sh ." });
+  it("runs the script as the project has it, not a copy an agent could have changed", async () => {
+    writeFileSync(join(code, "test_app.py"), passingTest);
+    writeTestScripts(root, { unit: "#!/bin/bash\necho from-the-project; exit 3\n" });
+    const verdict = await verifyUnitSuite(code, [], script());
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.prompt).toContain("from-the-project");
+  });
+
+  it("sends back why the tests failed however much a verbose script printed first, and keeps all of it", async () => {
+    writeFileSync(join(code, "test_app.py"), failingTest);
+    const noisy = UNIT_SCRIPT.replace("python3 -m unittest discover", "for i in $(seq 3000); do echo \"Downloading dependency $i of 3000\"; done\npython3 -m unittest discover");
+    writeTestScripts(root, { unit: noisy });
+    const verdict = await verifyUnitSuite(code, [], script());
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.prompt).toContain("test_broken");
+    expect(verdict.prompt).toContain("AssertionError");
+    const log = /the whole output is in (\S+)\]/.exec(verdict.prompt)![1]!;
+    expect(readFileSync(log, "utf8")).toContain("Downloading dependency 1 of 3000");
+  });
+
+  it("leaves the code as it was: the script works on a copy", async () => {
+    writeFileSync(join(code, "test_app.py"), passingTest);
+    await verifyUnitSuite(code, [], script());
+    expect(readdirSync(code).sort()).toEqual(["test_app.py"]);
   });
 });
 

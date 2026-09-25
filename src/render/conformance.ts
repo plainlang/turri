@@ -11,6 +11,17 @@ import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import { labelsPrompt, missingTestLabels } from "./test-kinds.ts";
+import {
+  createScriptTool,
+  findTestScripts,
+  projectRootFor,
+  requireTestScripts,
+  runConformanceScript,
+  runUnitScript,
+  type ScriptRun,
+  scriptFailure,
+  withTestingScripts,
+} from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
@@ -20,7 +31,6 @@ import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import {
-  createRunTestsTool,
   findTestRemovals,
   inventoryTests,
   listFiles,
@@ -29,7 +39,6 @@ import {
   truncateOutput,
   type TestRemoval,
   type TestRun,
-  chooseRegressionCommand,
   verifyUnitSuite,
 } from "./testing.ts";
 
@@ -100,91 +109,6 @@ export interface RenderConformanceTestsResult {
 
 
 /**
- * Run a command against the built code with one or more test sets laid over it.
- *
- * Neither the build nor the tests are touched: everything happens in a throwaway copy, so a
- * test run cannot leave anything behind in the codebase it is testing, and each run starts
- * from the same state as the last.
- *
- * Several sets merge for a regression run - every functionality built so far. A file that
- * would land on one already taken is renamed rather than overwritten, because two
- * functionalities are allowed to have written a `test_helpers.py` each and neither of them
- * should silently lose.
- */
-export async function runInSandbox(
-  buildDir: string,
-  conformanceDirs: string | string[],
-  command: string,
-): Promise<{ exitCode: number; output: string }> {
-  const dirs = Array.isArray(conformanceDirs) ? conformanceDirs : [conformanceDirs];
-  // The same place every time for the same build and tests, emptied first: the run's VM is
-  // started once for it and reused, and nothing from the last run is left in it.
-  const key = createHash("sha1").update(JSON.stringify([resolve(buildDir), ...dirs.map((dir) => resolve(dir))])).digest("hex").slice(0, 16);
-  // Inside plain_modules, since that is all the VM holds.
-  const sandbox = join(vmScratchDir(buildDir), "runs", key);
-  rmSync(sandbox, { recursive: true, force: true });
-  ensureInVmScratch(buildDir, sandbox);
-
-  try {
-    // Entry by entry: a build directory outside plain_modules holds the VM's scratch itself.
-    for (const entry of readdirSync(buildDir)) {
-      if (entry !== ".plainwright") cpSync(join(buildDir, entry), join(sandbox, entry), { recursive: true });
-    }
-
-    const taken = new Set(listFiles(sandbox));
-    dirs.forEach((dir, index) => {
-      if (!existsSync(dir)) return;
-      for (const file of listFiles(dir)) {
-        let target = file;
-        if (taken.has(target)) {
-          const renamed = `${index + 1}_${basename(file)}`;
-          target = dirname(file) === "." ? renamed : join(dirname(file), renamed);
-        }
-        taken.add(target);
-        const destination = join(sandbox, target);
-        mkdirSync(dirname(destination), { recursive: true });
-        copyFileSync(join(dir, file), destination);
-      }
-    });
-
-    return await runCommand(sandbox, command);
-  } finally {
-    // Emptied, not removed: the next run reuses the path, and the VM mounted on it.
-    for (const entry of readdirSync(sandbox)) rmSync(join(sandbox, entry), { recursive: true, force: true });
-  }
-}
-
-function createRunTool(
-  buildDir: string,
-  conformanceDir: string,
-  runs: TestRun[],
-  lastOutput: { value: string },
-  onRun?: (command: string, exitCode: number) => void,
-) {
-  return defineTool({
-    name: "run_conformance_tests",
-    label: "Run conformance tests",
-    description:
-      "Run a command against the built code with your tests laid over it, in a throwaway copy. " +
-      "Use the command the test reqs specify. Returns the exit code and combined output.",
-    promptSnippet: "run_conformance_tests: run your tests against the built code",
-    parameters: Type.Object({
-      command: Type.String({ description: 'Shell command, e.g. "python -m unittest discover"' }),
-    }),
-    async execute(_id, params) {
-      const { exitCode, output } = await runInSandbox(buildDir, conformanceDir, params.command);
-      runs.push({ command: params.command, exitCode });
-      lastOutput.value = output;
-      onRun?.(params.command, exitCode);
-      return {
-        content: [{ type: "text" as const, text: `exit code: ${exitCode}\n\n${output}` }],
-        details: { command: params.command, exitCode },
-      };
-    },
-  });
-}
-
-/**
  * Write black-box conformance tests for one functionality of a .plain specification.
  *
  * Runs after the functionality has been rendered: the build directory is the subject,
@@ -237,9 +161,15 @@ export async function renderConformanceTests(
     );
   }
 
+  // Whether the tests pass is the project's conformance testing script - and, when the code is
+  // changed, its unit testing script: without them, nothing is written.
+  const root = projectRootFor(options.plainFile, buildDir);
+  const scripts = findTestScripts(root);
+  if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: true });
+
   const linkedResources = loadLinkedResources(tree, frid, templateDirs);
   const required = getInheritedFunctionalSpecs(tree);
-  const prompt = buildConformancePrompt({
+  const prompt = withTestingScripts(buildConformancePrompt({
     moduleName,
     frid,
     specifications,
@@ -249,7 +179,7 @@ export async function renderConformanceTests(
     existingTests: listFiles(conformanceDir),
     required,
     diff: options.diff,
-  });
+  }), scripts, ["conformance", "unit"], root);
 
   if (options.dryRun) {
     return {
@@ -272,7 +202,6 @@ export async function renderConformanceTests(
   const runs: TestRun[] = [];
   const unitRuns: TestRun[] = [];
   const testRemovals: TestRemoval[] = [];
-  const lastOutput = { value: "" };
   const codeBefore = digestFiles(buildDir);
   const codeChanged = () => {
     const diff = diffFiles(codeBefore, digestFiles(buildDir));
@@ -290,14 +219,14 @@ export async function renderConformanceTests(
       notes.tool,
       ...createWebTools(),
       ...fence.tools,
-      createRunTool(buildDir, conformanceDir, runs, lastOutput, options.onRun),
-      createRunTestsTool({
-        name: "run_unit_tests",
-        label: "Run unit tests",
-        description: `Run the code's unit tests, in ${buildDir}, and return the exit code and output. Use it after changing the code.`,
-        run: (command) => runCommand(buildDir, command),
-        runs: unitRuns,
+      createScriptTool({
+        kind: "conformance",
+        script: scripts.conformance,
+        run: () => runConformanceScript(buildDir, [conformanceDir], scripts),
+        runs,
+        onRun: options.onRun,
       }),
+      createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns }),
     ],
     tools: [...fence.names, ...CONFORMANCE_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
@@ -321,24 +250,8 @@ export async function renderConformanceTests(
         continue;
       }
 
-      const last = runs.at(-1);
-      if (last === undefined) {
-        response = await ask(
-          executor,
-          "You have not run the tests yet. Call run_conformance_tests with the command the test reqs give.",
-          options.onDelta,
-        );
-        continue;
-      }
-
-      if (last.exitCode !== 0) {
-        stage(`conformance tests failing - fixing (round ${round + 1} of ${maxRounds})`);
-        response = await ask(executor, conformanceFailingPrompt(last.command, last.exitCode, lastOutput.value, buildDir), options.onDelta);
-        continue;
-      }
-
-      // Its own run passed. The conformance tests and each acceptance test have to be there, and
-      // labelled as what they are, before anything else counts.
+      // The conformance tests and each acceptance test have to be there, and labelled as what
+      // they are, before anything else counts.
       if (options.diff === undefined) {
         const missing = missingTestLabels(conformanceDir, frid, specifications[ACCEPTANCE_TESTS] ?? []);
         if (missing.length > 0) {
@@ -348,42 +261,21 @@ export async function renderConformanceTests(
         }
       }
 
-      // Whether the functionality is done is the harness's run: the whole
-      // suite, run by the harness - and the code's unit tests, when the agent changed the code.
+      // Whether the functionality is done is the harness's run of the project's conformance
+      // testing script, on every functionality's tests - and the code's unit testing script, when
+      // the agent changed the code.
       stage("checking the conformance tests");
-      const suite = chooseRegressionCommand(runs);
-      if (suite.command === null || suite.narrow) {
-        response = await ask(
-          executor,
-          `Your last passing run, \`${last.command}\`, does not run the whole conformance suite. Call ` +
-            "run_conformance_tests with the whole-suite command from the test reqs, the one that discovers every " +
-            "test in the working directory, and fix whatever it reports.",
-          options.onDelta,
-        );
-        continue;
-      }
-      const recheck = await runInSandbox(buildDir, conformanceDir, suite.command);
-      runs.push({ command: suite.command, exitCode: recheck.exitCode });
-      lastOutput.value = recheck.output;
-      options.onRun?.(suite.command, recheck.exitCode);
+      const recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
+      runs.push({ command: recheck.command, exitCode: recheck.exitCode });
+      options.onRun?.(recheck.command, recheck.exitCode);
       if (recheck.exitCode !== 0) {
-        stage(`conformance tests failing when the harness runs them - fixing (round ${round + 1} of ${maxRounds})`);
-        response = await ask(
-          executor,
-          [
-            `The harness ran the whole conformance suite itself - \`${suite.command}\` - and it failed (exit ${recheck.exitCode}):`,
-            "",
-            recheck.output.trimEnd(),
-            "",
-            "Fix what is wrong - against the specification, the test or the code - and run it again.",
-          ].join("\n"),
-          options.onDelta,
-        );
+        stage(`conformance tests failing - fixing (round ${round + 1} of ${maxRounds})`);
+        response = await ask(executor, conformanceFailingPrompt(recheck, buildDir), options.onDelta);
         continue;
       }
       if (codeChanged()) {
         stage("the code changed - checking its unit tests");
-        const unit = await verifyUnitSuite(buildDir, unitRuns);
+        const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
         if (!unit.ok) {
           response = await ask(
             executor,
@@ -425,17 +317,18 @@ export async function renderConformanceTests(
 }
 
 /** A failing run, handed back to the conformance agent to fix - the test or the code. */
-function conformanceFailingPrompt(command: string, exitCode: number, output: string, codeDir: string): string {
+function conformanceFailingPrompt(run: ScriptRun, codeDir: string): string {
+  // A toolchain missing, or a run out of time, is not a question of test or code.
+  if (run.exitCode === 69 || run.exitCode === 124) return scriptFailure(run, "conformance testing");
   return [
-    `\`${command}\` exited ${exitCode}:`,
+    `The harness ran the project's conformance testing script, \`${run.command}\`, on the whole suite, and it failed (exit ${run.exitCode}):`,
     "",
-    output.trimEnd(),
+    run.output.trimEnd(),
     "",
     "Work out, against the specification, what is wrong - your test or the code - and fix that one:",
     "- A test that asserts something the specification does not require, or misreads it, is corrected.",
-    `- Code that does not do what the specification says is fixed, in ${codeDir}. Then run its unit tests`,
-    "  with run_unit_tests and keep them passing.",
+    `- Code that does not do what the specification says is fixed, in ${codeDir}, and its unit tests kept passing.`,
     "Never change a test so it agrees with code that contradicts the specification, and never delete, skip or",
-    "weaken a test to get a pass. Then run the tests again.",
+    "weaken a test to get a pass.",
   ].join("\n");
 }

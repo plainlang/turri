@@ -109,14 +109,5 @@ export function codebaseMap(tree: MarshalledPlainSource, buildDir: string, frid?
     lines.push("", "What each implemented functionality did to the files:", ...where);
   }
 
-  // The most recent functionality that recorded one: the command most likely to still work.
-  const command = [
-    ...(state?.required ?? []).map((spec) => spec.build?.testCommand),
-    ...earlier.map((id) => state?.functionalities[id]?.testCommand),
-  ]
-    .reverse()
-    .find((found) => found !== undefined);
-  if (command !== undefined) lines.push("", `The unit tests last passed with: ${command}`);
-
   return lines.join("\n");
 }

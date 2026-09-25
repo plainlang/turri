@@ -9,7 +9,7 @@ import {
   insideAny,
 } from "../../src/render/confine.ts";
 import { withActivity } from "../../src/render/activity.ts";
-import { runInSandbox } from "../../src/render/conformance.ts";
+import { runConformanceScript } from "../../src/render/test-scripts.ts";
 import { runCommand } from "../../src/render/testing.ts";
 import { closeAllVms, installSystemPackages, runInVm, systemPackages, vmImage, vmSupported } from "../../src/render/vm.ts";
 
@@ -270,12 +270,16 @@ describe.runIf(vmSupported())("running the tests", { timeout: VM_TIMEOUT }, () =
     expect(await runCommand(code, "python3 app.py")).toEqual({ exitCode: 0, output: "hi\n" });
   });
 
-  it("runs a conformance suite in a copy inside plain_modules, and leaves nothing behind", async () => {
+  it("runs the conformance testing script in a copy inside plain_modules, and leaves nothing behind", async () => {
     writeFileSync(join(tests, "check.sh"), "python3 app.py; pwd\n");
-    const result = await runInSandbox(code, tests, "sh check.sh");
+    const script = (body: string) => {
+      writeFileSync(join(root, "run_conformance_tests.sh"), body);
+      return { conformance: join(root, "run_conformance_tests.sh") };
+    };
+    const result = await runConformanceScript(code, [tests], script('cd "$1" && sh "$2/check.sh"\n'));
     expect(result.output).toContain("hi\n");
-    expect(result.output).toContain(join(root, "plain_modules", ".plainwright", "runs"));
-    expect((await runInSandbox(code, tests, `cat ${join(outside, "secret.ts")}`)).exitCode).not.toBe(0);
-    expect(readdirSync(join(root, "plain_modules", ".plainwright", "runs")).flatMap((key) => readdirSync(join(root, "plain_modules", ".plainwright", "runs", key)))).toEqual([]);
+    expect(result.output).toContain(join(root, "plain_modules", ".plainwright", "scripts"));
+    expect((await runConformanceScript(code, [tests], script(`cat ${join(outside, "secret.ts")}\n`))).exitCode).not.toBe(0);
+    expect(readdirSync(join(root, "plain_modules", ".plainwright", "scripts"))).toEqual([]);
   });
 });

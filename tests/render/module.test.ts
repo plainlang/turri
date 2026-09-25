@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { conformanceDirFor, runInSandbox } from "../../src/render/conformance.ts";
+import { conformanceDirFor } from "../../src/render/conformance.ts";
+import { runConformanceScript } from "../../src/render/test-scripts.ts";
 import { ensureRegressionPasses, regenerateFunctionality, renderModule } from "../../src/render/module.ts";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
 
@@ -28,8 +29,16 @@ describe("conformanceDirFor", () => {
   });
 });
 
-describe("runInSandbox with several test sets", () => {
-  it("merges every set over the build", async () => {
+describe("the conformance testing script, on several test sets", () => {
+  // Lists the suite it was given, and runs each check from the build.
+  const listing = () => {
+    const script = join(root, "test_scripts", "run_conformance_tests_sh.sh");
+    mkdirSync(join(root, "test_scripts"), { recursive: true });
+    writeFileSync(script, 'cd "$1" || exit 2\nfor check in $(cd "$2" && find . -name "*.sh" | sort); do sh "$2/$check" || exit 1; done\n');
+    return { conformance: script };
+  };
+
+  it("gets every set as one suite, over the build", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
     const one = join(root, "c", "1");
     const two = join(root, "c", "2");
@@ -38,7 +47,7 @@ describe("runInSandbox with several test sets", () => {
     writeFileSync(join(one, "a.sh"), "cat app.txt");
     writeFileSync(join(two, "b.sh"), "echo second");
 
-    const result = await runInSandbox(buildDir, [one, two], "sh a.sh && sh b.sh");
+    const result = await runConformanceScript(buildDir, [one, two], listing());
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("hello");
@@ -53,7 +62,7 @@ describe("runInSandbox with several test sets", () => {
     writeFileSync(join(one, "test.sh"), "echo from-one");
     writeFileSync(join(two, "test.sh"), "echo from-two");
 
-    const result = await runInSandbox(buildDir, [one, two], "sh test.sh && sh 2_test.sh");
+    const result = await runConformanceScript(buildDir, [one, two], listing());
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("from-one");
@@ -62,13 +71,18 @@ describe("runInSandbox with several test sets", () => {
 
   it("skips a set that does not exist yet", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
-    const missing = join(root, "c", "nope");
-
-    expect((await runInSandbox(buildDir, [missing], "cat app.txt")).exitCode).toBe(0);
+    expect((await runConformanceScript(buildDir, [join(root, "c", "nope")], listing())).exitCode).toBe(0);
   });
 });
 
 describe("ensureRegressionPasses", () => {
+  // The project's conformance testing script: every check in the suite, run from the build.
+  const scripts = () => {
+    const script = join(root, "test_scripts", "run_conformance_tests_sh.sh");
+    mkdirSync(join(root, "test_scripts"), { recursive: true });
+    writeFileSync(script, 'cd "$1" || exit 2\nfor check in $(cd "$2" && find . -name "*.sh" | sort); do sh "$2/$check" || exit 1; done\n');
+    return { conformance: script };
+  };
   const base = {
     moduleName: "demo",
     tree: EMPTY_TREE,
@@ -81,7 +95,7 @@ describe("ensureRegressionPasses", () => {
       buildDir,
       conformanceRoot: join(root, "conformance"),
       frids: ["1"],
-      command: null,
+      scripts: scripts(),
     });
 
     expect(result.passed).toBe(true);
@@ -100,12 +114,12 @@ describe("ensureRegressionPasses", () => {
       buildDir,
       conformanceRoot: join(root, "conformance"),
       frids: ["1", "2"],
-      command: "sh check_1.sh && sh auth/check_2.sh",
+      scripts: scripts(),
     });
 
     expect(result.passed).toBe(true);
     expect(result.runs).toHaveLength(1);
-    expect(result.runs[0]!.frids).toEqual(["1", "2"]);
+    expect(result.runs[0]).toMatchObject({ command: "test_scripts/run_conformance_tests_sh.sh", frids: ["1", "2"] });
   });
 
   it("reports failure without repairing when no rounds are allowed", async () => {
@@ -118,7 +132,7 @@ describe("ensureRegressionPasses", () => {
       buildDir,
       conformanceRoot: join(root, "conformance"),
       frids: ["1"],
-      command: "sh check.sh",
+      scripts: scripts(),
     });
 
     expect(result.passed).toBe(false);

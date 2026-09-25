@@ -5,6 +5,7 @@ import { pendingFrids, staleFrids } from "./state.ts";
 import { describeDelivery } from "./delivery.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
+import { findTestScripts, projectRootFor } from "./test-scripts.ts";
 import { renderFunctionality } from "./render.ts";
 import { ensureRegressionPasses, regenerateFunctionality, describeRegenerationStop } from "./module.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
@@ -286,7 +287,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
           frids: [...getFrids(tree)].slice(0, [...getFrids(tree)].indexOf(request.frid) + 1),
           tree,
           required: getInheritedFunctionalSpecs(tree),
-          command: null,
+          scripts: findTestScripts(projectRootFor(request.plainFile, result.buildDir)),
           model: options.model,
           onDelta,
         })

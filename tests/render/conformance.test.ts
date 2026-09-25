@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderConformanceTests, runInSandbox } from "../../src/render/conformance.ts";
+import { renderConformanceTests } from "../../src/render/conformance.ts";
+import { runConformanceScript } from "../../src/render/test-scripts.ts";
 
 const SIMPLE = "tests/data/simple.plain";
 
@@ -36,42 +37,37 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true });
 });
 
-describe("runInSandbox", () => {
-  it("merges the build and the tests, and reports success", async () => {
+describe("the harness's run of the conformance testing script", () => {
+  const script = (body: string) => {
+    const path = join(project, "test_scripts", "run_conformance_tests_sh.sh");
+    mkdirSync(join(project, "test_scripts"), { recursive: true });
+    writeFileSync(path, body);
+    return { conformance: path };
+  };
+  const eachCheck = 'cd "$1" || exit 2\nfor check in $(cd "$2" && find . -name "*.sh" | sort); do sh "$2/$check" || exit 1; done\n';
+
+  it("gives it the build and the whole suite, and reports success", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
     writeFileSync(join(conformanceDir, "check.sh"), "cat app.txt");
 
-    const result = await runInSandbox(buildDir, conformanceDir, "sh check.sh");
+    const result = await runConformanceScript(buildDir, [conformanceDir], script(eachCheck));
 
-    expect(result.exitCode).toBe(0);
+    expect(result).toMatchObject({ command: "test_scripts/run_conformance_tests_sh.sh", exitCode: 0 });
     expect(result.output).toContain("hello");
   });
 
-  it("reports the exit code and output of a failing command", async () => {
-    writeFileSync(join(buildDir, "app.txt"), "hello");
-
-    const result = await runInSandbox(buildDir, conformanceDir, "echo boom >&2; exit 3");
-
+  it("reports the exit code and output of a failing run", async () => {
+    const result = await runConformanceScript(buildDir, [conformanceDir], script("echo boom >&2; exit 3\n"));
     expect(result.exitCode).toBe(3);
     expect(result.output).toContain("boom");
   });
 
-  it("leaves the build and test directories untouched", async () => {
+  it("leaves the build and test directories untouched, and starts each run afresh", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
-
-    await runInSandbox(buildDir, conformanceDir, "echo scratch > scratch.txt");
-
+    await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && echo first > state.txt\n'));
     expect(readdirSync(buildDir)).toEqual(["app.txt"]);
     expect(readdirSync(conformanceDir)).toEqual([]);
-  });
-
-  it("gives each run a fresh sandbox", async () => {
-    writeFileSync(join(buildDir, "app.txt"), "hello");
-
-    await runInSandbox(buildDir, conformanceDir, "echo first > state.txt");
-    const second = await runInSandbox(buildDir, conformanceDir, "cat state.txt");
-
-    expect(second.exitCode).not.toBe(0);
+    expect((await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && cat state.txt\n'))).exitCode).not.toBe(0);
   });
 });
 

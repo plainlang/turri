@@ -14,10 +14,10 @@ When writing or editing a `***test reqs***` section in a `.plain` file, always f
 
 ## `:ConformanceTests:` lives here (hard rule)
 - **Everything** about `:ConformanceTests:` goes in `***test reqs***` — paths, approach, packages, framework, execution command, mocking / network policy, fixtures, pass criteria, environment prerequisites
-- `:ConformanceTests:` live outside the generated codebase, in their own tree under `plain_modules/<module>/tests/` (one folder per functional spec), so requirements that shape them belong in test reqs by definition
+- `:ConformanceTests:` live outside the generated codebase, in one folder, `plain_modules/<module>/tests/` - the module's whole conformance suite, so requirements that shape them belong in test reqs by definition
 - The conformance-test generator reads **only** `***test reqs***` — anything about `:ConformanceTests:` placed elsewhere (e.g. `***implementation reqs***`) is silently ignored
 - Author each `:ConformanceTests:` requirement via `add-test-requirement` and phrase it in terms of `:ConformanceTests:` so the partition stays visible at a glance
-- Conformance testing run scripts should be linked here as a linked resource
+- Do not link the conformance testing script here (or anywhere in the specs; a link to it is ignored). plainwright finds it in the project root - `conformance-tests-script:` in `config.yaml`, else the one `run_conformance_tests*.sh` in the root, else the one in `test_scripts/` - and shows it to the agents that write the conformance tests itself. Describe the framework and execution command here in words
 
 ## What belongs here
 - Test framework: which framework to use (e.g., pytest, Unittest, xUnit)
@@ -54,6 +54,4 @@ When writing or editing a `***test reqs***` section in a `.plain` file, always f
 - :ConformanceTests: will be run using "pytest" command.
 - :ConformanceTests: must be implemented and executed - do not skip tests.
 - :ConformanceTests: should mock all external HTTP calls.
-- :ConformanceTests: are prepared via the prepare script [test_scripts/prepare_environment_python.sh](test_scripts/prepare_environment_python.sh).
-- :ConformanceTests: are executed via the run script [test_scripts/run_conformance_tests_python.sh](test_scripts/run_conformance_tests_python.sh).
 ```

@@ -2,11 +2,12 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs } from "../plain/spec.ts";
+import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
 import { reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import { createScriptTool, findTestScripts, projectRootFor, requireTestScripts, runUnitScript, withTestingScripts } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
@@ -16,8 +17,6 @@ import { readState, recordFunctionality, recordRegeneration, specStateFor, STATE
 import { buildRegeneratePrompt, buildRenderPrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
 import {
-  createRunTestsTool,
-  failingTestsPrompt,
   findTestRemovals,
   inventoryTests,
   listFiles,
@@ -64,6 +63,11 @@ export interface RenderFunctionalityOptions {
    * the result and pure cost on a long unattended run.
    */
   tryIt?: boolean;
+  /**
+   * Whether conformance tests are written for this build - so the conformance testing script is
+   * in the agent's prompt too. Default: when the module has test reqs.
+   */
+  conformance?: boolean;
   /**
    * The functionality is already in the code and its spec changed: update it rather than
    * build it. `in` is the codebase to update it in - the tip of the chain built on this
@@ -157,6 +161,11 @@ export async function renderFunctionality(
     ? options.regenerate.in
     : undefined;
   const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName));
+  // Whether the code is done is the project's unit testing script: without one, nothing is built.
+  const root = projectRootFor(options.plainFile, buildDir);
+  const scripts = findTestScripts(root);
+  if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: false });
+  const conformance = options.conformance ?? specifications[TEST_REQUIREMENTS].length > 0;
   const required = getInheritedFunctionalSpecs(tree);
   // Work starts from the last known good state of the codebase it is done in: whatever an
   // interrupted run left half-written is gone before anything reads the code.
@@ -191,6 +200,9 @@ export async function renderFunctionality(
   }
 
   // Led by what earlier agents on this codebase left, and asked to leave the same.
+  // The scripts its work is judged by: the unit testing script, and the conformance testing
+  // script when conformance tests are written for this build.
+  prompt = withTestingScripts(prompt, scripts, conformance ? ["unit", "conformance"] : ["unit"], root);
   prompt = withNotes(prompt, buildDir);
 
   if (options.dryRun) {
@@ -215,13 +227,10 @@ export async function renderFunctionality(
   mkdirSync(buildDir, { recursive: true });
 
   const runs: TestRun[] = [];
-  const runTests = createRunTestsTool({
-    name: "run_unit_tests",
-    label: "Run unit tests",
-    description:
-      "Run the unit test suite in the working directory and return the exit code and output. " +
-      "Use the command the test reqs specify.",
-    run: (command) => runCommand(buildDir, command),
+  const runTests = createScriptTool({
+    kind: "unit",
+    script: scripts.unit,
+    run: () => runUnitScript(buildDir, scripts.unit!),
     runs,
     onRun: options.onRun,
   });
@@ -264,15 +273,10 @@ export async function renderFunctionality(
         continue;
       }
 
-      if (runs[runs.length - 1]?.exitCode !== 0) {
-        stage(`unit tests not passing yet - fixing (round ${followUp + 1} of ${maxFollowUps})`);
-        response = await ask(executor, failingTestsPrompt(runs, "run_unit_tests"), options.onDelta);
-        continue;
-      }
-
-      // The agent's own run passed. Whether the functionality is done is the harness's run.
-      stage("checking the whole unit test suite");
-      const verdict = await verifyUnitSuite(buildDir, runs);
+      // Whether the functionality is done is the harness's run of the unit testing script -
+      // whatever the agent ran, and whether it ran anything.
+      stage("checking the unit tests");
+      const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit!);
       if (!verdict.ok) {
         stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${maxFollowUps})`);
         response = await ask(executor, verdict.prompt, options.onDelta);
@@ -302,7 +306,7 @@ export async function renderFunctionality(
 
     // Passing means the harness's own run of the whole suite passed. Working out how to try it
     // may have touched the code since, so that run is repeated when it did.
-    const passed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs)).ok);
+    const passed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs, scripts.unit!)).ok);
 
     // Record what this build now contains, here rather than in each caller. Every route
     // into a render - the queue behind start_render, the CLI, renderModule - has to leave
@@ -312,7 +316,6 @@ export async function renderFunctionality(
       unitTests: passed ? ("passed" as const) : ("failed" as const),
       // What the next render is told about where this functionality lives.
       files: diffFiles(digestsBefore, digestFiles(buildDir)),
-      testCommand: runs.filter((run) => run.exitCode === 0).at(-1)?.command,
     };
     const outcome = passed ? "unit tests pass" : "unit tests NOT passing";
     const what = targetFunctionality(specifications).split("\n")[0]!.replace(/^- /, "");

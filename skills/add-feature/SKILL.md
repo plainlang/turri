@@ -105,7 +105,7 @@ Ask the user whether the feature is fully covered. Yes → Phase 3. No → retur
 
 ### Conformance gate
 
-Author `***test reqs***` and `***acceptance tests***` **only** when the module has conformance testing set up: `***test reqs***` of its own or from an `import`ed module, linking a conformance-test script that exists under `test_scripts/`. If conformance testing is not configured, skip those two authoring paths entirely — concepts, functional specs, and implementation reqs are still authored normally.
+Author `***test reqs***` and `***acceptance tests***` **only** when the module has conformance testing set up: `***test reqs***` of its own or from an `import`ed module, and a conformance testing script plainwright finds for the project (named in `config.yaml`, or the one in the project root or `test_scripts/`). If conformance testing is not configured, skip those two authoring paths entirely — concepts, functional specs, and implementation reqs are still authored normally.
 
 ## Phase 3 — Final review
 

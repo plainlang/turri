@@ -10,15 +10,26 @@ import { getFrids,
 import {
   conformanceDirFor,
   renderConformanceTests,
-  runInSandbox,
   type RenderConformanceTestsResult,
 } from "./conformance.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
-import { defaultBuildDir, modulesRoot } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, projectRootOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import {
+  findTestScripts,
+  MissingTestScriptError,
+  projectRootFor,
+  requireTestScripts,
+  runConformanceScript,
+  type TestScripts,
+  createScriptTool,
+  runUnitScript,
+  withoutConformance,
+  withTestingScripts,
+} from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS, describeStop, type StopFacts } from "./stop-report.ts";
 import {
@@ -34,7 +45,6 @@ import {
   isModuleUpToDate,
   pendingFrids,
   readState,
-  recordConformanceCommand,
   recordFunctionality,
   recordRegeneration,
   specStateFor,
@@ -42,8 +52,6 @@ import {
 } from "./state.ts";
 import { renderFunctionality, resolveTemplateDirs, type RenderFunctionalityResult } from "./render.ts";
 import {
-  chooseRegressionCommand,
-  createRunTestsTool,
   listFiles,
   runCommand,
   type TestRun,
@@ -51,7 +59,7 @@ import {
 } from "./testing.ts";
 
 /** On top of the file tools, which are fenced to the build directory by `confine.ts`. */
-const FIX_TOOLS = ["run_unit_tests", "update_notes"];
+const FIX_TOOLS = ["run_unit_tests", "run_conformance_tests", "update_notes"];
 const DEFAULT_MAX_REGRESSION_ROUNDS = ATTEMPTS.regression;
 
 export interface RegressionRun extends TestRun {
@@ -64,12 +72,10 @@ export interface RegressionResult {
   runs: RegressionRun[];
   /** Each time the implementation was changed to repair a regression. */
   repairs: string[];
-  /** Empty when no functionality has produced a runnable command yet. */
+  /** The conformance testing script that ran the suite; null when there were no tests to run. */
   command: string | null;
-  /** True when no whole-suite command was found, so this run covered only part of it. */
-  narrow: boolean;
-  /** Tests were there, but no command to run them was known: they were not run. */
-  unrun?: boolean;
+  /** Conformance was turned off, so the conformance tests already here were not run. */
+  conformanceOff?: boolean;
 }
 
 export interface FunctionalityOutcome {
@@ -131,7 +137,6 @@ export type ModuleEvent =
   | { type: "functionality_skipped"; frid: string }
   | { type: "phase"; frid: string; phase: "render" | "conformance" | "regression" }
   | { type: "run"; command: string; exitCode: number; frids?: string[] }
-  | { type: "narrow_command"; command: string }
   | { type: "repair"; frids: string[] }
   | { type: "functionality_done"; frid: string }
   | { type: "stopped"; frid: string; at: string };
@@ -154,6 +159,8 @@ async function repairRegression(input: {
   failure: string;
   /** The step the repair is for, as its notes say: `app 3`, `app spec change`. */
   step: string;
+  /** The scripts that judge it, for its prompt. */
+  scripts: TestScripts;
   model?: string;
   onDelta?: (delta: string) => void;
 }): Promise<string> {
@@ -168,12 +175,12 @@ async function repairRegression(input: {
       notes.tool,
       ...createWebTools(),
       ...fence.tools,
-      createRunTestsTool({
-        name: "run_unit_tests",
-        label: "Run unit tests",
-        description: "Run the unit test suite in the working directory and return its exit code and output.",
-        run: (command) => runCommand(input.buildDir, command),
-        runs,
+      createScriptTool({ kind: "unit", script: input.scripts.unit, run: () => runUnitScript(input.buildDir, input.scripts.unit!), runs }),
+      createScriptTool({
+        kind: "conformance",
+        script: input.scripts.conformance,
+        run: () => runConformanceScript(input.buildDir, input.testsDirs, input.scripts),
+        runs: [],
       }),
     ],
     tools: [...fence.names, ...FIX_TOOLS, ...WEB_TOOLS],
@@ -188,13 +195,18 @@ async function repairRegression(input: {
         ask(
           session,
           withNotes(
-            buildRegressionFixPrompt({
-              moduleName: input.moduleName,
-              frids: input.frids,
-              specifications,
-              required: input.required,
-              failure: input.failure,
-            }),
+            withTestingScripts(
+              buildRegressionFixPrompt({
+                moduleName: input.moduleName,
+                frids: input.frids,
+                specifications,
+                required: input.required,
+                failure: input.failure,
+              }),
+              input.scripts,
+              ["conformance", "unit"],
+              projectRootOf(input.buildDir),
+            ),
             input.buildDir,
           ),
           input.onDelta,
@@ -225,12 +237,10 @@ export async function ensureRegressionPasses(input: {
   tree: MarshalledPlainSource;
   /** The required modules' functional specs, for the repair agent. */
   required: RequiredSpec[];
-  /** The suite command. Null: the one this codebase last ran its whole suite with, if any. */
   /** The step the regression run is for, as a repair's notes say; the last functionality by default. */
   step?: string;
-  command: string | null;
-  /** True when `command` is not known to run the whole suite. */
-  narrow?: boolean;
+  /** The codebase's testing scripts: its conformance testing script runs the suite. */
+  scripts: TestScripts;
   model?: string;
   maxRounds?: number;
   onDelta?: (delta: string) => void;
@@ -240,35 +250,32 @@ export async function ensureRegressionPasses(input: {
   const runs: RegressionRun[] = [];
   const repairs: string[] = [];
 
-  const narrow = input.command !== null && (input.narrow ?? false);
-  // Tests carried up from the modules below come with the command that ran them.
-  const command = input.command ?? readState(input.buildDir)?.conformanceCommand ?? null;
+  let command: string | null = null;
 
-  if (dirs.length === 0) return { passed: true, runs, repairs, command, narrow };
-  if (command === null) {
-    // There are tests, but nothing has ever run them here and no command came with them.
-    return { passed: true, runs, repairs, command, narrow, unrun: true };
+  if (dirs.length === 0) return { passed: true, runs, repairs, command };
+  if (input.scripts.conformanceOff === true) {
+    reportActivity(`  conformance is off: ${input.moduleName}'s conformance tests were not run`);
+    return { passed: true, runs, repairs, command, conformanceOff: true };
   }
-
-  if (narrow) input.onEvent?.({ type: "narrow_command", command });
+  // There are tests: the project's conformance testing script runs them, or nothing does.
+  if (input.scripts.conformance === undefined) throw new MissingTestScriptError(input.moduleName, "conformance");
 
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_REGRESSION_ROUNDS;
   for (let round = 0; round <= maxRounds; round += 1) {
     reportStage(
       `${input.moduleName}: running every functionality's conformance tests together (${input.frids.join(", ")})`,
     );
-    const result = await runInSandbox(input.buildDir, dirs, command);
+    const result = await runConformanceScript(input.buildDir, dirs, input.scripts);
+    command = result.command;
     runs.push({ command, exitCode: result.exitCode, frids: input.frids });
     reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
     input.onEvent?.({ type: "run", command, exitCode: result.exitCode, frids: input.frids });
 
     if (result.exitCode === 0) {
-      // Whatever builds on this codebase later can run the same suite with it.
-      if (!narrow) recordConformanceCommand(input.buildDir, command);
       if (repairs.length > 0) {
         recordHistory(input.buildDir, `regression ${input.moduleName} (pass after ${repairs.length} repair(s))`);
       }
-      return { passed: true, runs, repairs, command, narrow };
+      return { passed: true, runs, repairs, command };
     }
     if (round === maxRounds) break;
 
@@ -284,6 +291,7 @@ export async function ensureRegressionPasses(input: {
         required: input.required,
         failure: result.output,
         step: input.step ?? `${input.moduleName} ${input.frids.at(-1)}`,
+        scripts: input.scripts,
         model: input.model,
         onDelta: input.onDelta,
       }),
@@ -291,16 +299,7 @@ export async function ensureRegressionPasses(input: {
   }
 
   recordHistory(input.buildDir, `regression ${input.moduleName} (NOT passing after ${repairs.length} repair(s))`);
-  return { passed: false, runs, repairs, command, narrow };
-}
-
-function suiteCommand(conformance: RenderConformanceTestsResult | undefined): {
-  command: string | null;
-  narrow: boolean;
-} {
-  return conformance === undefined
-    ? { command: null, narrow: false }
-    : chooseRegressionCommand(conformance.runs);
+  return { passed: false, runs, repairs, command };
 }
 
 /**
@@ -339,9 +338,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
 
   const outcomes: FunctionalityOutcome[] = [];
   const completed = allFrids.slice(0, fromIndex);
-  let command: string | null = null;
-  let narrow = false;
-
   // Conformance is optional, and it is written from the test reqs. With none, there is
   // nothing to write tests against, so it is off unless explicitly asked for.
   const hasTestReqs = (getSpecificationItems(tree, TEST_REQUIREMENTS) ?? []).length > 0;
@@ -352,6 +348,12 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
         `Add a ${TEST_REQUIREMENTS} section, or leave conformance off.`,
     );
   }
+  // What decides each functionality is done is the project's testing scripts: without them,
+  // nothing is built.
+  // Turned off, the conformance testing script is not used at all, found or not.
+  const found = findTestScripts(projectRootFor(options.plainFile, buildDir));
+  const scripts = options.conformance === false ? withoutConformance(found) : found;
+  requireTestScripts(moduleName, scripts, { conformance: conformanceEnabled });
 
   /** Write what this functionality was built from, as soon as it is known. */
   const record = (
@@ -375,6 +377,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
     const render = await renderFunctionality({
       plainFile: options.plainFile,
       frid,
+      conformance: conformanceEnabled,
       templateDirs: options.templateDirs,
       buildDir,
       model: options.model,
@@ -406,8 +409,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
         frids: [...completed, frid],
         tree,
         required,
-        command,
-        narrow,
+        scripts,
         model: options.model,
         maxRounds: options.maxRegressionRounds,
         onDelta: options.onDelta,
@@ -436,12 +438,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
     });
 
-    const chosen = suiteCommand(conformance);
-    if (chosen.command !== null) {
-      command = chosen.command;
-      narrow = chosen.narrow;
-    }
-
     record(frid, { unitTests: "passed", conformance: conformance.passed ? "passed" : "failed" });
 
     if (!conformance.passed) {
@@ -458,8 +454,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       frids: [...completed, frid],
       tree,
       required,
-      command,
-      narrow,
+      scripts,
       model: options.model,
       maxRounds: options.maxRegressionRounds,
       onDelta: options.onDelta,
@@ -567,6 +562,8 @@ export async function regenerateFunctionality(
   const render = await renderFunctionality({
     plainFile: options.plainFile,
     frid: options.frid,
+    // Regenerating always brings the conformance tests in line: they judge it too.
+    conformance: true,
     templateDirs: options.templateDirs,
     buildDir,
     model: options.model,
@@ -629,7 +626,8 @@ export async function regenerateFunctionality(
     frids: allFrids,
     tree,
     required: requiredFunctionalSpecs(host?.plainFile ?? options.plainFile, options.templateDirs),
-    ...suiteCommand(conformance),
+    // The suite of the codebase it is regenerated in, run by that codebase's script.
+    scripts: findTestScripts(projectRootFor(host?.plainFile ?? options.plainFile, buildDir)),
     model: options.model,
     maxRounds: options.maxRegressionRounds,
     onDelta: options.onDelta,

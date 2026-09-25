@@ -127,7 +127,7 @@ export function describeToolCall(name: string, args: Record<string, unknown> | u
       return `$ ${clip(command ?? "")}`;
     case "run_unit_tests":
     case "run_conformance_tests":
-      return `▶ ${name === "run_unit_tests" ? "unit tests" : "conformance tests"}: ${clip(command ?? "")}`;
+      return `▶ ${name === "run_unit_tests" ? "unit tests" : "conformance tests"}: the project's script`;
     case "describe_how_to_try_it":
       return "  wrote the try-it steps";
     default:

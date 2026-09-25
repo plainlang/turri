@@ -52,7 +52,7 @@ describe("the codebase map", () => {
     expect(codebaseMap(tree(), build, "1")).toBeNull();
   });
 
-  it("lists the files, where each earlier functionality lives, and the test command", () => {
+  it("lists the files and where each earlier functionality lives", () => {
     const t = tree();
     write("app/main.py", "x");
     write("app/routes.py", "x");
@@ -69,7 +69,7 @@ describe("the codebase map", () => {
     expect(map).toContain("Files (2):\n  app/main.py\n  app/routes.py");
     expect(map).toContain("  app 1: added app/main.py");
     expect(map).toContain("  app 2: added app/routes.py; changed app/main.py");
-    expect(map).toContain("The unit tests last passed with: python -m pytest");
+    expect(map).not.toContain("last passed with");
   });
 
   it("covers only the functionalities before the one being built", () => {

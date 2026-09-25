@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { openFrom } from "../plain/files.ts";
 import { collectLinkedResources, type MarshalledPlainSource } from "../plain/spec.ts";
+import { scriptKind } from "./test-scripts.ts";
 
 export interface LoadedResource {
   text: string;
@@ -27,6 +28,9 @@ export function loadLinkedResources(
 
   const loaded: LoadedResource[] = [];
   for (const resource of collected) {
+    // A testing script reaches an agent as one - whole, and only when it is run on its work -
+    // not as a resource, cut short and whether it is used or not.
+    if (scriptKind(resource.target) !== undefined) continue;
     let content = openFrom(templateDirs, resource.target);
     if (content === null) {
       try {

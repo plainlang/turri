@@ -38,7 +38,7 @@ When writing or editing an `***implementation reqs***` section in a `.plain` fil
 - Unit-test guidance (`:UnitTests:` framework, structure, mocking) goes **here**, not in `***test reqs***`
 - `***test reqs***` is exclusively for `:ConformanceTests:` — framework, execution command, mocking policy, environment setup
 - Putting unit-test guidance in `***test reqs***` is one of the most common authoring mistakes; the rendered code will silently miss those requirements because the unit-test generator only reads `***implementation reqs***`
-- Unit testing run scripts should be linked here as a linked resource
+- Do not link the unit testing script here (or anywhere in the specs; a link to it is ignored). plainwright finds it in the project root - `unittests-script:` in `config.yaml`, else the one `run_unittests*.sh` in the root, else the one in `test_scripts/` - and shows it to the coding agent itself. Describe the framework and run command here in words
 
 ## Encapsulation warning
 - `requires` modules only pass on functional specs and `exported_concepts` — never implementation reqs
@@ -64,5 +64,5 @@ When writing or editing an `***implementation reqs***` section in a `.plain` fil
 - :Implementation: should be in Python 3.12.
 - :Implementation: should use pip for dependency management.
 - :ReportExporter: writes a :CsvFile: with streaming writes, never holding the full dataset in memory.
-- :UnitTests: are executed via the run script [test_scripts/run_unittests_python.sh](test_scripts/run_unittests_python.sh).
+- :UnitTests: should use pytest, run with `pytest tests/`.
 ```

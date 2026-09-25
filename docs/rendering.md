@@ -52,16 +52,14 @@ Template search order: the plain file's own directory, then a sibling `template/
 
 ### The tests must actually pass
 
-The agent runs its tests through `run_unit_tests`, which runs them in the [sandbox](sandbox.md) and
-records the result for the harness. But the agent chooses those commands, so a functionality is
-not done on the agent's run: once its own run passes, **the harness runs the whole unit test suite
-itself**, and only that run counts. It uses the unit-test script the codebase carries - the one the
-spec links to - or else the agent's last passing command, if that command runs the whole suite. A
-run that only ever named one file, or ran nothing, is sent back to run everything. After each turn
-the harness checks three things and sends the agent back if any is wrong, up to 20 times:
+While it works, the agent runs tests however it likes with `bash` - one file, one case, any
+configuration - in the [sandbox](sandbox.md). Before it finishes, it calls `run_unit_tests`: a final
+check that takes no command and runs the project's unit testing script exactly as the harness will.
+But a functionality is not done on the agent's run, whatever it ran: after each turn **the harness
+runs the unit testing script itself**, and only that run counts (see
+[the testing scripts](#the-testing-scripts)). It sends the agent back, up to 20 times, when:
 
-- **The suite is not green**, or was never run at all.
-- **The harness's own run fails**, or the agent never ran the whole suite.
+- **The harness's run of the unit testing script fails** - its output goes back to the agent.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
 
@@ -110,13 +108,61 @@ differently, change its spec first - the spec is what persists.
 When specs change, only the functionalities whose own spec changed are queued for regeneration -
 not everything after them.
 
-### The whole-suite command
+### The testing scripts
 
-A regression is only a regression if the command runs everything. Left alone, a test agent
-narrows to the file it just wrote, so the harness picks the command itself: the most recent
-passing run that looks like a discovery run (`unittest discover`, `pytest`, `npm test`,
-`go test ./...`, `mvn test`, `gradle check`, `cargo test`). When none is found it falls back to the
-last passing command and warns that it may cover only part of the suite.
+Whether something is done is never the agent's call, and never a command it chose. It is the
+project's own testing scripts, run by the harness the same way every time:
+
+| Script | Run as | Decides |
+| --- | --- | --- |
+| `test_scripts/run_unittests_<lang>.sh` | `run_unittests_<lang>.sh <build>` | whether the unit tests pass |
+| `test_scripts/run_conformance_tests_<lang>.sh` | `run_conformance_tests_<lang>.sh <build> <tests>` | whether the conformance tests pass - the whole suite in `plain_modules/<module>/tests`, every functionality's and those carried up from below, at once |
+
+The `implement-unit-testing-script` and `implement-conformance-testing-script` skills write them.
+They are looked for at the project root - the folder that holds `plain_modules` - in this order:
+
+1. `config.yaml`, naming them by path from the root:
+
+   ```yaml
+   unittests-script: test_scripts/run_unittests.sh
+   conformance-tests-script: test_scripts/run_conformance_tests.sh
+   ```
+
+2. the root itself: the one `run_unittests*.sh` and `run_conformance_tests*.sh` there;
+3. `test_scripts/`: the one of each there.
+
+A folder holding two of a kind is not guessed between: name the one to use in `config.yaml`. The
+scripts are not linked from the specs; a link to one is ignored.
+
+They are required: a build with no unit testing script, or with conformance on and no conformance
+testing script, stops before it starts and says which skill adds it.
+
+Turning conformance off (`conformance: false`, `--no-conformance`) sets the conformance testing script
+aside, found or not: no conformance tests are written, the ones already in the codebase are not run,
+and no agent is shown it. That is different from a module with no test reqs, which writes no
+conformance tests of its own but still keeps the codebase's existing ones passing.
+
+The scripts live in the project, outside `plain_modules`, where no agent can reach them - one
+`config.yaml` names inside `plain_modules` is refused. Each run
+copies the script fresh from the project into the VM, stages the code under a name of its own -
+the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called `code`
+- and runs it with the command time limit.
+
+The agents have the same scripts as their final check: `run_unit_tests` and `run_conformance_tests`
+take no command, and run the unit and conformance testing scripts exactly as the harness does -
+the conformance one on the code with the whole suite. Anything else, while they work, they run
+with `bash`.
+
+Each agent is shown the scripts its work is judged by, whole, at the start of its prompt: the unit
+testing script always; the conformance testing script to the conformance and repair agents, and to
+the coding agent only when conformance tests are written for its build. It gets the script's
+output when a run fails.
+
+Output an agent is shown - a script's, or a command's it ran itself - is at most 20,000 characters.
+A longer one keeps its start (what ran, with which toolchain) and its end (the failures, the stack
+traces, the summary), and says how much was cut from the middle; the whole of it is kept in
+`plain_modules/.plainwright/logs/`, where the agent can read it, and the cut names the file. The
+last 100 are kept.
 
 ## A spec change, as a diff
 
@@ -182,9 +228,9 @@ fixed, and its unit tests kept passing. It is told never to change a test so it 
 that contradicts the spec, and a test it deletes is challenged by name.
 
 When its own run passes, the harness checks for itself: both kinds of test are there and labelled,
-then it runs the whole conformance suite - a run
-that only named one file is sent back - and, if the agent changed the code, the code's unit tests
-too. Only that counts. It goes back and forth up to 20 times.
+then it runs the project's conformance testing script on the whole suite, and - if the agent
+changed the code - the unit testing script too. Only those runs count. It goes back and forth up to
+20 times.
 
 ### Verified
 

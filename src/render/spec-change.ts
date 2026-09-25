@@ -24,6 +24,15 @@ import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.
 import { buildSpecDiffPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import {
+  createScriptTool,
+  findTestScripts,
+  projectRootFor,
+  requireTestScripts,
+  runUnitScript,
+  withoutConformance,
+  withTestingScripts,
+} from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
@@ -32,9 +41,6 @@ import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.t
 import { loadLinkedResources } from "./resources.ts";
 import { rewriteRecord, sectionsOf, specStateFor } from "./state.ts";
 import {
-  chooseRegressionCommand,
-  createRunTestsTool,
-  failingTestsPrompt,
   findTestRemovals,
   inventoryTests,
   listFiles,
@@ -200,6 +206,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const spec = options.spec ?? snapshotSpec(options.plainFile, { cwd, templateDirs, inModule: options.inModule });
   const { moduleName, tree, chain } = spec;
   const tip = chain.at(-1)!;
+  // Whether the change is done is the project's testing scripts: without them, nothing is built.
+  const root = projectRootFor(tip.plainFile, tip.buildDir);
+  // Turned off, the conformance testing script is not used at all, found or not.
+  const scripts = options.conformance === false ? withoutConformance(findTestScripts(root)) : findTestScripts(root);
+  const conformanceOn = options.conformance !== false && (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0;
+  requireTestScripts(moduleName, scripts, { conformance: conformanceOn });
   // The change is made to the codebase's last known good state, not to what an interrupted
   // run left half-written.
   startFromLastCommit(tip.buildDir, moduleName);
@@ -239,13 +251,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       notes.tool,
       ...createWebTools(),
       createTryItTool((submitted) => (tryIt = submitted)),
-      createRunTestsTool({
-        name: "run_unit_tests",
-        label: "Run unit tests",
-        description: "Run the unit test suite in the working directory and return the exit code and output.",
-        run: (command) => runCommand(buildDir, command),
-        runs,
-      }),
+      createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs }),
       ...fence.tools,
     ],
     tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes", ...WEB_TOOLS],
@@ -258,7 +264,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   try {
     reportStage(`${moduleName}: implementing the spec change`);
     let inventory = inventoryTests(buildDir);
-    response = await ask(executor, withNotes(prompt, buildDir), options.onDelta);
+    response = await ask(
+      executor,
+      // The scripts its work is judged by: the conformance testing script only when conformance runs.
+      withNotes(withTestingScripts(prompt, scripts, conformanceOn ? ["unit", "conformance"] : ["unit"], root), buildDir),
+      options.onDelta,
+    );
     for (let followUp = 0; followUp < MAX_FOLLOW_UPS; followUp += 1) {
       const current = inventoryTests(buildDir);
       const removals = findTestRemovals(inventory, current);
@@ -270,14 +281,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
         continue;
       }
-      if (runs.at(-1)?.exitCode !== 0) {
-        reportStage(`${moduleName}: unit tests not passing yet - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
-        response = await ask(executor, failingTestsPrompt(runs, "run_unit_tests"), options.onDelta);
-        continue;
-      }
-      // The agent's own run passed. Whether the change is done is the harness's run.
-      reportStage(`${moduleName}: checking the whole unit test suite`);
-      const verdict = await verifyUnitSuite(buildDir, runs);
+      // Whether the change is done is the harness's run of the unit testing script - whatever the
+      // agent ran, and whether it ran anything.
+      reportStage(`${moduleName}: checking the unit tests`);
+      const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
       if (!verdict.ok) {
         reportStage(`${moduleName}: unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
         response = await ask(executor, verdict.prompt, options.onDelta);
@@ -309,7 +316,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   // Passing means the harness's own run of the whole suite passed - again after try-it, which
   // may have touched the code.
-  const unitPassed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs)).ok);
+  const unitPassed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs, scripts.unit)).ok);
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
   const base = { moduleName, buildDir, diff: applied, response, runs, testRemovals, files, tryIt };
 
@@ -324,10 +331,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         ...specStateFor(tree, frid),
         unitTests: unitPassed ? ("passed" as const) : ("failed" as const),
         conformance,
-        testCommand: runs.filter((run) => run.exitCode === 0).at(-1)?.command,
       })),
     });
-    const outcome = runs.at(-1)?.exitCode === 0 ? `conformance ${conformance}` : "unit tests NOT passing";
+    const outcome = unitPassed ? `conformance ${conformance}` : "unit tests NOT passing";
     recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)} (${outcome})`, options.diff);
   };
 
@@ -345,7 +351,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // passing: the change must not break what they check.
     const regression = await ensureRegressionPasses({
       step: `${moduleName} spec change`,
-      buildDir, conformanceRoot, moduleName, frids, tree, required, command: null,
+      buildDir, conformanceRoot, moduleName, frids, tree, required, scripts,
       model: options.model, onDelta: options.onDelta,
     });
     record("skipped");
@@ -379,7 +385,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     frids,
     tree,
     required,
-    ...chooseRegressionCommand(conformance.runs),
+    scripts,
     model: options.model,
     onDelta: options.onDelta,
   });

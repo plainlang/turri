@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeTestScripts } from "../test-scripts.ts";
 import { NOTES_FILE, readNotes } from "../../src/render/notes.ts";
 
 /** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
@@ -62,6 +63,7 @@ const diffOf = (before: string, after: string) =>
 
 beforeEach(async () => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-specdiff-")));
+  writeTestScripts(dir);
   cwd = process.cwd();
   process.chdir(dir);
   prompts.length = 0;
@@ -155,6 +157,27 @@ describe("rendering a spec diff", () => {
       ["1", "- One.", "passed"],
       ["2", "- Two.", "passed"],
     ]);
+  });
+
+  it("ignores the conformance testing script when conformance is turned off - in the prompt and in the runs", async () => {
+    const withTests = (fs: string[]) => plain(fs).replace("***functional specs***", "***test reqs***\n\n- unittest.\n\n***functional specs***");
+    writeFileSync(join(dir, "app.plain"), withTests(["- One."]));
+    // Conformance tests already here that would fail: turned off, nothing runs them.
+    const tests = join(dir, "plain_modules", "app", "tests");
+    mkdirSync(tests, { recursive: true });
+    writeFileSync(join(tests, "test_conformance_one.py"), "import unittest\n\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.fail()\n");
+
+    const result = await renderSpecDiff({
+      plainFile: "app.plain",
+      diff: diffOf(withTests(["- One."]), withTests(["- One.", "- Two."])),
+      cwd: dir,
+      conformance: false,
+    });
+
+    expect(prompts[0]).toContain('<script kind="unit tests"');
+    expect(prompts[0]).not.toContain("conformance tests\" path=");
+    expect(result.regression).toMatchObject({ passed: true, runs: [], conformanceOff: true });
+    expect(result.passed).toBe(true);
   });
 
   it("starts from the notes earlier agents left, and leaves its own, labelled as the spec change", async () => {

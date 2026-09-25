@@ -1,10 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   describeRemovals,
-  failingTestsPrompt,
   findTestRemovals,
   inventoryTests,
   removalChallengePrompt,
@@ -104,61 +103,28 @@ describe("the challenge the harness sends", () => {
   });
 });
 
-describe("failingTestsPrompt", () => {
-  it("asks for a run when the agent never ran the tests", () => {
-    expect(failingTestsPrompt([], "run_unit_tests")).toContain("have not run the tests yet");
+describe("long output, as an agent is shown it", () => {
+  it("keeps the start and the end - where a test run says what failed - and cuts the middle", async () => {
+    const { truncateOutput } = await import("../../src/render/testing.ts");
+    const output = `toolchain: python 3.12\n${"installing a dependency\n".repeat(2000)}FAILED test_login - AssertionError: 401 != 200\n`;
+    const shown = truncateOutput(output, "/p/plain_modules/.plainwright/logs/run.log");
+    expect(shown.length).toBeLessThan(20_200);
+    expect(shown.startsWith("toolchain: python 3.12")).toBe(true);
+    expect(shown.endsWith("FAILED test_login - AssertionError: 401 != 200\n")).toBe(true);
+    expect(shown).toMatch(/\[\d+ characters cut from the middle - the whole output is in \/p\/plain_modules\/\.plainwright\/logs\/run\.log\]/);
+    expect(truncateOutput("short")).toBe("short");
   });
 
-  it("quotes the failing command and forbids weakening tests", () => {
-    const prompt = failingTestsPrompt([{ command: "pytest", exitCode: 1 }], "run_unit_tests");
-    expect(prompt).toContain("`pytest` exited 1");
-    expect(prompt).toContain("Do not remove or weaken a test to get a pass.");
-  });
-});
-
-describe("chooseRegressionCommand", () => {
-  it("prefers a command that discovers the whole suite", async () => {
-    const { chooseRegressionCommand } = await import("../../src/render/testing.ts");
-    const chosen = chooseRegressionCommand([
-      { command: "python -m unittest discover", exitCode: 0 },
-      { command: "python -m unittest test_conformance_2", exitCode: 0 },
-    ]);
-    expect(chosen).toEqual({ command: "python -m unittest discover", narrow: false });
-  });
-
-  it("flags a narrow command when nothing ran the whole suite", async () => {
-    const { chooseRegressionCommand } = await import("../../src/render/testing.ts");
-    expect(chooseRegressionCommand([{ command: "python -m unittest test_conformance_2", exitCode: 0 }])).toEqual({
-      command: "python -m unittest test_conformance_2",
-      narrow: true,
-    });
-  });
-
-  it("ignores failing runs", async () => {
-    const { chooseRegressionCommand } = await import("../../src/render/testing.ts");
-    expect(
-      chooseRegressionCommand([
-        { command: "pytest", exitCode: 1 },
-        { command: "python -m unittest test_x", exitCode: 0 },
-      ]),
-    ).toEqual({ command: "python -m unittest test_x", narrow: true });
-  });
-
-  it("returns nothing when no run passed", async () => {
-    const { chooseRegressionCommand } = await import("../../src/render/testing.ts");
-    expect(chooseRegressionCommand([{ command: "pytest", exitCode: 1 }])).toEqual({
-      command: null,
-      narrow: false,
-    });
-  });
-
-  it("recognises whole-suite commands across ecosystems", async () => {
-    const { isWholeSuiteCommand } = await import("../../src/render/testing.ts");
-    for (const command of ["pytest", "npm test", "go test ./...", "mvn test", "gradle check", "cargo test"]) {
-      expect(isWholeSuiteCommand(command), command).toBe(true);
-    }
-    for (const command of ["pytest tests/test_one.py", "python -m unittest test_two", "go test ./pkg"]) {
-      expect(isWholeSuiteCommand(command), command).toBe(false);
-    }
+  it("is kept whole in plain_modules, where the agent can read it, when it had to be cut", async () => {
+    const { keepFullOutput } = await import("../../src/render/testing.ts");
+    const root = mkdtempSync(join(tmpdir(), "plainwright-logs-"));
+    const code = join(root, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    const long = "x".repeat(30_000);
+    const file = keepFullOutput(code, "run_unittests_python.sh", long)!;
+    expect(file.startsWith(join(root, "plain_modules", ".plainwright", "logs"))).toBe(true);
+    expect(readFileSync(file, "utf8")).toBe(long);
+    expect(keepFullOutput(code, "short", "ok")).toBeUndefined();
+    rmSync(root, { recursive: true, force: true });
   });
 });

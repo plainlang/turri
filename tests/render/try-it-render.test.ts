@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeTestScripts } from "../test-scripts.ts";
 
 /**
  * The agent is stubbed: it writes a unit test and runs the suite, and when asked how to try what it built, it
@@ -53,6 +54,7 @@ const plain = (fs: string[]) => `***implementation reqs***\n\n- Python.\n\n***fu
 
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-try-render-")));
+  writeTestScripts(dir);
   cwd = process.cwd();
   process.chdir(dir);
   prompts.length = 0;

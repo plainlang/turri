@@ -5,8 +5,7 @@ description: >-
   technology and project kind, asks whether conformance testing is enabled,
   then scaffolds a template import module (with base implementation reqs and
   test reqs), a stub top-level module, the unit testing script, and
-  (optionally) the conformance and prepare-environment scripts, linked
-  from the specs. Does NOT run `check_plain`. Use when the user wants a
+  (optionally) the conformance testing script under `test_scripts/`. Does NOT run `check_plain`. Use when the user wants a
   quick project skeleton to start writing functional specs against, without
   the full forge-plain interview.
 ---
@@ -21,9 +20,10 @@ What this skill writes:
 
 - `template/base.plain` — an import module with the project's base `***implementation reqs***` and `***test reqs***`.
 - `<project>.plain` — a top-level module that imports `base`. Frontmatter only — no body sections. The user adds `***functional specs***` later.
-- `test_scripts/run_unittests_<lang>.<sh|ps1>` — always.
-- `test_scripts/run_conformance_tests_<lang>.<sh|ps1>` — only if conformance testing is enabled.
-- `test_scripts/prepare_environment_<lang>.<sh|ps1>` — only if conformance testing is enabled **and** the user opts in.
+- `test_scripts/run_unittests_<lang>.sh` — always.
+- `test_scripts/run_conformance_tests_<lang>.sh` — only if conformance testing is enabled.
+
+plainwright requires these scripts: a build with no unit testing script (or, with conformance on, no conformance testing script) stops before it starts. The harness runs them with Bash in a Linux VM, so they are `.sh` scripts.
 
 What this skill does **not** do:
 
@@ -49,7 +49,6 @@ Ask each with `ask_user`, one question per call:
 
 - **Unit testing framework** — propose the canonical one for the chosen language (pytest, Jest, Go `testing`, JUnit, ...) and let the user override.
 - **Conformance testing** — enabled or not. If the user is unsure, briefly explain it adds a `run_conformance_tests` script and per-spec acceptance tests later.
-- **Prepare-environment script** — only ask this if conformance testing was enabled in the previous question. Generate one or skip. Recommend "yes" when dependencies need installing (most stacks); recommend "skip" when there is genuinely nothing to set up. If conformance testing is disabled, skip this question entirely and do not generate a prepare-environment script.
 
 ### 3. Author `template/base.plain`
 
@@ -89,15 +88,14 @@ The file must still be created on disk — an empty body is fine, but the file i
 
 ### 5. Generate the testing scripts
 
-Call the corresponding implementation skills in order. Each skill knows how to write the right Bash or PowerShell variant for the host OS.
+Call the corresponding implementation skills in order. Each skill writes a Bash script, which is what the harness runs.
 
 - `implement-unit-testing-script` — always.
-- `implement-conformance-testing-script` — only if conformance testing was enabled. If a prepare-environment script will also exist, choose the **activate-only** variant; otherwise the **install-inline** variant.
-- `implement-prepare-environment-script` — only if conformance testing was enabled **and** the user opted in.
+- `implement-conformance-testing-script` — only if conformance testing was enabled. The script is self-contained: it stages the build, installs dependencies, and runs the module's whole conformance suite.
 
-### 6. Check the scripts are linked
+### 6. Check plainwright finds the scripts
 
-Each `implement-*-script` skill links the script it wrote from the spec - the unit-test script from `template/base.plain`'s `***implementation reqs***`, the conformance and prepare-environment scripts from its `***test reqs***`. Read `template/base.plain` back and confirm every generated script is linked and every link resolves. The agents that write and run the tests find the scripts through those links.
+plainwright finds the testing scripts in the project root, not through the specs: first in `config.yaml` (`unittests-script:`, `conformance-tests-script:`, paths relative to the root), then the one `run_unittests*.sh` / `run_conformance_tests*.sh` in the root, then the one of each kind in `test_scripts/`. It puts them into the prompts of the agents that write and run the tests itself, so do not link them from `template/base.plain` (a link to one is ignored). Confirm every generated script is in `test_scripts/` and is the only one of its kind there - or, if the project wants it (e.g. two scripts of one kind), that a `config.yaml` at the root names the one to use and the path resolves.
 
 Do **not** run `check_plain` here — keeping this skill light is the whole point. The user can run it when they want validation.
 

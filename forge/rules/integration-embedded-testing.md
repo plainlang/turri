@@ -1,23 +1,24 @@
 ---
-description: Rules for authoring the three test scripts that an embedded ***plain integration ships
+description: Rules for authoring the two test scripts that an embedded ***plain integration ships
 ---
 
 # Rules for embedded-integration test scripts
 
-When an embedded integration ships its three `test_scripts/` (prepare-environment, unit,
-conformance), these rules apply on top of the contracts in the corresponding
+When an embedded integration ships its two `test_scripts/` (unit, conformance), these
+rules apply on top of the contracts in the corresponding
 `implement-*-testing-script` skills. `project-model.md` covers the rendering and
 testing workflow.
 
 ## Staging model (read this first)
 
-The three scripts do **not** all stage into the same place. Embedded integrations need a runnable host project, so the prepare and unit-test scripts operate **inside the host codebase itself**; only the conformance script uses a scratch folder in the system temp directory (`/tmp/<lang>_conformance/`) because the conformance suite lives in a separate project.
+A module's code and unit tests live in `plain_modules/<module>/code`; its conformance tests live in one folder, `plain_modules/<module>/tests` — the module's whole conformance suite. plainwright runs both scripts in a Linux VM, once per check: `bash run_unittests_<lang>.sh <build_folder>` decides whether the unit tests pass, and `bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>` (absolute paths) runs the whole conformance suite at once and decides whether the conformance tests pass. There is no prepare-environment script, so each script is self-contained.
+
+Embedded integrations need a runnable host project, so both scripts stage the generated code **inside the host codebase itself**. The conformance script additionally builds / installs the host and then runs the conformance suite from a scratch folder in the system temp directory (`/tmp/<lang>_conformance/`), because the conformance suite lives in a separate project.
 
 | Script | Where it operates | What it does to the host source tree |
 |--------|-------------------|---------------------------------------|
-| `prepare_environment_<lang>` | Inside the host codebase | Copies `$1` into the module's package path under the host's source tree, then compiles / installs the host project |
-| `run_unittests_<lang>` | Inside the host codebase | Same copy as above (self-contained), then runs the module's unit tests + lint inside the host |
-| `run_conformance_tests_<lang>` | `/tmp/<lang>_conformance/` (system temp) | Copies `$2` (the conformance-tests folder) into the scratch directory and runs the conformance suite there, which depends on the host build that `prepare_environment` already installed |
+| `run_unittests_<lang>` | Inside the host codebase | Copies `$1` into the module's package path under the host's source tree, then runs the module's unit tests + lint inside the host |
+| `run_conformance_tests_<lang>` | Inside the host codebase, then `/tmp/<lang>_conformance/` (system temp) | Same copy as above, then cleans and builds / installs the host project; copies `$2` (the conformance-tests folder) into the scratch directory, builds the conformance project, and runs the whole suite there against the host build it just installed |
 
 This deliberately writes into the host's `src/main/...` and `src/test/...` (or the language equivalent). Two consequences flow from that:
 
@@ -28,7 +29,7 @@ This rule covers the **mechanics each script must obey** regardless of language:
 
 ## What the `.plain` spec must declare
 
-The three scripts are generated from facts in the integration's spec. For an embedded integration, those facts cannot be inferred — they have to be **declared explicitly** in the right section, partitioned by which predefined concept they describe:
+The two scripts are generated from facts in the integration's spec. For an embedded integration, those facts cannot be inferred — they have to be **declared explicitly** in the right section, partitioned by which predefined concept they describe:
 
 - **Everything about `:UnitTests:`** — paths, approach, packages, framework, conventions, fixtures, mocking policy — lives in `***implementation reqs***`. Unit tests are part of the generated codebase, so requirements that shape them are implementation reqs (see [`impl-reqs.md`](impl-reqs.md))
 - **Everything about `:ConformanceTests:`** — paths, approach, packages, framework, execution command, pass criteria, mocking policy — lives in `***test reqs***`. Conformance tests are external to the generated codebase, so requirements that shape them are test reqs (see [`test-reqs.md`](test-reqs.md))
@@ -37,7 +38,7 @@ Authors use `add-implementation-requirement` for the first group and `add-test-r
 
 ### In `***implementation reqs***` — everything about `:UnitTests:`
 
-These reqs feed `run_unittests_<lang>`. `prepare_environment_<lang>` is **not** part of the unit-test workflow — it exists for conformance (see the next subsection) and reads its own facts from `***test reqs***`. At minimum, declare:
+These reqs feed `run_unittests_<lang>`, and the copy step that `run_conformance_tests_<lang>` shares with it. At minimum, declare:
 
 1. **Integration source path inside the host** — where `$1/<source>/*` gets copied to. Example: `src/main/java/com/example/integrations/foo`
 2. **`:UnitTests:` source path inside the host** — where `$1/<tests>/*` gets copied to, and where the test runner discovers unit tests. Example: `src/test/java/com/example/integrations/foo`
@@ -54,7 +55,7 @@ Author the location facts as one tight group, phrased in terms of `:UnitTests:`:
   - :UnitTests: use JUnit 5 with the host's Checkstyle profile applied via `mvn checkstyle:check`.
 ```
 
-These facts feed directly into the prepare and unit-test script bodies:
+These facts feed directly into the unit-test script body, and into the staging step of the conformance script:
 
 ```bash
 # clean existing code from the host
@@ -75,12 +76,12 @@ mvn test -Dtest='<:UnitTests: package>.**.*Test' checkstyle:check
 
 These reqs feed `run_conformance_tests_<lang>`. At minimum, declare:
 
-1. **`:ConformanceTests:` source location** — the generated suite lives under `plain_modules/<module>/tests/`, one folder per functional spec; the renderer passes the resolved path of the folder under test as `$2`
+1. **`:ConformanceTests:` source location** — the generated suite lives in one folder, `plain_modules/<module>/tests/`, which holds the module's whole conformance suite; plainwright passes its absolute path as `$2`
 2. **`:ConformanceTests:` framework and execution command** — `mvn test --no-transfer-progress`, `pytest`, `npm test`, `go test ./...`, etc., with any flags / profiles the project requires
 3. **Fully qualified `:ConformanceTests:` package** (or path / pattern) used to scope discovery, if the runner needs one
 4. **`:ConformanceTests:` network and secrets policy** — by default the suite runs against the **live provider** (see [`integrations.md`](integrations.md) → *`:ConformanceTests:` always run against the live integration*). Declare the env-var names the script reads (e.g. `<PROVIDER>_API_KEY`), whether the script loads a `.env` file before running, and any specific endpoints that are mocked because they can't be exercised live safely (429, forced 5xx)
 5. **`:ConformanceTests:` pass criteria** — the strict criteria from [*Pass criteria (strict)*](#pass-criteria-strict): at least one test ran AND zero failures / errors / skipped. Reaffirm this in the spec so the renderer knows the runner must parse the test tool's stdout
-6. **`:ConformanceTests:` build / install needs** — anything the conformance project needs before `mvn test` (or equivalent) will work: dependencies, fixtures, schema files, generated stubs
+6. **`:ConformanceTests:` build / install needs** — anything the conformance project needs before `mvn test` (or equivalent) will work: the host build / install command the script runs first, dependencies, fixtures, schema files, generated stubs
 
 Author the conformance facts as one or more entries, phrased in terms of `:ConformanceTests:`:
 
@@ -97,6 +98,10 @@ Author the conformance facts as one or more entries, phrased in terms of `:Confo
 These facts feed directly into the conformance script body:
 
 ```bash
+# stage $1 into the host (same copy as run_unittests), then build / install the host
+rm -rf ./target
+mvn clean install -DskipTests
+
 # stage :ConformanceTests: source into the scratch directory
 find "$DIR" -mindepth 1 -exec rm -rf {} +
 cp -R $2/* $DIR
@@ -118,9 +123,9 @@ output=$(mvn test --no-transfer-progress 2>&1)
 - **Never duplicate a fact across sections.** `:UnitTests:` facts belong **only** in `***implementation reqs***`; `:ConformanceTests:` facts belong **only** in `***test reqs***`. The two groups never overlap — the script generators read each from its own section
 - **For non-Java languages**, the facts have language-specific equivalents — Python: `src/foo/`, `tests/foo/`, `tests.foo`; Node: `src/foo/`, `test/foo/`, `test/foo/**/*.test.ts`. The `implement-*-testing-script` skills know the mapping per language, but the spec still has to declare the host-relative paths and packages so the skill knows what to put in the script bodies
 
-## Common contract (all three scripts)
+## Common contract (both scripts)
 
-All three scripts are invoked by the `plainwright` renderer with positional arguments. They MUST:
+Both scripts are invoked by plainwright with positional arguments, in a Linux VM. They MUST:
 
 1. **Be POSIX-bash (`.sh`) on macOS / Linux, PowerShell (`.ps1`) on Windows.** Executable, idempotent — re-running with the same inputs produces the same result
 2. **Validate every positional argument up front.** Exit with a clear `Usage:` line on bad args. Conventional exit codes (consistent with the shared testing-script rules):
@@ -129,52 +134,27 @@ All three scripts are invoked by the `plainwright` renderer with positional argu
    - `69` — unrecoverable environment failure (missing toolchain, cannot enter working folder, install failed)
    - Any other non-zero code — propagated verbatim from the underlying build / test tool
 
-   The renderer passes `$1` (and `$2` for the conformance runner) as **absolute paths** (older renderer versions passed relative ones). Never build a derived path by concatenating a raw argument (`.tmp/$1`, `<lang>_$1`, `$current_dir/$2`) — with an absolute argument that produces a doubled path (`/project//abs/path/...`). Use the argument as-is where a path is needed, take its `basename` when naming a scratch folder, and resolve `$2` to absolute (if it isn't already) before any `cd`
+   plainwright passes `$1` (and `$2` for the conformance runner) as **absolute paths** (older renderer versions passed relative ones). Never build a derived path by concatenating a raw argument (`.tmp/$1`, `<lang>_$1`, `$current_dir/$2`) — with an absolute argument that produces a doubled path (`/project//abs/path/...`). Use the argument as-is where a path is needed, take its `basename` when naming a scratch folder, and resolve `$2` to absolute (if it isn't already) before any `cd`
 3. **Echo the toolchain home at the top** — the first thing a developer checks when CI breaks. For Java: `JAVA_HOME`. For Python: the active interpreter (`python --version` / `which python`). For Node: `node --version`. For Go: `go env GOROOT`. Pick the variable whose value most often explains "why does it work locally but not on the CI runner?"
 4. **Respect `VERBOSE=1`.** Gate chatty diagnostic prints behind `if [ "${VERBOSE:-}" = "1" ]` (and the PowerShell equivalent). Errors and key step markers print unconditionally
 5. **Resolve paths relative to the script, not `$PWD`.** Use `"$(cd "$(dirname "$0")/<relative-path-to-anchor>" && pwd)"`. Hard-coded `../../` chains break the moment the renderer's `cwd` changes
 6. **Create destination directories before copying.** `mkdir -p` before any `cp -R` / `rsync` / `robocopy` — most copy commands do not create intermediate directories and fail silently in some shells
-7. **Scope destructive operations narrowly.** Any `rm -rf` (or `Remove-Item -Recurse -Force`) targets only the module's own package path inside the working folder — never the host's `src/`, `target/`, `node_modules/`, `build/`, or `dist/` at the project root. Only `prepare_environment` owns the build-output directory's lifecycle for its system-temp working folder
+7. **Scope destructive operations narrowly.** Any `rm -rf` (or `Remove-Item -Recurse -Force`) targets only the module's own package path inside the working folder — never the host's `src/`, `target/`, `node_modules/`, `build/`, or `dist/` at the project root. The conformance script cleans the host's build-output directory (e.g. `./target`) only as part of its own build / install step, and removes its system-temp scratch folder on exit
 8. **Print where you are before you `cd`.** `echo "Moving to: $DIR"` saves an hour of debugging when paths are wrong. PowerShell: `Write-Host "Moving to: $DIR"`
 
-## 1. `prepare_environment_<lang>` — copy into the host, then compile
+## 1. `run_unittests_<lang>` — copy into the host, then run unit tests there
 
-Receives one positional argument: the renderer's build output folder (e.g. `plain_modules/<module>/code/`).
+Receives one positional argument: the renderer's build output folder (`plain_modules/<module>/code/`, absolute).
 
-Purpose: stage the generated code **into the host codebase at the module's package path**, then run the host's install / build so that downstream test projects (specifically the conformance suite) can depend on it from the local dependency cache.
-
-Required steps:
-
-1. Validate `$1` (the renderer's output folder); fail with usage if missing
-2. Resolve the host codebase root from the env var declared in the `host-codebase` concept (`HOST_CODEBASE_ROOT` is the conventional name; surface it in `--help` / usage)
-3. `rm -rf` the module's package directories under the host's source tree — both main / source AND test directories. Both, because stale tests in the target package cause confusing failures
-4. `mkdir -p` the destination directories
-5. Copy `$1/src/...` (or the language-equivalent layout) into the host's source tree at the module's package path
-6. `cd` into the host codebase root, verify with an explicit exit-code check (`if [ $? -ne 0 ]` / `if (! $?) { ... }`)
-7. Clean the host's build-output directory before compiling — stale class / object files from a previous build cause confusing link-time mismatches when the contract has changed. Maven: `rm -rf ./target`. Cargo: `cargo clean -p <pkg>`. Go: `go clean -cache` (usually unnecessary, but mention if applicable). For npm projects with incremental builds disabled, wipe the relevant `dist/` / `build/` folder
-8. Run the host's standard install / build command — but **skip the fat-artifact and skip tests** when the build system supports it:
-   - Maven: `mvn clean install -DskipTests` (plus any host-specific repackage-skip flag)
-   - npm / pnpm / yarn: `npm ci` (no test script; dependency install only)
-   - Python: `pip install -e .` (then any extra integration dependencies)
-   - Go: `go mod tidy && go build ./...`
-   - Cargo: `cargo fetch && cargo build --tests --no-run`
-9. Exit `0` on success; propagate the underlying build tool's exit code on failure
-
-**Why this script exists separately.** Conformance tests live in a separate project and resolve the integration's code as a dependency from a local cache (`~/.m2`, `node_modules`, the language equivalent). Without an explicit install step, conformance tests link against whatever was last built — which may not be the renderer's most recent output.
-
-## 2. `run_unittests_<lang>` — copy into the host, then run unit tests there
-
-Receives one positional argument: the renderer's build output folder.
-
-Purpose: stage the generated code **into the host codebase** (the same way `prepare_environment` does) and run the module's unit tests + language-appropriate quality gates against the host project from inside the host root.
+Purpose: stage the generated code **into the host codebase at the module's package path** and run the module's unit tests + language-appropriate quality gates against the host project from inside the host root.
 
 Required steps:
 
 1. Validate `$1`
 2. Resolve the host codebase root from the configured env var
-3. `rm -rf` the module's main + test package directories under the host's source tree
-4. `mkdir -p` and copy `$1/src/...` into place — **same staging as `prepare_environment`**
-5. `cd` into the host codebase root
+3. `rm -rf` the module's main + test package directories under the host's source tree — both, because stale tests in the target package cause confusing failures
+4. `mkdir -p` the destination directories and copy `$1/src/...` (or the language-equivalent layout) into the host's source tree at the module's package path
+5. `cd` into the host codebase root, verify with an explicit exit-code check (`if [ $? -ne 0 ]` / `if (! $?) { ... }`)
 6. Run the test command **scoped to the module's package only**:
    - Maven: `mvn test -Dtest='<fully.qualified.package>.**.*Test' <lint-check>:check`
    - pytest: `pytest tests/<module>/` (or whatever path matches the module)
@@ -184,34 +164,42 @@ Required steps:
 
 Hard rules:
 
-- **Yes, this duplicates `prepare_environment`'s copy step.** That's intentional — `run_unittests` must be self-contained per the shared testing-script rules (there is no activate-only variant for unit tests). A user invoking the unit-test script independently must not need `prepare_environment` to have run first
-- **Never use a "clean and test" shortcut** (`mvn clean test`, `npm run rebuild`, …) — the cleanup belongs in `prepare_environment` and would erase whatever it installed
+- **Self-contained.** The script stages `$1` itself on every run; it never relies on another script having run first
 - **Never run the full test suite** when scoping is possible. A per-module script that runs the entire host's tests wastes minutes on every render iteration
 
-## 3. `run_conformance_tests_<lang>` — copy into the system temp directory, then run the external suite
+## 2. `run_conformance_tests_<lang>` — copy into the host, build it, then run the external suite
 
-Receives two positional arguments: the renderer's build output folder (`$1`) and the conformance-tests folder (`$2`).
+Receives two positional arguments: the renderer's build output folder (`$1`, `plain_modules/<module>/code/`) and the conformance-tests folder (`$2`, `plain_modules/<module>/tests/` — the module's whole conformance suite), both absolute.
 
-Purpose: run the conformance suite in `$2` against the build that `prepare_environment` produced. The conformance suite is a separate project that consumes the integration as a dependency.
+Purpose: stage the generated code into the host, build / install the host, and run the whole conformance suite in `$2` against that build. The conformance suite is a separate project that consumes the integration as a dependency from a local cache (`~/.m2`, `node_modules`, the language equivalent), so the script installs the host itself first — otherwise the suite links against whatever was last built, which may not be the renderer's most recent output. plainwright runs it once per check, and its exit code decides whether the conformance tests pass.
 
 Required steps:
 
-1. Validate `$1` and `$2`. **Only `$2` is actually used by the script body today** — but keep `$1` in the signature; the renderer passes both positionally. Resolve `$2` to an absolute path if it isn't one already (newer renderers pass it absolute; older ones passed it relative to the invocation directory)
-2. Stage `$2/*` into a scratch directory in the system temp directory (`/tmp/<lang>_conformance/` in Bash, the `GetTempPath()` equivalent in PowerShell). Wipe it first if it exists, and remove it again on exit (`trap 'rm -rf "$DIR"' EXIT` / `finally`). Use a deletion form that handles hidden files and odd shells safely:
+1. Validate `$1` and `$2`. Resolve `$2` to an absolute path if it isn't one already (newer renderers pass it absolute; older ones passed it relative to the invocation directory)
+2. Resolve the host codebase root from the configured env var, `rm -rf` the module's main + test package directories under the host's source tree, `mkdir -p` the destination directories, and copy `$1/src/...` into the host's source tree at the module's package path — **the same staging as `run_unittests`**
+3. `cd` into the host codebase root, verify with an explicit exit-code check
+4. Clean the host's build-output directory before compiling — stale class / object files from a previous build cause confusing link-time mismatches when the contract has changed. Maven: `rm -rf ./target`. Cargo: `cargo clean -p <pkg>`. Go: `go clean -cache` (usually unnecessary, but mention if applicable). For npm projects with incremental builds disabled, wipe the relevant `dist/` / `build/` folder
+5. Run the host's standard install / build command so the conformance project can resolve the integration — **skip the fat-artifact and skip tests** when the build system supports it, because the tests run afterwards. Exit `69` if it fails:
+   - Maven: `mvn clean install -DskipTests` (plus any host-specific repackage-skip flag)
+   - npm / pnpm / yarn: `npm ci` (no test script; dependency install only)
+   - Python: `pip install -e .` (then any extra integration dependencies)
+   - Go: `go mod tidy && go build ./...`
+   - Cargo: `cargo fetch && cargo build --tests --no-run`
+6. Stage `$2/*` into a scratch directory in the system temp directory (`/tmp/<lang>_conformance/` in Bash, the `GetTempPath()` equivalent in PowerShell). Wipe it first if it exists, and remove it again on exit (`trap 'rm -rf "$DIR"' EXIT` / `finally`). Use a deletion form that handles hidden files and odd shells safely:
    - Bash: `find "$DIR" -mindepth 1 -exec rm -rf {} +` (safer than `rm -rf "$DIR"/*`)
    - PowerShell: `Remove-Item -Recurse -Force "$DIR\*"` after confirming the path exists
-3. `cd` into the scratch directory
-4. Compile / set up the conformance project — exit early if this fails:
+7. `cd` into the scratch directory
+8. Compile / set up the conformance project — exit early if this fails:
    - Maven: `mvn clean install -DskipTests`
    - npm: `npm ci`
    - Python: `pip install -r requirements.txt`
    - Go / Cargo: standard build
-5. Run the conformance test command and **capture stdout to a variable**:
+9. Run the whole conformance suite and **capture stdout to a variable**:
    - Bash: `output=$(mvn test --no-transfer-progress 2>&1)` (or the language equivalent)
    - PowerShell: `$output = & <cmd> 2>&1 | Out-String`
-6. **Parse the captured output strictly** (see *Pass criteria* below) — don't trust the test tool's exit code alone
-7. On the failure path: print the captured output unconditionally so the renderer (and the user) can see what failed
-8. On the success path: print the output only if `VERBOSE=1`
+10. **Parse the captured output strictly** (see *Pass criteria* below) — don't trust the test tool's exit code alone
+11. On the failure path: print the captured output unconditionally so the renderer (and the user) can see what failed
+12. On the success path: print the output only if `VERBOSE=1`
 
 ### Secrets and `.env` handling
 
@@ -264,26 +252,25 @@ Failure cases — each must be detected explicitly:
 - **No secrets in scripts.** Read credentials from env vars the renderer (or the user's shell) already sets. If a required env var is missing, fail fast with a clear `Error: $FOO is required for ...` and exit `69`. Never hardcode an API key, never read from a checked-in file
 - **Mirror the package / module path exactly.** A typo in the package segment (e.g. one wrong directory in `com/example/foo/...` or `host_pkg/foo/bar/...`) makes `rm -rf` silently do nothing and the subsequent copy put files in the wrong place. Both produce a **green** build with stale code. Derive the package path from the `host-codebase` concept; never retype it inline
 - **Don't add cleverness to the script that belongs in the build.** If you're tempted to `grep` the test output for more than the pass/fail summary, change the test or the test-runner config instead. The script is a thin contract — keep it that way
-- **Don't use shortcut profiles that skip quality gates.** Maven's `-Pfast`, Gradle's `-x check`, npm's `--ignore-scripts`, pytest's `--no-cov`, `-DskipTests` outside `prepare_environment` — all defeat the purpose of these scripts. The build's full quality gate (tests + lint + coverage thresholds) must run for unit and conformance
+- **Don't use shortcut profiles that skip quality gates.** Maven's `-Pfast`, Gradle's `-x check`, npm's `--ignore-scripts`, pytest's `--no-cov`, `-DskipTests` anywhere except the conformance script's two build / install steps (the host install and the conformance project's compile, where the tests run right after) — all defeat the purpose of these scripts. The build's full quality gate (tests + lint + coverage thresholds) must run for unit and conformance
 - **Failure messages are for humans.** `printf "Error: <what failed> at <where>\n"` then exit with the right code. No silent failures, no `|| true` to paper over errors, no `2>/dev/null` on commands whose stderr matters
 - **Use existing scripts as templates.** When you add a new embedded integration, copy from a known-good module, then search-and-replace only the package path and the test-filter argument. Resist the urge to "improve" structure mid-port — pattern-matching across many modules is a feature, not a bug
 
 ## Reference implementation (Java + Maven)
 
-A working three-script set for a Java / Maven embedded integration lives under [`examples/integration-embedded-testing/`](examples/integration-embedded-testing/) next to this file:
+A working two-script set for a Java / Maven embedded integration lives under [`examples/integration-embedded-testing/`](examples/integration-embedded-testing/) next to this file:
 
-- [`prepare_environment_java.sh`](examples/integration-embedded-testing/prepare_environment_java.sh) — copies `$1` into the host's source tree, cleans `target/`, runs `mvn clean install -DskipTests`
-- [`run_unittests_java.sh`](examples/integration-embedded-testing/run_unittests_java.sh) — re-stages into the host and runs `mvn test -Dtest='<module-pkg>.**.*Test' checkstyle:check`
-- [`run_conformance_tests_java.sh`](examples/integration-embedded-testing/run_conformance_tests_java.sh) — copies `$2` into `/tmp/java_conformance/` (system temp, removed again on exit), builds the conformance project, runs the suite, and parses the Surefire summary line per the strict pass criteria above
+- [`run_unittests_java.sh`](examples/integration-embedded-testing/run_unittests_java.sh) — stages `$1` into the host and runs `mvn test -Dtest='<module-pkg>.**.*Test' checkstyle:check`
+- [`run_conformance_tests_java.sh`](examples/integration-embedded-testing/run_conformance_tests_java.sh) — stages `$1` into the host the same way, cleans `target/`, runs `mvn clean install -DskipTests` in the host, then copies `$2` into `/tmp/java_conformance/` (system temp, removed again on exit), builds the conformance project, runs the suite, and parses the Surefire summary line per the strict pass criteria above
 
-Use them as a template when adding a new embedded integration in Java / Maven — copy, search-and-replace only the package segment and the `-Dtest` filter, then link them from the module's specs. For other languages (Python, Node.js, Go, Rust, …), the `implement-*-testing-script` skills generate the equivalent three-script set following the same contract.
+Use them as a template when adding a new embedded integration in Java / Maven — copy, search-and-replace only the package segment and the `-Dtest` filter, then put them in the project's `test_scripts/`. For other languages (Python, Node.js, Go, Rust, …), the `implement-*-testing-script` skills generate the equivalent two-script set following the same contract.
 
 ## Adding a script for a new module
 
-1. Copy the three scripts from a working embedded-integration module into the new module's directory
+1. Copy the two scripts from a working embedded-integration module into the project's `test_scripts/`
 2. Search-and-replace the package segment everywhere it appears — including the test-filter argument (the most commonly missed spot)
-3. `chmod +x` all three (and verify ACLs on Windows for the `.ps1` siblings)
-4. Link them from the module's specs with `add-resource`: the unit-test script from `***implementation reqs***`, the conformance and prepare-environment scripts from `***test reqs***`.
+3. `chmod +x` both (and verify ACLs on Windows for the `.ps1` siblings)
+4. Do not link them from the specs: plainwright finds them in the project root - `config.yaml` (`unittests-script:`, `conformance-tests-script:`), else the one of each kind in the root, else in `test_scripts/` - and shows them to the agents itself. If `test_scripts/` ends up with two scripts of one kind, name the one to use in `config.yaml`.
 5. Smoke-test by running each script manually with the renderer's output folder as `$1` (and the conformance-tests folder as `$2` for the conformance runner). Confirm exit codes match what the renderer expects
 
-For non-Java languages, the skills [`implement-prepare-environment-script`](../../skills/implement-prepare-environment-script/SKILL.md), [`implement-unit-testing-script`](../../skills/implement-unit-testing-script/SKILL.md), and [`implement-conformance-testing-script`](../../skills/implement-conformance-testing-script/SKILL.md) adapt the contract above to Python, Node.js, Go, Rust, Flutter, and others. Always route script creation through these skills so the cross-cutting rules above are applied uniformly.
+For non-Java languages, the skills [`implement-unit-testing-script`](../../skills/implement-unit-testing-script/SKILL.md), and [`implement-conformance-testing-script`](../../skills/implement-conformance-testing-script/SKILL.md) adapt the contract above to Python, Node.js, Go, Rust, Flutter, and others. Always route script creation through these skills so the cross-cutting rules above are applied uniformly.

@@ -63,7 +63,7 @@ describe("what a background job is doing", () => {
 describe("tool calls as one line", () => {
   it("names files written and commands run", () => {
     expect(describeToolCall("write", { path: "src/greeter.py" })).toBe("✎ write src/greeter.py");
-    expect(describeToolCall("run_unit_tests", { command: "pytest -q" })).toBe("▶ unit tests: pytest -q");
+    expect(describeToolCall("run_unit_tests", {})).toBe("▶ unit tests: the project's script");
     expect(describeToolCall("something_new", {})).toBe("  something_new");
   });
 

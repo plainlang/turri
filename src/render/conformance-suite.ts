@@ -7,6 +7,7 @@ import { readState, recordConformance } from "./state.ts";
 import { recordHistory } from "./history.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { resolveTemplateDirs } from "./render.ts";
+import { findTestScripts, projectRootFor } from "./test-scripts.ts";
 import { modulesRoot } from "./paths.ts";
 
 /**
@@ -197,7 +198,7 @@ export async function renderConformanceSuite(
         frids: target.frids,
         tree,
         required: requiredFunctionalSpecs(target.plainFile, options.templateDirs),
-        command: last?.runs.filter((run) => run.exitCode === 0).at(-1)?.command ?? null,
+        scripts: findTestScripts(projectRootFor(target.plainFile, target.buildDir)),
         model: options.model,
         onDelta: options.onDelta,
       });
@@ -216,7 +217,7 @@ export async function renderConformanceSuite(
       frids: codebase.frids,
       tree: tipTree,
       required: requiredFunctionalSpecs(codebase.plainFile, options.templateDirs),
-      command: last?.runs.filter((run) => run.exitCode === 0).at(-1)?.command ?? null,
+      scripts: findTestScripts(projectRootFor(codebase.plainFile, codebase.buildDir)),
       model: options.model,
       onDelta: options.onDelta,
     });

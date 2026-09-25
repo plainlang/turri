@@ -58,7 +58,7 @@ For each relevant file:
 ### 2c. Check conformance tests and unit tests (if relevant)
 
 If the bug manifests as a test failure:
-1. Read the failing test — conformance tests in `plain_modules/<module_name>/tests/<functionality>/`, unit tests inside `plain_modules/<module_name>/code/`.
+1. Read the failing test — conformance tests in `plain_modules/<module_name>/tests/` (the module's whole suite, no per-functionality subfolders), unit tests inside `plain_modules/<module_name>/code/`.
 2. Understand what the test expects vs. what the implementation does.
 3. Determine whether the test expectation is correct (matches the spec) or incorrect (doesn't match the spec).
 

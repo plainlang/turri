@@ -26,13 +26,6 @@ export function reportEvent(event: ModuleEvent): void {
         )}`,
       );
       break;
-    case "narrow_command":
-      console.log(
-        `\n${c.yellow(c.bold("warning"))} ${c.dim(
-          `no whole-suite command was observed; regression will run \`${event.command}\`, which may cover only part of the suite`,
-        )}`,
-      );
-      break;
     case "repair":
       console.log(`\n${c.yellow(c.bold("repairing regression"))} ${c.dim(event.frids.join(", "))}`);
       break;

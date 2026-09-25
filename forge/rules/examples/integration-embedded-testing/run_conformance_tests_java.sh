@@ -28,17 +28,70 @@ case "$2" in
   *)  CONFORMANCE_TESTS_SOURCE="$current_dir/$2" ;;
 esac
 
+# Host-relative paths of the module, as declared in ***implementation reqs***.
+# Replace the placeholders with the module's integration source path and its
+# :UnitTests: source path (the same paths run_unittests_java.sh copies to).
+INTEGRATION_CODE_PATH="<placeholder for integration code>"
+INTEGRATION_TESTS_PATH="<placeholder for integration code tests>"
+
+# Host codebase root: read from HOST_CODEBASE_ROOT (the one configured fact),
+# defaulting to three levels up from this script.
+MAIN_PROJECT_FOLDER="${HOST_CODEBASE_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+
+# Stage the generated code into the host codebase (same copy as run_unittests_java.sh)
+if [ "${VERBOSE:-}" -eq 1 ] 2>/dev/null; then
+  printf "Copying generated code to main project folder: $MAIN_PROJECT_FOLDER\n"
+fi
+
+# Check if the main project folder exists
+if [ ! -d "$MAIN_PROJECT_FOLDER" ]; then
+  echo "Error: Main project folder '$MAIN_PROJECT_FOLDER' does not exist."
+  exit 2
+fi
+
+# clean existing code of this module only from the main project folder
+rm -rf "$MAIN_PROJECT_FOLDER/$INTEGRATION_CODE_PATH"/*
+rm -rf "$MAIN_PROJECT_FOLDER/$INTEGRATION_TESTS_PATH"/*
+
+# copy generated code to the main project folder
+mkdir -p "$MAIN_PROJECT_FOLDER/$INTEGRATION_CODE_PATH"
+mkdir -p "$MAIN_PROJECT_FOLDER/$INTEGRATION_TESTS_PATH"
+cp -R "$1/$INTEGRATION_CODE_PATH"/* "$MAIN_PROJECT_FOLDER/$INTEGRATION_CODE_PATH"
+cp -R "$1/$INTEGRATION_TESTS_PATH"/* "$MAIN_PROJECT_FOLDER/$INTEGRATION_TESTS_PATH"
+
+# Move to the host codebase and build / install it, so the conformance project
+# resolves this build from the local Maven repository (~/.m2), not a stale one.
+echo "Moving to: $MAIN_PROJECT_FOLDER"
+cd "$MAIN_PROJECT_FOLDER" 2>/dev/null
+
+if [ $? -ne 0 ]; then
+  printf "Error: Java build folder '$MAIN_PROJECT_FOLDER' does not exist.\n"
+  exit 2
+fi
+
+# Remove target directory to avoid conflicts with a previous build
+rm -rf ./target || echo "Warning: some files may be locked"
+
+# -DskipTests is legitimate here: this step only installs the host build;
+# the conformance tests run below.
+echo "Running maven install in the host codebase..."
+mvn clean install -Dspring-boot.repackage.skip=true -DskipTests
+
+install_exit_code=$?
+if [ $install_exit_code -ne 0 ]; then
+  echo "Error: Maven install failed in the host codebase with exit code $install_exit_code..."
+  exit 69
+fi
+
 # Scratch folder lives in the system temp directory so no build debris is left
 # inside the project. It is removed again when the script exits.
 CONFORMANCE_TESTS_FOLDER="/tmp/java_conformance"
 
 trap 'rm -rf "$CONFORMANCE_TESTS_FOLDER"' EXIT
 
-cd "$current_dir" 2>/dev/null
-
 printf "Preparing Java conformance tests subfolder: $CONFORMANCE_TESTS_FOLDER\n"
 
-# Check if the go build subfolder exists
+# Check if the conformance tests scratch folder exists
 if [ -d "$CONFORMANCE_TESTS_FOLDER" ]; then
   # Find and delete all files and folders
   find "$CONFORMANCE_TESTS_FOLDER" -mindepth 1 -exec rm -rf {} +

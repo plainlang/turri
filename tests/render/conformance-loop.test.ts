@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeTestScripts } from "../test-scripts.ts";
 
 /**
  * One conformance agent, going back and forth: it writes a test from the spec, the test fails
@@ -64,6 +65,7 @@ const { closeAllVms, vmSupported } = await import("../../src/render/vm.ts");
 let root: string;
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-conformance-loop-")));
+  writeTestScripts(root);
   codeDir = join(root, "plain_modules", "app", "code");
   mkdirSync(codeDir, { recursive: true });
   writeFileSync(join(codeDir, "app.py"), "print('goodbye')\n");
@@ -92,18 +94,19 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(result.passed).toBe(true);
     expect(result.codeChanged).toBe(true);
     expect(readFileSync(join(codeDir, "app.py"), "utf8")).toBe("print('hello')\n");
-    // The failure went back to the same agent, with the spec as the judge.
-    expect(prompts[1]).toContain("Work out, against the specification, what is wrong - your test or the code");
+    // Sent back first for the acceptance test it left out, then with the harness's failing run -
+    // the spec as the judge.
+    expect(prompts[1]).toContain('No test is labelled "acceptance test 1 of functionality 1"');
+    expect(prompts[2]).toContain("Work out, against the specification, what is wrong - your test or the code");
     // Conformance tests from the functional spec, and the acceptance test apart from them.
     expect(prompts[0]).toContain("Conformance tests come from the functional spec itself");
     expect(prompts[0]).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
-    // It left the acceptance test out, and was sent back for it before its pass counted.
-    expect(prompts[2]).toContain('No test is labelled "acceptance test 1 of functionality 1"');
     expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_acceptance_hello.py"), "utf8")).toContain(
       "# acceptance test 1 of functionality 1:",
     );
-    // Its own runs, then the harness's.
-    expect(result.runs.map((run) => run.exitCode)).toEqual([1, 0, 0, 0]);
+    // Its own final checks and the harness's runs - the same script: failing until the code is fixed.
+    expect(result.runs.map((run) => run.exitCode)).toEqual([1, 1, 1, 0, 0]);
+    expect(new Set(result.runs.map((run) => run.command))).toEqual(new Set(["test_scripts/run_conformance_tests_python.sh"]));
 
     // It started with no notes, and left some - which the next agent on this codebase starts with.
     expect(prompts[0]).toContain("No earlier agent has left notes on this codebase yet.");

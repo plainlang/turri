@@ -24,7 +24,8 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 
 `bash` is the case no argument check can cover - one string, and no way to read where it will
 read or write. So it does not run on the host at all. Every command - the agent's `bash`,
-`run_unit_tests`, conformance runs, the try-it checks - runs in one
+`run_unit_tests`, conformance runs, the harness's runs of the project's testing scripts, the try-it
+checks - runs in one
 [Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux) per project:
 
 - It holds `plain_modules` and nothing else, mounted read-write at the path it has on the host.

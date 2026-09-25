@@ -79,22 +79,6 @@ describe("history as the chain is built", () => {
   });
 });
 
-describe("the conformance command", () => {
-  it("is recorded by a passing run of the whole suite", async () => {
-    recordFunctionality(code, "app", { frid: "1", specHash: "", spec: "- One.", unitTests: "passed" });
-    const tests = join(root, "plain_modules", "app", "tests");
-    mkdirSync(tests, { recursive: true });
-    writeFileSync(join(tests, "check.sh"), "exit 0\n");
-
-    await ensureRegressionPasses({
-      buildDir: code, conformanceRoot: join(root, "plain_modules"), moduleName: "app", frids: ["1"],
-      tree: {}, required: [], command: "sh check.sh", maxRounds: 0,
-    });
-
-    expect(readState(code)!.conformanceCommand).toBe("sh check.sh");
-  });
-});
-
 describe("starting from the last commit", () => {
   it("puts back what an interrupted run left half-written, and keeps installed dependencies", () => {
     const tests = join(root, "plain_modules", "app", "tests");
