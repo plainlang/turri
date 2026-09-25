@@ -22,7 +22,6 @@ interface ModuleProgress {
   spec?: string;
   phase?: Phase;
   state: "queued" | "building" | "built" | "skipped" | "stopped";
-  copied?: number;
   repairs: number;
 }
 
@@ -54,6 +53,26 @@ export function createProgressTracker(): ProgressTracker {
   const current = () => modules.find((m) => m.state === "building");
 
   /**
+   * The whole chain's progress: functionalities built of every module's, counted across all of
+   * them - a module already built counts in full.
+   */
+  const overall = (): { done: number; total: number } => {
+    let done = 0;
+    let total = 0;
+    for (const m of modules) {
+      total += m.frids.length;
+      done += m.state === "skipped" || m.state === "built" ? m.frids.length : m.done.length;
+    }
+    return { done, total };
+  };
+  const overallLine = (): string[] => {
+    const { done, total } = overall();
+    if (total === 0) return [];
+    const across = modules.length === 1 ? "" : ` across ${modules.length} modules`;
+    return [`${progressBar(done, total, 20)} ${done}/${total} functionalities${across}`];
+  };
+
+  /**
    * Each module's lines: one, and for the module being built the text of the functional spec
    * it is on - its first line, or all of it when expanded.
    */
@@ -71,8 +90,7 @@ export function createProgressTracker(): ProgressTracker {
       const detail =
         m.state === "building"
           ? `${bar} ${m.done.length}/${m.frids.length}` +
-            (m.current !== undefined ? `  functionality ${m.current}${m.phase ? ` · ${m.phase}` : ""}` : "") +
-            (m.copied !== undefined && m.done.length === 0 ? `  (${m.copied} files copied in)` : "")
+            (m.current !== undefined ? `  functionality ${m.current}${m.phase ? ` · ${m.phase}` : ""}` : "")
           : `${bar} ${m.done.length}/${m.frids.length}`;
       const repairs = m.repairs > 0 ? `  ${m.repairs} repair${m.repairs === 1 ? "" : "s"}` : "";
       const row = [`${mark} ${name}  ${detail}${repairs}`];
@@ -99,13 +117,9 @@ export function createProgressTracker(): ProgressTracker {
         return;
       }
 
-      // A copied event names two modules and neither of them is `module`, so it is
-      // handled before the lookup the others share.
-      if (event.type === "copied") {
-        const to = modules.find((m) => m.module === event.to);
-        if (to !== undefined) to.copied = event.files;
-        return;
-      }
+      // A copied event names two modules and neither of them is `module`; the widget does not
+      // show it.
+      if (event.type === "copied") return;
 
       const target = modules.find((m) => m.module === event.module);
       if (target === undefined) return;
@@ -142,15 +156,17 @@ export function createProgressTracker(): ProgressTracker {
     },
 
     lines() {
-      return rowsFor(true).flat();
+      const rows = rowsFor(true).flat();
+      return rows.length === 0 ? [] : [...overallLine(), ...rows];
     },
 
     compactLines() {
       const rows = rowsFor(false);
-      if (modules.length <= COMPACT_THRESHOLD) return rows.flat();
+      if (rows.length === 0) return [];
+      if (modules.length <= COMPACT_THRESHOLD) return [...overallLine(), ...rows.flat()];
 
       const finished = modules.filter((m) => m.state === "built" || m.state === "skipped").length;
-      const lines = [`${finished}/${modules.length} modules built`];
+      const lines = [...overallLine(), `${finished}/${modules.length} modules built`];
       const waiting: string[] = [];
       modules.forEach((m, index) => {
         if (m.state === "building" || m.state === "stopped") lines.push(...rows[index]!);
@@ -164,14 +180,16 @@ export function createProgressTracker(): ProgressTracker {
     summary() {
       const active = current();
       if (modules.length === 0) return "starting";
+      const { done, total } = overall();
+      const count = `${done}/${total} functionalities`;
       if (finished) {
         const built = modules.filter((m) => m.state === "built" || m.state === "skipped").length;
-        return `${built}/${modules.length} modules`;
+        return `${built}/${modules.length} modules · ${count}`;
       }
-      if (active === undefined) return "starting";
+      if (active === undefined) return count;
       const index = modules.indexOf(active) + 1;
       return (
-        `${active.module} (${index}/${modules.length})` +
+        `${count} · ${active.module} (${index}/${modules.length})` +
         (active.current !== undefined ? ` · functionality ${active.current}` : "") +
         (active.phase !== undefined ? ` · ${active.phase}` : "")
       );

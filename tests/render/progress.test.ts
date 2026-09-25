@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { createProgressTracker, progressBar } from "../../src/render/progress.ts";
 import type { ChainEntry } from "../../src/render/requires.ts";
 
+/** Every module's lines, after the overall one. */
+const rows = (t: { lines(): string[] }) => t.lines().slice(1);
+
 const chain = [
   { moduleName: "base", frids: ["1"], buildDir: "", plainFile: "", requires: null },
   { moduleName: "middle", frids: ["1", "2"], buildDir: "", plainFile: "", requires: "base" },
@@ -32,7 +35,7 @@ describe("the progress tracker", () => {
   });
 
   it("lists every module as queued once the chain arrives", () => {
-    const lines = started().lines();
+    const lines = rows(started());
     expect(lines).toHaveLength(3);
     expect(lines.every((l) => l.includes("queued"))).toBe(true);
   });
@@ -43,9 +46,9 @@ describe("the progress tracker", () => {
     t.onModuleEvent({ type: "functionality_start", frid: "1", index: 1, total: 1 });
     t.onModuleEvent({ type: "phase", frid: "1", phase: "conformance" });
 
-    expect(t.lines()[0]).toContain("• base");
-    expect(t.lines()[0]).toContain("functionality 1 · conformance");
-    expect(t.summary()).toBe("base (1/3) · functionality 1 · conformance");
+    expect(rows(t)[0]).toContain("• base");
+    expect(rows(t)[0]).toContain("functionality 1 · conformance");
+    expect(t.summary()).toBe("0/4 functionalities · base (1/3) · functionality 1 · conformance");
   });
 
   it("advances the bar as functionalities finish", () => {
@@ -53,15 +56,15 @@ describe("the progress tracker", () => {
     t.onChainEvent({ type: "module_start", module: "middle", index: 2, total: 3 });
     t.onModuleEvent({ type: "functionality_done", frid: "1" });
 
-    expect(t.lines()[1]).toContain("[█████·····] 1/2");
+    expect(rows(t)[1]).toContain("[█████·····] 1/2");
   });
 
-  it("reports files copied in from the required module", () => {
+  it("does not count the files copied in from the required module", () => {
     const t = started();
     t.onChainEvent({ type: "copied", from: "base", to: "middle", files: 14 });
     t.onChainEvent({ type: "module_start", module: "middle", index: 2, total: 3 });
 
-    expect(t.lines()[1]).toContain("14 files copied in");
+    expect(rows(t)[1]).not.toContain("copied");
   });
 
   it("counts regression repairs", () => {
@@ -70,7 +73,7 @@ describe("the progress tracker", () => {
     t.onModuleEvent({ type: "repair", frids: ["1"] });
     t.onModuleEvent({ type: "repair", frids: ["1"] });
 
-    expect(t.lines()[0]).toContain("2 repairs");
+    expect(rows(t)[0]).toContain("2 repairs");
   });
 
   it("marks a module built, and one that was skipped", () => {
@@ -79,9 +82,9 @@ describe("the progress tracker", () => {
     t.onChainEvent({ type: "module_start", module: "middle", index: 2, total: 3 });
     t.onChainEvent({ type: "module_done", module: "middle", passed: true });
 
-    expect(t.lines()[0]).toContain("– base");
-    expect(t.lines()[0]).toContain("already built");
-    expect(t.lines()[1]).toContain("✓ middle");
+    expect(rows(t)[0]).toContain("– base");
+    expect(rows(t)[0]).toContain("already built");
+    expect(rows(t)[1]).toContain("✓ middle");
   });
 
   it("marks a module that stopped", () => {
@@ -89,7 +92,7 @@ describe("the progress tracker", () => {
     t.onChainEvent({ type: "module_start", module: "base", index: 1, total: 3 });
     t.onChainEvent({ type: "module_done", module: "base", passed: false });
 
-    expect(t.lines()[0]).toContain("✗ base");
+    expect(rows(t)[0]).toContain("✗ base");
   });
 
   it("is done only when no module is left queued or building", () => {
@@ -101,13 +104,13 @@ describe("the progress tracker", () => {
       t.onChainEvent({ type: "module_done", module, passed: true });
     }
     expect(t.done()).toBe(true);
-    expect(t.summary()).toBe("3/3 modules");
+    expect(t.summary()).toBe("3/3 modules · 4/4 functionalities");
   });
 
   it("ignores functionality events with no module building", () => {
     const t = started();
     expect(() => t.onModuleEvent({ type: "functionality_done", frid: "1" })).not.toThrow();
-    expect(t.lines()[0]).toContain("queued");
+    expect(rows(t)[0]).toContain("queued");
   });
 });
 
@@ -132,11 +135,12 @@ describe("a long chain, compact", () => {
 
   it("counts what is built, keeps the module being built, and puts the rest on one counted line", () => {
     const lines = fiveBuiltSixthBuilding().compactLines();
-    expect(lines[0]).toBe("5/19 modules built");
-    expect(lines[1]).toMatch(/^• m06 /);
-    expect(lines[2]).toMatch(/^ {2}queued \(13\): m07 → m08 → .* → m19$/);
+    expect(lines[0]).toContain("10/38 functionalities across 19 modules");
+    expect(lines[1]).toBe("5/19 modules built");
+    expect(lines[2]).toMatch(/^• m06 /);
+    expect(lines[3]).toMatch(/^ {2}queued \(13\): m07 → m08 → .* → m19$/);
     expect(lines.at(-1)).toContain("ctrl+o");
-    expect(lines.length).toBeLessThanOrEqual(10);
+    expect(lines.length).toBeLessThanOrEqual(11);
   });
 
   it("keeps a module that stopped in full", () => {
@@ -146,7 +150,7 @@ describe("a long chain, compact", () => {
   });
 
   it("still lists every module in full, for ctrl+o", () => {
-    expect(fiveBuiltSixthBuilding().lines()).toHaveLength(19);
+    expect(fiveBuiltSixthBuilding().lines()).toHaveLength(20);
   });
 
   it("shows a short chain in full either way", () => {
@@ -168,5 +172,26 @@ describe("the functional spec being built, in the progress widget", () => {
 
     progress.onModuleEvent({ type: "functionality_done", frid: "2" });
     expect(progress.lines().join("\n")).not.toContain("supports arithmetic");
+  });
+});
+
+describe("the whole chain's progress", () => {
+  it("counts functionalities across every module - a module already built in full", async () => {
+    const { createProgressTracker } = await import("../../src/render/progress.ts");
+    const t = createProgressTracker();
+    const chain = [
+      { moduleName: "rt_tuples", frids: ["1", "2", "3"] },
+      { moduleName: "rt_canvas", frids: ["1", "2"] },
+      { moduleName: "rt_matrices", frids: ["1", "2", "3", "4"] },
+    ];
+    t.onChainEvent({ type: "chain", chain } as never);
+    t.onChainEvent({ type: "module_skipped", module: "rt_tuples" } as never);
+    t.onChainEvent({ type: "module_start", module: "rt_canvas", index: 2, total: 3 } as never);
+    t.onModuleEvent({ type: "functionality_done", frid: "1" });
+    t.onModuleEvent({ type: "functionality_start", frid: "2", index: 2, total: 2 });
+
+    expect(t.lines()[0]).toBe("[█████████···········] 4/9 functionalities across 3 modules");
+    expect(t.compactLines()[0]).toBe(t.lines()[0]);
+    expect(t.summary()).toMatch(/^4\/9 functionalities · rt_canvas \(2\/3\) · functionality 2/);
   });
 });

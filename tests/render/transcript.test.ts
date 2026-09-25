@@ -175,6 +175,20 @@ describe("the functional spec a job is building", () => {
     expect(expanded).toContain("      │   - Adding two tuples adds each component.");
     expect(expanded).toContain("      │ - (3, -2, 5, 1) + (-2, 3, 1, 0) is (1, 1, 6, 1).");
 
+    // A module build's own progress widget shows it: the panel does not write it twice.
+    const module = jobs.start({
+      kind: "render_module",
+      summary: "rt_tuples.plain module",
+      run: async () => {
+        reportSpec(spec);
+        await new Promise<void>(() => {});
+        return { report: "" };
+      },
+    });
+    await new Promise((done) => setTimeout(done, 10));
+    expect(jobPanelLines([module], { expanded: true }).join("\n")).not.toContain("supports arithmetic");
+    expect(transcriptLines(module, 80)).toContain("── building rt_tuples functionality 2 of 5");
+
     // And whole in /watch, where it began.
     const lines = transcriptLines(job, 80);
     expect(lines).toContain("── building rt_tuples functionality 2 of 5");

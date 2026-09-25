@@ -34,6 +34,12 @@ function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
 }
 
+/**
+ * Jobs whose tool draws its own progress widget, which already shows the functional spec being
+ * built: the panel leaves it out, so it is not written twice.
+ */
+const SPEC_SHOWN_BY_WIDGET = new Set(["render_module"]);
+
 /** Spec lines shown per running job while expanded. */
 const EXPANDED_SPEC_LINES = 30;
 
@@ -122,7 +128,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
         if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - /watch ${job.id} shows it all`);
       }
     }
-    if (job.building !== undefined) {
+    if (job.building !== undefined && !SPEC_SHOWN_BY_WIDGET.has(job.kind)) {
       const text = job.building.text.split("\n").filter((line) => line.trim() !== "");
       if (!expanded) {
         const more = text.length > 1 ? `  (+${text.length - 1} line${text.length === 2 ? "" : "s"} · ctrl+o)` : "";
