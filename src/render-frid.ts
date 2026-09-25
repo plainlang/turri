@@ -72,7 +72,7 @@ async function main() {
     buildDir: args.buildDir,
     dryRun: args.dryRun,
     // The project's config.yaml gives the default.
-    model: args.model ?? readProjectConfig(process.cwd()).model,
+    model: args.model ?? readProjectConfig(process.cwd()).codingModel,
     tryIt: args.tryIt,
     onDelta: (delta) => process.stdout.write(delta),
     onRun: (command, exitCode) =>

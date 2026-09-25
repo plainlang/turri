@@ -85,7 +85,7 @@ async function main() {
     buildDir: args.buildDir,
     conformanceRoot: args.conformanceRoot,
     // The project's config.yaml gives the default.
-    model: args.model ?? readProjectConfig(process.cwd()).model,
+    model: args.model ?? readProjectConfig(process.cwd()).codingModel,
     onDelta: (delta) => process.stdout.write(delta),
     onEvent: (event) => {
       if (event.type === "targets") {

@@ -6,6 +6,8 @@ import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { CODING_MODEL_ENV } from "./chat-models.ts";
+import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
@@ -338,7 +340,7 @@ export default function (pi: ExtensionAPI) {
         // Renders queued by a step land in the same registry as everything else, so
         // check_job and list_jobs see them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
-        renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work) => modelFor(chosenModels, work, chatModelOf(ctx)) }),
+        renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work) => modelFor(chosenModels, work, projectModel(ctx) ?? chatModelOf(ctx)) }),
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd)],
@@ -1083,13 +1085,54 @@ const MODEL_CHOICE_ENTRY = "plainwright_render_models";
  * here and not minutes later in the background; else the one chosen for its kind of work; else
  * the conversation's.
  */
+/**
+ * The model a render job runs on: the one asked for, or the one chosen in this session for its kind
+ * of work, or the project's - `model:` in config.yaml - or the conversation's.
+ */
 function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string): string | undefined {
   if (named !== undefined && named.trim() !== "") {
     const resolved = resolveModel(named, ctx.modelRegistry);
     if (!resolved.ok) throw new Error(describeResolution(resolved));
     return resolved.model;
   }
-  return modelFor(chosenModels, work, chatModelOf(ctx));
+  return modelFor(chosenModels, work, projectModel(ctx) ?? chatModelOf(ctx));
+}
+
+/**
+ * The coding model this session starts from, and where it was given: `plainwright chat
+ * --coding-model`, or `coding-model:` in the project's config.yaml - read afresh, so an edit to the
+ * file holds for the next render.
+ */
+function codingModelDefault(): { named: string; from: string } | undefined {
+  const flag = process.env[CODING_MODEL_ENV]?.trim();
+  if (flag) return { named: flag, from: "--coding-model" };
+  const named = readProjectConfig(process.cwd()).codingModel;
+  return named !== undefined ? { named, from: CONFIG_FILE } : undefined;
+}
+
+/**
+ * The default coding model, resolved as a name the person said would be. One that cannot be used
+ * says so, and where it came from, rather than running on something else.
+ */
+function projectModel(ctx: ExtensionContext): string | undefined {
+  const given = codingModelDefault();
+  if (given === undefined) return undefined;
+  const resolved = resolveModel(given.named, ctx.modelRegistry);
+  if (!resolved.ok) {
+    throw new Error(`${given.from} names the coding model "${given.named}", which cannot be used here.\n\n${describeResolution(resolved)}`);
+  }
+  return resolved.model;
+}
+
+/** The default coding model for showing, with where it came from - never an error. */
+function projectModelLabel(ctx: ExtensionContext): { model: string; from: string } | undefined {
+  const given = codingModelDefault();
+  if (given === undefined) return undefined;
+  try {
+    return { model: projectModel(ctx)!, from: given.from };
+  } catch {
+    return { model: `${given.named} - which cannot be used here`, from: given.from };
+  }
 }
 
 /**
@@ -1105,7 +1148,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
       "Choose which model the agents that render run on, for the rest of this session: for spec changes " +
       "(render spec diff jobs, and the ones write_spec_diff queues), for functionalities (render, module, " +
       "regenerate, conformance, and the ones write_functional_spec queues), or for everything. By default " +
-      "each runs on the conversation's model. The model may be given as provider/model-id or by name as " +
+      "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Jobs already queued keep their model.",
     promptSnippet: "set_render_model: choose the model that renders spec changes or functionalities",
@@ -1137,7 +1180,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
         chosenModels[params.work] = resolved.model;
       }
       pi.appendEntry(MODEL_CHOICE_ENTRY, { ...chosenModels });
-      const text = `Renders now run on:\n${describeChoices(chosenModels, chatModelOf(ctx))}`;
+      const text = `Renders now run on:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}`;
       return { content: [{ type: "text" as const, text }], details: { ...chosenModels } };
     },
   });
@@ -1159,7 +1202,7 @@ function registerRenderModels(pi: ExtensionAPI) {
   pi.registerCommand("render-model", {
     description: "Show which model renders spec changes and functionalities. To change it, tell the agent.",
     handler: async (_args, ctx) => {
-      const text = `Renders run on:\n${describeChoices(chosenModels, chatModelOf(ctx))}\n\nTo change it, say so - e.g. "render spec changes with gpt 5.5".`;
+      const text = `Renders run on:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}\n\nTo change it, say so - e.g. "render spec changes with gpt 5.5".`;
       if (ctx.hasUI) ctx.ui.notify(text, "info");
     },
   });

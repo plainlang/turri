@@ -72,7 +72,21 @@ for the work there instead. Jobs live in memory for the session; the work itself
 
 ## Choosing a model
 
-Every render runs on the conversation's model unless you say otherwise. Say it in words -
+There are two: the **harness model**, the one you chat with, and the **coding model**, the one
+every render runs on - functionalities, conformance tests, repairs, spec changes. The project's
+`config.yaml` can give both defaults:
+
+```yaml
+harness-model: anthropic/claude-opus-5-5
+coding-model: amazon-bedrock/eu.anthropic.claude-sonnet-5
+```
+
+On the command line, `plainwright chat --harness-model <m> --coding-model <m>` wins over them
+(pi's own `--model` works for the harness model too), and in the conversation pi's `/model`
+changes the harness model and `set_render_model`, below, the coding model. `model:`, from before
+there were two, is read as `coding-model`. With neither, renders run on the conversation's model.
+
+Every render runs on the coding model unless you say otherwise. Say it in words -
 "render spec changes with gpt 5.5", "build the functionalities on Gemini 3.6 Flash", "use Claude
 for everything" - and the agent calls `set_render_model`, which holds for the rest of the session
 (a resumed one too):
@@ -84,7 +98,8 @@ for everything" - and the agent calls `set_render_model`, which holds for the re
 | everything | both |
 
 It works mid-interview as well: the skill's agent has the same tool. Jobs already queued keep the
-model they were queued with; `"chat"` goes back to the conversation's model. `/render-model` shows
+model they were queued with; `"chat"` drops the session's choice, back to the default coding model -
+`--coding-model`, `config.yaml`, or the conversation's. `/render-model` shows
 what each kind of work runs on. A render tool can also be given a model for one call.
 
 Names are resolved strictly, because pi's own matching guesses and says nothing ("gpt-5" can land

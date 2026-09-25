@@ -56,7 +56,7 @@ async function main() {
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
     // The project's config.yaml gives the default.
-    model: options.model ?? readProjectConfig(process.cwd()).model,
+    model: options.model ?? readProjectConfig(process.cwd()).codingModel,
     inModule: options.in,
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])

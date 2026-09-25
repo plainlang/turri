@@ -16,7 +16,8 @@ describe("the project's config.yaml", () => {
       join(root, "config.yaml"),
       [
         "module: prism_cli.plain",
-        "model: google/gemini-3.1-flash",
+        "harness-model: anthropic/claude-opus-5-5",
+        "coding-model: google/gemini-3.1-flash",
         "conformance-tests: false",
         "unittests-script: test_scripts/run_unittests_rust.sh",
         "conformance-tests-script: test_scripts/run_conformance_tests_rust.sh",
@@ -24,7 +25,8 @@ describe("the project's config.yaml", () => {
     );
     expect(readProjectConfig(root)).toEqual({
       module: "prism_cli.plain",
-      model: "google/gemini-3.1-flash",
+      harnessModel: "anthropic/claude-opus-5-5",
+      codingModel: "google/gemini-3.1-flash",
       conformanceTests: false,
       unittestsScript: "test_scripts/run_unittests_rust.sh",
       conformanceTestsScript: "test_scripts/run_conformance_tests_rust.sh",
@@ -38,11 +40,19 @@ describe("the project's config.yaml", () => {
     );
     expect(readProjectConfig(root)).toEqual({
       module: "app.plain",
-      model: undefined,
+      harnessModel: undefined,
+      codingModel: undefined,
       conformanceTests: true,
       unittestsScript: "run_unittests.sh",
       conformanceTestsScript: undefined,
     });
+  });
+
+  it("reads model:, from before there were two, as the coding model", () => {
+    writeFileSync(join(root, "config.yaml"), "model: amazon-bedrock/eu.anthropic.claude-sonnet-5\n");
+    expect(readProjectConfig(root).codingModel).toBe("amazon-bedrock/eu.anthropic.claude-sonnet-5");
+    writeFileSync(join(root, "config.yaml"), "model: a/old\ncoding_model: b/new\n");
+    expect(readProjectConfig(root).codingModel).toBe("b/new");
   });
 
   it("is empty when there is no file, or it does not parse", () => {

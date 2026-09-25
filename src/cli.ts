@@ -10,6 +10,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { CODING_MODEL_ENV, chatModels } from "./chat-models.ts";
+import { readProjectConfig } from "./config.ts";
 import { extensionInstalledGlobally, PACKAGE_ROOT, themesInstalledGlobally } from "./environment.ts";
 
 /**
@@ -39,9 +41,13 @@ function chat(args: string[]): never {
   // are left as they are, so a plain `pi` keeps its theme.
   const useTheme = args.some((arg) => arg === "--use-theme" || arg.startsWith("--use-theme=")) ? [] : ["--use-theme", DEFAULT_THEME];
 
-  const result = spawnSync(process.execPath, [launcher, ...extension, ...themes, ...useTheme, ...args], {
+  // The model the person talks to, and the one every render runs on - see chat-models.ts.
+  const { piArgs, codingModel } = chatModels(args, readProjectConfig(process.cwd()));
+
+  const result = spawnSync(process.execPath, [launcher, ...extension, ...themes, ...useTheme, ...piArgs], {
     stdio: "inherit",
     cwd: process.cwd(),
+    env: codingModel ? { ...process.env, [CODING_MODEL_ENV]: codingModel } : process.env,
   });
   process.exit(result.status ?? 1);
 }
@@ -67,6 +73,7 @@ const USAGE = [
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
   `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded (theme forge; --use-theme picks another)`,
+  `  ${"".padEnd(12)} --harness-model <m>  the model you chat with   --coding-model <m>  the model renders run on`,
   "",
   ...Object.entries(SETUP_COMMANDS).map(([name, blurb]) => `  ${name.padEnd(12)} ${blurb}`),
   "",
@@ -97,6 +104,12 @@ if (entry === undefined) {
 }
 
 // The subcommands parse process.argv themselves, so present it as if they were invoked
-// directly.
-process.argv = [process.argv[0]!, process.argv[1]!, ...rest];
+// directly. Their agents are the coding agents: --coding-model is their --model.
+process.argv = [
+  process.argv[0]!,
+  process.argv[1]!,
+  ...rest.flatMap((arg) =>
+    arg === "--coding-model" ? ["--model"] : arg.startsWith("--coding-model=") ? ["--model", arg.slice("--coding-model=".length)] : [arg],
+  ),
+];
 await import(entry.module);

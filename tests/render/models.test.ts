@@ -94,3 +94,16 @@ describe("the model a job runs on", () => {
     expect([registry.get(first.jobId)!.model, registry.get(second.jobId)!.model]).toEqual(["openai/gpt-5.5", "google/gemini-3.6-flash"]);
   });
 });
+
+describe("the project's model, from config.yaml", () => {
+  it("is what renders run on when nothing was chosen in the session, and says where it came from", async () => {
+    const { describeChoices, modelFor } = await import("../../src/render/models.ts");
+    const project = "amazon-bedrock/eu.anthropic.claude-sonnet-5";
+    expect(modelFor({}, "functionalities", project ?? "google/gemini-3.1-flash")).toBe(project);
+    expect(modelFor({ functionalities: "openai/gpt-5.5" }, "functionalities", project)).toBe("openai/gpt-5.5");
+    expect(describeChoices({ spec_changes: "openai/gpt-5.5" }, "google/gemini-3.1-flash", { model: project, from: "config.yaml" })).toBe(
+      `- spec changes: openai/gpt-5.5\n- functionalities: ${project} (config.yaml)`,
+    );
+    expect(describeChoices({}, "google/gemini-3.1-flash")).toContain("google/gemini-3.1-flash (the chat's model)");
+  });
+});

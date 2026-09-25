@@ -51,19 +51,20 @@ The project's `config.yaml`, in the folder you run it from, can give the default
 be just `plainwright module`:
 
 ```yaml
-module: app.plain                  # what to build when no file is given
-model: anthropic/claude-sonnet-5   # the model every agent runs on
+module: app.plain                         # what to build when no file is given
+coding-model: anthropic/claude-sonnet-5   # the model every agent runs on
 conformance-tests: true            # write and run conformance tests (default: when there are test reqs)
 ```
 
 The same file names the [testing scripts](rendering.md#the-testing-scripts). Options on the command
-line win over it; `plainwright render`, `regenerate` and `conformance` take its `model` too.
+line win over it; `plainwright render`, `regenerate` and `conformance` take its `coding-model` too,
+and `--coding-model` means the same as `--model` on every one of them.
 
 Useful options - `plainwright module --help` lists all of them:
 
 | | |
 | --- | --- |
-| `--model <provider/id>` | the model every agent runs on; default, `config.yaml`'s `model`, then pi's configured model |
+| `--model <provider/id>` | the model every agent runs on (`--coding-model` too); default, `config.yaml`'s `coding-model`, then pi's configured model |
 | `--no-conformance` | skip conformance tests - faster, weaker |
 | `--from <frid>`, `--to <frid>` | build a range of functionalities |
 | `--only` | build just this module, not the ones it requires |

@@ -9,11 +9,16 @@ import { load as loadYaml } from "js-yaml";
  *
  * ```yaml
  * module: prism_cli.plain                                   # what `plainwright module` builds by default
- * model: google/gemini-3.1-flash                            # the model its agents run on
+ * harness-model: anthropic/claude-opus-5-5                  # the model you chat with in `plainwright chat`
+ * coding-model: google/gemini-3.1-flash                     # the model the rendering agents run on
  * conformance-tests: false                                  # write and run conformance tests (default: when there are test reqs)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * ```
+ *
+ * Both models are defaults: `--harness-model` / `--coding-model` on the command line win over them,
+ * and so does a model chosen during the conversation (pi's /model, set_render_model). `model:` is
+ * read as `coding-model`, which it was before there were two.
  *
  * Keys are written with dashes; underscores are read the same (`conformance_tests`). Keys it
  * does not know - a codeplain `config.yaml` carries several - are ignored, and so is a value of
@@ -25,8 +30,10 @@ export const CONFIG_FILE = "config.yaml";
 export interface ProjectConfig {
   /** The .plain file the module command builds when it is given none. */
   module?: string;
-  /** "provider/model-id" the agents run on. */
-  model?: string;
+  /** The model `plainwright chat` starts with: the one the person talks to. */
+  harnessModel?: string;
+  /** The model the rendering agents run on - every render, conformance, repair and spec change. */
+  codingModel?: string;
   /** Whether conformance tests are written and run. Unset: when the module has test reqs. */
   conformanceTests?: boolean;
   /** Path from the root to the unit testing script. */
@@ -38,7 +45,8 @@ export interface ProjectConfig {
 /** The config keys, as written in the file. */
 export const CONFIG_KEYS = {
   module: "module",
-  model: "model",
+  harnessModel: "harness-model",
+  codingModel: "coding-model",
   conformanceTests: "conformance-tests",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
@@ -63,7 +71,8 @@ export function readProjectConfig(root: string): ProjectConfig {
   const conformance = raw[CONFIG_KEYS.conformanceTests];
   return {
     module: text(raw[CONFIG_KEYS.module]),
-    model: text(raw[CONFIG_KEYS.model]),
+    harnessModel: text(raw[CONFIG_KEYS.harnessModel]),
+    codingModel: text(raw[CONFIG_KEYS.codingModel]) ?? text(raw.model),
     conformanceTests: typeof conformance === "boolean" ? conformance : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),

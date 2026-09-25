@@ -93,7 +93,7 @@ async function main() {
     to: options.to,
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
-    model: options.model ?? config.model,
+    model: options.model ?? config.codingModel,
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])
       : undefined,
