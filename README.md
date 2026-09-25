@@ -6,37 +6,60 @@
 
 <h1 align="center">plainwright<br>coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
-You and an agent write down what the system should do, as \*\*\*plain specs. The agent builds the
-code from them. From then on the specs are the durable source of truth: the code can always be
+You and **plainwright** write down what the system should do, as [\*\*\*plain](https://plainlang.org/) specs. **plainwright** builds
+the code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
 
 ## Why
 
 In the age of coding agents, writing code is getting easy. The hard and important part is
-defining what the system should do. Agents can fix mistakes, ask questions and keep getting more
+defining what the system should do. Agents can fix bugs, ask questions and keep getting more
 capable - but they still cannot read your mind. The question is not only whether an agent can
 write the code, but whether it understands what it is building.
 
 Code that is patched, prompt after prompt, drifts: every misunderstanding stays in it, and the
-next change is made on top. When the agent can always regenerate the software from durable
-information instead, that understanding is written down - explicit, reviewable and tested - and
-the agent grows with the software rather than against it.
+next change is made on top. When the software can always be regenerated from durable information
+instead, that understanding is written down - explicit, reviewable and tested - and it grows with
+the software rather than against it.
 
-So with plainwright you maintain software at the level of its definition, not its code:
+## How it differs from a coding agent
 
-1. **Define.** Write the specs with the agent: it interviews you one question at a time and writes
-   the `.plain` files, held to the \*\*\*plain authoring rules and reviewed by independent judges.
-2. **Generate.** The agent builds the code one functionality at a time, each on top of the ones
-   before it, into `plain_modules/`.
-3. **Validate.** The harness - not the agent - runs the unit tests and black-box conformance tests
-   written from the spec, and moves on only when every test so far passes - its own run, not the
-   agent's word. A deleted test is challenged.
+With a coding agent you work on code: you ask for a change, it edits the code, and you review the
+code it wrote.
+
+With **plainwright** you work on [\*\*\*plain](https://plainlang.org/) specs. You say what the software must do, and **plainwright** updates the [\*\*\*plain](https://plainlang.org/) specs
+and can always regenerate the code from that. You don't review the code or keep it - you review and
+keep the intent: what the software must do, and what must hold as it changes. The specs are the
+durable part. The code is a disposable artefact, rebuilt from them whenever they change.
+
+| | ye old coding agent | **plainwright** |
+| --- | --- | --- |
+| **What you maintain** | the code, patched prompt after prompt | the [\*\*\*plain](https://plainlang.org/) specs; the code is generated from them and never edited by hand |
+| **Who drives** | the agent picks what to do next | the harness, in a fixed order: one functionality or one spec diff at a time, or a whole module functionality by functionality, in the spec's order, each on top of the ones before it |
+| **What counts as done** | the agent writes the code, runs the tests, and decides for itself that it is done | ye old coding agent writes the code; **plainwright** runs the whole test suite itself and decides deterministically when it is done - every test passes in its own run, or the work goes back |
+| **Tests** | written and changed by whoever writes the code | conformance tests written from the spec, black box, and kept apart from your acceptance tests; an agent fixing the code cannot change them |
+| **What the agent sees** | your whole machine | only the prompt the harness writes, `plain_modules`, and the public web through its search and fetch tools; every command runs in a small Linux VM that holds nothing else |
+| **Memory** | one conversation that fills up | a fresh agent for every step, starting from working notes the agents before it left - dated, attributed, and never allowed to override the spec |
+| **When it gets stuck** | it keeps trying, or quietly works around the problem | after 20 attempts it stops and tells you what to change in the spec - never in the code |
+| **A change** | another patch on top | a change to the spec: what it touches is rebuilt, everything built before is tested again, and code that disagrees with the spec is healed to match |
+| **History** | whatever you commit | every build, regeneration and repair is a commit; a build interrupted halfway starts again from the last one |
+
+## How it works
+
+1. **Define.** Write the specs with **plainwright**: it interviews you one question at a time and
+   writes the `.plain` files, held to the [\*\*\*plain](https://plainlang.org/) authoring rules and reviewed by independent
+   judges.
+2. **Generate.** **plainwright** builds the code one functionality at a time, each on top of the ones
+   before it, into `plain_modules/` - and builds each answer in the background while the interview
+   goes on.
+3. **Validate.** The harness runs the unit tests, then conformance tests written from the spec,
+   then everything built so far, and moves on only when all of it passes.
 4. **Regenerate.** To change the system, change its definition. The functionalities whose spec
-   changed are rebuilt, and everything built before is tested again. When code and spec disagree,
-   the code is healed to match - never the other way round.
+   changed are rebuilt, and everything built before is tested again.
 
-The generated code is never edited by hand. A bug is fixed in the spec; a new behaviour goes into
-the spec; and the next regeneration carries it.
+A bug is fixed in the spec; a new behaviour goes into the spec; and the next regeneration carries
+it. When a build is done, **plainwright** tells you how to try it, with steps it ran first and marked
+with whether they worked.
 
 A spec looks like this:
 
@@ -59,18 +82,8 @@ A spec looks like this:
 
 Each item under `***functional specs***` is one functionality, built on top of the ones before it.
 
-## What it does
-
-- **Builds while you talk.** Interview skills (`forge-plain`, `forge-diff`) write the specs with
-  you, and every answer is built in the background while the interview goes on.
-- **Keeps agents inside the project.** A rendering agent sees only the prompt the harness gives it
-  and `plain_modules`; every command it runs runs in a small Linux VM that holds nothing else - not
-  your home directory, not your other projects, not your API keys.
-- **Tells you how to try it**, with commands that were run first and marked with whether they
-  worked, and **keeps a history**: every render, regeneration and repair is a commit.
-
-It runs as an extension to [pi](https://github.com/earendil-works/pi), the coding agent, so you
-work with it in a conversation, and as a command line for unattended runs.
+**plainwright** runs as an extension to [pi](https://github.com/earendil-works/pi), so you work with it
+in a conversation, and as a command line for unattended runs.
 
 ## Install
 
@@ -132,7 +145,7 @@ plainwright module app.plain         # build every functionality in order
 plainwright regenerate app.plain 3   # rebuild functionality 3 after its spec changed
 ```
 
-More: [using plainwright](docs/using.md); to render a spec overnight, see
+More: [using **plainwright**](docs/using.md); to render a spec overnight, see
 [running unattended](docs/headless.md).
 
 ## Documentation
@@ -141,12 +154,12 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 
 | | |
 | --- | --- |
-| [Installation](docs/installation.md) | setup and doctor, the VM image, plainwright in every `pi`, environment variables |
-| [Using plainwright](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
+| [Installation](docs/installation.md) | setup and doctor, the VM image, **plainwright** in every `pi`, environment variables |
+| [Using **plainwright**](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
-| [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance tests, the build record |
-| [The sandbox](docs/sandbox.md) | what agents can reach, and the VM every command runs in |
+| [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, the build record |
+| [The sandbox](docs/sandbox.md) | what agents can reach, the VM every command runs in, time limits, the web tools |
 | [Skills and gates](docs/skills-and-gates.md) | the gate syntax, what the harness enforces, judges, rules |
 | [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `plainwright check`, fidelity to the reference parser |
 | [Theming](docs/theming.md) | the two brand themes |
