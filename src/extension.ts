@@ -346,7 +346,7 @@ export default function (pi: ExtensionAPI) {
         renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work) => modelFor(chosenModels, work, projectModel(ctx) ?? chatModelOf(ctx)) }),
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
-        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd)],
+        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderConformanceTestsTool(cwd, jobs, ctx)],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -505,7 +505,16 @@ function deliveryReport(result: RenderModuleResult): string | undefined {
  * the implementation - its tool surface cannot open it.
  */
 function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
+  pi.registerTool(renderConformanceTestsTool(cwd, jobs));
+}
+
+/**
+ * render_conformance_tests, for the conversation's agent and for a skill's - forge-plain's testing
+ * phase starts the conformance tests the person picks. `conversation` is the context to read models
+ * and the mode from; omitted, the one the tool is called with.
+ */
+function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation?: ExtensionContext) {
+  return defineTool({
     name: "render_conformance_tests",
     label: "Render conformance tests",
     description:
@@ -544,7 +553,8 @@ function registerRenderConformanceTests(pi: ExtensionAPI, cwd: string, jobs: Job
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, params, _signal, onUpdate, ctx) {
+    async execute(_id, params, _signal, onUpdate, called) {
+      const ctx = conversation ?? called;
       const model = jobModel(ctx, "functionalities", params.model);
       const scope = params.chain
         ? "whole chain"

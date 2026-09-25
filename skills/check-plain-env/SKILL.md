@@ -17,7 +17,7 @@ This skill answers one question: **does the host machine have everything the ***
 ## When to run
 
 - **First time you open a ***plain project on a new machine** — before the first `plainwright module <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
-- **In `forge-plain`'s testing phase** — its environment verification is this skill, so the same check runs the same way everywhere.
+- **Once a new project's stack is settled** — at the end of `forge-plain`'s stack phase, so the first build does not stop on a missing toolchain.
 - **After `add-feature`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
 - **Before a real render** — alongside `check_plain`. `check_plain` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.
 - **Onboarding** — when a teammate (or CI runner, or fresh dev container) is about to start using the project.

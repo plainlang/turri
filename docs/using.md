@@ -18,8 +18,7 @@ The skills that build from scratch:
 
 | skill | how it works |
 | --- | --- |
-| `forge-plain` | intent, stack, definitions, functional specs, testing, handoff - each functional spec is written with `write_functional_spec` and rendered in the background the moment it is written |
-| `forge-diff` | the same interview, feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job |
+| `forge-plain` | intent, stack, then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job the moment it is written - then testing: conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing, and conformance tests for the functional specs you pick |
 
 `skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
@@ -101,8 +100,8 @@ for everything" - and the agent calls `set_render_model`, which holds for the re
 
 | kind of work | covers |
 | --- | --- |
-| spec changes | render spec diff jobs, including the ones forge-diff queues as you answer |
-| functionalities | render functionality, render module, regenerate, conformance, including the ones forge-plain queues |
+| spec changes | render spec diff jobs, including the ones forge-plain queues as you answer |
+| functionalities | render functionality, render module, regenerate, conformance |
 | everything | both |
 
 It works mid-interview as well: the skill's agent has the same tool. Jobs already queued keep the

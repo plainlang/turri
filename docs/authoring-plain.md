@@ -94,8 +94,7 @@ answer, and build each one in the background while the interview goes on:
 
 | skill | phases | how a spec change is written |
 | --- | --- | --- |
-| `forge-plain` | intent → stack → definitions → functional specs → testing → handoff | one functional spec per answer, with `write_functional_spec`, which also queues its render |
-| `forge-diff` | intent → stack → product, feature by feature | one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job |
+| `forge-plain` | intent → stack → product, feature by feature → testing | one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job; then, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing - and conformance tests for the functional specs you pick |
 
 For an existing project, `add-feature` runs a short feature interview and then writes the
 concepts, reqs and functional specs the feature needs, one question at a time.
@@ -115,7 +114,7 @@ Every skill in `skills/` can be run from a conversation; most are also used by t
 
 | to… | skills |
 | --- | --- |
-| start a project | `forge-plain`, `forge-diff`, `init-plain-project` |
+| start a project | `forge-plain`, `init-plain-project` |
 | add to a spec | `add-feature`, `add-functional-spec`, `add-functional-specs`, `add-concept`, `add-implementation-requirement`, `add-test-requirement`, `add-acceptance-test`, `add-resource`, `add-template` |
 | check what is written | `analyze-if-func-spec-too-complex`, `analyze-2-func-specs`, `analyze-func-specs`, `resolve-section-ownership` |
 | fix what is written | `break-down-func-spec`, `resolve-spec-conflict`, `debug-specs` |

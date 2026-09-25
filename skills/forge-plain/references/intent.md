@@ -25,5 +25,5 @@ Summarize the answers in five short bullets:
 - Initial boundary and explicit exclusions
 
 Ask the user to confirm or correct the brief. the intent phase finishes only after explicit confirmation.
-Carry the confirmed brief into the later phases so their questions refine it instead of restarting intent
+Carry the confirmed brief into the stack and product phases so their questions refine it instead of restarting intent
 discovery.

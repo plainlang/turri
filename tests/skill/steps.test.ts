@@ -100,9 +100,9 @@ describe("continuous review", () => {
 
   it("is parsed alongside the phase gate", () => {
     const skill = loadSkill("skills/forge-plain");
-    const step = skill.steps.find((s) => s.name === "functional-specs")!;
+    const step = skill.steps.find((s) => s.name === "product")!;
     expect(step.gate?.continuous).toEqual({
-      rubric: "./references/rubric-functional-specs-live.md",
+      rubric: "./references/rubric-product-live.md",
       judges: 1,
       model: undefined,
       judgeTools: ["read", "ls", "grep", "find"],
@@ -112,20 +112,28 @@ describe("continuous review", () => {
   });
 });
 
+describe("forge-plain's phases", () => {
+  it("are intent, stack, product and testing - the product phase gated, testing after it", () => {
+    const skill = loadSkill("skills/forge-plain");
+    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "stack", "product", "testing"]);
+    expect(skill.steps.find((step) => step.name === "testing")!.gate).toBeUndefined();
+  });
+});
+
 describe("the status line while a skill runs", () => {
   const skill = {
     name: "forge-plain",
-    steps: ["intent", "stack", "definitions", "functional-specs", "testing", "handoff"].map((name) => ({
+    steps: ["intent", "stack", "product"].map((name) => ({
       name,
       instructions: "",
     })),
   } as unknown as Parameters<typeof skillStatus>[0];
 
   it("names the phase and where it sits among them", () => {
-    expect(skillStatus(skill, "definitions", 1)).toBe("forge-plain: definitions (phase 3 of 6)");
+    expect(skillStatus(skill, "stack", 1)).toBe("forge-plain: stack (phase 2 of 3)");
   });
 
   it("says when a phase is being retried after its gate", () => {
-    expect(skillStatus(skill, "functional-specs", 2)).toBe("forge-plain: functional-specs (phase 4 of 6), attempt 2");
+    expect(skillStatus(skill, "product", 2)).toBe("forge-plain: product (phase 3 of 3), attempt 2");
   });
 });

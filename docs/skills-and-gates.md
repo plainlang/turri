@@ -43,8 +43,8 @@ metadata:
 A skill declares its steps with a `## Steps` section whose `###` headings are the steps; without
 it the whole skill is one step, which is what most skills are. Steps are never inferred from `###`
 headings elsewhere in the body - prose skills are full of those. Each gate becomes a conditional
-edge after its step; a single-step skill is gated by naming the skill itself. `forge-plain` and
-`forge-diff` declare gates today.
+edge after its step; a single-step skill is gated by naming the skill itself. `forge-plain`
+declares gates today.
 
 ## What the harness enforces, not the model
 
@@ -77,9 +77,9 @@ change the step makes and puts its findings on the executor's next tool result.
   from the CLI the options are numbered. Offering choices is required, not optional - a call with
   neither `options` nor `free_form: true` is refused - and every list carries "Something else…".
   `multi_select: true` keeps offering what is left until they are done.
-- **Build while it interviews.** `write_functional_spec` (forge-plain) and `write_spec_diff`
-  (forge-diff) write to the spec and queue its render in one call; the interview carries on while
-  the builds run in the background, one after another. `render_status` shows the queue.
+- **Build while it interviews.** `write_spec_diff` (forge-plain) writes a change to the spec and
+  queues its render in one call; the interview carries on while the builds run in the background,
+  one after another. `render_status` shows the queue.
 - **Choose the render model**, when the user says so - `set_render_model`, the same tool the
   conversation has.
 
