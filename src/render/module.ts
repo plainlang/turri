@@ -189,7 +189,7 @@ async function repairRegression(input: {
   });
 
   try {
-    reportStage(`${input.moduleName}: the repair agent is fixing the code so every functionality's conformance tests pass together`);
+    reportStage(`${input.moduleName}: plainwright is repairing the code so every functionality's conformance tests pass together`);
     const { report, restored } = await keepingTestsUnchanged({
       dirs: input.testsDirs,
       label: input.moduleName,
@@ -216,7 +216,7 @@ async function repairRegression(input: {
       again: (prompt) => ask(session, prompt, input.onDelta),
     });
     if (restored.length > 0) reportActivity(`  put back ${restored.length} conformance test file(s) the repair agent changed`);
-    reportStage(`${input.moduleName}: checking the repair agent left its working notes`);
+    reportStage(`${input.moduleName}: checking the working notes were left`);
     await notes.ensureWritten((next) => ask(session, next, input.onDelta));
     return restored.length > 0
       ? `${report}\n\n(The harness put back ${restored.length} conformance test file(s) this repair changed.)`

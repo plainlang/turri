@@ -159,7 +159,7 @@ describe("the functional spec a job is building", () => {
       summary: "rt_tuples.plain module",
       run: async () => {
         reportSpec(spec);
-        reportStage("rt_tuples 2: the agent is writing the code and its unit tests");
+        reportStage("rt_tuples 2: plainwright is writing the code and its unit tests");
         await new Promise<void>((done) => (release = done));
         return { report: "" };
       },

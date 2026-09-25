@@ -14,6 +14,7 @@ import { load as loadYaml } from "js-yaml";
  * conformance-tests: false                                  # write and run conformance tests (default: when there are test reqs)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
+ * testing-scripts: host                                     # where they run: in the VM (default), or on this machine - see test-scripts.ts
  * ```
  *
  * Both models are defaults: `--harness-model` / `--coding-model` on the command line win over them,
@@ -40,6 +41,11 @@ export interface ProjectConfig {
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
   conformanceTestsScript?: string;
+  /**
+   * Where the harness runs the testing scripts: in the sandbox VM (the default), or in place on
+   * this machine - for an integration embedded in a host codebase the VM does not hold.
+   */
+  testingScripts?: "vm" | "host";
 }
 
 /** The config keys, as written in the file. */
@@ -50,6 +56,7 @@ export const CONFIG_KEYS = {
   conformanceTests: "conformance-tests",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
+  testingScripts: "testing-scripts",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function text(value: unknown): string | undefined {
@@ -76,5 +83,6 @@ export function readProjectConfig(root: string): ProjectConfig {
     conformanceTests: typeof conformance === "boolean" ? conformance : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
+    testingScripts: raw[CONFIG_KEYS.testingScripts] === "host" ? "host" : raw[CONFIG_KEYS.testingScripts] === "vm" ? "vm" : undefined,
   };
 }

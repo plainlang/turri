@@ -242,7 +242,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const specifications: Specifications =
     lastFrid !== undefined ? getSpecificationsForFrid(tree, lastFrid)[0] : { ...sections, [FUNCTIONAL_REQUIREMENTS]: [] };
   const required = getInheritedFunctionalSpecs(tree);
-  stage("mapping the codebase and writing the agent's prompt");
+  stage("mapping the codebase and writing the prompt");
   const prompt = buildSpecDiffPrompt({
     moduleName,
     diff: options.diff,
@@ -279,7 +279,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   let attempts = 0;
   const testRemovals: TestRemoval[] = [];
   try {
-    stage("the agent is implementing the spec change");
+    stage("plainwright is implementing the spec change");
     let inventory = inventoryTests(buildDir);
     response = await ask(
       executor,
@@ -302,12 +302,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
           continue;
         }
-        stage(`the agent is done - the harness runs the unit testing script (attempt ${attempts + 1})`);
+        stage(`running the unit testing script (attempt ${attempts + 1})`);
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
         if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
         if (!verdict.ok) {
-          stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
+          stage(`unit tests not passing - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
           response = await ask(executor, verdict.prompt, options.onDelta);
           continue;
         }
@@ -335,7 +335,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       // that fails goes back to the agent like any other - it does not end the change.
       if (tryIt !== undefined) verified = await untilPassing();
     }
-    stage("checking the agent left its working notes");
+    stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
   } finally {
     executor.dispose();

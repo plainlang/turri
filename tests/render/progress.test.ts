@@ -175,6 +175,18 @@ describe("the functional spec being built, in the progress widget", () => {
   });
 });
 
+describe("a chain of one module", () => {
+  it("has no overall line - its own line already says it", async () => {
+    const { createProgressTracker } = await import("../../src/render/progress.ts");
+    const t = createProgressTracker();
+    t.onChainEvent({ type: "chain", chain: [{ moduleName: "hubspot", frids: ["1", "2", "3"] }] } as never);
+    t.onChainEvent({ type: "module_start", module: "hubspot", index: 1, total: 1 } as never);
+    t.onModuleEvent({ type: "functionality_done", frid: "1" });
+    expect(t.compactLines()[0]).toMatch(/^• hubspot {2}\[███·······\] 1\/3/);
+    expect(t.lines().join("\n")).not.toContain("functionalities");
+  });
+});
+
 describe("the whole chain's progress", () => {
   it("counts functionalities across every module - a module already built in full", async () => {
     const { createProgressTracker } = await import("../../src/render/progress.ts");

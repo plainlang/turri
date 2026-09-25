@@ -181,7 +181,7 @@ export async function renderFunctionality(
   stage("starting from the codebase's last commit");
   if (!options.dryRun) startFromLastCommit(buildDir, host?.moduleName ?? moduleName);
 
-  stage(options.regenerate === undefined ? "mapping the codebase and writing the agent's prompt" : "working out what changed, and writing the agent's prompt");
+  stage(options.regenerate === undefined ? "mapping the codebase and writing the prompt" : "working out what changed, and writing the prompt");
   let prompt: string;
   if (options.regenerate === undefined) {
     const codebase = codebaseMap(tree, buildDir, frid);
@@ -265,7 +265,7 @@ export async function renderFunctionality(
     let inventory = inventoryTests(buildDir);
     const testRemovals: TestRemoval[] = [];
 
-    stage("the agent is writing the code and its unit tests");
+    stage("plainwright is writing the code and its unit tests");
     let response = await ask(executor, prompt, options.onDelta);
 
     const maxFollowUps = options.maxFollowUps ?? DEFAULT_MAX_FOLLOW_UPS;
@@ -290,12 +290,12 @@ export async function renderFunctionality(
           continue;
         }
 
-        stage(`the agent is done - the harness runs the unit testing script (attempt ${attempts + 1})`);
+        stage(`running the unit testing script (attempt ${attempts + 1})`);
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit!);
         if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
         if (!verdict.ok) {
-          stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${maxFollowUps})`);
+          stage(`unit tests not passing - fixing (round ${followUp + 1} of ${maxFollowUps})`);
           response = await ask(executor, verdict.prompt, options.onDelta);
           continue;
         }
@@ -323,7 +323,7 @@ export async function renderFunctionality(
       // that fails goes back to the agent like any other - it does not end the build.
       if (tryIt !== undefined) verified = await untilPassing();
     }
-    stage("checking the agent left its working notes");
+    stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const files = listFiles(buildDir);
 

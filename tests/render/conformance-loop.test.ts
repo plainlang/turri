@@ -61,6 +61,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 
 const { renderConformanceTests } = await import("../../src/render/conformance.ts");
 const { closeAllVms, vmSupported } = await import("../../src/render/vm.ts");
+const { withActivity } = await import("../../src/render/activity.ts");
 
 let root: string;
 beforeEach(() => {
@@ -84,12 +85,18 @@ afterEach(async () => {
 
 describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () => {
   it("is one agent that writes the tests and fixes what is wrong until the harness's own run passes", async () => {
-    const result = await renderConformanceTests({
-      plainFile: join(root, "app.plain"),
-      frid: "1",
-      buildDir: codeDir,
-      conformanceDir: join(root, "plain_modules", "app", "tests"),
-    });
+    const stages: string[] = [];
+    const sink = { stage: (label: string) => stages.push(label), activity() {}, now() {}, usage() {}, transcript() {}, spec() {} };
+    const result = await withActivity(sink, () =>
+      renderConformanceTests({
+        plainFile: join(root, "app.plain"),
+        frid: "1",
+        buildDir: codeDir,
+        conformanceDir: join(root, "plain_modules", "app", "tests"),
+      }),
+    );
+    // It has one acceptance test, and the stage says so.
+    expect(stages).toContain("app 1: plainwright is writing conformance tests from the spec, and its 1 acceptance test apart from them");
 
     expect(result.passed).toBe(true);
     expect(result.codeChanged).toBe(true);
@@ -112,13 +119,21 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(prompts[0]).toContain("No earlier agent has left notes on this codebase yet.");
     prompts.length = 0;
     writeFileSync(join(codeDir, "app.py"), "print('goodbye')\n");
-    await renderConformanceTests({
+    // Without acceptance tests, none are mentioned.
+    writeFileSync(
+      join(root, "app.plain"),
+      "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest and run the app as a subprocess.\n\n***functional specs***\n\n- The app prints hello.\n",
+    );
+    stages.length = 0;
+    await withActivity(sink, () => renderConformanceTests({
       plainFile: join(root, "app.plain"),
       frid: "1",
       buildDir: codeDir,
       conformanceDir: join(root, "plain_modules", "app", "tests"),
       continuing: true,
-    });
+    }));
+    expect(stages).toContain("app 1: plainwright is writing conformance tests from the spec");
+    expect(stages.join("\n")).not.toContain("acceptance test");
     expect(prompts[0]).toContain("<notes from earlier agents>");
     expect(prompts[0]).toMatch(/- \[[\d: -]+ · app 1 conformance\] stub agent was here/);
   });

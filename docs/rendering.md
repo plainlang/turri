@@ -146,6 +146,25 @@ scripts are not linked from the specs; a link to one is ignored.
 They are required: a build with no unit testing script, or with conformance on and no conformance
 testing script, stops before it starts and says which skill adds it.
 
+**Where they run.** By default in the sandbox VM, from a copy: the script, the build and the
+conformance suite staged in a folder of their own. A project whose tests only need what they are
+given - most - is best off there: the VM has the toolchains, and the tests are sandboxed.
+
+An integration embedded in a host codebase is not: its scripts merge the generated code into the host
+and run the tests there, in the host's environment, which the VM does not hold. For it,
+`testing-scripts: host` in the project's `config.yaml` runs them in place on this machine - from the
+project's folder, at their own path, on the real build and tests folders, as codeplain did:
+
+```yaml
+# plain/config.yaml
+testing-scripts: host
+```
+
+The agents are not moved: their file tools and `bash` stay fenced to `plain_modules` and the VM, and
+only the scripts' output reaches them. The time limit and a stopped job still end the script and all
+it started, and the model providers' API keys are kept out of its environment. What the script does
+to the host - copying the package into it - it does, as it is written to.
+
 Turning conformance off (`conformance: false`, `--no-conformance`) sets the conformance testing script
 aside, found or not: no conformance tests are written, the ones already in the codebase are not run,
 and no agent is shown it. That is different from a module with no test reqs, which writes no

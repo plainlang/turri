@@ -65,11 +65,11 @@ export function createProgressTracker(): ProgressTracker {
     }
     return { done, total };
   };
+  // Only for a chain: with one module, its own line already says it all.
   const overallLine = (): string[] => {
     const { done, total } = overall();
-    if (total === 0) return [];
-    const across = modules.length === 1 ? "" : ` across ${modules.length} modules`;
-    return [`${progressBar(done, total, 20)} ${done}/${total} functionalities${across}`];
+    if (total === 0 || modules.length === 1) return [];
+    return [`${progressBar(done, total, 20)} ${done}/${total} functionalities across ${modules.length} modules`];
   };
 
   /**

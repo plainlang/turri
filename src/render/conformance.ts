@@ -246,7 +246,15 @@ export async function renderConformanceTests(
 
   try {
     let inventory = inventoryTests(conformanceDir);
-    stage("the agent is writing conformance tests from the spec, and each acceptance test apart from them");
+    // Acceptance tests only when the spec has them for this functionality.
+    const acceptance = options.diff === undefined ? (specifications[ACCEPTANCE_TESTS] ?? []).length : 0;
+    stage(
+      acceptance > 0
+        ? `plainwright is writing conformance tests from the spec, and its ${acceptance} acceptance test${acceptance === 1 ? "" : "s"} apart from them`
+        : options.diff !== undefined
+          ? "plainwright is bringing the conformance tests in line with the spec change"
+          : "plainwright is writing conformance tests from the spec",
+    );
     let response = await ask(executor, withNotes(prompt, buildDir), options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -277,7 +285,7 @@ export async function renderConformanceTests(
       // Whether the functionality is done is the harness's run of the project's conformance
       // testing script, on every functionality's tests - and the code's unit testing script, when
       // the agent changed the code.
-      stage(`the agent is done - the harness runs the conformance testing script on the whole suite (round ${rounds + 1})`);
+      stage(`running the conformance testing script on the whole suite (round ${rounds + 1})`);
       rounds += 1;
       const recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
@@ -289,7 +297,7 @@ export async function renderConformanceTests(
       }
       stage(`conformance tests pass (round ${rounds})`);
       if (codeChanged()) {
-        stage("the agent changed the code - the harness runs the unit testing script too");
+        stage("the code changed - running the unit testing script too");
         const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
         if (unit.ok) stage("unit tests still pass");
         if (!unit.ok) {
@@ -306,7 +314,7 @@ export async function renderConformanceTests(
       break;
     }
 
-    stage("checking the agent left its working notes");
+    stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const changed = codeChanged();
     // The tests, and the code when it changed: one commit if they share a module folder.

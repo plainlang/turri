@@ -1,8 +1,9 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { CONFIG_FILE, CONFIG_KEYS, readProjectConfig } from "../config.ts";
-import { reportActivity } from "./activity.ts";
+import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -198,8 +199,11 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
     rendered.join("\n\n"),
     "</testing scripts>",
     "",
-    `The harness decides whether your work is done by running ${used.length === 1 ? "this script" : "these scripts"} itself, in ` +
-      "the same VM your commands run in: " +
+    `The harness decides whether your work is done by running ${used.length === 1 ? "this script" : "these scripts"} itself, ` +
+      (readProjectConfig(root).testingScripts === "host"
+        ? "in place on the host machine, from the project, against the host codebase it merges your code into - which your " +
+          "own bash cannot reach, so run_unit_tests / run_conformance_tests are how you see those results: "
+        : "in the same VM your commands run in: ") +
       used
         .map((kind) => (kind === "unit" ? "the unit testing script as `<script> <build folder>`" : "the conformance testing script as `<script> <build folder> <whole conformance suite folder>`"))
         .join(", ") +
@@ -311,8 +315,79 @@ async function runStaged(root: string, script: string, args: string[]): Promise<
   return { command: shown(script), exitCode, output: shownOutput(root, basename(script), output), timedOut, timeoutMs };
 }
 
+/**
+ * The project a build belongs to, when its config.yaml says the testing scripts run on this
+ * machine (`testing-scripts: host`) rather than in the VM.
+ *
+ * For an integration embedded in a host codebase: its scripts merge the generated code into the
+ * host's own tree and run the tests there, in the host's environment - which the VM does not hold.
+ * So they run where they expect to: from the project - the folder of its config.yaml - at their
+ * own path, on the real build and tests folders. The agents stay in the VM; only the harness runs
+ * these, and only their output goes back. Not sandboxed - what the agents wrote runs on this
+ * machine, as it did under codeplain - and so only when the project asks for it.
+ */
+function hostProjectFor(buildDir: string): string | undefined {
+  const parts = resolve(buildDir).split(sep);
+  const index = parts.lastIndexOf("plain_modules");
+  if (index <= 0) return undefined;
+  const root = parts.slice(0, index).join(sep);
+  return readProjectConfig(root).testingScripts === "host" ? root : undefined;
+}
+
+/** The model providers' keys, kept out of what runs on this machine: the tests are agents' code. */
+const PROVIDER_KEY = /^(ANTHROPIC|OPENAI|AZURE_OPENAI|GEMINI|GOOGLE|GOOGLE_GENERATIVE_AI|MISTRAL|GROQ|XAI|OPENROUTER|DEEPSEEK|CEREBRAS|TOGETHER|FIREWORKS)_API_KEY$|^AWS_BEARER_TOKEN_BEDROCK$/;
+
+/**
+ * A testing script run in place on this machine: `bash <script> <args>`, from the project, in a
+ * process group of its own - so the time limit and a stopped job end it and all it started.
+ */
+async function runOnHost(root: string, script: string, args: string[], logDir: string): Promise<ScriptRun> {
+  const timeoutMs = scriptTimeoutMs;
+  const started = Date.now();
+  reportActivity(`  ▶ ${shown(script)} on this machine, from ${root} (limit ${Math.round(timeoutMs / 1000)}s)`);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !PROVIDER_KEY.test(key)));
+  const child = spawn("bash", [script, ...args], { cwd: root, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.on("data", (data: Buffer) => (output += data.toString("utf8")));
+  child.stderr.on("data", (data: Buffer) => (output += data.toString("utf8")));
+  const killGroup = () => {
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  };
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killGroup();
+  }, timeoutMs);
+  const stop = currentStopSignal();
+  stop?.addEventListener("abort", killGroup, { once: true });
+  const exitCode = await new Promise<number>((done) => {
+    child.on("close", (code) => done(code ?? 1));
+    child.on("error", (error) => {
+      output += String(error);
+      done(1);
+    });
+  });
+  clearTimeout(timer);
+  stop?.removeEventListener("abort", killGroup);
+  if (stop?.aborted) throw new Error("aborted");
+  if (timedOut) output += `\n[stopped after ${Math.round(timeoutMs / 1000)}s, the time limit for a test run: counted as failed]`;
+  const took = ((Date.now() - started) / 1000).toFixed(1);
+  reportActivity(
+    timedOut
+      ? `  ✗ ${shown(script)} did not finish in ${Math.round(timeoutMs / 1000)}s - stopped, counted as failed`
+      : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
+  );
+  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: shownOutput(logDir, basename(script), output), timedOut, timeoutMs };
+}
+
 /** The harness's run of the unit testing script on the code as it is now. */
 export async function runUnitScript(buildDir: string, script: string): Promise<ScriptRun> {
+  const host = hostProjectFor(buildDir);
+  if (host !== undefined) return runOnHost(host, script, [resolve(buildDir)], buildDir);
   const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
   ensureInVmScratch(buildDir, staging.root);
@@ -331,6 +406,20 @@ export async function runUnitScript(buildDir: string, script: string): Promise<S
  */
 export async function runConformanceScript(buildDir: string, testsDirs: string[], scripts: TestScripts): Promise<ScriptRun> {
   if (scripts.conformance === undefined) throw new Error("No conformance testing script to run.");
+  const host = hostProjectFor(buildDir);
+  if (host !== undefined) {
+    // The real tests folder when there is one; several merged into one, first.
+    if (testsDirs.length === 1) return runOnHost(host, scripts.conformance, [resolve(buildDir), resolve(testsDirs[0]!)], buildDir);
+    const merged = stagingFor(buildDir);
+    rmSync(merged.root, { recursive: true, force: true });
+    ensureInVmScratch(buildDir, merged.root);
+    try {
+      stageTests(testsDirs, merged.tests);
+      return await runOnHost(host, scripts.conformance, [resolve(buildDir), merged.tests], buildDir);
+    } finally {
+      rmSync(merged.root, { recursive: true, force: true });
+    }
+  }
   const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
   ensureInVmScratch(buildDir, staging.root);

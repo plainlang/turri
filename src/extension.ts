@@ -426,6 +426,7 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
+      working_dir: WORKING_DIR_PARAM,
       frid: Type.Optional(
         Type.String({ description: "Functionality ID, e.g. \"1\" or \"4\". Omit to list them." }),
       ),
@@ -443,7 +444,8 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, params, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
       const plainFile = resolve(cwd, params.plain_file);
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
 
@@ -558,6 +560,7 @@ function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
+      working_dir: WORKING_DIR_PARAM,
       frids: Type.Optional(
         Type.Array(Type.String(), {
           description: 'Functionality ids, e.g. ["1", "3"]. Omit for the whole module.',
@@ -579,7 +582,8 @@ function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, params, _signal, onUpdate, called) {
+    async execute(_id, given, _signal, onUpdate, called) {
+      const params = fromWorkingDir(cwd, given);
       const ctx = conversation ?? called;
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       const scope = params.chain
@@ -704,6 +708,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       plain_file: Type.Optional(
         Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" }),
       ),
+      working_dir: WORKING_DIR_PARAM,
       from: Type.Optional(Type.String({ description: "Start at this functionality id" })),
       to: Type.Optional(Type.String({ description: "Stop after this functionality id" })),
       only: Type.Optional(
@@ -726,9 +731,10 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     }),
     async execute(_id, given, _signal, onUpdate, ctx) {
       // No file named: the project's config.yaml says which module.
-      const named = given.plain_file ?? readProjectConfig(cwd).module;
+      const located = fromWorkingDir(cwd, given);
+      const named = located.plain_file ?? readProjectConfig(located.base).module;
       if (named === undefined) throw new Error(`Name the .plain file to build, or set module: in ${CONFIG_FILE}.`);
-      const params = { ...given, plain_file: named };
+      const params = { ...located, plain_file: resolve(located.base, named) };
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       return deliver(jobs, {
         kind: "render_module",
@@ -922,6 +928,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
+      working_dir: WORKING_DIR_PARAM,
       diff: Type.String({ description: "The change, as a git diff of the .plain files" }),
       in_module: Type.Optional(
         Type.String({ description: "The codebase to render in, when modules built on this one branch" }),
@@ -937,13 +944,14 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, params, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
       const model = jobModel(ctx, "spec_changes", params.model, params.plain_file);
       const plainFile = resolve(cwd, params.plain_file);
       // Applied and parsed now, with the call: that parse is what the job builds and records,
       // whatever changes reach the files while it waits its turn.
-      const applied = applySpecDiff(params.diff, cwd);
-      const spec = snapshotSpec(plainFile, { cwd, inModule: params.in_module });
+      const applied = applySpecDiff(params.diff, params.base);
+      const spec = snapshotSpec(plainFile, { cwd: params.base, inModule: params.in_module });
       return deliver(jobs, {
         kind: "render_spec_diff",
         summary: `${basename(params.plain_file)} render spec diff`,
@@ -958,7 +966,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
           const result = await renderSpecDiff({
             plainFile,
             diff: params.diff,
-            cwd,
+            cwd: params.base,
             inModule: params.in_module,
             applied,
             spec,
@@ -997,6 +1005,7 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
+      working_dir: WORKING_DIR_PARAM,
       frid: Type.String({ description: "Functionality id whose specification changed" }),
       in_module: Type.Optional(
         Type.String({
@@ -1011,7 +1020,8 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, params, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       const plainFile = resolve(cwd, params.plain_file);
       // The job writes the codebase it regenerates in, so it claims that chain's modules.
@@ -1134,6 +1144,9 @@ export function projectConfigBlock(root: string): string {
         config.harnessModel !== undefined ? `- harness-model: ${config.harnessModel} - the model plainwright chat starts with.` : undefined,
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : "none found - every build stops until there is one"}`,
         `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : "none found"}`,
+        config.testingScripts === "host"
+          ? "- testing-scripts: host - the testing scripts run in place on this machine, from the project, against the host codebase - not in the sandbox VM."
+          : undefined,
       ].filter((line): line is string => line !== undefined),
     ];
   };
@@ -1146,6 +1159,45 @@ export function projectConfigBlock(root: string): string {
     ...projects.flatMap((dir) => ["", ...describe(dir)]),
     `</project config>`,
   ].join("\n");
+}
+
+const WORKING_DIR_PARAM = Type.Optional(
+  Type.String({
+    description:
+      "The folder to render from, relative to where plainwright was started - as if it had been started there " +
+      "(e.g. \"plain\"). plain_file, build_dir and a spec diff's paths are then relative to it - hubspot.plain, not " +
+      "plain/hubspot.plain. Default: where " +
+      "plainwright was started.",
+  }),
+);
+
+/**
+ * A render tool's arguments as if plainwright had been started in `working_dir`: the .plain file
+ * and the build folder made absolute from there, and that folder as `base`.
+ */
+export function fromWorkingDir<T extends { working_dir?: string; plain_file?: string; build_dir?: string }>(
+  cwd: string,
+  params: T,
+): T & { base: string } {
+  const base = params.working_dir !== undefined && params.working_dir.trim() !== "" ? resolve(cwd, params.working_dir) : cwd;
+  let plainFile = params.plain_file !== undefined ? resolve(base, params.plain_file) : undefined;
+  if (params.plain_file !== undefined && plainFile !== undefined && !existsSync(plainFile)) {
+    // plain/hubspot.plain with working_dir plain: the folder named twice. Taken from where it is.
+    const fromSession = resolve(cwd, params.plain_file);
+    if (existsSync(fromSession)) plainFile = fromSession;
+    else {
+      throw new Error(
+        `There is no .plain file at ${plainFile}` +
+          (base !== cwd ? ` - plain_file is relative to working_dir (${relative(cwd, base) || "."}), so do not repeat the folder in it.` : "."),
+      );
+    }
+  }
+  return {
+    ...params,
+    base,
+    ...(plainFile !== undefined ? { plain_file: plainFile } : {}),
+    ...(params.build_dir !== undefined ? { build_dir: resolve(base, params.build_dir) } : {}),
+  };
 }
 
 const MODEL_PARAM = Type.Optional(
