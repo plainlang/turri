@@ -9,7 +9,8 @@ a VM that holds nothing else.
 ## What an agent can reach
 
 Every agent - render, conformance author, code fixer, regression repair - reads and writes the
-whole of `plain_modules`, every module's code and tests, and nothing above it. The specs it is
+whole of `plain_modules` with its file tools, every module's code and tests, and nothing above it.
+Its commands reach less: only its own module's folder (see below). The specs it is
 building from reach it only through the prompt the harness writes. Nor does any context file: pi puts
 every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt, and plainwright
 turns that off for every agent it starts - so the project's own `AGENTS.md`, or yours in
@@ -29,11 +30,14 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 `bash` is the case no argument check can cover - one string, and no way to read where it will
 read or write. So it does not run on the host at all. Every command - the agent's `bash`,
 `run_unit_tests`, conformance runs, the harness's runs of the project's testing scripts, the try-it
-checks - runs in one
-[Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux) per project:
+checks - runs in a
+[Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux) for the module it
+works in:
 
-- It holds `plain_modules` and nothing else, mounted read-write at the path it has on the host.
-  The specs above it, the home directory and every other project do not exist in there.
+- It holds that module's folder, `plain_modules/<module>`, and `plain_modules/.plainwright` - the
+  package caches and the copies test runs happen in - mounted read-write at the paths they have on
+  the host. The other modules, the specs, the home directory and every other project do not exist
+  in there.
 - The host environment is not passed in, so the provider's API keys stay out.
 - The network reaches the package registries (Alpine, PyPI, npm, Go, crates.io, Maven Central,
   Gradle) and any host named in `PLAINWRIGHT_ALLOWED_HOSTS`, nothing else.
@@ -51,7 +55,12 @@ background or given its input. A job that is stopped ends the command it is wait
 Either way the command is killed in the VM too, with everything it started - Gondolin's abort only
 stops waiting for a command, so each one records its process ID and is killed by it.
 
-The VM starts on the first command and is kept until pi exits. VMs run on Apple Silicon macOS and
+A project works through its modules one at a time, and so has one VM at a time. A module's VM starts
+on the first command run in it, and its jobs - functionalities, spec changes, conformance tests - reuse
+it one after another. The moment the project moves on to another module, the old VM is shut down and
+the new one's started, which costs a second or two; the system packages come back from the cache and
+the dependencies are in the module's folder. A VM nothing has used for a minute is shut down too. Two
+modules rendering at once each keep their own, and several projects never share one. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent
 gets no shell and commands are refused, because there is no honest way to fence one on the host.
 `plainwright doctor` says which of those it is.

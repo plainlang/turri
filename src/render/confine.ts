@@ -160,7 +160,7 @@ export interface ConfinedTools {
 
 export function confinedTools(c: Confinement): ConfinedTools {
   const workdir = resolve(c.workdir);
-  // Every agent sees the whole of plain_modules, as its VM does, and nothing above it.
+  // Every agent's file tools see the whole of plain_modules and nothing above it; its VM, only its module.
   const root = ceilingFor(workdir);
   const read = [root];
   const write = [root];
@@ -214,16 +214,16 @@ export function confinedTools(c: Confinement): ConfinedTools {
 
   let description = `file tools fenced to ${root}`;
 
-  // The shell runs in the project's VM, which holds plain_modules and nothing else. Whatever
-  // it cds to or cats, nothing above that exists.
+  // The shell runs in its module's VM, which holds that module's folder and the VM scratch and
+  // nothing else. Whatever it cds to or cats, nothing outside them exists.
   if (vmSupported()) {
     const bash = createBashToolDefinition(workdir, {
       operations: vmBashOperations(),
       exposeSessionEnvironment: false,
     });
     bash.description = `${bash.description}\n\n${vmEnvironmentNote()}\n\n${timeLimitNote()}`;
-    tools.push(bash, installSystemPackagesTool(root));
-    description += ", bash in a VM holding only that";
+    tools.push(bash, installSystemPackagesTool(workdir));
+    description += ", bash in a VM holding only its module";
   } else {
     // Without a VM there is no honest way to fence a shell, so the agent does not get one.
     // Everything it needs to do to files it can do with the tools above.
@@ -247,7 +247,7 @@ function timeLimitNote(): string {
  * Install what the VM does not have - a language, a compiler, a system library - with `apk`.
  * The packages are remembered for the project, and every VM it starts installs them again.
  */
-function installSystemPackagesTool(root: string): AnyTool {
+function installSystemPackagesTool(dir: string): AnyTool {
   return defineTool({
     name: "install_system_packages",
     label: "Install system packages",
@@ -261,7 +261,7 @@ function installSystemPackagesTool(root: string): AnyTool {
       packages: Type.Array(Type.String(), { description: "Alpine package names, e.g. [\"ruby\", \"ruby-dev\"]" }),
     }),
     async execute(_id, params, signal) {
-      const { exitCode, output } = await installSystemPackages(root, params.packages, { signal });
+      const { exitCode, output } = await installSystemPackages(dir, params.packages, { signal });
       return {
         content: [
           {

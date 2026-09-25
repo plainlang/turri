@@ -1,22 +1,24 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
-import { ensureInVmScratch, modulesRootOf, vmScratchDir } from "./paths.ts";
+import { ensureInVmScratch, MODULES_DIR, modulesRootOf, vmScratchDir } from "./paths.ts";
 
 /**
- * Where every command runs: one Gondolin micro-VM per project, holding the project's
- * `plain_modules` and nothing else.
+ * Where every command runs: a Gondolin micro-VM for the module it works in, holding that
+ * module's folder in `plain_modules` and nothing else of the project but its VM scratch.
  *
  * A command is a string, and no reading of it says what it will touch. So instead of trying
  * to fence a shell on the host, the command runs in a small Linux VM whose only view of the
- * machine is `plain_modules`, mounted read-write at the path it has on the host. Everything
- * else - the specs above it, the home directory, other projects - does not exist in there. The
- * network reaches the package registries and nothing else.
+ * machine is `plain_modules/<module>` and `plain_modules/.plainwright`, mounted read-write at the
+ * paths they have on the host. Everything else - the other modules, the specs above them, the
+ * home directory, other projects - does not exist in there. The network reaches the package
+ * registries and nothing else.
  *
  * What the VM needs beside the code sits in `plain_modules/.plainwright`: the package caches, so
  * a dependency is fetched once; the copies test runs happen in; and the system packages the
@@ -201,18 +203,109 @@ export function timedOutNote(timeoutMs: number): string {
   );
 }
 
-/** One VM per modules root, started on first use and kept until the process ends. */
-const pool = new Map<string, Promise<VM>>();
+/**
+ * One VM per module: it holds `plain_modules/<module>` and the project's VM scratch
+ * (`plain_modules/.plainwright` - the package caches, and the copies test runs happen in), and
+ * nothing of the other modules.
+ *
+ * A project works through its modules one at a time, and so has one VM at a time: the jobs of a
+ * module - its functionalities, its spec changes, its conformance tests - reuse it one after
+ * another, and the moment the project starts on another module, the old one's VM is shut down and
+ * the new one's started. What a VM set up survives that: the system packages are installed again
+ * from the cache, the dependencies are in the module's folder. Modules of one project rendering at
+ * once each keep their own; several projects never share one.
+ *
+ * A job holds its module's VM (`withVmLease`) until it ends or moves on to another module. One no
+ * job holds is idle: shut down when its project moves on, or after VM_IDLE_MS with nothing to do.
+ */
+interface PoolEntry {
+  /** The modules root it belongs to. */
+  project: string;
+  vm: Promise<VM>;
+  /** Jobs working in it. */
+  holders: number;
+  /** Commands running in it. */
+  running: number;
+  idle?: ReturnType<typeof setTimeout>;
+}
+const pool = new Map<string, PoolEntry>();
 
-async function start(root: string): Promise<VM> {
-  const cache = packageCacheDir(root);
-  ensureInVmScratch(root, join(cache, "apk"));
+/** The VM the current job holds, by project. */
+const lease = new AsyncLocalStorage<Map<string, string>>();
+
+let idleMs = 60_000;
+
+/** For tests: shut idle VMs down sooner, or at once (0). */
+export function setVmIdleForTests(ms: number | undefined): void {
+  idleMs = ms ?? 60_000;
+}
+
+/**
+ * Run `work` - a job - holding the VM of the module it works in, and let go of it when it ends,
+ * however it ends.
+ */
+export async function withVmLease<T>(work: () => Promise<T>): Promise<T> {
+  const held = new Map<string, string>();
+  try {
+    return await lease.run(held, work);
+  } finally {
+    for (const key of held.values()) letGo(key);
+  }
+}
+
+function letGo(key: string): void {
+  const entry = pool.get(key);
+  if (entry === undefined) return;
+  entry.holders -= 1;
+  if (!isIdle(entry)) return;
+  clearTimeout(entry.idle);
+  entry.idle = setTimeout(() => void shutDown(key), idleMs);
+  entry.idle.unref?.();
+}
+
+function isIdle(entry: PoolEntry): boolean {
+  return entry.holders <= 0 && entry.running <= 0;
+}
+
+async function shutDown(key: string): Promise<void> {
+  const entry = pool.get(key);
+  if (entry === undefined) return;
+  pool.delete(key);
+  clearTimeout(entry.idle);
+  await entry.vm.then((vm) => vm.close()).catch(() => {});
+}
+
+/**
+ * Which VM a command runs in, and what it holds. A command in a module's folder - or for one, a
+ * test run staged in the scratch for its build - runs in that module's. One in the scratch alone
+ * runs in whichever VM the project has, the job's own first. Outside any `plain_modules`, the
+ * folder is a VM of its own, holding just that.
+ */
+function vmFor(dir: string, forDir?: string): { project: string; key: string; mounts: string[] } {
+  const project = modulesRootOf(dir);
+  if (basename(project) !== MODULES_DIR) return { project, key: project, mounts: [project] };
+  const scratch = vmScratchDir(project);
+  const inside = relative(project, resolve(forDir ?? dir)).split(sep)[0];
+  if (inside && inside !== ".." && inside !== basename(scratch)) {
+    const module = join(project, inside);
+    return { project, key: module, mounts: [module, scratch] };
+  }
+  const own = lease.getStore()?.get(project);
+  const existing = own !== undefined && pool.has(own) ? own : [...pool.keys()].find((key) => pool.get(key)!.project === project);
+  if (existing !== undefined) return { project, key: existing, mounts: [] };
+  return { project, key: scratch, mounts: [scratch] };
+}
+
+async function start(project: string, mounts: string[]): Promise<VM> {
+  const cache = packageCacheDir(project);
+  ensureInVmScratch(project, join(cache, "apk"));
   const image = vmImage();
   const started = Date.now();
-  reportActivity(`  starting the sandbox VM (${image ? image.tag : "stock image"}) - the first command of a session waits for it`);
+  const holds = mounts.map((mount) => relative(dirname(project), mount)).join(" and ");
+  reportActivity(`  starting the sandbox VM for ${holds} (${image ? image.tag : "stock image"}) - the first command waits for it`);
   const { httpHooks } = createHttpHooks({ allowedHosts: allowedHosts() });
   const vm = await VM.create({
-    vfs: { mounts: { [root]: new ExecutableFSProvider(root) } },
+    vfs: { mounts: Object.fromEntries(mounts.map((mount) => [mount, new ExecutableFSProvider(mount)])) },
     httpHooks,
     sessionLabel: "plainwright",
     memory: VM_MEMORY,
@@ -223,28 +316,58 @@ async function start(root: string): Promise<VM> {
   // Alpine keeps what it downloads when /etc/apk/cache exists, so the packages installed
   // again at every start come from the project's cache rather than the network.
   const setup = [`ln -sfn ${join(cache, "apk")} /etc/apk/cache`];
-  const packages = systemPackages(root);
+  const packages = systemPackages(project);
   if (packages.length > 0) {
     reportActivity(`  installing the project's system packages again: ${packages.join(", ")}`);
     setup.push(`apk add --no-progress ${packages.join(" ")}`);
   }
-  await exec(vm, setup.join(" && "), { cwd: root, env: guestEnv(cache) });
+  await exec(vm, setup.join(" && "), { cwd: mounts[0]!, env: guestEnv(cache) });
   reportActivity(`  sandbox VM ready after ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return vm;
 }
 
-async function acquire(dir: string): Promise<{ vm: VM; root: string }> {
-  const root = modulesRootOf(dir);
-  let vm = pool.get(root);
-  if (vm === undefined) {
-    vm = start(root);
-    pool.set(root, vm);
+/**
+ * The VM for a command, counted as running one until `done` is called. The job it runs for holds
+ * it from now on; the project's other idle VMs are shut down - it has moved on.
+ */
+async function acquire(dir: string, forDir?: string): Promise<{ vm: VM; project: string; done: () => void }> {
+  const { project, key, mounts } = vmFor(dir, forDir);
+  let entry = pool.get(key);
+  if (entry === undefined) {
+    const created: PoolEntry = { project, vm: start(project, mounts), holders: 0, running: 0 };
+    entry = created;
+    pool.set(key, created);
     // A VM that failed to start is not kept: the next command tries again.
-    vm.catch(() => pool.delete(root));
+    created.vm.catch(() => {
+      if (pool.get(key) === created) pool.delete(key);
+    });
   }
+  const current = entry;
+  clearTimeout(current.idle);
+  current.idle = undefined;
+  current.running += 1;
+
+  const held = lease.getStore();
+  const previous = held?.get(project);
+  if (held !== undefined && previous !== key) {
+    held.set(project, key);
+    current.holders += 1;
+    if (previous !== undefined) letGo(previous);
+  }
+  for (const [other, candidate] of pool) {
+    if (other !== key && candidate.project === project && isIdle(candidate)) void shutDown(other);
+  }
+
+  let finished = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    current.running -= 1;
+  };
   try {
-    return { vm: await vm, root };
+    return { vm: await current.vm, project, done };
   } catch (error) {
+    done();
     throw new Error(
       `The command could not be run: its sandbox VM did not start (${error instanceof Error ? error.message : String(error)}). ` +
         "Commands are only ever run inside one. Run `plainwright doctor` to see what is missing.",
@@ -323,14 +446,19 @@ export async function runInVm(
     signal?: AbortSignal;
     onData?: (data: Buffer) => void;
     env?: Record<string, string>;
+    /** The module folder the command is for, when `cwd` is a copy in the scratch: its VM runs it. */
+    for?: string;
   },
 ): Promise<VmRunResult> {
-  const { vm, root } = await acquire(options.cwd);
+  const { vm, project, done } = await acquire(options.cwd, options.for);
   const timeoutMs = options.timeoutMs ?? COMMAND_TIMEOUT_MS;
   const signals = [options.signal, currentStopSignal()].filter((signal): signal is AbortSignal => signal !== undefined);
   // Stopped while the VM was starting: the command is not started at all. (An abort that has
   // already happened fires no event, so nothing below would ever end it.)
-  if (signals.some((signal) => signal.aborted)) throw new Error("aborted");
+  if (signals.some((signal) => signal.aborted)) {
+    done();
+    throw new Error("aborted");
+  }
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   for (const signal of signals) signal.addEventListener("abort", onAbort, { once: true });
@@ -343,7 +471,7 @@ export async function runInVm(
   try {
     return await exec(vm, command, {
       cwd: resolve(options.cwd),
-      env: guestEnv(packageCacheDir(root), options.env),
+      env: guestEnv(packageCacheDir(project), options.env),
       signal: controller.signal,
       onData: (data) => {
         output += data.toString("utf8");
@@ -361,6 +489,7 @@ export async function runInVm(
   } finally {
     clearTimeout(timer);
     for (const signal of signals) signal.removeEventListener("abort", onAbort);
+    done();
   }
 }
 
@@ -397,7 +526,7 @@ export async function installSystemPackages(
   const invalid = names.filter((name) => !PACKAGE_NAME.test(name));
   if (invalid.length > 0) return { exitCode: 1, output: `Not an Alpine package name: ${invalid.join(", ")}` };
   const root = modulesRootOf(dir);
-  const result = await runInVm(`apk add --no-progress ${names.join(" ")}`, { cwd: root, ...options });
+  const result = await runInVm(`apk add --no-progress ${names.join(" ")}`, { cwd: dir, ...options });
   if (result.exitCode === 0) {
     const all = [...new Set([...systemPackages(root), ...names])].sort();
     writeFileSync(packagesFile(root), `${JSON.stringify({ packages: all }, null, 2)}\n`);
@@ -407,7 +536,9 @@ export async function installSystemPackages(
 
 /** What an agent is told about where its commands run. */
 export function vmEnvironmentNote(): string {
-  const where = "Commands run in an Alpine Linux VM that holds only plain_modules; nothing else of the machine exists in it.";
+  const where =
+    "Commands run in an Alpine Linux VM that holds only this module's folder in plain_modules, and plain_modules/.plainwright; " +
+    "nothing else of the machine exists in it - not the other modules either.";
   const network = "The network reaches the package registries only.";
   if (vmImage() === undefined) {
     // The stock image: say what it cannot do, so a project it cannot build is reported, not fought.
@@ -461,15 +592,18 @@ export function vmSummary(): { level: "ok" | "limited" | "missing"; text: string
 }
 
 /** Whether a VM can be started on this machine: Apple Silicon, or Linux. */
+/** What has a VM running or starting: module folders, mostly - one per project at a time. */
+export function runningVms(): string[] {
+  return [...pool.keys()];
+}
+
 export function vmSupported(): boolean {
   return (process.platform === "darwin" && process.arch === "arm64") || process.platform === "linux";
 }
 
 /** Close every VM. Called as the process ends; they would otherwise outlive it. */
 export async function closeAllVms(): Promise<void> {
-  const vms = [...pool.values()];
-  pool.clear();
-  await Promise.all(vms.map((vm) => vm.then((v) => v.close()).catch(() => {})));
+  await Promise.all([...pool.keys()].map(shutDown));
 }
 
 /**

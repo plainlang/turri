@@ -70,9 +70,9 @@ export function shownOutput(dir: string, label: string, output: string): string 
 /**
  * Run a command an agent chose, from `cwd`.
  *
- * In the project's VM, which holds only plain_modules (see `vm.ts`), so running the tests
- * cannot be used to read the specification, the rest of the project, or anything else on the
- * machine.
+ * In its module's VM, which holds only that module's folder and the VM scratch (see `vm.ts`), so
+ * running the tests cannot be used to read the specification, the other modules, the rest of the
+ * project, or anything else on the machine.
  */
 export async function runCommand(cwd: string, command: string): Promise<{ exitCode: number; output: string }> {
   const { exitCode, output } = await runInVm(command, { cwd, timeoutMs: RUN_TIMEOUT_MS });

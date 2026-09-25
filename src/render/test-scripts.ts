@@ -296,13 +296,15 @@ export function setScriptTimeoutForTests(ms: number | undefined): void {
   scriptTimeoutMs = ms ?? COMMAND_TIMEOUT_MS;
 }
 
-async function runStaged(root: string, script: string, args: string[]): Promise<ScriptRun> {
+async function runStaged(root: string, script: string, args: string[], buildDir: string): Promise<ScriptRun> {
   const copy = stageScript(script, root);
   const timeoutMs = scriptTimeoutMs;
   const started = Date.now();
   reportActivity(`  ▶ ${shown(script)} in the VM (limit ${Math.round(timeoutMs / 1000)}s)`);
   const { exitCode, output, timedOut } = await runInVm(`bash ${[copy, ...args].map(quote).join(" ")}`, {
     cwd: root,
+    // In the VM of the module it tests, rather than one of its own.
+    for: buildDir,
     timeoutMs,
     timeoutNote: (ms) => `\n[stopped after ${Math.round(ms / 1000)}s, the time limit for a test run: counted as failed]`,
   });
@@ -393,7 +395,7 @@ export async function runUnitScript(buildDir: string, script: string): Promise<S
   ensureInVmScratch(buildDir, staging.root);
   try {
     reportActivity(`  staging ${stageBuild(buildDir, staging.build)} files of the code for the unit testing script`);
-    return await runStaged(staging.root, script, [staging.build]);
+    return await runStaged(staging.root, script, [staging.build], buildDir);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }
@@ -427,7 +429,7 @@ export async function runConformanceScript(buildDir: string, testsDirs: string[]
     const code = stageBuild(buildDir, staging.build);
     const tests = stageTests(testsDirs, staging.tests);
     reportActivity(`  staging ${code} files of the code and the whole conformance suite (${tests} files) for the conformance testing script`);
-    return await runStaged(staging.root, scripts.conformance, [staging.build, staging.tests]);
+    return await runStaged(staging.root, scripts.conformance, [staging.build, staging.tests], buildDir);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }

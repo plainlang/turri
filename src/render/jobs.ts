@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { withVmLease } from "./vm.ts";
 import { JobStoppedError, withActivity, type BuildingSpec, type TranscriptEntry, type UsageReport } from "./activity.ts";
 
 /**
@@ -226,10 +227,13 @@ export function createJobRegistry(options?: {
             job.waitingOn = [];
             changed();
           }
-          return withActivity(sink, () =>
-            input.run((delta) => {
-              job.tail = (job.tail + delta).slice(-tailChars);
-            }),
+          // The job holds the VMs it uses until it ends, and no longer.
+          return withVmLease(() =>
+            withActivity(sink, () =>
+              input.run((delta) => {
+                job.tail = (job.tail + delta).slice(-tailChars);
+              }),
+            ),
           );
         })
         .then(
