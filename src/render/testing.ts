@@ -83,7 +83,7 @@ export async function runCommand(cwd: string, command: string): Promise<{ exitCo
  * Never part of the codebase: version control, installed dependencies, tool caches, and the
  * harness's own bookkeeping. Installed dependencies alone can be tens of thousands of files.
  */
-const NOT_CODE = new Set([
+export const NOT_CODE = new Set([
   ".git",
   "node_modules",
   ".venv",
@@ -93,6 +93,8 @@ const NOT_CODE = new Set([
   ".mypy_cache",
   ".ruff_cache",
   ".plainwright",
+  "target",
+  ".cargo",
   // Working notes for the agents: not part of the codebase either (see notes.ts).
   NOTES_FILE,
   STATE_FILE,

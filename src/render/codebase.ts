@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getFrids, type MarshalledPlainSource } from "../plain/spec.ts";
 import { readState } from "./state.ts";
-import { listFiles } from "./testing.ts";
+import { listFiles, NOT_CODE } from "./testing.ts";
 
 /**
  * What a render agent is told about the code before it starts.
@@ -65,7 +65,8 @@ function fileTree(files: string[]): string[] {
 }
 
 function list(files: string[]): string {
-  return files.join(", ");
+  if (files.length <= 20) return files.join(", ");
+  return `${files.slice(0, 15).join(", ")} and ${files.length - 15} more`;
 }
 
 /**
@@ -97,10 +98,15 @@ export function codebaseMap(tree: MarshalledPlainSource, buildDir: string, frid?
   const unrecorded = entries.filter((entry) => entry.files === undefined).map((entry) => entry.label);
   const where = entries.flatMap(({ label, files: recorded }) => {
     if (recorded === undefined) return [];
+    const filterIgnored = (files: string[]) =>
+      files.filter((file) => !NOT_CODE.has(file.split("/")[0]));
+    const added = filterIgnored(recorded.added);
+    const changed = filterIgnored(recorded.changed);
+    const removed = filterIgnored(recorded.removed);
     const parts = [
-      recorded.added.length > 0 ? `added ${list(recorded.added)}` : "",
-      recorded.changed.length > 0 ? `changed ${list(recorded.changed)}` : "",
-      recorded.removed.length > 0 ? `removed ${list(recorded.removed)}` : "",
+      added.length > 0 ? `added ${list(added)}` : "",
+      changed.length > 0 ? `changed ${list(changed)}` : "",
+      removed.length > 0 ? `removed ${list(removed)}` : "",
     ].filter(Boolean);
     return [`  ${label}: ${parts.length > 0 ? parts.join("; ") : "no file changes"}`];
   });

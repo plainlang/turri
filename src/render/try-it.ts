@@ -174,7 +174,20 @@ export function failedStepsPrompt(tryIt: TryIt, outputs: Map<string, string>): s
 }
 
 /** What is not copied: caches, installed dependencies, and the harness's own bookkeeping. */
-const NOT_COPIED = new Set([".git", ".plainwright", NOTES_FILE, "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", STATE_FILE]);
+const NOT_COPIED = new Set([
+  ".git",
+  ".plainwright",
+  NOTES_FILE,
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  "target",
+  ".cargo",
+  STATE_FILE,
+]);
 
 /**
  * A fresh copy of the build to try it from, replacing any earlier copy for this functionality.
