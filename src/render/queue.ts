@@ -3,7 +3,7 @@ import { basename } from "node:path";
 import { plainFileParser } from "../plain/parser.ts";
 import { pendingFrids, staleFrids } from "./state.ts";
 import { describeDelivery } from "./delivery.ts";
-import { defaultBuildDir, modulesRoot } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, projectDirOf } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { readProjectConfig } from "../config.ts";
 import { findTestScripts, projectRootFor, withoutConformance } from "./test-scripts.ts";
@@ -91,11 +91,11 @@ export function createRenderQueue(options: {
    * The model for a kind of work, asked when a job is queued - so a job keeps the model it was
    * asked with, and one queued after the person chose another model gets that one.
    */
-  modelFor?: (work: RenderWork) => string | undefined;
+  modelFor?: (work: RenderWork, plainFile?: string) => string | undefined;
   /** Defaults to actually rendering. */
   run?: RenderRunner;
 }): RenderQueue {
-  const modelOf = (work: RenderWork) => (options.modelFor ? options.modelFor(work) : options.model);
+  const modelOf = (work: RenderWork, plainFile?: string) => (options.modelFor ? options.modelFor(work, plainFile) : options.model);
   const runner: RenderRunner = options.run ?? defaultRunner(options);
   const queued: QueuedRender[] = [];
   const jobs = new Map<string, Job>();
@@ -109,7 +109,7 @@ export function createRenderQueue(options: {
   return {
     enqueueSpecDiff(request) {
       const plainFile = resolve(options.cwd, request.plainFile);
-      const model = modelOf("spec_changes");
+      const model = modelOf("spec_changes", plainFile);
       const job = options.registry.start({
         kind: "render_spec_diff",
         summary: `${basename(plainFile)} render spec diff`,
@@ -124,7 +124,7 @@ export function createRenderQueue(options: {
             diff: request.diff,
             cwd: options.cwd,
             // Off when the project's config.yaml turns conformance off; otherwise as its test reqs say.
-            conformance: conformanceOff(options.cwd) ? false : undefined,
+            conformance: conformanceOff(projectDirOf(plainFile)) ? false : undefined,
             model,
             applied: request.applied,
             spec: request.spec,
@@ -142,7 +142,7 @@ export function createRenderQueue(options: {
 
     enqueue(request) {
       const plainFile = resolve(options.cwd, request.plainFile);
-      const model = request.model ?? modelOf("functionalities");
+      const model = request.model ?? modelOf("functionalities", plainFile);
 
       const job = options.registry.start({
         kind: request.regenerate ? "regenerate" : "render",
@@ -174,7 +174,7 @@ export function createRenderQueue(options: {
         return [];
       }
 
-      const target = buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, options.cwd);
+      const target = buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(plainFile));
 
       // Something already waiting to be built will pick up the current spec when it runs,
       // so re-queueing it would render the same thing twice.
@@ -202,7 +202,7 @@ export function createRenderQueue(options: {
         // Not a buildable module - an import module, or one that does not parse yet.
         return [];
       }
-      const target = buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, options.cwd);
+      const target = buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(plainFile));
       const regenerated = this.requeueStale(file, buildDir);
       const fresh = pendingFrids(tree, target)
         .filter((entry) => entry.reason === "never built" && this.inFlight(file, entry.frid) === undefined)
@@ -251,7 +251,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
   return async (request, onDelta) => {
     // Off when the project's config.yaml turns conformance off - read for each build, so an edit
     // to the file holds for the next one.
-    const off = conformanceOff(options.cwd);
+    const off = conformanceOff(projectDirOf(resolve(options.cwd, request.plainFile)));
     const common = {
       plainFile: request.plainFile,
       frid: request.frid,
@@ -275,7 +275,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
     // its job stopped, or never queued - is built first, in order. Otherwise the render would
     // be told they are implemented when they are not.
     const [moduleName, tree] = plainFileParser(basename(request.plainFile), resolveTemplateDirs(request.plainFile));
-    const target = options.buildDir ?? defaultBuildDir(moduleName);
+    const target = options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(request.plainFile));
     const missing = pendingFrids(tree, target, request.frid).filter(
       (entry) => entry.reason === "never built" && entry.frid !== request.frid,
     );
@@ -294,7 +294,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
     const regression = result.passed
       ? await ensureRegressionPasses({
           buildDir: result.buildDir,
-          conformanceRoot: modulesRoot(options.cwd),
+          conformanceRoot: modulesRoot(projectDirOf(request.plainFile)),
           moduleName,
           frids: [...getFrids(tree)].slice(0, [...getFrids(tree)].indexOf(request.frid) + 1),
           tree,

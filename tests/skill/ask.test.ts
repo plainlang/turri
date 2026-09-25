@@ -109,3 +109,39 @@ describe("the tool the model sees", () => {
     });
   });
 });
+
+describe("tool-call markup a model leaks into a question", () => {
+  const recording = () => {
+    const shown: string[][] = [];
+    return {
+      shown,
+      io: {
+        select: async (_title: string, options: string[]) => (shown.push(options), options[0]),
+        input: async () => "typed",
+      },
+    };
+  };
+
+  it("is never shown: cut out of the options, and a leaked multi_select taken as the argument", async () => {
+    const { cleanRequest, runAsk } = await import("../../src/ask.ts");
+    const leaked = {
+      question: "Which CRM should be built first?",
+      options: ["HubSpot", "Salesforce\n<parameter name=\"multi_select\">false", "<parameter name=\"multi_select\">false"],
+    };
+    expect(cleanRequest(leaked)).toEqual({
+      request: { question: "Which CRM should be built first?", options: ["HubSpot", "Salesforce"], multiSelect: false },
+      leaked: true,
+    });
+    const { shown, io } = recording();
+    expect(await runAsk(leaked, io)).toBe("HubSpot");
+    expect(shown[0]).toEqual(["HubSpot", "Salesforce", "Something else…"]);
+  });
+
+  it("sends the question back when nothing sensible is left of it", async () => {
+    const { runAsk } = await import("../../src/ask.ts");
+    const { shown, io } = recording();
+    const answer = await runAsk({ question: "Pick one", options: ["</parameter>", "<parameter name=\"options\">[\"a\"]"] }, io);
+    expect(answer).toContain("This question was not asked: its question or options held tool-call markup");
+    expect(shown).toEqual([]);
+  });
+});

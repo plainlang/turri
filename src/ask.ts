@@ -44,7 +44,42 @@ export function missingOptions(request: AskUserRequest): string | null {
   );
 }
 
-export async function runAsk(request: AskUserRequest, io: AskUserIO): Promise<string> {
+/**
+ * A model's own tool-call syntax, leaked into an argument: `<parameter name="multi_select">false`
+ * written inside an option instead of as the argument it is. Never shown to the person.
+ */
+const TOOL_MARKUP = /<\/?(?:antml:)?(?:parameter|invoke|function_calls|function|tool_call|arg_key|arg_value)\b[^>]*>/i;
+
+/**
+ * The request as the person should see it: tool-call markup cut out of the question and the
+ * options - an option that was nothing but markup dropped - and a `multi_select` that leaked into
+ * the text taken as the argument it was meant to be. `leaked` when there was any.
+ */
+export function cleanRequest(request: AskUserRequest): { request: AskUserRequest; leaked: boolean } {
+  let leaked = false;
+  let multiSelect = request.multiSelect;
+  const clean = (text: string): string => {
+    const flag = /<(?:antml:)?parameter\s+name="multi_select"\s*>\s*(true|false)/i.exec(text);
+    if (flag && multiSelect === undefined) multiSelect = flag[1]!.toLowerCase() === "true";
+    const at = text.search(TOOL_MARKUP);
+    if (at === -1) return text.trim();
+    leaked = true;
+    return text.slice(0, at).trim();
+  };
+  const question = clean(request.question);
+  const options = request.options === undefined ? undefined : [...new Set(request.options.map(clean).filter((option) => option !== ""))];
+  return { request: { ...request, question, options, multiSelect }, leaked };
+}
+
+export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<string> {
+  const { request, leaked } = cleanRequest(asked);
+  // What was left once the markup was cut out is not a question worth putting to anyone.
+  if (leaked && (request.question === "" || (request.options?.length === 0 && request.freeForm !== true))) {
+    return (
+      "This question was not asked: its question or options held tool-call markup (<parameter ...>) " +
+      "instead of text. Call ask_user again, with question, options and multi_select as separate arguments."
+    );
+  }
   const refusal = missingOptions(request);
   if (refusal !== null) return refusal;
 

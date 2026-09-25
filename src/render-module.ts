@@ -1,4 +1,5 @@
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
+import { projectDirOf } from "./render/paths.ts";
 import { c, reportEvent } from "./module-report.ts";
 import { renderChain, describeChainStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
@@ -67,6 +68,8 @@ async function main() {
     console.error(`${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`);
     process.exit(1);
   }
+  // The rest from the spec's own project - which may be a folder below this one.
+  const project = { ...config, ...Object.fromEntries(Object.entries(readProjectConfig(projectDirOf(plainFile))).filter(([, v]) => v !== undefined)) };
 
   const result = await renderChain({
     plainFile,
@@ -75,7 +78,7 @@ async function main() {
     skipRequires: options.only !== undefined,
     tryIt: options["try-it"] !== undefined,
     conformance:
-      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : config.conformanceTests,
+      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : project.conformanceTests,
     onChainEvent: (event) => {
       if (event.type === "chain") {
         console.log(`\n${c.bold("build chain")}\n${describeChain(event.chain)}`);
@@ -93,7 +96,7 @@ async function main() {
     to: options.to,
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
-    model: options.model ?? config.codingModel,
+    model: options.model ?? project.codingModel,
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])
       : undefined,

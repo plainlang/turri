@@ -18,7 +18,7 @@ import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
-import { modulesRoot, specChangeTryDirFor } from "./paths.ts";
+import { modulesRoot, specChangeTryDirFor, projectDirOf } from "./paths.ts";
 import { describeTryIt } from "./delivery.ts";
 import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
@@ -369,7 +369,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     return { ...base, passed: false, stoppedAt: "unit tests" };
   }
 
-  const conformanceRoot = modulesRoot(cwd);
+  const conformanceRoot = modulesRoot(projectDirOf(tip.plainFile));
   // Conformance tests are written for functionalities; a change with none to test writes
   // none, but still keeps the existing ones passing.
   const hasTestReqs = specifications[TEST_REQUIREMENTS].length > 0;

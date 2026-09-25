@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
 /**
@@ -35,6 +35,21 @@ export function defaultTestsDir(moduleName: string, cwd: string = process.cwd())
  * Callers override this to build somewhere else - a sandbox, a test fixture - and the
  * layout underneath it stays the same.
  */
+/**
+ * The project a spec belongs to: the nearest folder, from the spec's own up, that holds a
+ * `config.yaml` or a `plain_modules` - where its code is built, its config read, its testing
+ * scripts found. Without either, the spec's own folder. So `plain/hubspot.plain`, beside
+ * `plain/config.yaml` and `plain/plain_modules`, is built there, wherever plainwright was started;
+ * specs at the root of their project are built where they always were.
+ */
+export function projectDirOf(plainFile: string): string {
+  const start = dirname(resolve(plainFile));
+  for (let dir = start; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "config.yaml")) || existsSync(join(dir, MODULES_DIR))) return dir;
+    if (dirname(dir) === dir) return start;
+  }
+}
+
 export function modulesRoot(cwd: string = process.cwd()): string {
   return join(cwd, MODULES_DIR);
 }
@@ -111,6 +126,32 @@ export function scratchDir(dir: string): string {
   const index = parts.lastIndexOf(MODULES_DIR);
   const project = index === -1 ? dirname(resolve(dir)) : parts.slice(0, index).join(sep);
   return join(project, ".plainwright");
+}
+
+/**
+ * Where a skill run keeps its state - the manifest an interrupted run resumes from, the evidence
+ * each phase's gate is judged on: `.plainwright/runs/<skill>` in the project, beside the rest of
+ * plainwright's scratch, ignored by the project's history like it.
+ *
+ * Runs were kept in `.forge/run` before. One found there is moved here, so an interrupted
+ * interview can still be resumed, and `.forge` goes once nothing is left in it.
+ */
+export function skillRunDir(cwd: string, skillName: string): string {
+  const scratch = join(resolve(cwd), ".plainwright");
+  const dir = join(scratch, "runs", skillName);
+  const legacy = join(resolve(cwd), ".forge", "run", skillName);
+  if (!existsSync(dir) && existsSync(legacy)) {
+    mkdirSync(dirname(dir), { recursive: true });
+    renameSync(legacy, dir);
+  }
+  for (const empty of [join(resolve(cwd), ".forge", "run"), join(resolve(cwd), ".forge")]) {
+    try {
+      if (existsSync(empty) && readdirSync(empty).length === 0) rmdirSync(empty);
+    } catch {
+      // Left as it is: a folder that cannot be removed does no harm.
+    }
+  }
+  return ensureInScratch(scratch, dir);
 }
 
 /** Make `path`, inside a scratch dir, and see that the scratch dir ignores itself. Returns `path`. */

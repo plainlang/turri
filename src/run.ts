@@ -1,8 +1,9 @@
 import { createInterface } from "node:readline/promises";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { describeGates, runSkill } from "./forge.ts";
 import type { Decision, Reporter } from "./graph.ts";
 import { runAsk } from "./ask.ts";
+import { skillRunDir } from "./render/paths.ts";
 import { loadSkill } from "./skill.ts";
 
 const c = {
@@ -73,7 +74,7 @@ async function main() {
   const result = await runSkill({
     skillDir: skillArg,
     cwd,
-    runDir: resolve(cwd, ".forge/run"),
+    runDir: skillRunDir(cwd, skill.name),
     model,
     report: reporter,
     // The CLI has no dialogs, so options are numbered and either the number or the text
@@ -108,7 +109,7 @@ async function main() {
 
   console.log(
     `\n${result.ok ? c.green(c.bold("run complete")) : c.red(c.bold("run aborted at a gate"))} ${c.dim(
-      "artifacts in .forge/run",
+      `artifacts in ${relative(cwd, skillRunDir(cwd, skill.name))}`,
     )}`,
   );
   process.exit(result.ok ? 0 : 1);

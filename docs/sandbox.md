@@ -10,7 +10,11 @@ a VM that holds nothing else.
 
 Every agent - render, conformance author, code fixer, regression repair - reads and writes the
 whole of `plain_modules`, every module's code and tests, and nothing above it. The specs it is
-building from reach it only through the prompt the harness writes.
+building from reach it only through the prompt the harness writes. Nor does any context file: pi puts
+every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt, and plainwright
+turns that off for every agent it starts - so the project's own `AGENTS.md`, or yours in
+`~/.pi/agent`, never reaches a rendering agent, a judge or a skill's agent. The conversation you
+talk to still loads them, as pi does.
 
 ## File tools
 

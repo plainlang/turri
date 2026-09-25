@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { extname, isAbsolute, basename } from "node:path";
+import { extname, isAbsolute, basename, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
 import {
   extractConceptsFromDefinition,
@@ -86,7 +86,21 @@ function hasScheme(target: string): boolean {
   return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target);
 }
 
-export function checkSectionForLinkedResources(section: AnyNode): void {
+/**
+ * A link's file: found where resources are loaded from - the spec's own folder first, then the
+ * other template folders - or else from the current directory, as the reference parser has it.
+ * Links are relative to the spec, so a spec in a subfolder is checked where it is, wherever
+ * plainwright was started.
+ */
+function linkedFile(target: string, dirs: string[]): string {
+  for (const dir of dirs) {
+    const candidate = resolve(dir, target);
+    if (existsSync(candidate)) return candidate;
+  }
+  return target;
+}
+
+export function checkSectionForLinkedResources(section: AnyNode, dirs: string[] = []): void {
   const linkedResources: LinkedResource[] = [];
 
   for (const link of traverse(section, "link")) {
@@ -100,11 +114,12 @@ export function checkSectionForLinkedResources(section: AnyNode): void {
       );
     }
 
-    if (!existsSync(target)) {
+    const file = linkedFile(target, dirs);
+    if (!existsSync(file)) {
       throw new PlainSyntaxError(`Plain syntax error: Link ${target} does not exist.`);
     }
 
-    if (!statSync(target).isFile()) {
+    if (!statSync(file).isFile()) {
       throw new PlainSyntaxError(`Plain syntax error: Link ${target} must be a file.`);
     }
 
@@ -128,14 +143,14 @@ export function checkSectionForLinkedResources(section: AnyNode): void {
   if (linkedResources.length > 0) section.linked_resources = linkedResources;
 }
 
-export function checkForLinkedResources(plainSource: ParsedPlainSource): void {
+export function checkForLinkedResources(plainSource: ParsedPlainSource, dirs: string[] = []): void {
   for (const heading of ALLOWED_SPECIFICATION_HEADINGS) {
     const section = plainSource[heading];
     if (!section) continue;
     for (const requirement of section.children) {
-      checkSectionForLinkedResources(requirement);
+      checkSectionForLinkedResources(requirement, dirs);
       for (const acceptanceTest of requirement[ACCEPTANCE_TESTS] ?? []) {
-        checkSectionForLinkedResources(acceptanceTest);
+        checkSectionForLinkedResources(acceptanceTest, dirs);
       }
     }
   }
@@ -868,7 +883,7 @@ function parseModule(
   const exportedDefinitions = processRequiredModules(result.requiredModules, {}, templateDirs, [], []);
   processExportedDefinitions(result.plainSource, exportedDefinitions);
   processAcceptanceTests(result.plainSource);
-  checkForLinkedResources(result.plainSource);
+  checkForLinkedResources(result.plainSource, templateDirs);
 
   const marshalled = marshallPlainSource(result.plainSource);
   processCodeVariables(marshalled, codeVariables);

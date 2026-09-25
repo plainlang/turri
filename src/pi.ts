@@ -60,13 +60,20 @@ const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge"
  * later. That copy then outlives its session in module state and breaks the next one. A
  * sub-agent is given exactly what it needs instead; for agents that work on specs, that
  * includes the ***plain rules, which otherwise only reached them through that stray copy.
+ *
+ * Nor any context file. pi puts every AGENTS.md / CLAUDE.md from the agent's folder up - the
+ * project's, the user's ~/.pi/agent one - into its system prompt; a rendering agent works in
+ * plain_modules/<module>/code, so it would be given whatever the project says about itself. An
+ * agent plainwright starts sees only what plainwright gives it. The conversation still loads
+ * them, as pi does.
  */
-async function subAgentResources(cwd: string, withRules: boolean): Promise<DefaultResourceLoader> {
+export async function subAgentResources(cwd: string, withRules: boolean): Promise<DefaultResourceLoader> {
   const rules = withRules ? renderRulesBlock(loadRules(RULES_DIR)) : "";
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: getAgentDir(),
     noExtensions: true,
+    noContextFiles: true,
     appendSystemPrompt: rules !== "" ? [rules] : undefined,
   });
   await loader.reload();

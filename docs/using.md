@@ -36,6 +36,8 @@ where it stopped.
 | `render_conformance_tests` | write and run black-box tests for a functionality |
 | `check_plain` | validate a spec without rendering |
 | `set_render_model` | choose the model renders run on - see [below](#choosing-a-model) |
+| `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |
+| `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
 | `check_job`, `list_jobs`, `stop_job` | the background jobs |
 | `module_history` | what each render, regeneration and conformance run changed in a module |
 

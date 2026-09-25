@@ -8,7 +8,10 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
+import { projectDirOf, skillRunDir } from "./render/paths.ts";
 import { findTestScripts } from "./render/test-scripts.ts";
+import { createAskUserTool } from "./tools.ts";
+import { createWebTools } from "./render/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
@@ -116,6 +119,29 @@ function askUserVia(
     } finally {
       ctx.ui.setWorkingMessage();
     }
+  };
+}
+
+/**
+ * ask_user, for the conversation's agent too - the same dialog a skill's interview uses: options to
+ * pick from, several at once, "Something else…" to type instead - so a question with a handful of
+ * answers is picked, not typed.
+ */
+export function chatAskUserTool() {
+  let conversation: ExtensionContext | undefined;
+  const tool = createAskUserTool((request) =>
+    conversation !== undefined ? askUserVia(conversation, () => {})(request) : Promise.resolve("No user is available to answer."),
+  );
+  return {
+    ...tool,
+    promptGuidelines: [
+      ...(tool.promptGuidelines ?? []),
+      "When a question to the user has a handful of plausible answers - a choice, yes or no, which of these - ask it with ask_user and offer them as options, rather than in your reply.",
+    ],
+    async execute(...args: Parameters<typeof tool.execute>) {
+      conversation = args[4] as ExtensionContext;
+      return tool.execute(...args);
+    },
   };
 }
 
@@ -280,7 +306,7 @@ export default function (pi: ExtensionAPI) {
 
       // A new run clears the run folder. An interrupted one is not thrown away by accident:
       // whether to pick it up or start over is the user's call.
-      const runDir = resolve(cwd, ".forge/run", skill.name);
+      const runDir = skillRunDir(cwd, skill.name);
       const interrupted = interruptedRun(runDir, skill.name);
       if (interrupted !== undefined && params.resume !== true && params.fresh !== true) {
         return {
@@ -343,10 +369,10 @@ export default function (pi: ExtensionAPI) {
         // Renders queued by a step land in the same registry as everything else, so
         // check_job and list_jobs see them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
-        renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work) => modelFor(chosenModels, work, projectModel(ctx) ?? chatModelOf(ctx)) }),
+        renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(ctx, plainFile) ?? chatModelOf(ctx)) }),
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
-        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderConformanceTestsTool(cwd, jobs, ctx)],
+        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderConformanceTestsTool(cwd, jobs, ctx), ...createWebTools()],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -419,7 +445,7 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const plainFile = resolve(cwd, params.plain_file);
-      const model = jobModel(ctx, "functionalities", params.model);
+      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
 
       if (params.frid === undefined) {
         const { moduleName, frids } = listFrids(plainFile);
@@ -452,7 +478,7 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
             tryIt: params.try_it ?? true,
-            conformance: conformanceOption(params.conformance),
+            conformance: conformanceOption(params.conformance, params.plain_file),
             onDelta,
           });
           return {
@@ -555,7 +581,7 @@ function renderConformanceTestsTool(cwd: string, jobs: JobRegistry, conversation
     }),
     async execute(_id, params, _signal, onUpdate, called) {
       const ctx = conversation ?? called;
-      const model = jobModel(ctx, "functionalities", params.model);
+      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       const scope = params.chain
         ? "whole chain"
         : params.frids !== undefined
@@ -703,7 +729,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       const named = given.plain_file ?? readProjectConfig(cwd).module;
       if (named === undefined) throw new Error(`Name the .plain file to build, or set module: in ${CONFIG_FILE}.`);
       const params = { ...given, plain_file: named };
-      const model = jobModel(ctx, "functionalities", params.model);
+      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       return deliver(jobs, {
         kind: "render_module",
         summary: `${basename(params.plain_file)} module${params.from ? ` from fs ${params.from}` : ""}${params.to ? ` to fs ${params.to}` : ""}`,
@@ -758,7 +784,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
               force: params.force,
               model,
               tryIt: params.try_it === true,
-              conformance: conformanceOption(params.conformance),
+              conformance: conformanceOption(params.conformance, params.plain_file),
               onDelta,
               onChainEvent: (event) => {
                 progress.onChainEvent(event);
@@ -912,7 +938,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      const model = jobModel(ctx, "spec_changes", params.model);
+      const model = jobModel(ctx, "spec_changes", params.model, params.plain_file);
       const plainFile = resolve(cwd, params.plain_file);
       // Applied and parsed now, with the call: that parse is what the job builds and records,
       // whatever changes reach the files while it waits its turn.
@@ -937,7 +963,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
             applied,
             spec,
             tryIt: params.try_it ?? true,
-            conformance: conformanceOption(params.conformance),
+            conformance: conformanceOption(params.conformance, params.plain_file),
             model,
             onDelta,
           });
@@ -986,7 +1012,7 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       wait: WAIT_PARAM,
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      const model = jobModel(ctx, "functionalities", params.model);
+      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       const plainFile = resolve(cwd, params.plain_file);
       // The job writes the codebase it regenerates in, so it claims that chain's modules.
       let lanesFrom = plainFile;
@@ -1013,7 +1039,7 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
             // As the project's config.yaml says: off there, no conformance tests written or run.
-            conformance: conformanceOption(undefined),
+            conformance: conformanceOption(undefined, plainFile),
             onDelta,
           });
           return {
@@ -1063,10 +1089,15 @@ const CONFORMANCE_PARAM = Type.Optional(
  * config.yaml says (`conformance-tests:`), or else wherever a module has test reqs. Off means
  * off - none written, and none of the existing ones run.
  */
-function conformanceOption(asked: boolean | undefined): false | undefined {
+function conformanceOption(asked: boolean | undefined, plainFile?: string): false | undefined {
   if (asked === false) return false;
   if (asked === true) return undefined;
-  return readProjectConfig(process.cwd()).conformanceTests === false ? false : undefined;
+  return readProjectConfig(configDirFor(plainFile)).conformanceTests === false ? false : undefined;
+}
+
+/** Where the config.yaml for a spec is: its project's, or - with no spec - the session's folder. */
+function configDirFor(plainFile?: string): string {
+  return plainFile !== undefined ? projectDirOf(resolve(process.cwd(), plainFile)) : process.cwd();
 }
 
 /**
@@ -1075,26 +1106,44 @@ function conformanceOption(asked: boolean | undefined): false | undefined {
  * tools' defaults.
  */
 export function projectConfigBlock(root: string): string {
-  if (!existsSync(join(root, CONFIG_FILE))) return "";
-  const config = readProjectConfig(root);
-  const scripts = findTestScripts(root);
-  const lines = [
-    config.module !== undefined ? `- module: ${config.module} - the module to build when the user does not name one.` : undefined,
-    config.conformanceTests === false
-      ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
-      : config.conformanceTests === true
-        ? "- conformance-tests: true - conformance tests are on, for every module that has test reqs."
-        : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
-    config.codingModel !== undefined ? `- coding-model: ${config.codingModel} - what renders run on, unless set_render_model chose another in this session.` : undefined,
-    config.harnessModel !== undefined ? `- harness-model: ${config.harnessModel} - the model plainwright chat starts with.` : undefined,
-    `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : "none found - every build stops until there is one"}`,
-    `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : "none found"}`,
-  ].filter((line): line is string => line !== undefined);
+  // The session's folder, and the projects one folder down - specs kept in plain/, with its own
+  // config.yaml and plain_modules - which its specs are built in when named from here.
+  const projects = [
+    ...(existsSync(join(root, CONFIG_FILE)) ? [root] : []),
+    ...readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "plain_modules")
+      .map((entry) => join(root, entry.name))
+      .filter((dir) => existsSync(join(dir, CONFIG_FILE))),
+  ];
+  if (projects.length === 0) return "";
+
+  const describe = (dir: string): string[] => {
+    const config = readProjectConfig(dir);
+    const scripts = findTestScripts(dir);
+    const where = dir === root ? "" : ` (paths relative to ${relative(root, dir)}/)`;
+    return [
+      dir === root ? `${CONFIG_FILE}, for the specs here:` : `${relative(root, dir)}/${CONFIG_FILE}, for the specs in ${relative(root, dir)}/ - built in ${relative(root, dir)}/plain_modules:`,
+      ...[
+        config.module !== undefined ? `- module: ${config.module}${where} - the module to build when the user does not name one.` : undefined,
+        config.conformanceTests === false
+          ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
+          : config.conformanceTests === true
+            ? "- conformance-tests: true - conformance tests are on, for every module that has test reqs."
+            : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
+        config.codingModel !== undefined ? `- coding-model: ${config.codingModel} - what renders run on, unless set_render_model chose another in this session.` : undefined,
+        config.harnessModel !== undefined ? `- harness-model: ${config.harnessModel} - the model plainwright chat starts with.` : undefined,
+        `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : "none found - every build stops until there is one"}`,
+        `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : "none found"}`,
+      ].filter((line): line is string => line !== undefined),
+    ];
+  };
+
   return [
     `<project config>`,
-    `The project's ${CONFIG_FILE} sets how it is built. The render tools follow it; answer questions about the`,
-    "project's settings from it, and say when a render will differ from it because the user asked.",
-    ...lines,
+    `A project's ${CONFIG_FILE} sets how its specs are built. The render tools follow the one of the spec they build;`,
+    "answer questions about the project's settings from it, and say when a render will differ from it because the user",
+    "asked. Name a spec by its path from here - plain/hubspot.plain - and it is built in its own project.",
+    ...projects.flatMap((dir) => ["", ...describe(dir)]),
     `</project config>`,
   ].join("\n");
 }
@@ -1148,13 +1197,13 @@ const MODEL_CHOICE_ENTRY = "plainwright_render_models";
  * The model a render job runs on: the one asked for, or the one chosen in this session for its kind
  * of work, or the project's - `model:` in config.yaml - or the conversation's.
  */
-function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string): string | undefined {
+function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string, plainFile?: string): string | undefined {
   if (named !== undefined && named.trim() !== "") {
     const resolved = resolveModel(named, ctx.modelRegistry);
     if (!resolved.ok) throw new Error(describeResolution(resolved));
     return resolved.model;
   }
-  return modelFor(chosenModels, work, projectModel(ctx) ?? chatModelOf(ctx));
+  return modelFor(chosenModels, work, projectModel(ctx, plainFile) ?? chatModelOf(ctx));
 }
 
 /**
@@ -1162,10 +1211,10 @@ function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string): stri
  * --coding-model`, or `coding-model:` in the project's config.yaml - read afresh, so an edit to the
  * file holds for the next render.
  */
-function codingModelDefault(): { named: string; from: string } | undefined {
+function codingModelDefault(plainFile?: string): { named: string; from: string } | undefined {
   const flag = process.env[CODING_MODEL_ENV]?.trim();
   if (flag) return { named: flag, from: "--coding-model" };
-  const named = readProjectConfig(process.cwd()).codingModel;
+  const named = readProjectConfig(configDirFor(plainFile)).codingModel;
   return named !== undefined ? { named, from: CONFIG_FILE } : undefined;
 }
 
@@ -1173,8 +1222,8 @@ function codingModelDefault(): { named: string; from: string } | undefined {
  * The default coding model, resolved as a name the person said would be. One that cannot be used
  * says so, and where it came from, rather than running on something else.
  */
-function projectModel(ctx: ExtensionContext): string | undefined {
-  const given = codingModelDefault();
+function projectModel(ctx: ExtensionContext, plainFile?: string): string | undefined {
+  const given = codingModelDefault(plainFile);
   if (given === undefined) return undefined;
   const resolved = resolveModel(given.named, ctx.modelRegistry);
   if (!resolved.ok) {
@@ -1661,6 +1710,10 @@ function listJobs(jobs: JobRegistry): string {
  */
 function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
   pi.registerTool(checkPlainTool(cwd));
+  pi.registerTool(chatAskUserTool());
+  // The web, for the conversation too - a library's documentation, an API, an error; curl is its
+  // bash. Run here, like the rendering agents' (see render/web.ts).
+  for (const tool of createWebTools()) pi.registerTool(tool);
 }
 
 /** check_plain, for the conversation and for the skills that write specs alike. */

@@ -14,7 +14,7 @@ import {
 } from "./conformance.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
-import { defaultBuildDir, modulesRoot, projectRootOf } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, projectRootOf, projectDirOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -324,8 +324,8 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   const [moduleName, tree] = plainFileParser(basename(options.plainFile), templateDirs);
 
   const allFrids = [...getFrids(tree)];
-  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
-  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
+  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
+  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot(projectDirOf(options.plainFile)));
   // A module build starts from the last known good state of its codebase.
   startFromLastCommit(buildDir, moduleName);
 
@@ -575,8 +575,8 @@ export async function regenerateFunctionality(
       ? { moduleName: tip.moduleName, plainFile: tip.plainFile, buildDir: tip.buildDir }
       : undefined;
 
-  const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName));
-  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
+  const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
+  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot(projectDirOf(options.plainFile)));
 
   if (listFiles(buildDir).length === 0) {
     throw new Error(

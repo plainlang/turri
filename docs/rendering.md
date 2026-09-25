@@ -6,6 +6,13 @@ code or tests, and the harness decides what runs next and whether the work is do
 
 ## Where things go
 
+A spec is built in its **project**: the nearest folder, from the spec's own up, that holds a
+`config.yaml` or a `plain_modules/` - or, with neither, the spec's own folder. That is where its
+`plain_modules/` is, its `config.yaml` read and its testing scripts found, wherever plainwright was
+started: a project that keeps its specs in `plain/`, with `plain/config.yaml` and
+`plain/plain_modules/`, builds `plain/hubspot.plain` in `plain/plain_modules/hubspot/`, named from
+the folder above. Links in a spec are relative to the spec.
+
 | | |
 | --- | --- |
 | `plain_modules/<module>/code/` | the implementation and its unit tests |

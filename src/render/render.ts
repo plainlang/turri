@@ -12,7 +12,7 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
-import { defaultBuildDir, tryDirFor } from "./paths.ts";
+import { defaultBuildDir, tryDirFor, projectDirOf } from "./paths.ts";
 import { readState, recordFunctionality, recordRegeneration, specStateFor, STATE_FILE, type RequiredSpec } from "./state.ts";
 import { buildRegeneratePrompt, buildRenderPrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
@@ -162,7 +162,7 @@ export async function renderFunctionality(
   const host = options.regenerate?.in !== undefined && options.regenerate.in.moduleName !== moduleName
     ? options.regenerate.in
     : undefined;
-  const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName));
+  const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
   const stage = (label: string) => {
     if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
   };

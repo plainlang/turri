@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
-import { buildDirUnder, modulesRoot } from "./paths.ts";
+import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { inheritRecord, STATE_FILE, type RequiredSpec, type SharedSections } from "./state.ts";
@@ -53,7 +53,7 @@ export function resolveRequiresChain(
   options: ParseOptions = {},
 ): ChainEntry[] {
   const dirs = resolveTemplateDirs(plainFile, templateDirs);
-  const root = resolve(buildRoot ?? modulesRoot());
+  const root = resolve(buildRoot ?? modulesRoot(projectDirOf(plainFile)));
   const chain: ChainEntry[] = [];
   const seen = new Set<string>();
 

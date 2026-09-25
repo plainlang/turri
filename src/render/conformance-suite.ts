@@ -8,7 +8,7 @@ import { recordHistory } from "./history.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { findTestScripts, projectRootFor } from "./test-scripts.ts";
-import { modulesRoot } from "./paths.ts";
+import { modulesRoot, projectDirOf } from "./paths.ts";
 
 /**
  * Writing conformance tests for code that already exists.
@@ -140,7 +140,7 @@ export async function renderConformanceSuite(
     options.buildDir === undefined
       ? findCodebaseTip(options.plainFile, { templateDirs: options.templateDirs, inModule: options.inModule }).tip
       : undefined;
-  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot());
+  const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot(projectDirOf(options.plainFile)));
   const outcomes: ConformanceSuiteOutcome[] = [];
   const regression: Record<string, RegressionResult> = {};
   let passed = true;

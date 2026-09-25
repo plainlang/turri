@@ -25,7 +25,7 @@ import {
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
-import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
@@ -135,8 +135,8 @@ export async function renderConformanceTests(
     throw new Error(`Functionality ${frid} does not exist. Available: ${frids.join(", ")}.`);
   }
 
-  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
-  const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName));
+  const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
+  const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName, modulesRoot(projectDirOf(options.plainFile))));
   const stage = (label: string) => {
     if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
   };

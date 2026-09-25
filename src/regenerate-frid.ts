@@ -1,4 +1,5 @@
 import { readProjectConfig } from "./config.ts";
+import { projectDirOf } from "./render/paths.ts";
 import { c, reportEvent } from "./module-report.ts";
 import { regenerateFunctionality, describeRegenerationStop } from "./render/module.ts";
 
@@ -56,7 +57,7 @@ async function main() {
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
     // The project's config.yaml gives the default.
-    model: options.model ?? readProjectConfig(process.cwd()).codingModel,
+    model: options.model ?? readProjectConfig(projectDirOf(plainFile)).codingModel,
     inModule: options.in,
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])
