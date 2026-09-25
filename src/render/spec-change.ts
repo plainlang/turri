@@ -344,6 +344,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // No conformance tests written for the change - but the ones already here are kept
     // passing: the change must not break what they check.
     const regression = await ensureRegressionPasses({
+      step: `${moduleName} spec change`,
       buildDir, conformanceRoot, moduleName, frids, tree, required, command: null,
       model: options.model, onDelta: options.onDelta,
     });
@@ -371,6 +372,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   }
 
   const regression = await ensureRegressionPasses({
+    step: `${moduleName} spec change`,
     buildDir,
     conformanceRoot,
     moduleName,

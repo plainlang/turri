@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NOTES_FILE, readNotes } from "../../src/render/notes.ts";
 
 /** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
 const prompts: string[] = [];
@@ -154,6 +155,21 @@ describe("rendering a spec diff", () => {
       ["1", "- One.", "passed"],
       ["2", "- Two.", "passed"],
     ]);
+  });
+
+  it("starts from the notes earlier agents left, and leaves its own, labelled as the spec change", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const code = join(dir, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    writeFileSync(join(code, NOTES_FILE), "# Working notes\n\n## Assumptions\n\n- [2026-09-24 09:00 · app 1] One means exactly one\n");
+    const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
+
+    await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+
+    expect(prompts[0]).toContain("<notes from earlier agents>");
+    expect(prompts[0]).toContain("- [2026-09-24 09:00 · app 1] One means exactly one");
+    expect(readNotes(code).where).toEqual([expect.stringMatching(/^\[[\d: -]+ · app spec change\] stub agent was here$/)]);
+    expect(readNotes(code).assumptions).toEqual(["[2026-09-24 09:00 · app 1] One means exactly one"]);
   });
 
   it("stops at the unit tests when they do not pass, and still records what the code now holds", async () => {

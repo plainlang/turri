@@ -152,6 +152,8 @@ async function repairRegression(input: {
   tree: MarshalledPlainSource;
   required: RequiredSpec[];
   failure: string;
+  /** The step the repair is for, as its notes say: `app 3`, `app spec change`. */
+  step: string;
   model?: string;
   onDelta?: (delta: string) => void;
 }): Promise<string> {
@@ -159,7 +161,7 @@ async function repairRegression(input: {
   const runs: TestRun[] = [];
 
   const fence = confinedTools({ workdir: input.buildDir });
-  const notes = notesForSession(input.buildDir, `${input.moduleName} ${input.frids.at(-1)} regression repair`);
+  const notes = notesForSession(input.buildDir, `${input.step} regression repair`);
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [
@@ -224,6 +226,8 @@ export async function ensureRegressionPasses(input: {
   /** The required modules' functional specs, for the repair agent. */
   required: RequiredSpec[];
   /** The suite command. Null: the one this codebase last ran its whole suite with, if any. */
+  /** The step the regression run is for, as a repair's notes say; the last functionality by default. */
+  step?: string;
   command: string | null;
   /** True when `command` is not known to run the whole suite. */
   narrow?: boolean;
@@ -279,6 +283,7 @@ export async function ensureRegressionPasses(input: {
         tree: input.tree,
         required: input.required,
         failure: result.output,
+        step: input.step ?? `${input.moduleName} ${input.frids.at(-1)}`,
         model: input.model,
         onDelta: input.onDelta,
       }),
