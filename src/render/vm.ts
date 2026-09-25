@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
+import { currentStopSignal } from "./activity.ts";
 import { ensureInVmScratch, modulesRootOf, vmScratchDir } from "./paths.ts";
 
 /**
@@ -177,6 +179,26 @@ class ExecutableFSProvider extends RealFSProvider {
   }
 }
 
+/**
+ * How long a command may run before it is stopped - an agent's own, its tests, the harness's runs,
+ * an install. Nothing an agent starts may hang a build: a server started in the foreground, a
+ * watcher, a prompt waiting for input would otherwise hold the agent's turn, and the job, forever.
+ * PLAINWRIGHT_COMMAND_TIMEOUT sets it, in seconds.
+ */
+export const COMMAND_TIMEOUT_MS = Number(process.env.PLAINWRIGHT_COMMAND_TIMEOUT ?? 120) * 1000;
+
+/** The longest an agent may ask one of its own commands to run for. */
+export const MAX_COMMAND_TIMEOUT_MS = Math.max(COMMAND_TIMEOUT_MS, 30 * 60_000);
+
+/** What a command that ran out of time leaves in its output, for the agent to act on. */
+export function timedOutNote(timeoutMs: number): string {
+  return (
+    `\n[stopped after ${Math.round(timeoutMs / 1000)}s, the time limit. A command that never ends on its own - a ` +
+    "server, a watcher, a prompt waiting for input - has to be started in the background (`cmd > app.log 2>&1 &`) " +
+    "or given its input; a slow one can be given a longer timeout.]"
+  );
+}
+
 /** One VM per modules root, started on first use and kept until the process ends. */
 const pool = new Map<string, Promise<VM>>();
 
@@ -222,46 +244,85 @@ async function acquire(dir: string): Promise<{ vm: VM; root: string }> {
   }
 }
 
+/**
+ * Kill a command and everything it started - its children, a server it put in the background -
+ * by the process ID it recorded. Each process is stopped before its children are looked for, so
+ * nothing can start another in between.
+ */
+function killTreeScript(pidFile: string): string {
+  return [
+    `[ -f ${pidFile} ] || exit 0`,
+    `root=$(cat ${pidFile}); rm -f ${pidFile}`,
+    'children() { for stat in /proc/[0-9]*/stat; do read -r pid _ _ ppid _ < "$stat" 2>/dev/null && [ "$ppid" = "$1" ] && echo "$pid"; done; }',
+    'kill_tree() { kill -STOP "$1" 2>/dev/null; for child in $(children "$1"); do kill_tree "$child"; done; kill -KILL "$1" 2>/dev/null; }',
+    'kill_tree "$root"',
+  ].join("\n");
+}
+
 async function exec(
   vm: VM,
   command: string,
   options: { cwd: string; env: Record<string, string>; signal?: AbortSignal; onData?: (data: Buffer) => void },
 ): Promise<VmRunResult> {
-  // Not a login shell: Alpine's /etc/profile would replace the PATH given here.
-  const proc = vm.exec(["/bin/bash", "-c", command], {
-    cwd: options.cwd,
-    env: options.env,
-    signal: options.signal,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  let output = "";
-  for await (const chunk of proc.output()) {
-    const data = Buffer.isBuffer(chunk.data) ? chunk.data : Buffer.from(chunk.data);
-    output += data.toString("utf8");
-    options.onData?.(data);
+  // Gondolin's abort only gives up on a command: the process carries on in the guest. So the
+  // command records its process ID, and a stop or a timeout kills it, and what it started, there.
+  const pidFile = `/tmp/plainwright-exec-${randomUUID()}.pid`;
+  const wrapped = `echo $$ > ${pidFile}; /bin/bash -c "$1"; status=$?; rm -f ${pidFile}; exit $status`;
+  let killed: Promise<unknown> | undefined;
+  const kill = () => {
+    killed = Promise.resolve(vm.exec(["/bin/bash", "-c", killTreeScript(pidFile)])).catch(() => {});
+  };
+  options.signal?.addEventListener("abort", kill, { once: true });
+  try {
+    // Not a login shell: Alpine's /etc/profile would replace the PATH given here.
+    const proc = vm.exec(["/bin/bash", "-c", wrapped, "plainwright", command], {
+      cwd: options.cwd,
+      env: options.env,
+      signal: options.signal,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    let output = "";
+    for await (const chunk of proc.output()) {
+      const data = Buffer.isBuffer(chunk.data) ? chunk.data : Buffer.from(chunk.data);
+      output += data.toString("utf8");
+      options.onData?.(data);
+    }
+    const result = await proc;
+    return { exitCode: result.exitCode ?? 1, output };
+  } catch (error) {
+    // Given up on: returned only once the command is gone from the guest too.
+    await killed;
+    throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", kill);
   }
-  const result = await proc;
-  return { exitCode: result.exitCode ?? 1, output };
 }
 
-/** Run a command in the project's VM, from `cwd` - which must lie inside what the VM holds. */
+/**
+ * Run a command in the project's VM, from `cwd` - which must lie inside what the VM holds.
+ *
+ * Every command has a time limit, COMMAND_TIMEOUT_MS unless given another, and ends at once when
+ * the job it runs for is stopped - the caller's signal or not.
+ */
 export async function runInVm(
   command: string,
   options: { cwd: string; timeoutMs?: number; signal?: AbortSignal; onData?: (data: Buffer) => void; env?: Record<string, string> },
 ): Promise<VmRunResult> {
   const { vm, root } = await acquire(options.cwd);
+  const timeoutMs = options.timeoutMs ?? COMMAND_TIMEOUT_MS;
+  const signals = [options.signal, currentStopSignal()].filter((signal): signal is AbortSignal => signal !== undefined);
+  // Stopped while the VM was starting: the command is not started at all. (An abort that has
+  // already happened fires no event, so nothing below would ever end it.)
+  if (signals.some((signal) => signal.aborted)) throw new Error("aborted");
   const controller = new AbortController();
   const onAbort = () => controller.abort();
-  options.signal?.addEventListener("abort", onAbort, { once: true });
+  for (const signal of signals) signal.addEventListener("abort", onAbort, { once: true });
   let timedOut = false;
-  const timer =
-    options.timeoutMs !== undefined
-      ? setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-        }, options.timeoutMs)
-      : undefined;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   let output = "";
   try {
     return await exec(vm, command, {
@@ -274,12 +335,16 @@ export async function runInVm(
       },
     });
   } catch (error) {
-    if (timedOut) return { exitCode: 124, output: `${output}\n[timed out after ${Math.round((options.timeoutMs ?? 0) / 1000)}s]` };
-    if (options.signal?.aborted) throw new Error("aborted");
+    if (timedOut) {
+      const note = timedOutNote(timeoutMs);
+      options.onData?.(Buffer.from(note));
+      return { exitCode: 124, output: `${output}${note}` };
+    }
+    if (signals.some((signal) => signal.aborted)) throw new Error("aborted");
     return { exitCode: 1, output: `${output}${error instanceof Error ? error.message : String(error)}` };
   } finally {
-    if (timer) clearTimeout(timer);
-    options.signal?.removeEventListener("abort", onAbort);
+    clearTimeout(timer);
+    for (const signal of signals) signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -358,7 +423,8 @@ export function vmBashOperations(): BashOperations {
         cwd,
         signal,
         onData,
-        timeoutMs: timeout && timeout > 0 ? timeout * 1000 : undefined,
+        // The agent's own timeout, up to the longest allowed; the limit when it gave none.
+        timeoutMs: timeout && timeout > 0 ? Math.min(timeout * 1000, MAX_COMMAND_TIMEOUT_MS) : COMMAND_TIMEOUT_MS,
       });
       return { exitCode: result.exitCode };
     },

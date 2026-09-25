@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { STATE_FILE } from "./state.ts";
-import { runInVm } from "./vm.ts";
+import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
 
@@ -15,7 +15,8 @@ export interface TestRun {
 }
 
 const MAX_OUTPUT_CHARS = 20000;
-export const RUN_TIMEOUT_MS = 120_000;
+/** A test run has the same time limit as any command: see COMMAND_TIMEOUT_MS. */
+export const RUN_TIMEOUT_MS = COMMAND_TIMEOUT_MS;
 
 export function truncateOutput(text: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;

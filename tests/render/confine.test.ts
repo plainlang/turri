@@ -8,6 +8,7 @@ import {
   ConfinementError,
   insideAny,
 } from "../../src/render/confine.ts";
+import { withActivity } from "../../src/render/activity.ts";
 import { runInSandbox } from "../../src/render/conformance.ts";
 import { runCommand } from "../../src/render/testing.ts";
 import { closeAllVms, installSystemPackages, runInVm, systemPackages, vmImage, vmSupported } from "../../src/render/vm.ts";
@@ -149,6 +150,38 @@ describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () =>
     writeFileSync(join(code, "run.sh"), "#!/bin/sh\necho script-ok\n");
     const result = await sh("chmod +x run.sh && ./run.sh");
     expect(result.output).toContain("script-ok");
+  });
+
+  it("stops a command that runs past its time limit - in the VM too - and says what to do instead", async () => {
+    // A server it put in the background, and the command in the foreground that never ends.
+    const result = await runInVm("sleep 301 > /dev/null 2>&1 & sleep 300", { cwd: code, timeoutMs: 2000 });
+    expect(result.exitCode).toBe(124);
+    expect(result.output).toContain("stopped after 2s, the time limit");
+    expect(result.output).toContain("in the background");
+    // Gone from the VM, not only given up on - and what it started with it.
+    expect((await sh("ps -o stat,args | grep -v ' Z ' | grep -c 'sleep 30[01]$' || true")).output.trim()).toBe("0");
+  });
+
+  it("ends a command at once when its job is stopped - the agent's, a test run, the harness's", async () => {
+    const stop = new AbortController();
+    const quiet = { stage() {}, activity() {}, now() {}, usage() {}, transcript() {}, signal: stop.signal };
+    const started = Date.now();
+    const run = withActivity(quiet, () => runCommand(code, "sleep 300"));
+    setTimeout(() => stop.abort(), 1500);
+    await expect(run).rejects.toThrow("aborted");
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect((await sh("ps -o stat,args | grep -v ' Z ' | grep -c 'sleep 300$' || true")).output.trim()).toBe("0");
+  });
+
+  it("gives the agent's bash the timeout it asked for, and says when it ran out", async () => {
+    const bash = confinedTools({ workdir: code }).tools.find((t) => t.name === "bash")!;
+    expect(bash.description).toContain("start a server or a watcher in the background");
+    const outcome = await (bash as any).execute("id", { command: "echo started; sleep 300", timeout: 2 }, undefined, undefined, {} as never).then(
+      (result: any) => result.content.map((part: any) => part.text).join(""),
+      (error: Error) => error.message,
+    );
+    expect(outcome).toContain("started");
+    expect(outcome).toContain("stopped after 2s, the time limit");
   });
 
   it("runs several commands at once", async () => {

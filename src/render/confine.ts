@@ -16,7 +16,14 @@ import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
 import { modulesRootOf } from "./paths.ts";
 import { truncateOutput } from "./testing.ts";
-import { installSystemPackages, vmBashOperations, vmEnvironmentNote, vmSupported } from "./vm.ts";
+import {
+  COMMAND_TIMEOUT_MS,
+  installSystemPackages,
+  MAX_COMMAND_TIMEOUT_MS,
+  vmBashOperations,
+  vmEnvironmentNote,
+  vmSupported,
+} from "./vm.ts";
 
 /**
  * Keeping a rendering agent inside its own directory.
@@ -214,7 +221,7 @@ export function confinedTools(c: Confinement): ConfinedTools {
       operations: vmBashOperations(),
       exposeSessionEnvironment: false,
     });
-    bash.description = `${bash.description}\n\n${vmEnvironmentNote()}`;
+    bash.description = `${bash.description}\n\n${vmEnvironmentNote()}\n\n${timeLimitNote()}`;
     tools.push(bash, installSystemPackagesTool(root));
     description += ", bash in a VM holding only that";
   } else {
@@ -224,6 +231,16 @@ export function confinedTools(c: Confinement): ConfinedTools {
   }
 
   return { tools, names: tools.map((t) => t.name), description };
+}
+
+/** What the agent is told about how long its commands may run. */
+function timeLimitNote(): string {
+  return (
+    `A command is stopped after ${Math.round(COMMAND_TIMEOUT_MS / 1000)} seconds unless you give it a timeout, and ` +
+    `after ${Math.round(MAX_COMMAND_TIMEOUT_MS / 1000)} at most. Never run one that does not end on its own in the ` +
+    "foreground: start a server or a watcher in the background (`cmd > app.log 2>&1 &`), and give a command that " +
+    "asks for input its input (`--yes`, `-B`, `CI=1`, `< /dev/null`)."
+  );
 }
 
 /**

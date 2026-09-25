@@ -37,6 +37,15 @@ read or write. So it does not run on the host at all. Every command - the agent'
   everything in there: a JVM ignores an attach request whose trigger file is not its own, which
   would break Mockito's inline mocks, and git calls a repository owned by someone else dubious.
 
+No command can hang a build. Every one has a time limit - 2 minutes, or
+`PLAINWRIGHT_COMMAND_TIMEOUT` seconds: the agent's own `bash` unless it gives a timeout (at most 30
+minutes), its unit and conformance test runs, the harness's own runs, `install_system_packages`. A
+command that runs out is killed and reports exit 124 with a note on what to do instead: a server,
+a watcher or a prompt waiting for input never ends on its own, and has to be started in the
+background or given its input. A job that is stopped ends the command it is waiting on at once.
+Either way the command is killed in the VM too, with everything it started - Gondolin's abort only
+stops waiting for a command, so each one records its process ID and is killed by it.
+
 The VM starts on the first command and is kept until pi exits. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent
 gets no shell and commands are refused, because there is no honest way to fence one on the host.

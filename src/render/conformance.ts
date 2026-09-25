@@ -51,7 +51,6 @@ export function conformanceDirFor(moduleName: string, root?: string): string {
 }
 
 const MAX_OUTPUT_CHARS = 20000;
-const RUN_TIMEOUT_MS = 120_000;
 
 export interface RenderConformanceTestsOptions {
   plainFile: string;
