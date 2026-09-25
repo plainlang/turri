@@ -218,7 +218,8 @@ export function compileSkill(opts: {
       else decision = "escalate";
 
       report.outcome(step.name, decision, outcome.critique);
-      return { decision, critique: outcome.critique };
+      // The critique is for this step's retry; the next step starts fresh.
+      return { decision, critique: decision === "advance" ? "" : outcome.critique };
     });
 
     graph.addNode(escalateNode(step.name), async (state: ForgeStateType) => {
@@ -230,7 +231,8 @@ export function compileSkill(opts: {
       }) as { approved?: boolean } | boolean | undefined;
 
       const approved = typeof answer === "boolean" ? answer : Boolean(answer?.approved);
-      return { decision: approved ? ("advance" as const) : ("abort" as const) };
+      // Accepted, the rejection stays with this step - the next one must not take it for its own.
+      return approved ? { decision: "advance" as const, critique: "" } : { decision: "abort" as const };
     });
 
     graph.addEdge(stepNode(step.name), gateNode(step.name));

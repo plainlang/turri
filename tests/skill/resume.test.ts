@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemorySaver } from "@langchain/langgraph";
+import { Command, MemorySaver } from "@langchain/langgraph";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { interruptedRun } from "../../src/forge.ts";
 import { compileSkill } from "../../src/graph.ts";
@@ -72,6 +72,35 @@ describe("resuming a skill run", () => {
     expect(interruptedRun(dir, "other")).toBeUndefined();
     write("finished");
     expect(interruptedRun(dir, "demo")).toBeUndefined();
+  });
+});
+
+describe("a gate the user overrules", () => {
+  it("leaves its rejection with its own step: the next step starts fresh, not as a retry", async () => {
+    writeFileSync(join(dir, "rubric.md"), "- [ ] It is done.\n");
+    const gated = {
+      ...skill,
+      dir,
+      steps: [
+        {
+          name: "product",
+          instructions: "Write the product.",
+          gate: { after: "product", review: { rubric: "rubric.md", judges: 1, quorum: "all", judgeTools: [], onFail: "retry", maxRetries: 0 } },
+        },
+        { name: "testing", instructions: "Decide on the tests." },
+      ],
+    } as unknown as Skill;
+    const { prompts, session } = fakeSession();
+    const app = compileSkill({
+      skill: gated, cwd: dir, runDir: dir, executor: session, report: { step() {}, artifact() {}, gate() {}, judge() {}, outcome() {} },
+    }).compile({ checkpointer: new MemorySaver() });
+    const thread = { configurable: { thread_id: "t" } };
+    // No artifact, no retries left: it goes to the user, who accepts it anyway.
+    await app.invoke({}, thread);
+    await app.invoke(new Command({ resume: true }), thread);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("Decide on the tests.");
+    expect(prompts[1]).not.toContain("rejected by review");
   });
 });
 
