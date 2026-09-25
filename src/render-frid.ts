@@ -107,7 +107,7 @@ async function main() {
   }
 
   if (!result.passed) {
-    console.log(`\n${describeStop({ moduleName: result.moduleName, frid: result.frid, at: "unit tests", runs: result.runs })}`);
+    console.log(`\n${describeStop({ moduleName: result.moduleName, frid: result.frid, at: "unit tests", runs: result.runs, attempts: result.attempts })}`);
   }
 
   process.exit(result.passed ? 0 : 1);

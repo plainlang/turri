@@ -105,8 +105,8 @@ built the moment it is written.** A functionality cannot be rendered without kno
 language it is written in and the framework its tests use.
 
 Read `references/stack.md` and walk its topics in order: language, frameworks, storage,
-external services, structure and architecture, other constraints, anything else. Ask the unit
-test framework here too — generated code needs it from the first functionality onward.
+external services, structure and architecture, other constraints, anything else, and last the
+unit tests - generated code needs them from the first functionality onward.
 
 Create the module structure and frontmatter so there is a `.plain` file to build into, and
 author every requirement into `***implementation reqs***` at the right scope — shared
@@ -115,10 +115,18 @@ ordinary file tools; **nothing is built in this phase**, and `write_spec_diff` i
 
 Write no definitions, no functional specs, no `***test reqs***` and no `***acceptance tests***`.
 
+End the phase with the unit tests: their framework, as a `:UnitTests:` requirement, and the unit
+testing script, which every build needs from the first one on. If plainwright already finds a
+script - named by `unittests-script:` in `config.yaml` at the project root, or the one
+`run_unittests*.sh` in the root or in `test_scripts/` - keep it. Otherwise write
+`test_scripts/run_unittests_<language>.sh` with the `implement-unit-testing-script` skill, for the
+language and framework just settled. Do not link it from the specs. Without it, every build stops
+before it starts.
+
 Run `plainwright check` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.
 
-Finish by summarizing the stack and architecture and getting explicit confirmation. There is
+Finish by summarizing the stack, the architecture and the unit testing script, and getting explicit confirmation. There is
 no gate on this phase — the user reading the stack back is the check.
 
 ### product

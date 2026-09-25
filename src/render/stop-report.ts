@@ -26,9 +26,11 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "runs">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
+  /** How many times the harness judged it before it stopped - the unit tests' attempts. */
+  attempts?: number;
 }
 
 /**
@@ -38,12 +40,14 @@ export interface StopFacts {
  */
 export function describeStop(facts: StopFacts): string {
   const what = facts.frid !== undefined ? `${facts.moduleName} functionality ${facts.frid}` : `the spec change in ${facts.moduleName}`;
-  const tries = ATTEMPTS[facts.at];
+  // What actually happened, not the most it could have been.
+  const tries =
+    facts.at === "unit tests" ? (facts.attempts ?? ATTEMPTS[facts.at]) : facts.at === "conformance" ? (facts.conformance?.rounds ?? ATTEMPTS[facts.at]) : ATTEMPTS[facts.at];
   let why: string;
   let todo: string[];
 
   if (facts.at === "unit tests") {
-    why = `after ${tries} attempts it still could not be built to pass its own unit tests.`;
+    why = `after ${tries} attempt${tries === 1 ? "" : "s"} it still could not be built to pass its own unit tests.`;
     todo = [
       "The functional spec is most likely too big for one functionality, or leaves a choice open that keeps coming " +
         "out wrong. Split it into smaller functional specs (`analyze-if-func-spec-too-complex`, `break-down-func-spec`), " +
@@ -52,7 +56,7 @@ export function describeStop(facts: StopFacts): string {
       "If its unit tests have to be run in a particular way, say how in the implementation reqs.",
     ];
   } else if (facts.at === "conformance") {
-    why = `after ${tries} rounds, its conformance tests and its code still disagree about what the spec means.`;
+    why = `after ${tries} round${tries === 1 ? "" : "s"}, its conformance tests and its code still disagree about what the spec means.`;
     todo = [
       "The functional spec can be read more than one way. Say exactly what should happen - the inputs, the outputs, " +
         "the edge cases - and add acceptance tests that pin down the expected result.",

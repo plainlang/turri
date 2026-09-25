@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
-import { reportStage } from "./activity.ts";
+import { reportActivity, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -101,6 +101,8 @@ export interface RenderConformanceTestsResult {
   runs: TestRun[];
   /** Whether the harness's own run of the whole suite passed - and the unit tests, when the code changed. */
   passed: boolean;
+  /** How many times the harness ran the conformance testing script: the rounds it judged. */
+  rounds?: number;
   /** Whether the agent changed the code to make the tests pass. */
   codeChanged: boolean;
   /** Conformance tests that went missing mid-run and had to be justified. */
@@ -135,8 +137,13 @@ export async function renderConformanceTests(
 
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName));
   const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName));
+  const stage = (label: string) => {
+    if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
+  };
+  stage(options.diff !== undefined ? "conformance tests for the spec change" : `conformance tests for functionality ${frid}`);
   // From the last known good state, unless this step continues work not yet committed.
   if (!options.dryRun && options.continuing !== true) {
+    stage("starting from the codebase's last commit");
     startFromLastCommit(buildDir, moduleName);
     if (moduleDirOf(conformanceDir) !== moduleDirOf(buildDir)) startFromLastCommit(conformanceDir, moduleName);
   }
@@ -163,6 +170,7 @@ export async function renderConformanceTests(
 
   // Whether the tests pass is the project's conformance testing script - and, when the code is
   // changed, its unit testing script: without them, nothing is written.
+  stage("finding the project's testing scripts");
   const root = projectRootFor(options.plainFile, buildDir);
   const scripts = findTestScripts(root);
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: true });
@@ -198,6 +206,8 @@ export async function renderConformanceTests(
   }
 
   mkdirSync(conformanceDir, { recursive: true });
+  reportActivity(`  conformance testing script: ${relative(root, scripts.conformance!)}`);
+  reportActivity(`  the suite so far: ${listFiles(conformanceDir).length} files in ${relative(root, conformanceDir)}`);
 
   const runs: TestRun[] = [];
   const unitRuns: TestRun[] = [];
@@ -213,6 +223,7 @@ export async function renderConformanceTests(
   // fixes that one. It works in its tests and sees plain_modules, the code included.
   const fence = confinedTools({ workdir: conformanceDir });
   const notes = notesForSession(buildDir, `${moduleName} ${options.diff !== undefined ? "spec change" : frid} conformance`);
+  stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
@@ -234,16 +245,17 @@ export async function renderConformanceTests(
 
   try {
     let inventory = inventoryTests(conformanceDir);
-    const stage = (label: string) => reportStage(`${moduleName} ${frid}: ${label}`);
-    stage("writing conformance tests from the spec");
+    stage("the agent is writing conformance tests from the spec, and each acceptance test apart from them");
     let response = await ask(executor, withNotes(prompt, buildDir), options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
     let verified = false;
+    let rounds = 0;
     for (let round = 0; round < maxRounds; round += 1) {
       const current = inventoryTests(conformanceDir);
       const removals = findTestRemovals(inventory, current);
       if (removals.length > 0) {
+        stage(`justifying ${removals.length} removed conformance test${removals.length === 1 ? "" : "s"}`);
         testRemovals.push(...removals);
         inventory = current;
         response = await ask(executor, removalChallengePrompt(removals, "conformance tests"), options.onDelta);
@@ -264,7 +276,8 @@ export async function renderConformanceTests(
       // Whether the functionality is done is the harness's run of the project's conformance
       // testing script, on every functionality's tests - and the code's unit testing script, when
       // the agent changed the code.
-      stage("checking the conformance tests");
+      stage(`the agent is done - the harness runs the conformance testing script on the whole suite (round ${rounds + 1})`);
+      rounds += 1;
       const recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
       options.onRun?.(recheck.command, recheck.exitCode);
@@ -273,10 +286,13 @@ export async function renderConformanceTests(
         response = await ask(executor, conformanceFailingPrompt(recheck, buildDir), options.onDelta);
         continue;
       }
+      stage(`conformance tests pass (round ${rounds})`);
       if (codeChanged()) {
-        stage("the code changed - checking its unit tests");
+        stage("the agent changed the code - the harness runs the unit testing script too");
         const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
+        if (unit.ok) stage("unit tests still pass");
         if (!unit.ok) {
+          stage("the code change broke its unit tests - fixing");
           response = await ask(
             executor,
             `You changed the code, so its unit tests must still pass.\n\n${unit.prompt}`,
@@ -289,12 +305,14 @@ export async function renderConformanceTests(
       break;
     }
 
+    stage("checking the agent left its working notes");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const changed = codeChanged();
     // The tests, and the code when it changed: one commit if they share a module folder.
     const subject =
       `conformance ${moduleName} ${options.diff !== undefined ? "for a spec change" : `fs ${frid}`} ` +
       `(${verified ? "pass" : "NOT passing"}${changed ? ", code changed" : ""})`;
+    stage(`committing the conformance tests${changed ? " and the code changes" : ""} (${verified ? "pass" : "NOT passing"})`);
     recordHistory(conformanceDir, subject);
     if (moduleDirOf(buildDir) !== moduleDirOf(conformanceDir)) recordHistory(buildDir, subject);
 
@@ -308,6 +326,7 @@ export async function renderConformanceTests(
       files: listFiles(conformanceDir),
       runs,
       passed: verified,
+      rounds,
       codeChanged: changed,
       testRemovals,
     };
@@ -319,7 +338,7 @@ export async function renderConformanceTests(
 /** A failing run, handed back to the conformance agent to fix - the test or the code. */
 function conformanceFailingPrompt(run: ScriptRun, codeDir: string): string {
   // A toolchain missing, or a run out of time, is not a question of test or code.
-  if (run.exitCode === 69 || run.exitCode === 124) return scriptFailure(run, "conformance testing");
+  if (run.exitCode === 69 || run.timedOut === true) return scriptFailure(run, "conformance testing");
   return [
     `The harness ran the project's conformance testing script, \`${run.command}\`, on the whole suite, and it failed (exit ${run.exitCode}):`,
     "",

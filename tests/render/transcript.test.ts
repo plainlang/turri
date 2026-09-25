@@ -83,14 +83,31 @@ describe("the transcript viewer", () => {
 
     const following = view.render(60);
     expect(following).toHaveLength(10);
-    expect(following.at(-2)).toContain("line 49");
+    // The newest line, then how the job ended.
+    expect(following.at(-4)).toContain("line 49");
+    expect(following.at(-2)).toBe("── finished");
     expect(following.at(-1)).toContain("following");
 
     view.handleInput("g");
     expect(view.render(60)[2]).toContain("line 0");
 
     view.handleInput("G");
-    expect(view.render(60).at(-2)).toContain("line 49");
+    expect(view.render(60).at(-4)).toContain("line 49");
+
+    // Paging without PgUp/PgDn, as in less: b/f a page, u/d half a page, ctrl as well.
+    const where = () => view.render(60).at(-1)!;
+    view.handleInput("b");
+    expect(where()).toContain("6 lines up");
+    view.handleInput("f");
+    expect(where()).toContain("following");
+    view.handleInput("u");
+    expect(where()).toContain("3 lines up");
+    view.handleInput("d");
+    expect(where()).toContain("following");
+    view.handleInput("\x02");
+    expect(where()).toContain("6 lines up");
+    view.handleInput(" ");
+    expect(where()).toContain("following");
 
     // q goes back to the conversation and keeps the place; x closes it for good.
     view.handleInput("g");
@@ -101,5 +118,28 @@ describe("the transcript viewer", () => {
 
     view.handleInput("x");
     expect(closed).toBe(true);
+  });
+});
+
+describe("a job that is over, in /watch", () => {
+  it("ends with how it ended, so it does not look stuck at its last stage", async () => {
+    const jobs = createJobRegistry();
+    const failed = jobs.start({
+      kind: "render",
+      summary: "rt_tuples fs 2",
+      run: async () => {
+        reportStage("rt_tuples 2: checking the unit tests");
+        throw new Error("Stopped at rt_tuples functionality 2: after 20 attempts it still could not be built.");
+      },
+    });
+    await jobs.wait(failed.id);
+    const lines = transcriptLines(failed, 80);
+    const at = lines.indexOf("── finished - failed");
+    expect(at).toBeGreaterThan(lines.findIndex((line) => line.includes("checking the unit tests")));
+    expect(lines.slice(at + 1).join(" ")).toContain("Stopped at rt_tuples functionality 2: after 20 attempts");
+
+    const running = jobs.start({ kind: "render", summary: "still going", run: () => new Promise(() => {}) });
+    reportStage("unused");
+    expect(transcriptLines(running, 80).join("\n")).not.toContain("── finished");
   });
 });

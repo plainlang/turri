@@ -306,6 +306,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
             frid: result.frid,
             at: stopped,
             runs: result.runs,
+            attempts: result.attempts,
             repairs: regression?.repairs.length,
           })
         : describeDelivery({

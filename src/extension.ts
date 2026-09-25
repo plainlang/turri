@@ -1607,6 +1607,8 @@ interface JobAnnouncement {
   id: string;
   summary: string;
   status: "succeeded" | "failed" | "stopped";
+  /** The job ran to its end, and what it built did not pass - a build that stopped at a gate. */
+  incomplete?: boolean;
   duration: string;
   /** Tokens and cost, when any were spent. */
   spent?: string;
@@ -1619,6 +1621,7 @@ function announceJob(pi: ExtensionAPI, job: Job): void {
     id: job.id,
     summary: job.summary,
     status: job.status,
+    incomplete: job.status === "succeeded" && (job.details as { passed?: unknown } | undefined)?.passed === false,
     duration: formatDuration(job),
     spent: describeUsage(job.usage) || undefined,
     text:
@@ -1666,8 +1669,11 @@ function registerInterviewLog(pi: ExtensionAPI) {
     const data = entry.data as JobAnnouncement | undefined;
     if (data === undefined) return undefined;
     const ok = data.status === "succeeded";
+    // A job that ran to its end but whose build did not pass is not a success: it says so.
     const header =
-      data.status === "succeeded"
+      data.status === "succeeded" && data.incomplete === true
+        ? `${theme.fg("error", "✗")} ${theme.fg("text", data.summary)} ${theme.fg("error", `did not pass - stopped after ${data.duration}`)}`
+        : data.status === "succeeded"
         ? `${theme.fg("success", "✓")} ${theme.fg("text", data.summary)} ${theme.fg("muted", `finished after ${data.duration}`)}`
         : data.status === "stopped"
           ? `${theme.fg("warning", "■")} ${theme.fg("text", data.summary)} ${theme.fg("warning", `stopped after ${data.duration}`)}`

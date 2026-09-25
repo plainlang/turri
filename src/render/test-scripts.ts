@@ -1,12 +1,13 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { load as loadYaml } from "js-yaml";
+import { reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { listFiles, shownOutput, type TestRun } from "./testing.ts";
-import { runInVm } from "./vm.ts";
+import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 /**
  * The project's testing scripts, and the harness's runs of them.
@@ -162,7 +163,7 @@ export class MissingTestScriptError extends Error {
     const { skill, file, what } = SKILL[kind];
     super(
       [
-        `Stopped before building ${moduleName}: it has no ${what}, so nothing can decide when its ${kind === "unit" ? "code" : "conformance tests"} pass.`,
+        `Stopped before building ${moduleName}: it has no ${what}, so nothing can decide when its ${kind === "unit" ? "unit" : "conformance"} tests pass.`,
         ...(note !== undefined ? ["", note] : []),
         "",
         "What to change in the project:",
@@ -228,28 +229,42 @@ export interface ScriptRun {
   command: string;
   exitCode: number;
   output: string;
+  /** Stopped by the time limit: counted as failed. */
+  timedOut?: boolean;
+  /** The time limit it ran under. */
+  timeoutMs: number;
 }
 
-/** Where one build's script runs are staged, by build and tests - inside what the VM holds. */
-function stagingFor(buildDir: string, testsDirs: string[]): { root: string; build: string; tests: string } {
-  const key = createHash("sha1").update(JSON.stringify([resolve(buildDir), ...testsDirs.map((dir) => resolve(dir))])).digest("hex").slice(0, 12);
+/**
+ * Where one script run is staged - inside what the VM holds, and new for every run.
+ *
+ * Never a path an earlier run used: the VM's view of the shared folder can lag behind the host's,
+ * and a folder removed and made again at the same path can look, inside the VM, empty or still
+ * holding what was removed - `cp: cannot stat` on files that are there. The scripts work in
+ * /tmp/<lang>_<basename of the build>, so the build is named for the module and this run too, and
+ * no two runs share that folder either.
+ */
+function stagingFor(buildDir: string): { root: string; build: string; tests: string } {
+  const key = randomUUID().slice(0, 12);
   const root = join(vmScratchDir(buildDir), "scripts", key);
-  // The scripts work in /tmp/<lang>_<basename of the build>: named for the module and this
-  // staging, so no two modules' runs share that folder.
   return { root, build: join(root, `${basename(dirname(resolve(buildDir)))}-${key}`), tests: join(root, "tests") };
 }
 
-function stageBuild(buildDir: string, target: string): void {
+/** The code, copied for a run; how many files. */
+function stageBuild(buildDir: string, target: string): number {
   // There even when the build is empty: the scripts cd into it.
   mkdirSync(target, { recursive: true });
-  for (const file of listFiles(buildDir)) {
+  const files = listFiles(buildDir);
+  for (const file of files) {
     mkdirSync(dirname(join(target, file)), { recursive: true });
     copyFileSync(join(buildDir, file), join(target, file));
   }
+  return files.length;
 }
 
 /** Every functionality's tests in one folder. A name already taken is renamed, never overwritten. */
-function stageTests(testsDirs: string[], target: string): void {
+function stageTests(testsDirs: string[], target: string): number {
+  mkdirSync(target, { recursive: true });
   const taken = new Set<string>();
   testsDirs.forEach((dir, index) => {
     if (!existsSync(dir)) return;
@@ -264,6 +279,7 @@ function stageTests(testsDirs: string[], target: string): void {
       copyFileSync(join(dir, file), join(target, name));
     }
   });
+  return taken.size;
 }
 
 function stageScript(script: string, root: string): string {
@@ -278,19 +294,40 @@ function shown(script: string): string {
   return script.startsWith(`${parent}/`) ? script.slice(parent.length + 1) : basename(script);
 }
 
+/** How long a test run may take: the command time limit. Over it, the run counts as failed. */
+let scriptTimeoutMs = COMMAND_TIMEOUT_MS;
+
+/** For tests: a shorter limit than two minutes. */
+export function setScriptTimeoutForTests(ms: number | undefined): void {
+  scriptTimeoutMs = ms ?? COMMAND_TIMEOUT_MS;
+}
+
 async function runStaged(root: string, script: string, args: string[]): Promise<ScriptRun> {
   const copy = stageScript(script, root);
-  const { exitCode, output } = await runInVm(`bash ${[copy, ...args].map(quote).join(" ")}`, { cwd: root });
-  return { command: shown(script), exitCode, output: shownOutput(root, basename(script), output) };
+  const timeoutMs = scriptTimeoutMs;
+  const started = Date.now();
+  reportActivity(`  ▶ ${shown(script)} in the VM (limit ${Math.round(timeoutMs / 1000)}s)`);
+  const { exitCode, output, timedOut } = await runInVm(`bash ${[copy, ...args].map(quote).join(" ")}`, {
+    cwd: root,
+    timeoutMs,
+    timeoutNote: (ms) => `\n[stopped after ${Math.round(ms / 1000)}s, the time limit for a test run: counted as failed]`,
+  });
+  const took = ((Date.now() - started) / 1000).toFixed(1);
+  reportActivity(
+    timedOut === true
+      ? `  ✗ ${shown(script)} did not finish in ${Math.round(timeoutMs / 1000)}s - stopped, counted as failed`
+      : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
+  );
+  return { command: shown(script), exitCode, output: shownOutput(root, basename(script), output), timedOut, timeoutMs };
 }
 
 /** The harness's run of the unit testing script on the code as it is now. */
 export async function runUnitScript(buildDir: string, script: string): Promise<ScriptRun> {
-  const staging = stagingFor(buildDir, []);
+  const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
   ensureInVmScratch(buildDir, staging.root);
   try {
-    stageBuild(buildDir, staging.build);
+    reportActivity(`  staging ${stageBuild(buildDir, staging.build)} files of the code for the unit testing script`);
     return await runStaged(staging.root, script, [staging.build]);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
@@ -304,12 +341,13 @@ export async function runUnitScript(buildDir: string, script: string): Promise<S
  */
 export async function runConformanceScript(buildDir: string, testsDirs: string[], scripts: TestScripts): Promise<ScriptRun> {
   if (scripts.conformance === undefined) throw new Error("No conformance testing script to run.");
-  const staging = stagingFor(buildDir, testsDirs);
+  const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
   ensureInVmScratch(buildDir, staging.root);
   try {
-    stageBuild(buildDir, staging.build);
-    stageTests(testsDirs, staging.tests);
+    const code = stageBuild(buildDir, staging.build);
+    const tests = stageTests(testsDirs, staging.tests);
+    reportActivity(`  staging ${code} files of the code and the whole conformance suite (${tests} files) for the conformance testing script`);
     return await runStaged(staging.root, scripts.conformance, [staging.build, staging.tests]);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
@@ -346,25 +384,49 @@ export function createScriptTool(options: {
       const run = await options.run();
       options.runs.push({ command: run.command, exitCode: run.exitCode });
       options.onRun?.(run.command, run.exitCode);
+      const text =
+        run.timedOut === true
+          ? timedOutFailure(run, unit ? "unit testing" : "conformance testing").replace("The harness ran", "You ran")
+          : `${run.command} exited ${run.exitCode}\n\n${run.output}`;
       return {
-        content: [{ type: "text" as const, text: `${run.command} exited ${run.exitCode}\n\n${run.output}` }],
+        content: [{ type: "text" as const, text }],
         details: { command: run.command, exitCode: run.exitCode },
       };
     },
   });
 }
 
+/** A run the time limit stopped: failed, and what most often keeps a test run from ending. */
+function timedOutFailure(run: ScriptRun, what: string): string {
+  const limit = Math.round(run.timeoutMs / 1000);
+  return [
+    `The harness ran the project's ${what} script, \`${run.command}\`, and it had not finished after ${limit} seconds - the`,
+    "time limit for a test run - so it was stopped, and counts as failed. This is what it had printed by then:",
+    "",
+    run.output.trimEnd(),
+    "",
+    "The output ends where it was stopped: the test running then, or the step after the last one it printed, is the one",
+    "that does not finish. Most often a test waits for something that never comes:",
+    "- a server or a watcher started in the foreground, instead of in the background and stopped afterwards;",
+    "- a prompt waiting for input, or a command that pages its output;",
+    "- a network call to a host the VM cannot reach - the network reaches the package registries only;",
+    "- a lock, a queue or a thread nothing releases, or a loop that never ends.",
+    "Find it - run the tests on their own with bash, under `timeout`, a file or a case at a time - and fix what is wrong,",
+    `in the test or in the code, against the specification. If the tests are only slow, make them faster: every run has`,
+    `the same ${limit} seconds, and a skipped or deleted test does not count as a fix.`,
+  ].join("\n");
+}
+
 /** What a failed script run means, for the agent that has to fix it. */
 export function scriptFailure(run: ScriptRun, what: string): string {
+  if (run.timedOut === true) return timedOutFailure(run, what);
   const cause =
     run.exitCode === 69
       ? "It exited 69: the toolchain it needs is not installed in the VM. Install it with install_system_packages, then run the tests again."
-      : run.exitCode === 124
-        ? "It ran out of time: something in the tests never finishes - a server left in the foreground, a prompt waiting for input."
-        : `Fix the cause and run the tests again. Do not remove or weaken a test to get a pass.`;
+      : `Fix the cause and run the tests again. Do not remove or weaken a test to get a pass.`;
   return [
     `The harness ran the project's ${what} script, \`${run.command}\`, and it failed (exit ${run.exitCode}). That run is what`,
-    "decides whether this is done - the script is among the linked resources, so you can see what it does.",
+    "decides whether this is done - the script is at the top of your prompt, so you can see what it does.",
     "",
     run.output.trimEnd(),
     "",

@@ -1,6 +1,6 @@
 # the stack phase — What technologies should it use?
 
-Gather the technical stack **and** the project's structure/architecture. This phase affects only `***implementation reqs***` — testing concerns come later. Run the core loop (ask → author → review) from `SKILL.md` for each topic below, in order. When the user has no preference, propose a sensible default that fits earlier answers and ask them to confirm.
+Gather the technical stack **and** the project's structure/architecture. This phase affects only `***implementation reqs***`, and ends with the unit testing script every build needs — the rest of testing comes later. Run the core loop (ask → author → review) from `SKILL.md` for each topic below, in order. When the user has no preference, propose a sensible default that fits earlier answers and ask them to confirm.
 
 ## Author target for this phase
 
@@ -20,5 +20,8 @@ Do **not** add `***test reqs***` or `***acceptance tests***` in this phase — t
 5. **Project structure & architecture** — the architectural style and the layers/components the project should be organized into (managers, services, models, repositories, controllers, views, adapters, DTOs, …). Discuss naming conventions, directory layout, and the responsibilities/boundaries of each layer. If the user has no preference, propose a layout that fits the language, framework, and feature set, and confirm it. Author architecture/layering reqs in the template (if shared) and any module-specific deviations on the module. Review the architecture reqs and the resulting layer split.
 6. **Other constraints** — deployment target, OS requirements, performance needs, coding standards, security policies, observability — anything stack-wide that hasn't already been covered. Author each constraint as its own requirement at the appropriate scope. Review the new constraint snippets.
 7. **Anything else** — anything the user wants to add or change that hasn't already been covered.
+8. **Unit tests and their script** — last, once the stack is settled: the first build needs both.
+   - The unit-test framework, e.g. pytest, Jest, JUnit, Go's `testing` package. Suggest one that fits the language if the user has no preference. Author a `:UnitTests:` requirement in `***implementation reqs***` at the appropriate scope - e.g. "`:UnitTests:` should use pytest" plus how they are run. Review that snippet.
+   - The unit testing script. If plainwright already finds one - named by `unittests-script:` in `config.yaml` at the project root, or the one `run_unittests*.sh` in the root or in `test_scripts/` - keep it. Otherwise generate `test_scripts/run_unittests_<language>.sh` (and any framework config it needs, e.g. `pytest.ini`) via `implement-unit-testing-script`. Do not link it from the specs. Without it, every build stops before it starts. Review the script's path and what it runs.
 
 When all topics are complete, summarize the full tech stack and the chosen architecture, and get an explicit overall confirmation before moving to the testing phase.

@@ -2,6 +2,7 @@ import { cpSync, rmSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { reportActivity } from "./activity.ts";
 import { ensureInVmScratch } from "./paths.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { STATE_FILE } from "./state.ts";
@@ -219,7 +220,9 @@ export async function checkTryIt(
   const failedSetup: string[] = [];
 
   for (const command of tryIt.setup) {
+    reportActivity(`  ▶ setup: ${command}`);
     const result = await run(dir, command);
+    reportActivity(`  ${result.exitCode === 0 ? "✓" : "✗"} setup exited ${result.exitCode}`);
     outputs.set(command, truncateOutput(result.output));
     if (result.exitCode !== 0) {
       failedSetup.push(command);
@@ -232,9 +235,11 @@ export async function checkTryIt(
   try {
     for (const [index, step] of tryIt.steps.entries()) {
       if (step.kind === "manual") {
+        reportActivity(`  step ${index + 1} is done by hand - not checked: ${step.do}`);
         steps.push(step);
         continue;
       }
+      reportActivity(`  ▶ step ${index + 1}${step.kind === "long_running" ? " (keeps running)" : ""}: ${step.do}`);
       if (step.kind === "long_running") {
         // Its own process group, its output in the sandbox's /tmp - not in the person's copy.
         const log = `/tmp/plainwright-try-${index}.log`;
@@ -254,6 +259,7 @@ export async function checkTryIt(
           `if [ -r /proc/${pid}/status ] && ! grep -q '^State:[[:space:]]*Z' /proc/${pid}/status; then echo running; else cat ${log}; exit 1; fi`,
         );
         outputs.set(step.do, truncateOutput(alive.output));
+        reportActivity(alive.exitCode === 0 ? `  ✓ step ${index + 1} is up and still running` : `  ✗ step ${index + 1} did not stay up`);
         steps.push({ ...step, exitCode: alive.exitCode });
         continue;
       }
@@ -264,10 +270,12 @@ export async function checkTryIt(
         result = await run(dir, step.do);
       }
       outputs.set(step.do, truncateOutput(result.output));
+      reportActivity(`  ${result.exitCode === 0 ? "✓" : "✗"} step ${index + 1} exited ${result.exitCode}`);
       steps.push({ ...step, exitCode: result.exitCode });
     }
   } finally {
     if (servers.length > 0) {
+      reportActivity(`  stopping ${servers.length} server${servers.length === 1 ? "" : "s"} the steps started`);
       await run(dir, `kill -- ${servers.map((pid) => `-${pid}`).join(" ")} 2>/dev/null; kill ${servers.join(" ")} 2>/dev/null; true`);
     }
   }
@@ -301,7 +309,7 @@ export async function settleTryIt(input: {
   const described = await input.ask(input.prompt);
   if (described === undefined) return undefined;
   const check = (steps: TryIt) => checkTryIt(prepareTryDir(input.buildDir, input.tryDir), { ...steps, dir: input.tryDir });
-  input.stage("running the try-it steps to check they work");
+  input.stage("copying the build and running the try-it steps to check they work");
   let checked = await check(described);
   // A command that does not work when the person pastes it is worse than none: it goes back to
   // be fixed until it works, or the rounds run out - and then it is shown as not working.

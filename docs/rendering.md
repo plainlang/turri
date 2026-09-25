@@ -146,7 +146,11 @@ The scripts live in the project, outside `plain_modules`, where no agent can rea
 `config.yaml` names inside `plain_modules` is refused. Each run
 copies the script fresh from the project into the VM, stages the code under a name of its own -
 the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called `code`
-- and runs it with the command time limit.
+- and runs it with the command time limit: two minutes, or `PLAINWRIGHT_COMMAND_TIMEOUT` seconds.
+A run that has not finished by then is stopped - with everything it started - and counts as failed.
+The agent gets what it had printed by then, told that the output ends where the run hung, and what
+most often keeps a test run from ending: a server started in the foreground, a prompt waiting for
+input, a network call to a host the VM cannot reach, a lock or a loop that never ends.
 
 The agents have the same scripts as their final check: `run_unit_tests` and `run_conformance_tests`
 take no command, and run the unit and conformance testing scripts exactly as the harness does -

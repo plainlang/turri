@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
-import { currentStopSignal } from "./activity.ts";
+import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, modulesRootOf, vmScratchDir } from "./paths.ts";
 
 /**
@@ -34,6 +34,8 @@ import { ensureInVmScratch, modulesRootOf, vmScratchDir } from "./paths.ts";
 export interface VmRunResult {
   exitCode: number;
   output: string;
+  /** Stopped by its time limit, rather than ending on its own. */
+  timedOut?: boolean;
 }
 
 /** Where package managers keep their caches, inside the VM's own root. */
@@ -206,6 +208,8 @@ async function start(root: string): Promise<VM> {
   const cache = packageCacheDir(root);
   ensureInVmScratch(root, join(cache, "apk"));
   const image = vmImage();
+  const started = Date.now();
+  reportActivity(`  starting the sandbox VM (${image ? image.tag : "stock image"}) - the first command of a session waits for it`);
   const { httpHooks } = createHttpHooks({ allowedHosts: allowedHosts() });
   const vm = await VM.create({
     vfs: { mounts: { [root]: new ExecutableFSProvider(root) } },
@@ -220,8 +224,12 @@ async function start(root: string): Promise<VM> {
   // again at every start come from the project's cache rather than the network.
   const setup = [`ln -sfn ${join(cache, "apk")} /etc/apk/cache`];
   const packages = systemPackages(root);
-  if (packages.length > 0) setup.push(`apk add --no-progress ${packages.join(" ")}`);
+  if (packages.length > 0) {
+    reportActivity(`  installing the project's system packages again: ${packages.join(", ")}`);
+    setup.push(`apk add --no-progress ${packages.join(" ")}`);
+  }
   await exec(vm, setup.join(" && "), { cwd: root, env: guestEnv(cache) });
+  reportActivity(`  sandbox VM ready after ${((Date.now() - started) / 1000).toFixed(1)}s`);
   return vm;
 }
 
@@ -307,7 +315,15 @@ async function exec(
  */
 export async function runInVm(
   command: string,
-  options: { cwd: string; timeoutMs?: number; signal?: AbortSignal; onData?: (data: Buffer) => void; env?: Record<string, string> },
+  options: {
+    cwd: string;
+    timeoutMs?: number;
+    /** What the output says when the time limit stops it; the note for a command, by default. */
+    timeoutNote?: (timeoutMs: number) => string;
+    signal?: AbortSignal;
+    onData?: (data: Buffer) => void;
+    env?: Record<string, string>;
+  },
 ): Promise<VmRunResult> {
   const { vm, root } = await acquire(options.cwd);
   const timeoutMs = options.timeoutMs ?? COMMAND_TIMEOUT_MS;
@@ -336,9 +352,9 @@ export async function runInVm(
     });
   } catch (error) {
     if (timedOut) {
-      const note = timedOutNote(timeoutMs);
+      const note = (options.timeoutNote ?? timedOutNote)(timeoutMs);
       options.onData?.(Buffer.from(note));
-      return { exitCode: 124, output: `${output}${note}` };
+      return { exitCode: 124, output: `${output}${note}`, timedOut: true };
     }
     if (signals.some((signal) => signal.aborted)) throw new Error("aborted");
     return { exitCode: 1, output: `${output}${error instanceof Error ? error.message : String(error)}` };

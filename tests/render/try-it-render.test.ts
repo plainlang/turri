@@ -11,6 +11,8 @@ import { writeTestScripts } from "../test-scripts.ts";
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
 const prompts: string[] = [];
 let answers: Array<{ setup: string[]; steps: Array<{ do: string; expect: string; kind: string }> }> = [];
+/** Whether working out how to try it breaks a unit test, as an agent's edit on the way might. */
+let breaksWhileTrying = false;
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -30,6 +32,18 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
       if (prompt.includes("describe_how_to_try_it")) {
         const answer = answers.shift();
         if (answer !== undefined) await tool("describe_how_to_try_it").execute("id", answer);
+        if (breaksWhileTrying) {
+          await tool("write").execute("id", {
+            path: "test_broken.py",
+            content: "import unittest\n\nclass Broken(unittest.TestCase):\n    def test_broken(self):\n        self.assertEqual(1, 2)\n",
+          });
+        }
+      } else if (prompt.includes("The harness ran the project's unit testing script")) {
+        // Sent back with the harness's failing run: it fixes what it broke.
+        await tool("write").execute("id", {
+          path: "test_broken.py",
+          content: "import unittest\n\nclass Broken(unittest.TestCase):\n    def test_broken(self):\n        self.assertEqual(1, 1)\n",
+        });
       } else {
         // As a real agent would: a unit test, then the whole suite.
         await tool("write").execute("id", {
@@ -59,6 +73,7 @@ beforeEach(() => {
   process.chdir(dir);
   prompts.length = 0;
   answers = [];
+  breaksWhileTrying = false;
 });
 afterEach(() => {
   process.chdir(cwd);
@@ -131,6 +146,19 @@ describe.runIf(vmSupported())("trying what a render built", { timeout: 120_000 }
 
     expect(prompts.some((prompt) => prompt.startsWith("These did not work"))).toBe(true);
     expect(result.tryIt?.steps).toEqual([{ do: "echo works", expect: "works", kind: "command", exitCode: 0 }]);
+  });
+
+  it("sends a unit test broken while working out how to try it back to the agent, instead of ending the build", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    answers = [working];
+    breaksWhileTrying = true;
+
+    const result = await renderFunctionality({ plainFile: "app.plain", frid: "1", tryIt: true });
+
+    expect(prompts.some((prompt) => prompt.includes("The harness ran the project's unit testing script") && prompt.includes("test_broken"))).toBe(true);
+    expect(result.passed).toBe(true);
+    // Judged three times: passing, broken after trying it, fixed.
+    expect(result.attempts).toBe(3);
   });
 
   it("is not asked for when not wanted", async () => {

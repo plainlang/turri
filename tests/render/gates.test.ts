@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { describeStop } from "../../src/render/stop-report.ts";
 import { keepingTestsUnchanged, type TestRun, verifyUnitSuite } from "../../src/render/testing.ts";
-import { closeAllVms, vmSupported } from "../../src/render/vm.ts";
+import { closeAllVms, runInVm, vmSupported } from "../../src/render/vm.ts";
+import { setScriptTimeoutForTests } from "../../src/render/test-scripts.ts";
 import { UNIT_SCRIPT, writeTestScripts } from "../test-scripts.ts";
 
 let root: string;
@@ -66,6 +67,43 @@ describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeo
     expect(verdict.prompt).toContain("AssertionError");
     const log = /the whole output is in (\S+)\]/.exec(verdict.prompt)![1]!;
     expect(readFileSync(log, "utf8")).toContain("Downloading dependency 1 of 3000");
+  });
+
+  it("counts a run past the time limit as failed, stops it in the VM, and says what most often keeps tests from ending", async () => {
+    setScriptTimeoutForTests(3000);
+    onTestFinished(() => setScriptTimeoutForTests(undefined));
+    writeTestScripts(root, { unit: "#!/bin/bash\necho running test_login_waits_for_server\nsleep 300\n" });
+
+    const runs: TestRun[] = [];
+    const verdict = await verifyUnitSuite(code, runs, script());
+
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.prompt).toContain("had not finished after 3 seconds - the");
+    expect(verdict.prompt).toContain("counts as failed");
+    expect(verdict.prompt).toContain("running test_login_waits_for_server");
+    expect(verdict.prompt).toContain("a server or a watcher started in the foreground");
+    expect(runs.at(-1)).toMatchObject({ exitCode: 124 });
+    // Gone from the VM, not only given up on.
+    const ps = await runInVm("ps -o stat,args | grep -v ' Z ' | grep -c 'sleep 300$' || true", { cwd: code });
+    expect(ps.output.trim()).toBe("0");
+  });
+
+  it("stages every run somewhere new, so the VM never sees a copy an earlier run removed", async () => {
+    writeFileSync(join(code, "test_app.py"), passingTest);
+    writeTestScripts(root, { unit: "#!/bin/bash\necho \"staged in $1\"\nls \"$1\"\n" });
+    const places = new Set<string>();
+    for (let i = 0; i < 3; i += 1) {
+      const verdict = await verifyUnitSuite(code, [], script());
+      expect(verdict.ok).toBe(true);
+    }
+    const { runUnitScript } = await import("../../src/render/test-scripts.ts");
+    for (let i = 0; i < 3; i += 1) {
+      const run = await runUnitScript(code, script());
+      expect(run.output).toContain("test_app.py");
+      places.add(/staged in (\S+)/.exec(run.output)![1]!);
+    }
+    expect(places.size).toBe(3);
   });
 
   it("leaves the code as it was: the script works on a copy", async () => {
@@ -162,6 +200,16 @@ describe("when a build stops", () => {
     const regression = describeStop({ moduleName: "app", frid: "3", at: "regression", repairs: 20 });
     expect(regression).toContain("broke what was built before it, and 20 attempts");
     expect(regression).toContain("resolve-spec-conflict");
+  });
+
+  it("says how many attempts there really were, not the most there could have been", () => {
+    expect(describeStop({ moduleName: "rt_tuples", frid: "2", at: "unit tests", attempts: 3 })).toContain(
+      "Stopped at rt_tuples functionality 2: after 3 attempts it still could not be built",
+    );
+    expect(describeStop({ moduleName: "app", frid: "1", at: "unit tests", attempts: 1 })).toContain("after 1 attempt it still");
+    expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: { runs: [], rounds: 4 } })).toContain(
+      "after 4 rounds, its conformance tests",
+    );
   });
 
   it("never sends the person to the code, the tests or the machine", () => {

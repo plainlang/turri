@@ -197,8 +197,8 @@ it is written.** A functionality cannot be rendered without knowing the language
 written in and the framework its tests use.
 
 Read `references/stack.md` and walk its topics in order: language, frameworks, storage,
-external services, structure and architecture, other constraints, anything else. Ask the unit
-test framework here too — generated code needs it from the first functionality onward.
+external services, structure and architecture, other constraints, anything else, and last the
+unit tests - generated code needs them from the first functionality onward.
 
 Author every requirement into `***implementation reqs***` at the right scope — shared
 requirements into the template, module-specific ones into the module. Create the module
@@ -206,10 +206,18 @@ structure and frontmatter so there is a `.plain` file to build into.
 
 Write no functional specs, no `***test reqs***` and no `***acceptance tests***` in this phase.
 
+End the phase with the unit tests: their framework, as a `:UnitTests:` requirement, and the unit
+testing script, which every build needs from the first one on. If plainwright already finds a
+script - named by `unittests-script:` in `config.yaml` at the project root, or the one
+`run_unittests*.sh` in the root or in `test_scripts/` - keep it. Otherwise write
+`test_scripts/run_unittests_<language>.sh` with the `implement-unit-testing-script` skill, for the
+language and framework just settled. Do not link it from the specs. Without it, every build stops
+before it starts.
+
 Run `plainwright check` on the module before finishing, so the interview does not start
 producing functionalities on top of a file that does not parse.
 
-Finish by summarizing the stack and architecture and getting explicit confirmation. There is
+Finish by summarizing the stack, the architecture and the unit testing script, and getting explicit confirmation. There is
 no gate on this phase — the user reading the stack back is the check.
 
 ### definitions
@@ -274,8 +282,9 @@ decision, not an inference. If
 conformance is on, walk every functional spec one at a time and add acceptance tests via
 `add-acceptance-test`.
 
-Generate the needed scripts under `test_scripts/` via the `implement-*-script` skills. Do not
-link them from the specs: plainwright finds them in `config.yaml`, the project root, or
+The unit testing script was written at the end of the stack phase. If conformance is on,
+generate the conformance testing script under `test_scripts/` via
+`implement-conformance-testing-script`. Do not link scripts from the specs: plainwright finds them in `config.yaml`, the project root, or
 `test_scripts/`, and shows them to the agents itself.
 
 Deal here with any build that failed during the functional specs phase: use `render_status` to see what

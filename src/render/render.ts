@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
-import { reportStage } from "./activity.ts";
+import { reportActivity, reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -95,6 +95,8 @@ export interface RenderFunctionalityResult {
   runs: TestRun[];
   /** Whether the last observed run passed. False when the agent never ran the tests. */
   passed: boolean;
+  /** How many times the harness ran the unit testing script on it: the attempts it judged. */
+  attempts?: number;
   /** Tests that went missing mid-run and had to be justified. */
   testRemovals: TestRemoval[];
   /** How a person runs it and sees this functionality, checked by the harness. */
@@ -161,16 +163,24 @@ export async function renderFunctionality(
     ? options.regenerate.in
     : undefined;
   const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName));
+  const stage = (label: string) => {
+    if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
+  };
+  stage(`${options.regenerate ? "regenerating" : "building"} functionality ${frid} of ${frids.length}${host ? ` in ${host.moduleName}'s codebase` : ""}`);
   // Whether the code is done is the project's unit testing script: without one, nothing is built.
+  stage("finding the project's testing scripts");
   const root = projectRootFor(options.plainFile, buildDir);
   const scripts = findTestScripts(root);
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: false });
+  if (!options.dryRun) reportActivity(`  unit testing script: ${relative(root, scripts.unit!)}`);
   const conformance = options.conformance ?? specifications[TEST_REQUIREMENTS].length > 0;
   const required = getInheritedFunctionalSpecs(tree);
   // Work starts from the last known good state of the codebase it is done in: whatever an
   // interrupted run left half-written is gone before anything reads the code.
+  stage("starting from the codebase's last commit");
   if (!options.dryRun) startFromLastCommit(buildDir, host?.moduleName ?? moduleName);
 
+  stage(options.regenerate === undefined ? "mapping the codebase and writing the agent's prompt" : "working out what changed, and writing the agent's prompt");
   let prompt: string;
   if (options.regenerate === undefined) {
     const codebase = codebaseMap(tree, buildDir, frid);
@@ -240,6 +250,7 @@ export async function renderFunctionality(
   const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
   const notes = notesForSession(buildDir, `${moduleName} ${frid}`);
+  stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...createWebTools(), ...fence.tools],
@@ -253,38 +264,45 @@ export async function renderFunctionality(
     let inventory = inventoryTests(buildDir);
     const testRemovals: TestRemoval[] = [];
 
-    const stage = (label: string) => reportStage(`${moduleName} ${frid}: ${label}`);
-    stage("writing code and unit tests");
+    stage("the agent is writing the code and its unit tests");
     let response = await ask(executor, prompt, options.onDelta);
 
     const maxFollowUps = options.maxFollowUps ?? DEFAULT_MAX_FOLLOW_UPS;
-    let verified = false;
-    for (let followUp = 0; followUp < maxFollowUps; followUp += 1) {
-      const current = inventoryTests(buildDir);
-      const removals = findTestRemovals(inventory, current);
+    let followUp = 0;
+    /** The harness's runs of the unit testing script: each is an attempt it judged. */
+    let attempts = 0;
+    // Back and forth until the harness's run of the unit testing script passes - whatever the
+    // agent ran, and whether it ran anything - or the rounds run out. Picks up where it left off
+    // when called again.
+    const untilPassing = async (): Promise<boolean> => {
+      for (; followUp < maxFollowUps; followUp += 1) {
+        const current = inventoryTests(buildDir);
+        const removals = findTestRemovals(inventory, current);
 
-      if (removals.length > 0) {
-        testRemovals.push(...removals);
-        // Re-baseline so a removal is challenged once; restoring it shows up as a pass
-        // on the next lap rather than as a second accusation.
-        inventory = current;
-        stage(`justifying ${removals.length} removed test${removals.length === 1 ? "" : "s"}`);
-        response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
-        continue;
-      }
+        if (removals.length > 0) {
+          testRemovals.push(...removals);
+          // Re-baseline so a removal is challenged once; restoring it shows up as a pass
+          // on the next lap rather than as a second accusation.
+          inventory = current;
+          stage(`justifying ${removals.length} removed test${removals.length === 1 ? "" : "s"}`);
+          response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
+          continue;
+        }
 
-      // Whether the functionality is done is the harness's run of the unit testing script -
-      // whatever the agent ran, and whether it ran anything.
-      stage("checking the unit tests");
-      const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit!);
-      if (!verdict.ok) {
-        stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${maxFollowUps})`);
-        response = await ask(executor, verdict.prompt, options.onDelta);
-        continue;
+        stage(`the agent is done - the harness runs the unit testing script (attempt ${attempts + 1})`);
+        attempts += 1;
+        const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit!);
+        if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
+        if (!verdict.ok) {
+          stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${maxFollowUps})`);
+          response = await ask(executor, verdict.prompt, options.onDelta);
+          continue;
+        }
+        return true;
       }
-      verified = true;
-      break;
-    }
+      return false;
+    };
+    let verified = await untilPassing();
 
     // Asked only once the tests pass: instructions for software that does not work yet
     // would be instructions for something else.
@@ -300,13 +318,16 @@ export async function renderFunctionality(
         },
         stage,
       });
+      // Working out how to try it may have touched the code: the harness checks again, and a run
+      // that fails goes back to the agent like any other - it does not end the build.
+      if (tryIt !== undefined) verified = await untilPassing();
     }
+    stage("checking the agent left its working notes");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const files = listFiles(buildDir);
 
-    // Passing means the harness's own run of the whole suite passed. Working out how to try it
-    // may have touched the code since, so that run is repeated when it did.
-    const passed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs, scripts.unit!)).ok);
+    // Passing means the harness's own run of the unit testing script passed, last.
+    const passed = verified;
 
     // Record what this build now contains, here rather than in each caller. Every route
     // into a render - the queue behind start_render, the CLI, renderModule - has to leave
@@ -319,6 +340,7 @@ export async function renderFunctionality(
     };
     const outcome = passed ? "unit tests pass" : "unit tests NOT passing";
     const what = targetFunctionality(specifications).split("\n")[0]!.replace(/^- /, "");
+    stage(`recording the build and committing it (${outcome})`);
     if (host === undefined) {
       recordFunctionality(buildDir, moduleName, { frid, ...specStateFor(tree, frid), ...built, required });
       recordHistory(
@@ -347,6 +369,7 @@ export async function renderFunctionality(
       added: files.filter((file) => !filesBefore.has(file)),
       functionality: targetFunctionality(specifications),
       runs,
+      attempts,
       passed,
       testRemovals,
       tryIt,

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
 import {
   FUNCTIONAL_REQUIREMENTS,
@@ -13,7 +13,7 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, createExecutor } from "../pi.ts";
-import { reportStage } from "./activity.ts";
+import { reportActivity, reportStage } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
@@ -189,6 +189,8 @@ export interface RenderSpecDiffResult {
   diff: "applied" | "already applied";
   response: string;
   runs: TestRun[];
+  /** How many times the harness ran the unit testing script on it: the attempts it judged. */
+  attempts: number;
   testRemovals: TestRemoval[];
   files: { added: string[]; changed: string[]; removed: string[] };
   conformance?: RenderConformanceTestsResult;
@@ -206,14 +208,21 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const spec = options.spec ?? snapshotSpec(options.plainFile, { cwd, templateDirs, inModule: options.inModule });
   const { moduleName, tree, chain } = spec;
   const tip = chain.at(-1)!;
+  const stage = (label: string) => reportStage(`${moduleName}: ${label}`);
+  stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);
   // Whether the change is done is the project's testing scripts: without them, nothing is built.
+  stage("finding the project's testing scripts");
   const root = projectRootFor(tip.plainFile, tip.buildDir);
   // Turned off, the conformance testing script is not used at all, found or not.
   const scripts = options.conformance === false ? withoutConformance(findTestScripts(root)) : findTestScripts(root);
   const conformanceOn = options.conformance !== false && (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0;
   requireTestScripts(moduleName, scripts, { conformance: conformanceOn });
+  reportActivity(`  unit testing script: ${relative(root, scripts.unit)}`);
+  if (scripts.conformance !== undefined && conformanceOn) reportActivity(`  conformance testing script: ${relative(root, scripts.conformance)}`);
+  if (options.conformance === false) reportActivity("  conformance is off: no conformance tests are written or run");
   // The change is made to the codebase's last known good state, not to what an interrupted
   // run left half-written.
+  stage("starting from the codebase's last commit");
   startFromLastCommit(tip.buildDir, moduleName);
   const frids = [...getFrids(tree)];
   const lastFrid = frids.at(-1);
@@ -224,12 +233,16 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const empty = listFiles(buildDir).length === 0;
   if (empty && tip.requires !== null) {
     const source = chain.find((entry) => entry.moduleName === tip.requires);
-    if (source !== undefined) copyRequiredCode(source.buildDir, buildDir, moduleName, sections);
+    if (source !== undefined) {
+      stage(`no code here yet - starting from ${source.moduleName}'s code`);
+      copyRequiredCode(source.buildDir, buildDir, moduleName, sections);
+    }
   }
 
   const specifications: Specifications =
     lastFrid !== undefined ? getSpecificationsForFrid(tree, lastFrid)[0] : { ...sections, [FUNCTIONAL_REQUIREMENTS]: [] };
   const required = getInheritedFunctionalSpecs(tree);
+  stage("mapping the codebase and writing the agent's prompt");
   const prompt = buildSpecDiffPrompt({
     moduleName,
     diff: options.diff,
@@ -245,6 +258,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const fence = confinedTools({ workdir: buildDir });
   let tryIt: TryIt | undefined;
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
+  stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [
@@ -260,9 +274,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   let response: string;
   let verified = false;
+  let followUp = 0;
+  /** The harness's runs of the unit testing script: each is an attempt it judged. */
+  let attempts = 0;
   const testRemovals: TestRemoval[] = [];
   try {
-    reportStage(`${moduleName}: implementing the spec change`);
+    stage("the agent is implementing the spec change");
     let inventory = inventoryTests(buildDir);
     response = await ask(
       executor,
@@ -270,29 +287,35 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       withNotes(withTestingScripts(prompt, scripts, conformanceOn ? ["unit", "conformance"] : ["unit"], root), buildDir),
       options.onDelta,
     );
-    for (let followUp = 0; followUp < MAX_FOLLOW_UPS; followUp += 1) {
-      const current = inventoryTests(buildDir);
-      const removals = findTestRemovals(inventory, current);
-      if (removals.length > 0) {
-        // A removed spec takes its tests with it; the agent says which and why, as always.
-        testRemovals.push(...removals);
-        inventory = current;
-        reportStage(`${moduleName}: justifying ${removals.length} removed test${removals.length === 1 ? "" : "s"}`);
-        response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
-        continue;
+    // Back and forth until the harness's run of the unit testing script passes - whatever the
+    // agent ran, and whether it ran anything - or the rounds run out. Picks up where it left off
+    // when called again.
+    const untilPassing = async (): Promise<boolean> => {
+      for (; followUp < MAX_FOLLOW_UPS; followUp += 1) {
+        const current = inventoryTests(buildDir);
+        const removals = findTestRemovals(inventory, current);
+        if (removals.length > 0) {
+          // A removed spec takes its tests with it; the agent says which and why, as always.
+          testRemovals.push(...removals);
+          inventory = current;
+          stage(`justifying ${removals.length} removed test${removals.length === 1 ? "" : "s"}`);
+          response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
+          continue;
+        }
+        stage(`the agent is done - the harness runs the unit testing script (attempt ${attempts + 1})`);
+        attempts += 1;
+        const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
+        if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
+        if (!verdict.ok) {
+          stage(`unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
+          response = await ask(executor, verdict.prompt, options.onDelta);
+          continue;
+        }
+        return true;
       }
-      // Whether the change is done is the harness's run of the unit testing script - whatever the
-      // agent ran, and whether it ran anything.
-      reportStage(`${moduleName}: checking the unit tests`);
-      const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
-      if (!verdict.ok) {
-        reportStage(`${moduleName}: unit tests not passing when the harness runs them - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
-        response = await ask(executor, verdict.prompt, options.onDelta);
-        continue;
-      }
-      verified = true;
-      break;
-    }
+      return false;
+    };
+    verified = await untilPassing();
 
     // Asked only once the tests pass: instructions for software that does not work yet would
     // be instructions for something else.
@@ -306,19 +329,22 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           await ask(executor, next, options.onDelta);
           return tryIt;
         },
-        stage: (label) => reportStage(`${moduleName}: ${label}`),
+        stage,
       });
+      // Working out how to try it may have touched the code: the harness checks again, and a run
+      // that fails goes back to the agent like any other - it does not end the change.
+      if (tryIt !== undefined) verified = await untilPassing();
     }
+    stage("checking the agent left its working notes");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
   } finally {
     executor.dispose();
   }
 
-  // Passing means the harness's own run of the whole suite passed - again after try-it, which
-  // may have touched the code.
-  const unitPassed = verified && (tryIt === undefined || (await verifyUnitSuite(buildDir, runs, scripts.unit)).ok);
+  // Passing means the harness's own run of the unit testing script passed, last.
+  const unitPassed = verified;
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
-  const base = { moduleName, buildDir, diff: applied, response, runs, testRemovals, files, tryIt };
+  const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files, tryIt };
 
   /** The record, rewritten to the spec the change was rendered from - whatever happened - and committed. */
   const record = (conformance: "passed" | "failed" | "skipped") => {
@@ -334,6 +360,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       })),
     });
     const outcome = unitPassed ? `conformance ${conformance}` : "unit tests NOT passing";
+    stage(`recording the specs the change was built from, and committing it (${outcome})`);
     recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)} (${outcome})`, options.diff);
   };
 
@@ -349,6 +376,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   if (options.conformance === false || !hasTestReqs || lastFrid === undefined) {
     // No conformance tests written for the change - but the ones already here are kept
     // passing: the change must not break what they check.
+    stage(options.conformance === false ? "conformance is off - done" : "no conformance tests to write for this change - keeping the existing ones passing");
     const regression = await ensureRegressionPasses({
       step: `${moduleName} spec change`,
       buildDir, conformanceRoot, moduleName, frids, tree, required, scripts,
@@ -358,7 +386,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     return { ...base, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
   }
 
-  reportStage(`${moduleName}: bringing the conformance tests in line with the change`);
+  stage("unit tests pass - bringing the conformance tests in line with the change");
   const conformance = await renderConformanceTests({
     plainFile: tip.plainFile,
     frid: lastFrid,
@@ -377,6 +405,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     return { ...base, conformance, passed: false, stoppedAt: "conformance" };
   }
 
+  stage("conformance tests pass - running the codebase's whole conformance suite");
   const regression = await ensureRegressionPasses({
     step: `${moduleName} spec change`,
     buildDir,
@@ -404,6 +433,7 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
           moduleName: result.moduleName,
           at: result.stoppedAt!,
           runs: result.runs,
+          attempts: result.attempts,
           conformance: result.conformance,
           repairs: result.regression?.repairs.length,
         }),

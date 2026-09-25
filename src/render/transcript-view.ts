@@ -79,7 +79,24 @@ export function transcriptLines(job: Job, width: number, style: TranscriptStyle 
   if (job.transcript.length === 0) {
     return [...change, ...(change.length > 0 ? [""] : []), style.muted(job.status === "queued" ? "(queued - not started yet)" : "(nothing yet)")];
   }
-  return [...change, ...job.transcript.flatMap((entry) => entryLines(entry, width, style))];
+  return [...change, ...job.transcript.flatMap((entry) => entryLines(entry, width, style)), ...ending(job, width, style)];
+}
+
+const FINISHED: Partial<Record<Job["status"], string>> = { succeeded: "finished", failed: "finished - failed", stopped: "stopped" };
+
+/**
+ * How a job that is over ended, after the last thing its agents did - so a finished job does not
+ * look like one still at its last stage.
+ */
+function ending(job: Job, width: number, style: TranscriptStyle): string[] {
+  const finished = FINISHED[job.status];
+  if (finished === undefined) return [];
+  const said = (job.announce ?? job.report ?? job.error ?? "").trim();
+  return [
+    "",
+    style.heading(`── ${finished}`),
+    ...(said === "" ? [] : said.split("\n").flatMap((line) => (line === "" ? [""] : wrapTextWithAnsi(line, width)))),
+  ];
 }
 
 function header(job: Job): string {
@@ -127,19 +144,27 @@ export function createTranscriptView(options: TranscriptViewOptions) {
         ...visible.map((line) => truncateToWidth(line, width)),
         // Where you are first: the keys are the part a narrow terminal can afford to lose.
         style.muted(
-          truncateToWidth(`${where}  —  q back to chat (alt+w returns) · g top · G bottom · ↑↓ PgUp PgDn scroll · x close`, width),
+          truncateToWidth(
+            `${where}  —  q back to chat (alt+w returns) · b/f page up/down · u/d half page · ↑↓ line · g top · G bottom · x close`,
+            width,
+          ),
         ),
       ];
     },
 
+    // Keys a laptop has: b/f and u/d as in less and vim, beside PgUp/PgDn, space and the arrows.
     handleInput(data: string): void {
       const page = Math.max(1, lastBodyHeight - 1);
+      const half = Math.max(1, Math.floor(lastBodyHeight / 2));
       if (matchesKey(data, Key.escape) || data === "q") options.back();
       else if (data === "x") options.close();
       else if (matchesKey(data, Key.up) || data === "k") fromBottom += 1;
       else if (matchesKey(data, Key.down) || data === "j") fromBottom = Math.max(0, fromBottom - 1);
-      else if (matchesKey(data, Key.pageUp)) fromBottom += page;
-      else if (matchesKey(data, Key.pageDown) || data === " ") fromBottom = Math.max(0, fromBottom - page);
+      else if (matchesKey(data, Key.pageUp) || data === "b" || matchesKey(data, Key.ctrl("b"))) fromBottom += page;
+      else if (matchesKey(data, Key.pageDown) || data === " " || data === "f" || matchesKey(data, Key.ctrl("f"))) {
+        fromBottom = Math.max(0, fromBottom - page);
+      } else if (data === "u" || matchesKey(data, Key.ctrl("u"))) fromBottom += half;
+      else if (data === "d" || matchesKey(data, Key.ctrl("d"))) fromBottom = Math.max(0, fromBottom - half);
       else if (matchesKey(data, Key.home) || data === "g") fromBottom = Number.MAX_SAFE_INTEGER;
       else if (matchesKey(data, Key.end) || data === "G") fromBottom = 0;
     },

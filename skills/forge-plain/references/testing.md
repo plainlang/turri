@@ -28,9 +28,9 @@ Write the scripts as `.sh` (Bash): the harness runs them in a Linux VM, and only
 
 ## Topics (in order)
 
-1. **Unit-test framework** — e.g. pytest, Jest, JUnit, Go's `testing` package. Suggest one that fits the the stack phase language if the user has no preference.
-   - Author a `:UnitTests:` framework requirement in `***implementation reqs***` at the appropriate scope (template if shared, otherwise on the module) — e.g. "`:UnitTests:` should use pytest" plus "`:UnitTests:` are run via `pytest tests/`". Generate `run_unittests` (and any framework config it needs, e.g. `pytest.ini`, `jest.config.js`) via `implement-unit-testing-script`.
-   - Review the framework req and the generated script paths (and `config.yaml`, if the project needs one).
+1. **Unit tests** — their framework and their script were settled at the end of the stack phase; do not ask again.
+   - Only if an answer since has changed how the unit tests are run, update the `:UnitTests:` requirement and regenerate the script via `implement-unit-testing-script`.
+   - Review that the unit testing script is still the one plainwright finds (and `config.yaml`, if the project needs one).
 2. **Unit-test types and architecture mapping** — which of unit tests and integration tests the user wants, and how tests map to the the stack phase architectural layers (e.g. one test module per service, repository tests with an in-memory store). Author a `:UnitTests:` scope / architecture requirement in `***implementation reqs***`, phrased in terms of `:UnitTests:` so the partition is visible. Review that requirement.
 3. **Conformance testing** — explicitly ask whether conformance / end-to-end tests should be part of the project. This drives whether `run_conformance_tests` is generated and whether `***acceptance tests***` are authored. If the user is unsure, briefly explain the tradeoff (extra scripts + per-spec acceptance tests vs. lighter setup) and let them choose.
    - If **yes**: author a conformance-testing requirement in `***test reqs***` (framework, execution command, any constraints); generate `run_conformance_tests` via `implement-conformance-testing-script`; then **walk every functional spec authored in the functional specs phase, one at a time** — for each spec, ask one `ask_user` question whether it needs concrete verification, and if yes author one acceptance test under that spec via `add-acceptance-test`, then review that acceptance test as a snippet before moving to the next spec. Never bulk-write acceptance tests; never ask about more than one spec per call.
