@@ -19,7 +19,6 @@ are separate jobs: a codebase can be built and given its conformance suite later
   --range <a,b>            a range of functionalities, inclusive
   --all                    every functionality of this module (the default)
   --chain                  every module this one requires, each in full
-  --force                  rewrite suites that already pass
   --regression             run each module's merged suite afterwards
 
   --build-dir <dir>        the rendered code under test (default: plain_modules/<module>/code)
@@ -40,7 +39,6 @@ function parseArgs(argv: string[]) {
   let model: string | undefined;
   let all = false;
   let chain = false;
-  let force = false;
   let regression = false;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -52,7 +50,6 @@ function parseArgs(argv: string[]) {
     else if (arg === "--model") model = argv[++i];
     else if (arg === "--all") all = true;
     else if (arg === "--chain") chain = true;
-    else if (arg === "--force") force = true;
     else if (arg === "--regression") regression = true;
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
@@ -64,7 +61,7 @@ function parseArgs(argv: string[]) {
     else frids.push(arg);
   }
 
-  return { plainFile, frids, range, all, chain, force, regression, templateDirs, buildDir, conformanceRoot, model };
+  return { plainFile, frids, range, all, chain, regression, templateDirs, buildDir, conformanceRoot, model };
 }
 
 async function main() {
@@ -80,7 +77,6 @@ async function main() {
     range: args.range,
     all: args.all,
     chain: args.chain,
-    force: args.force,
     regression: args.regression,
     templateDirs: args.templateDirs,
     buildDir: args.buildDir,
@@ -99,21 +95,19 @@ async function main() {
         console.log(
           `\n${c.bold(`> ${event.module} functionality ${event.frid}`)} ${c.dim(`(${event.index}/${event.total})`)}`,
         );
-      } else if (event.type === "skipped") {
-        console.log(c.dim(`  ${event.module} functionality ${event.frid}: already passing, skipping`));
       } else if (event.type === "done") {
         console.log(event.passed ? c.green("  pass") : c.red("  fail"));
       }
     },
   });
 
-  const written = result.outcomes.filter((o) => !o.skipped).length;
+  const written = result.outcomes.length;
   const failed = result.outcomes.filter((o) => o.result && !o.result.passed).length;
 
   console.log(
     `\n\n${result.passed ? c.green(c.bold("conformance suite passes")) : c.red(c.bold("conformance suite not passing"))}`,
   );
-  console.log(c.dim(`  written: ${written}, skipped: ${result.outcomes.length - written}, failing: ${failed}`));
+  console.log(c.dim(`  written: ${written}, failing: ${failed}`));
   for (const [moduleName, regression] of Object.entries(result.regression)) {
     console.log(c.dim(`  regression ${moduleName}: ${regression.passed ? "pass" : "fail"}`));
   }

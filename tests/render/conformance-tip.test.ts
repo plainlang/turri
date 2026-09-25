@@ -31,8 +31,8 @@ vi.mock("../../src/render/render.ts", async (importOriginal) => {
 
 const { renderConformanceSuite } = await import("../../src/render/conformance-suite.ts");
 const { ensureRegressionPasses, regenerateFunctionality, renderModule } = await import("../../src/render/module.ts");
-const { copyRequiredCode, requiredFunctionalSpecs } = await import("../../src/render/requires.ts");
-const { readState, recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
+const { copyRequiredCode } = await import("../../src/render/requires.ts");
+const { recordBuiltFunctionality } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/render/render.ts");
 
@@ -50,7 +50,7 @@ function built(name: string) {
   mkdirSync(buildOf(name), { recursive: true });
   writeFileSync(join(buildOf(name), "app.sh"), `echo ${name}\n`);
   for (const frid of ["1", "2"].slice(0, (tree["functional specs"] as unknown[]).length)) {
-    recordFunctionality(buildOf(name), moduleName, { frid, ...specStateFor(tree, frid), unitTests: "passed", required: requiredFunctionalSpecs(file(name)) });
+    recordBuiltFunctionality(buildOf(name), tree, frid);
   }
 }
 
@@ -68,17 +68,13 @@ afterEach(() => {
 });
 
 describe("conformance for a module that later modules are built on", () => {
-  it("is written and run in the latest codebase, and recorded there", async () => {
+  it("is written and run in the latest codebase", async () => {
     for (const name of ["base", "top"]) built(name);
-    const before = readState(buildOf("base"))!.functionalities["2"]!.conformance;
 
     const result = await renderConformanceSuite({ plainFile: file("base"), frids: ["2"] });
 
     expect(conformanceRuns).toEqual([{ plainFile: file("base"), frid: "2", buildDir: buildOf("top"), conformanceDir: testsOf("top") }]);
     expect(result.codebaseOf).toBe("top");
-    const entry = readState(buildOf("top"))!.required.find((spec) => spec.module === "base" && spec.frid === "2")!;
-    expect(entry.build?.conformance).toBe("passed");
-    expect(readState(buildOf("base"))!.functionalities["2"]!.conformance).toBe(before);
   });
 
   it("stays with the module itself while nothing is built on it", async () => {

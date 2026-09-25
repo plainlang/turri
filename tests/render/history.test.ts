@@ -3,10 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { head, historyLog, historyShow, recordHistory, resetToLastCommit } from "../../src/render/history.ts";
-import { ensureRegressionPasses } from "../../src/render/module.ts";
+import { abandonWork, head, historyLog, historyShow, markWork, recordHistory, resetToLastCommit, startWork } from "../../src/render/history.ts";
 import { copyRequiredCode } from "../../src/render/requires.ts";
-import { readState, recordFunctionality } from "../../src/render/state.ts";
 
 let root: string;
 let code: string;
@@ -73,7 +71,7 @@ describe("history as the chain is built", () => {
     const base = recordHistory(code, "render app fs 1");
     const next = join(root, "plain_modules", "next", "code");
 
-    copyRequiredCode(code, next, "next");
+    copyRequiredCode(code, next, "next", "app");
 
     expect(historyLog(next)).toContain(`start from app at ${base}`);
   });
@@ -116,6 +114,81 @@ describe("starting from the last commit", () => {
   it("leaves a module with no history alone - there is no good state to go back to", () => {
     writeFileSync(join(code, "app.py"), "print('hi')\n");
     expect(resetToLastCommit(code)).toEqual([]);
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('hi')\n");
+  });
+});
+
+describe("a unit of work", () => {
+  const moduleDir = () => join(root, "plain_modules", "app");
+  const commits = () => historyLog(code).split("\n").length;
+
+  it("starts from a commit even in a module that has none: what is there, as found - or nothing", () => {
+    writeFileSync(join(code, "app.py"), "print('found')\n");
+    const start = startWork([code], "app");
+    expect(start.modules).toEqual([{ moduleDir: moduleDir(), commit: expect.stringMatching(/^[0-9a-f]{40}$/) }]);
+    expect(tracked(moduleDir())).toEqual(["code/app.py"]);
+    expect(historyLog(code)).toContain("the module as plainwright found it");
+
+    const empty = join(root, "plain_modules", "fresh", "code");
+    expect(startWork([empty], "fresh").modules).toHaveLength(1);
+    expect(historyLog(empty)).toContain("the module as plainwright found it");
+  });
+
+  it("starts by putting back what an interrupted run left, and keeps what history does not track", () => {
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    recordHistory(code, "render app fs 1");
+    writeFileSync(join(code, "app.py"), "print('h");
+    writeFileSync(join(code, "half.py"), "def half(");
+    mkdirSync(join(code, ".venv"), { recursive: true });
+    writeFileSync(join(code, ".venv", "installed"), "x");
+
+    startWork([code], "app");
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('hi')\n");
+    expect(existsSync(join(code, "half.py"))).toBe(false);
+    expect(existsSync(join(code, ".venv", "installed"))).toBe(true);
+  });
+
+  it("that fails is undone whole: its changes, its new files and the commits it made - not the dependencies", () => {
+    writeFileSync(join(code, "app.py"), "print('before')\n");
+    recordHistory(code, "render app fs 1");
+    const before = commits();
+    const start = startWork([code, join(moduleDir(), "tests")], "app");
+
+    // The work: a commit on the way, then more changes, a new file, a test.
+    writeFileSync(join(code, "app.py"), "print('during')\n");
+    recordHistory(code, "render app fs 2");
+    writeFileSync(join(code, "app.py"), "print('later')\n");
+    writeFileSync(join(code, "extra.py"), "x = 1\n");
+    mkdirSync(join(moduleDir(), "tests"), { recursive: true });
+    writeFileSync(join(moduleDir(), "tests", "test_new.py"), "assert True\n");
+    mkdirSync(join(code, "node_modules", "dep"), { recursive: true });
+    writeFileSync(join(code, "node_modules", "dep", "index.js"), "1\n");
+
+    abandonWork(start, "app", "it failed");
+
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('before')\n");
+    expect(existsSync(join(code, "extra.py"))).toBe(false);
+    expect(existsSync(join(moduleDir(), "tests", "test_new.py"))).toBe(false);
+    expect(commits()).toBe(before);
+    expect(existsSync(join(code, "node_modules", "dep", "index.js"))).toBe(true);
+  });
+
+  it("under way is marked without putting anything back - what is uncommitted belongs to it", () => {
+    writeFileSync(join(code, "app.py"), "print('committed')\n");
+    recordHistory(code, "render app fs 1");
+    writeFileSync(join(code, "app.py"), "print('in progress')\n");
+    const mark = markWork([code]);
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('in progress')\n");
+    // Undoing from the mark goes back to the commit it was at.
+    abandonWork(mark, "app", "it failed");
+    expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('committed')\n");
+  });
+
+  it("with nothing to undo leaves the module alone", () => {
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    const start = startWork([code], "app");
+    abandonWork(start, "app", "it failed");
+    abandonWork(undefined, "app", "nothing started");
     expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('hi')\n");
   });
 });

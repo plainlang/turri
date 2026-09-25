@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyRequiredCode, describeChain, requiredFunctionalSpecs, resolveRequiresChain } from "../../src/render/requires.ts";
-import { isModuleUpToDate, readState, recordFunctionality, specStateFor } from "../../src/render/state.ts";
+import { isModuleUpToDate, pendingFrids, readBuiltTree, recordBuiltFunctionality } from "../../src/render/state.ts";
 import { getFrids, getInheritedFunctionalSpecs, getSpecificationItems } from "../../src/plain/spec.ts";
-import { codebaseMap } from "../../src/render/codebase.ts";
 import { plainFileParser } from "../../src/plain/parser.ts";
 import { resolveTemplateDirs } from "../../src/render/render.ts";
 
@@ -70,11 +69,7 @@ describe("build state", () => {
     const tree = treeFor("base");
     expect(isModuleUpToDate(tree, entry!.buildDir)).toBe(false);
 
-    recordFunctionality(entry!.buildDir, "base", {
-      frid: "1",
-      ...specStateFor(tree, "1"),
-      unitTests: "passed",
-    });
+    recordBuiltFunctionality(entry!.buildDir, tree, "1");
     expect(isModuleUpToDate(tree, entry!.buildDir)).toBe(true);
   });
 });
@@ -87,7 +82,7 @@ describe("copyRequiredCode", () => {
     writeFileSync(join(from, "app.py"), "print('base')");
     writeFileSync(join(from, "pkg", "helper.py"), "x = 1");
 
-    const copied = copyRequiredCode(from, to, "middle");
+    const copied = copyRequiredCode(from, to, "middle", "base");
 
     expect(copied.sort()).toEqual(["app.py", "pkg/helper.py"]);
     expect(readFileSync(join(to, "app.py"), "utf8")).toBe("print('base')");
@@ -99,16 +94,16 @@ describe("copyRequiredCode", () => {
     mkdirSync(from, { recursive: true });
     writeFileSync(join(from, "app.py"), "print('base')");
     const baseTree = plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1];
-    recordFunctionality(from, "base", { frid: "1", ...specStateFor(baseTree, "1"), unitTests: "passed" });
+    recordBuiltFunctionality(from, baseTree, "1");
 
-    copyRequiredCode(from, to, "middle");
+    copyRequiredCode(from, to, "middle", "base");
 
     const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
     expect(isModuleUpToDate(middleTree, to)).toBe(false);
   });
 
   it("copies nothing when the required build does not exist", () => {
-    expect(copyRequiredCode(join(build, "nope"), join(build, "middle"), "middle")).toEqual([]);
+    expect(copyRequiredCode(join(build, "nope"), join(build, "middle"), "middle", "base")).toEqual([]);
   });
 });
 
@@ -175,75 +170,32 @@ describe("the parser's two inheritance rules", () => {
   });
 });
 
-describe("the record, when code is copied up the chain", () => {
-  it("comes with the code as the new module's inheritance, with how and where each was built", () => {
-    const from = join(build, "base");
-    const middle = join(build, "middle");
-    const top = join(build, "top");
-    mkdirSync(from, { recursive: true });
-    writeFileSync(join(from, "app.py"), "print('base')");
+describe("the tree, when code is copied up the chain", () => {
+  it("comes with the code as the new module's inheritance - and the new module has built nothing of its own", () => {
+    const from = join(dir, "plain_modules", "base", "code");
+    const middle = join(dir, "plain_modules", "middle", "code");
+    const top = join(dir, "plain_modules", "top", "code");
     const baseTree = plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1];
-    recordFunctionality(from, "base", {
-      frid: "1", ...specStateFor(baseTree, "1"), unitTests: "passed",
-      files: { added: ["app.py"], changed: [], removed: [] }, testCommand: "pytest",
-    });
+    mkdirSync(from, { recursive: true });
+    writeFileSync(join(from, "app.py"), "print('base')\n");
+    recordBuiltFunctionality(from, baseTree, "1");
 
-    copyRequiredCode(from, middle, "middle");
-    const carried = readState(middle)!;
-    expect(carried.module).toBe("middle");
-    expect(carried.functionalities).toEqual({});
-    expect(carried.required).toEqual([
-      expect.objectContaining({ module: "base", frid: "1", spec: "- Do the thing.", build: expect.objectContaining({ in: "base", unitTests: "passed", testCommand: "pytest" }) }),
+    copyRequiredCode(from, middle, "middle", "base");
+    const carried = readBuiltTree(middle)!;
+    expect(carried["functional specs"]).toBeUndefined();
+    expect(carried["required functional specs"]).toEqual([{ markdown: "- Do the thing.", module: "base", frid: "1" }]);
+
+    // And on up: what middle inherits and what it built, in the order the code was built.
+    const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
+    recordBuiltFunctionality(middle, middleTree, "1");
+    copyRequiredCode(middle, top, "top", "middle");
+    expect((readBuiltTree(top)!["required functional specs"] as Array<{ module: string; frid: string }>).map((s) => `${s.module} ${s.frid}`)).toEqual([
+      "base 1",
+      "middle 1",
     ]);
-
-    // And on again, one more step up: what middle inherited is still there.
-    const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
-    recordFunctionality(middle, "middle", { frid: "1", ...specStateFor(middleTree, "1"), unitTests: "passed" });
-    copyRequiredCode(middle, top, "top");
-    expect(readState(top)!.required.map((s) => `${s.module} ${s.frid} built in ${s.build?.in}`)).toEqual([
-      "base 1 built in base",
-      "middle 1 built in middle",
-    ]);
-  });
-
-  it("tells the next render where the required modules' code is", () => {
-    const from = join(build, "base");
-    const to = join(build, "middle");
-    mkdirSync(from, { recursive: true });
-    writeFileSync(join(from, "app.py"), "print('base')");
-    const baseTree = plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1];
-    recordFunctionality(from, "base", {
-      frid: "1", ...specStateFor(baseTree, "1"), unitTests: "passed", files: { added: ["app.py"], changed: [], removed: [] },
-    });
-    copyRequiredCode(from, to, "middle");
-
-    const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
-    expect(codebaseMap(middleTree, to, "1")).toContain("  base 1: added app.py");
-  });
-});
-
-describe("the record's shared sections, when code is copied up the chain", () => {
-  it("are the new module's own from the start - what it defines and imports, not the source's", () => {
-    writeFileSync(join(dir, "shared.plain"), "***definitions***\n\n- :Thing: is a thing.\n\n***implementation reqs***\n\n- Shared req.\n");
-    writeFileSync(
-      join(dir, "middle.plain"),
-      "---\nimport:\n  - shared\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- Middle req.\n\n***functional specs***\n\n- Use :Thing:.\n",
-    );
-    const from = join(build, "base");
-    const to = join(build, "middle");
-    mkdirSync(from, { recursive: true });
-    writeFileSync(join(from, "app.py"), "print('base')");
-    const baseTree = plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1];
-    recordFunctionality(from, "base", { frid: "1", ...specStateFor(baseTree, "1"), unitTests: "passed" });
-
-    const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
-    copyRequiredCode(from, to, "middle", specStateFor(middleTree, "1").sections);
-
-    const state = readState(to)!;
-    expect(state.sections.definitions).toContain("- :Thing: is a thing.");
-    expect(state.sections["implementation reqs"]).toEqual(expect.arrayContaining(["- Shared req.", "- Middle req."]));
-    expect(state.sections["implementation reqs"]).not.toContain("- A requirement.");
-    expect(state.functionalities).toEqual({});
+    // Nothing of top's own is built yet.
+    const topTree = plainFileParser("top.plain", resolveTemplateDirs(join(dir, "top.plain")))[1];
+    expect(pendingFrids(topTree, top).map((p) => p.frid)).toEqual(["1"]);
   });
 });
 
@@ -256,7 +208,7 @@ describe("the conformance tests, when code is copied up the chain", () => {
     mkdirSync(join(build, "base", "tests", "auth"), { recursive: true });
     writeFileSync(join(build, "base", "tests", "auth", "test_login.py"), "def test_login(): pass\n");
 
-    copyRequiredCode(from, to, "middle");
+    copyRequiredCode(from, to, "middle", "base");
 
     expect(readFileSync(join(build, "middle", "tests", "auth", "test_login.py"), "utf8")).toBe("def test_login(): pass\n");
     // The code folder holds only code.

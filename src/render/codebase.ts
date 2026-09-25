@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getFrids, type MarshalledPlainSource } from "../plain/spec.ts";
-import { readState } from "./state.ts";
-import { listFiles, NOT_CODE } from "./testing.ts";
+import { listFiles } from "./testing.ts";
 
 /**
  * What a render agent is told about the code before it starts.
@@ -64,56 +62,9 @@ function fileTree(files: string[]): string[] {
   ];
 }
 
-function list(files: string[]): string {
-  if (files.length <= 20) return files.join(", ");
-  return `${files.slice(0, 15).join(", ")} and ${files.length - 15} more`;
-}
-
-/**
- * The map of the codebase as it stands before functionality `frid` is built - or, with no
- * `frid`, as it stands with everything built so far - or null when there is no code yet.
- */
-export function codebaseMap(tree: MarshalledPlainSource, buildDir: string, frid?: string): string | null {
+/** The map of the codebase as it stands - or null when there is no code yet. */
+export function codebaseMap(buildDir: string): string | null {
   const files = listFiles(buildDir);
   if (files.length === 0) return null;
-
-  const state = readState(buildDir);
-  const earlier: string[] = [];
-  for (const id of getFrids(tree)) {
-    if (id === frid) break;
-    earlier.push(id);
-  }
-
-  const lines = [`Files (${files.length}):`, ...fileTree(files)];
-
-  // Everything this codebase holds, in the order it was built on: the required modules'
-  // functionalities first, then this module's own before the one being built. Those built
-  // before this was recorded have nothing to say; one line for all of them, and none at all
-  // when that is every one.
-  const moduleName = state?.module ?? "";
-  const entries = [
-    ...(state?.required ?? []).map((spec) => ({ label: `${spec.module} ${spec.frid}`, files: spec.build?.files })),
-    ...earlier.map((id) => ({ label: `${moduleName} ${id}`, files: state?.functionalities[id]?.files })),
-  ];
-  const unrecorded = entries.filter((entry) => entry.files === undefined).map((entry) => entry.label);
-  const where = entries.flatMap(({ label, files: recorded }) => {
-    if (recorded === undefined) return [];
-    const filterIgnored = (files: string[]) =>
-      files.filter((file) => !NOT_CODE.has(file.split("/")[0]));
-    const added = filterIgnored(recorded.added);
-    const changed = filterIgnored(recorded.changed);
-    const removed = filterIgnored(recorded.removed);
-    const parts = [
-      added.length > 0 ? `added ${list(added)}` : "",
-      changed.length > 0 ? `changed ${list(changed)}` : "",
-      removed.length > 0 ? `removed ${list(removed)}` : "",
-    ].filter(Boolean);
-    return [`  ${label}: ${parts.length > 0 ? parts.join("; ") : "no file changes"}`];
-  });
-  if (where.length > 0) {
-    if (unrecorded.length > 0) where.push(`  not recorded for ${list(unrecorded)}`);
-    lines.push("", "What each implemented functionality did to the files:", ...where);
-  }
-
-  return lines.join("\n");
+  return [`Files (${files.length}):`, ...fileTree(files)].join("\n");
 }

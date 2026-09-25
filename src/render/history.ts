@@ -104,7 +104,8 @@ export function recordHistory(dir: string, subject: string, body?: string): stri
  * code the next render would build on. Its last commit is the last known good state, so the
  * working tree is reset to it: changed files restored, files nothing committed removed. What
  * history does not track stays - installed dependencies, caches - so nothing needs installing
- * again. A module with no history yet has no good state to go back to and is left alone.
+ * again. A module with no commit yet has no good state to go back to and is left alone -
+ * `startWork` gives it one.
  *
  * Returns the paths that were put back or removed, relative to the module folder.
  */
@@ -128,17 +129,94 @@ export function resetToLastCommit(dir: string): string[] {
 }
 
 /**
- * The start of every step that writes a module's code or tests: back to its last commit, and
- * say so when that undid anything.
+ * Where a unit of work started: each module folder it writes, at the commit it was at. A unit
+ * either lands whole - committed, its tree recorded - or is undone whole (`abandonWork`), so the
+ * code, its tests and the tree they were built from never disagree.
  */
-export function startFromLastCommit(dir: string, moduleName: string): void {
-  const undone = resetToLastCommit(dir);
-  if (undone.length === 0) return;
-  const shown = undone.slice(0, 5).join(", ");
-  reportActivity(
-    `${moduleName}: back to its last commit - ${undone.length} change${undone.length === 1 ? "" : "s"} an unfinished ` +
-      `run left behind undone (${shown}${undone.length > 5 ? ", …" : ""})`,
-  );
+export interface WorkStart {
+  modules: Array<{ moduleDir: string; commit: string }>;
+}
+
+/** The module's commit, made first when it has none: what is there, as found, or an empty one. */
+function ensureCommit(moduleDir: string): string | undefined {
+  mkdirSync(moduleDir, { recursive: true });
+  if (!ensureHistory(moduleDir)) return undefined;
+  const current = git(moduleDir, ["rev-parse", "HEAD"]);
+  if (current.status === 0) return current.stdout.trim();
+  git(moduleDir, ["add", "-A"]);
+  git(moduleDir, ["commit", "-q", "--allow-empty", "-m", "the module as plainwright found it"]);
+  const made = git(moduleDir, ["rev-parse", "HEAD"]);
+  return made.status === 0 ? made.stdout.trim() : undefined;
+}
+
+/**
+ * The start of every unit of work that writes a module's code or tests: each module folder it
+ * writes back at its last commit - saying so when that undid anything - and that commit kept, to
+ * go back to if the work fails. A module with no commit yet is given one first, so there always
+ * is one.
+ */
+export function startWork(dirs: string[], moduleName: string): WorkStart {
+  const modules: WorkStart["modules"] = [];
+  for (const moduleDir of [...new Set(dirs.map(moduleDirOf))]) {
+    try {
+      const commit = ensureCommit(moduleDir);
+      if (commit === undefined) continue;
+      const undone = resetToLastCommit(join(moduleDir, "code"));
+      if (undone.length > 0) {
+        const shown = undone.slice(0, 5).join(", ");
+        reportActivity(
+          `${moduleName}: back to its last commit - ${undone.length} change${undone.length === 1 ? "" : "s"} an unfinished ` +
+            `run left behind undone (${shown}${undone.length > 5 ? ", …" : ""})`,
+        );
+      }
+      modules.push({ moduleDir, commit });
+    } catch {
+      // History is a record, not a gate: without it, the work goes on.
+    }
+  }
+  return { modules };
+}
+
+/**
+ * Where work already under way is now, to go back to if what comes next fails - without
+ * putting anything back first: what is uncommitted belongs to the work that is under way.
+ */
+export function markWork(dirs: string[]): WorkStart {
+  const modules: WorkStart["modules"] = [];
+  for (const moduleDir of [...new Set(dirs.map(moduleDirOf))]) {
+    try {
+      const commit = ensureCommit(moduleDir);
+      if (commit !== undefined) modules.push({ moduleDir, commit });
+    } catch {
+      // History is a record, not a gate.
+    }
+  }
+  return { modules };
+}
+
+/** The same, for one directory - the start of a step that writes only there. */
+export function startFromLastCommit(dir: string, moduleName: string): WorkStart {
+  return startWork([dir], moduleName);
+}
+
+/**
+ * Undo a unit of work that failed: every module folder it wrote back at the commit it started
+ * from - its changes, the files it added and any commit it made since, gone. What history does
+ * not track stays: installed dependencies, caches.
+ */
+export function abandonWork(start: WorkStart | undefined, moduleName: string, why: string): void {
+  for (const { moduleDir, commit } of start?.modules ?? []) {
+    try {
+      const moved = git(moduleDir, ["rev-parse", "HEAD"]).stdout.trim() !== commit;
+      const status = git(moduleDir, ["status", "--porcelain", "--untracked-files=all"]).stdout.trim();
+      if (!moved && status === "") continue;
+      git(moduleDir, ["reset", "-q", "--hard", commit]);
+      git(moduleDir, ["clean", "-q", "-fd"]);
+      reportActivity(`${moduleName}: ${why} - ${basename(moduleDir)} is back where the work started`);
+    } catch {
+      // Nothing to undo with.
+    }
+  }
 }
 
 /** The current commit of a module's history, if it has one. */

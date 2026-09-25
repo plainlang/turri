@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { plainFileParser } from "../../src/plain/parser.ts";
 import { resolveTemplateDirs } from "../../src/render/render.ts";
-import { recordFunctionality, specStateFor } from "../../src/render/state.ts";
+import { recordBuiltFunctionality } from "../../src/render/state.ts";
 import { createJobRegistry } from "../../src/render/jobs.ts";
 import { createRenderQueue, type RenderRunner } from "../../src/render/queue.ts";
 
@@ -133,7 +133,7 @@ describe("re-queueing what the specification changed under", () => {
     writeFileSync(join(dir, "app.plain"), spec());
     const tree = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1];
     const built = (frid: string) =>
-      recordFunctionality(build, "app", { frid, ...specStateFor(tree(), frid), unitTests: "passed" });
+      recordBuiltFunctionality(build, tree(), frid);
     return { dir, build, tree, built, change: (t: string) => writeFileSync(join(dir, "app.plain"), spec(t)) };
   }
 

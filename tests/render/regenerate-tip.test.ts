@@ -32,9 +32,9 @@ vi.mock("../../src/render/conformance.ts", async (importOriginal) => {
   };
 });
 
-const { findCodebaseTip, requiredFunctionalSpecs } = await import("../../src/render/requires.ts");
+const { findCodebaseTip } = await import("../../src/render/requires.ts");
 const { regenerateFunctionality, renderChain } = await import("../../src/render/module.ts");
-const { readState, recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
+const { readBuiltTree, recordBuiltFunctionality, recordBuiltRequiredFunctionality } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/render/render.ts");
 const { buildRegeneratePrompt } = await import("../../src/render/prompt.ts");
@@ -55,9 +55,7 @@ function built(name: string) {
   mkdirSync(buildOf(name), { recursive: true });
   writeFileSync(join(buildOf(name), "app.py"), `# ${name}\n`);
   for (const frid of ["1", "2"].slice(0, (tree["functional specs"] as unknown[]).length)) {
-    recordFunctionality(buildOf(name), moduleName, {
-      frid, ...specStateFor(tree, frid), unitTests: "passed", required: requiredFunctionalSpecs(file(name)),
-    });
+    recordBuiltFunctionality(buildOf(name), tree, frid);
   }
 }
 
@@ -110,25 +108,25 @@ describe("regenerating a required module's functionality", () => {
     expect(result.buildDir).toBe(buildOf("top"));
   });
 
-  it("updates the tip's record with the new spec and how it was built, and leaves the module's own alone", async () => {
-    const before = readState(buildOf("base"))!.functionalities["1"]!.spec;
-    await regenerateFunctionality({ plainFile: file("base"), frid: "1" });
+  it("is recorded in the tip's tree, as the required module's spec now has it - and the module's own tree is left alone", () => {
+    const before = readBuiltTree(buildOf("base"));
+    const [, tree] = plainFileParser("base.plain", resolveTemplateDirs(file("base")));
+    recordBuiltRequiredFunctionality(buildOf("top"), "base", "1", (tree["functional specs"] as Array<{ markdown: string }>)[0]!);
 
-    const tip = readState(buildOf("top"))!;
-    const entry = tip.required.find((spec) => spec.module === "base" && spec.frid === "1")!;
-    expect(entry.spec).toBe("- Base one, changed.");
-    expect(entry.build).toMatchObject({ in: "top", unitTests: "passed", conformance: "passed" });
-    expect(readState(buildOf("base"))!.functionalities["1"]!.spec).toBe(before);
+    const inherited = readBuiltTree(buildOf("top"))!["required functional specs"] as Array<{ markdown: string; module: string; frid: string }>;
+    expect(inherited.find((spec) => spec.module === "base" && spec.frid === "1")!.markdown).toBe("- Base one, changed.");
+    expect(inherited.find((spec) => spec.module === "base" && spec.frid === "2")!.markdown).toBe("- Base two.");
+    expect(readBuiltTree(buildOf("base"))).toEqual(before);
   });
 
-  it("keeps what was recorded when the tip's own functionality is rendered again later", async () => {
-    await regenerateFunctionality({ plainFile: file("base"), frid: "1" });
+  it("stays recorded when the tip's own functionality is rendered again later - and a change not rebuilt stays unbuilt", () => {
+    const [, base] = plainFileParser("base.plain", resolveTemplateDirs(file("base")));
+    recordBuiltRequiredFunctionality(buildOf("top"), "base", "1", (base["functional specs"] as Array<{ markdown: string }>)[0]!);
+    writeFileSync(file("base"), module_(["- Base one, changed.", "- Base two, changed too."]));
     const [, tree] = plainFileParser("top.plain", resolveTemplateDirs(file("top")));
-    recordFunctionality(buildOf("top"), "top", {
-      frid: "1", ...specStateFor(tree, "1"), unitTests: "passed", required: requiredFunctionalSpecs(file("top")),
-    });
-    const entry = readState(buildOf("top"))!.required.find((spec) => spec.module === "base" && spec.frid === "1")!;
-    expect(entry.build?.in).toBe("top");
+    recordBuiltFunctionality(buildOf("top"), tree, "1");
+    const inherited = readBuiltTree(buildOf("top"))!["required functional specs"] as Array<{ markdown: string; module: string; frid: string }>;
+    expect(inherited.filter((spec) => spec.module === "base").map((spec) => spec.markdown)).toEqual(["- Base one, changed.", "- Base two."]);
   });
 });
 

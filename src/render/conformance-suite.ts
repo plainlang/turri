@@ -3,8 +3,6 @@ import { getRenderRange, type MarshalledPlainSource } from "../plain/spec.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
 import { findCodebaseTip, requiredFunctionalSpecs, resolveRequiresChain, type ChainEntry } from "./requires.ts";
-import { readState, recordConformance } from "./state.ts";
-import { recordHistory } from "./history.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { findTestScripts, projectRootFor } from "./test-scripts.ts";
@@ -80,7 +78,6 @@ export function resolveConformanceTargets(
 export interface ConformanceSuiteOutcome {
   moduleName: string;
   frid: string;
-  skipped: boolean;
   result?: RenderConformanceTestsResult;
 }
 
@@ -101,8 +98,6 @@ export interface ConformanceSuiteOptions extends ConformanceSelection {
   inModule?: string;
   conformanceRoot?: string;
   model?: string;
-  /** Rewrite suites that already pass. */
-  force?: boolean;
   /** Run the merged suite for each module afterwards. */
   regression?: boolean;
   onDelta?: (delta: string) => void;
@@ -112,7 +107,6 @@ export interface ConformanceSuiteOptions extends ConformanceSelection {
 export type ConformanceSuiteEvent =
   | { type: "targets"; targets: ConformanceTarget[] }
   | { type: "start"; module: string; frid: string; index: number; total: number }
-  | { type: "skipped"; module: string; frid: string }
   | { type: "done"; module: string; frid: string; passed: boolean };
 
 export async function renderConformanceSuite(
@@ -154,16 +148,6 @@ export async function renderConformanceSuite(
 
       const buildDir = codebase?.buildDir ?? target.buildDir;
       const holder = codebase?.moduleName ?? target.moduleName;
-      const state = readState(buildDir);
-      const verdict =
-        target.moduleName === state?.module
-          ? state.functionalities[frid]?.conformance
-          : state?.required.find((spec) => spec.module === target.moduleName && spec.frid === frid)?.build?.conformance;
-      if (!options.force && verdict === "passed") {
-        options.onEvent?.({ type: "skipped", module: target.moduleName, frid });
-        outcomes.push({ moduleName: target.moduleName, frid, skipped: true });
-        continue;
-      }
 
       options.onEvent?.({ type: "start", module: target.moduleName, frid, index, total });
 
@@ -177,13 +161,8 @@ export async function renderConformanceSuite(
         onDelta: options.onDelta,
       });
 
-      outcomes.push({ moduleName: target.moduleName, frid, skipped: false, result });
+      outcomes.push({ moduleName: target.moduleName, frid, result });
       options.onEvent?.({ type: "done", module: target.moduleName, frid, passed: result.passed });
-
-      // The codebase's record of this functionality gains its conformance verdict - on its own
-      // entry, or on the entry it has as a required module's functionality.
-      recordConformance(buildDir, target.moduleName, frid, result.passed ? "passed" : "failed");
-      recordHistory(buildDir, `conformance ${target.moduleName} fs ${frid}: verdict recorded (${result.passed ? "pass" : "fail"})`);
 
       if (!result.passed) passed = false;
     }

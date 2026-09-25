@@ -16,7 +16,7 @@ import { reportActivity, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot, projectRootOf, projectDirOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
-import { recordHistory, startFromLastCommit } from "./history.ts";
+import { abandonWork, markWork, recordHistory, startFromLastCommit, startWork, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
   findTestScripts,
@@ -44,10 +44,7 @@ import {
   describePending,
   isModuleUpToDate,
   pendingFrids,
-  readState,
-  recordFunctionality,
-  recordRegeneration,
-  specStateFor,
+  builtRequiredSpecs,
   type Pending,
 } from "./state.ts";
 import { renderFunctionality, resolveTemplateDirs, type RenderFunctionalityResult } from "./render.ts";
@@ -241,6 +238,11 @@ export async function ensureRegressionPasses(input: {
   tree: MarshalledPlainSource;
   /** The required modules' functional specs, for the repair agent. */
   required: RequiredSpec[];
+  /**
+   * The unit of work the run belongs to, undone whole when the suite still fails. Without one,
+   * only what the repairs did is undone.
+   */
+  start?: WorkStart;
   /** The step the regression run is for, as a repair's notes say; the last functionality by default. */
   step?: string;
   /** The codebase's testing scripts: its conformance testing script runs the suite. */
@@ -267,6 +269,7 @@ export async function ensureRegressionPasses(input: {
   // There are tests: the project's conformance testing script runs them, or nothing does.
   if (input.scripts.conformance === undefined) throw new MissingTestScriptError(input.moduleName, "conformance");
 
+  const start = input.start ?? markWork([input.buildDir, ...dirs]);
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_REGRESSION_ROUNDS;
   for (let round = 0; round <= maxRounds; round += 1) {
     reportStage(
@@ -309,7 +312,7 @@ export async function ensureRegressionPasses(input: {
   }
 
   reportStage(`${input.moduleName}: the whole conformance suite still fails after ${repairs.length} repair${repairs.length === 1 ? "" : "s"} - stopping`);
-  recordHistory(input.buildDir, `regression ${input.moduleName} (NOT passing after ${repairs.length} repair(s))`);
+  abandonWork(start, input.moduleName, `the whole conformance suite still fails after ${repairs.length} repair(s)`);
   return { passed: false, runs, repairs, command };
 }
 
@@ -374,13 +377,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       (options.conformance === false ? ", conformance off" : conformanceEnabled ? ", with conformance tests" : ", no test reqs - no conformance tests of its own"),
   );
 
-  /** Write what this functionality was built from, as soon as it is known. */
-  const record = (
-    frid: string,
-    status: { unitTests: "passed" | "failed"; conformance?: "passed" | "failed" | "skipped" },
-  ) =>
-    recordFunctionality(buildDir, moduleName, { frid, ...specStateFor(tree, frid), ...status });
-
   for (let index = fromIndex; index <= toIndex; index += 1) {
     const frid = allFrids[index]!;
 
@@ -399,6 +395,9 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       spec: getSpecificationsForFrid(tree, frid)[0]["functional specs"].at(-1)?.trim(),
     });
 
+    // A functionality is one unit - its code, its conformance tests, the whole suite passing
+    // with it - landed whole or undone whole.
+    const unit = startWork([buildDir, conformanceDirFor(moduleName, conformanceRoot)], moduleName);
     options.onEvent?.({ type: "phase", frid, phase: "render" });
     const render = await renderFunctionality({
       plainFile: options.plainFile,
@@ -412,11 +411,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
     });
 
-    // State is written as each stage finishes, not at the end. A module is routinely
-    // left part-built - conformance fails on functionality 3, the run stops - and the
-    // work already done on that functionality must survive it.
-    record(frid, { unitTests: render.passed ? "passed" : "failed" });
-
     if (!render.passed) {
       outcomes.push({ frid, render, stoppedAt: "unit tests" });
       options.onEvent?.({ type: "stopped", frid, at: "unit tests" });
@@ -426,9 +420,9 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
     if (!conformanceEnabled) {
       // No new conformance tests for this functionality - but the ones already here, this
       // module's and those carried up from below, are kept passing whatever is built.
-      record(frid, { unitTests: "passed", conformance: "skipped" });
       options.onEvent?.({ type: "phase", frid, phase: "regression" });
       const regression = await ensureRegressionPasses({
+        start: unit,
         buildDir,
         conformanceRoot,
         moduleName,
@@ -466,9 +460,8 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
     });
 
-    record(frid, { unitTests: "passed", conformance: conformance.passed ? "passed" : "failed" });
-
     if (!conformance.passed) {
+      abandonWork(unit, moduleName, `functionality ${frid}'s conformance tests do not pass`);
       outcomes.push({ frid, render, conformance, stoppedAt: "conformance" });
       options.onEvent?.({ type: "stopped", frid, at: "conformance" });
       break;
@@ -476,6 +469,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
 
     options.onEvent?.({ type: "phase", frid, phase: "regression" });
     const regression = await ensureRegressionPasses({
+      start: unit,
       buildDir,
       conformanceRoot,
       moduleName,
@@ -500,9 +494,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
     reportStage(`${moduleName} ${frid}: done - functionality ${index + 1} of ${allFrids.length} built`);
     options.onEvent?.({ type: "functionality_done", frid });
   }
-
-  // The record's last word on each functionality lands after its step's own commit.
-  recordHistory(buildDir, `${moduleName}: build record`);
 
   return {
     moduleName,
@@ -586,6 +577,10 @@ export async function regenerateFunctionality(
   }
 
   const base = { moduleName, frid: options.frid, codebaseOf: host?.moduleName, buildDir, conformanceRoot };
+  const owner = host?.moduleName ?? moduleName;
+  // The regeneration is one unit - the code, its conformance tests, the whole suite - landed
+  // whole or undone whole.
+  const unit = startWork([buildDir, conformanceDirFor(owner, conformanceRoot)], owner);
 
   options.onEvent?.({ type: "phase", frid: options.frid, phase: "render" });
   const render = await renderFunctionality({
@@ -601,28 +596,7 @@ export async function regenerateFunctionality(
     onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
   });
 
-  /** The record at the end, whatever happened: what the code holds now. */
-  const record = (conformance: "passed" | "failed" | "skipped") => {
-    const built = {
-      specHash: specStateFor(tree, options.frid).specHash,
-      unitTests: render.passed ? ("passed" as const) : ("failed" as const),
-      conformance,
-    };
-    if (host !== undefined) {
-      recordRegeneration(buildDir, host.moduleName, {
-        module: moduleName,
-        frid: options.frid,
-        required: requiredFunctionalSpecs(host.plainFile, options.templateDirs),
-        build: built,
-      });
-    } else {
-      recordFunctionality(buildDir, moduleName, { frid: options.frid, ...specStateFor(tree, options.frid), ...built });
-    }
-    recordHistory(buildDir, `regenerate ${moduleName} fs ${options.frid}${host ? ` in ${host.moduleName}` : ""}: conformance ${conformance}`);
-  };
-
   if (!render.passed) {
-    record("skipped");
     return { ...base, render, passed: false, stoppedAt: "unit tests" };
   }
 
@@ -636,6 +610,7 @@ export async function regenerateFunctionality(
   if (options.conformance === false || !hasTestReqs) {
     reportStage(`${moduleName} ${options.frid}: regenerated - ${options.conformance === false ? "conformance is off" : "no test reqs, so no conformance tests of its own"}`);
     const regression = await ensureRegressionPasses({
+      start: unit,
       buildDir,
       conformanceRoot,
       moduleName: host?.moduleName ?? moduleName,
@@ -648,7 +623,6 @@ export async function regenerateFunctionality(
       onDelta: options.onDelta,
       onEvent: options.onEvent,
     });
-    record(options.conformance === false ? "skipped" : regression.passed ? "passed" : "failed");
     return { ...base, render, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
   }
 
@@ -667,7 +641,7 @@ export async function regenerateFunctionality(
   });
 
   if (!conformance.passed) {
-    record("failed");
+    abandonWork(unit, owner, `functionality ${options.frid}'s conformance tests do not pass`);
     return { ...base, render, conformance, passed: false, stoppedAt: "conformance" };
   }
 
@@ -676,6 +650,7 @@ export async function regenerateFunctionality(
   // codebase's tests directory holds the whole chain's, copied up with the code.
   options.onEvent?.({ type: "phase", frid: options.frid, phase: "regression" });
   const regression = await ensureRegressionPasses({
+    start: unit,
     buildDir,
     conformanceRoot,
     moduleName: host?.moduleName ?? moduleName,
@@ -690,7 +665,6 @@ export async function regenerateFunctionality(
     onEvent: options.onEvent,
   });
 
-  record(regression.passed ? "passed" : "failed");
   return {
     ...base,
     render,
@@ -753,10 +727,10 @@ function coveringCodebase(
   for (let index = chain.length - 1; index >= 1; index -= 1) {
     const entry = chain[index]!;
     if (listFiles(entry.buildDir).length === 0) continue;
-    const state = readState(entry.buildDir);
-    if (state === null || state.required.length === 0) continue;
+    const required = builtRequiredSpecs(entry.buildDir);
+    if (required === null || required.length === 0) continue;
 
-    const recorded = new Map(state.required.map((spec) => [`${spec.module}/${spec.frid}`, spec]));
+    const recorded = new Map(required.map((spec) => [`${spec.module}/${spec.frid}`, spec]));
     const stale = requiredFunctionalSpecs(entry.plainFile, templateDirs).filter((current) => {
       const built = recorded.get(`${current.module}/${current.frid}`);
       return built === undefined || !sameSpec(built, current);
@@ -841,13 +815,7 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
       const source = byModule.get(entry.requires);
       if (source !== undefined) {
         reportStage(`${entry.moduleName}: starting from ${entry.requires}'s code and conformance tests`);
-        const firstFrid = entry.frids[0];
-        copied = copyRequiredCode(
-          source.buildDir,
-          entry.buildDir,
-          entry.moduleName,
-          firstFrid !== undefined ? specStateFor(entryTree, firstFrid).sections : undefined,
-        ).length;
+        copied = copyRequiredCode(source.buildDir, entry.buildDir, entry.moduleName, source.moduleName).length;
         options.onChainEvent?.({
           type: "copied",
           from: entry.requires,

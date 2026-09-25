@@ -80,7 +80,7 @@ was built and whether its tests passed; the last lines summarise each module.
 | --- | --- |
 | `plain_modules/<module>/code/` | the code and unit tests |
 | `plain_modules/<module>/tests/` | the conformance tests |
-| `plain_modules/<module>/code/.plainwright.json` | what each functionality was built from, and whether its tests passed |
+| `plain_modules/<module>/code/.plainwright.json` | the marshalled plain tree the code is built from |
 
 And what happened, step by step, in the module's history:
 

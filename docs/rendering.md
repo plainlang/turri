@@ -17,7 +17,7 @@ the folder above. Links in a spec are relative to the spec.
 | --- | --- |
 | `plain_modules/<module>/code/` | the implementation and its unit tests |
 | `plain_modules/<module>/tests/` | the black-box conformance tests, organised however suits them |
-| `plain_modules/<module>/code/.plainwright.json` | the build record - see [below](#the-build-record) |
+| `plain_modules/<module>/code/.plainwright.json` | the tree the code is built from - see [below](#what-the-code-is-built-from) |
 | `plain_modules/<module>/code/.plainwright-notes.md` | the agents' working notes - see [below](#working-notes) |
 | `plain_modules/<module>/.plaingit` | the module's history - see [using](using.md#module-history) |
 
@@ -78,8 +78,9 @@ starts, so breaking an earlier functionality's test is caught too.
 ### Then
 
 Once the unit tests pass: the conformance tests already in the codebase are run and kept passing
-(repairing the code if needed), the build record is updated, and a commit is made to the module's
-history. When someone is there to try it, the agent is also asked how to try the functionality:
+(repairing the code if needed), the functional spec goes into the tree the code is built from, and a
+commit is made to the module's history. A render that does not pass is undone instead - see
+[below](#what-the-code-is-built-from). When someone is there to try it, the agent is also asked how to try the functionality:
 a few plain steps - a command to paste or a thing to click, and what you should see - at most
 five, one line each, and only commands that work in your own terminal. The harness runs every
 command first, in a fresh copy (`plain_modules/.plainwright/try/`): a server is started, checked
@@ -204,9 +205,9 @@ already applied), and the spec is parsed with it in. One agent, given the diff a
 spec as they now stand, makes the code match; then the conformance tests are brought in line, the
 whole suite runs with repairs, and try-it is worked out and checked.
 
-The build record is rewritten from the spec as parsed when the diff went in - every section, not
-only the functional specs - and the diff is added to its `specDiffs`. A diff queued behind others
-is rendered from its own parse, not from the files as they are by the time it runs.
+When it passes, the tree the code is built from becomes the spec as parsed when the diff went in -
+every section, not only the functional specs - and the diff is committed with it. A diff queued
+behind others is rendered from its own parse, not from the files as they are by the time it runs.
 
 `render_spec_diff_conformance` is its conformance half, on its own - what `render_functionality_conformance`
 is to `render_functionality`. It takes the same diff, applies it unless it already is, and has one
@@ -215,7 +216,7 @@ the spec as it now stands. Then the whole suite runs. Nothing of the change itse
 is for a change that was rendered without conformance, or one only the tests follow - test reqs, an
 acceptance test. The tests go where the code they check lives: the chain's current codebase, even
 when the change is to a module it requires. Which functionalities have tests is read from their
-labels, and their verdict goes on the record.
+labels.
 
 ## Conformance tests
 
@@ -328,11 +329,31 @@ more. They live in the code folder, so they are committed with it, reset with it
 interrupted run, and copied up with it to a module that requires this one. They are not part of the
 codebase: they are left out of the code map, the file lists and the try-it copies.
 
-## The build record
+## What the code is built from
 
-`plain_modules/<module>/code/.plainwright.json` says what the codebase was built from: the shared
-sections once (definitions, implementation reqs, test reqs), then the functional specs - the
-required modules' first - each with its hash, whether its unit and conformance tests passed, what
-its render changed and the test command that passed. A render adds one functionality; a spec diff
-rewrites the record to the spec it was rendered from. It is what staleness is judged by: a
-functionality is rebuilt when its own spec no longer matches what it was built from.
+`plain_modules/<module>/code/.plainwright.json` holds one thing: the marshalled plain tree the code
+in that folder is built from, as JSON - the definitions, the implementation and test reqs, the
+module's own functional specs and those it inherits. Nothing about how a build went: whether tests
+passed and which files a render touched are in the history, not here. A functionality is rebuilt
+when its own spec no longer matches what the tree says it was built from.
+
+What goes into it:
+
+- **A functionality rendered:** the tree as it was, with that functional spec in its place - and the
+  definitions it is the first to use, with the reqs that name them. What was built before stays as
+  built: a definition changed since is not claimed as built, so the change is still there to render.
+  The first functionality of a module is built with all of the spec's reqs, so they all go in.
+- **A spec diff rendered:** the spec as parsed with the diff in, whole.
+- **A required module's functionality rebuilt in a later module's codebase:** that spec, in the
+  inherited ones of the later module's tree.
+- **A module started from another's code:** everything the other's tree holds, as what it inherits.
+
+A unit of work - a functionality with its conformance tests and the whole suite, a spec diff, a
+conformance run, a regeneration - lands whole or is undone whole. It starts from the module's last
+commit, putting back whatever an interrupted run left; a module with no commit yet is given one
+first. When it does not pass, the module goes back to that commit: its changes, the files it added
+and any commit it made on the way are gone, with the tree they came with. Installed dependencies
+and caches stay. So the code, its tests and the tree they were built from never disagree.
+
+A record written by an earlier version of plainwright is read as the tree it describes, up to the
+first functionality that did not build; the next build writes the tree.

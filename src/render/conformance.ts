@@ -8,7 +8,7 @@ import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportSpec, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
-import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
+import { abandonWork, moduleDirOf, recordHistory, startWork, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import { labelsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
@@ -143,10 +143,12 @@ export async function renderConformanceTests(
   stage(options.diff !== undefined ? "conformance tests for the spec change" : `conformance tests for functionality ${frid}`);
   if (!options.dryRun && options.diff === undefined) reportSpec(buildingSpec(moduleName, frid, frids.length, getSpecificationsForFrid(tree, frid)[0], true));
   // From the last known good state, unless this step continues work not yet committed.
+  // On its own it is one unit - its tests, and any change to the code - landed whole or undone
+  // whole. Continuing work already under way, it is part of that work's unit instead.
+  let start: WorkStart | undefined;
   if (!options.dryRun && options.continuing !== true) {
     stage("starting from the codebase's last commit");
-    startFromLastCommit(buildDir, moduleName);
-    if (moduleDirOf(conformanceDir) !== moduleDirOf(buildDir)) startFromLastCommit(conformanceDir, moduleName);
+    start = startWork([buildDir, conformanceDir], moduleName);
   }
   const manifest = listFiles(buildDir);
   if (manifest.length === 0) {
@@ -317,13 +319,16 @@ export async function renderConformanceTests(
     stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const changed = codeChanged();
-    // The tests, and the code when it changed: one commit if they share a module folder.
-    const subject =
-      `conformance ${moduleName} ${options.diff !== undefined ? "for a spec change" : `fs ${frid}`} ` +
-      `(${verified ? "pass" : "NOT passing"}${changed ? ", code changed" : ""})`;
-    stage(`committing the conformance tests${changed ? " and the code changes" : ""} (${verified ? "pass" : "NOT passing"})`);
-    recordHistory(conformanceDir, subject);
-    if (moduleDirOf(buildDir) !== moduleDirOf(conformanceDir)) recordHistory(buildDir, subject);
+    if (verified) {
+      // The tests, and the code when it changed: one commit if they share a module folder.
+      const subject = `conformance ${moduleName} ${options.diff !== undefined ? "for a spec change" : `fs ${frid}`}${changed ? " (code changed)" : ""}`;
+      stage(`committing the conformance tests${changed ? " and the code changes" : ""}`);
+      recordHistory(conformanceDir, subject);
+      if (moduleDirOf(buildDir) !== moduleDirOf(conformanceDir)) recordHistory(buildDir, subject);
+    } else if (start !== undefined) {
+      stage("conformance tests NOT passing - undoing them");
+      abandonWork(start, moduleName, `the conformance tests ${options.diff !== undefined ? "for the spec change" : `of functionality ${frid}`} do not pass`);
+    }
 
     return {
       moduleName,

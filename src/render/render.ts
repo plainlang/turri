@@ -2,10 +2,20 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
+import {
+  ACCEPTANCE_TESTS,
+  FUNCTIONAL_REQUIREMENTS,
+  getFrids,
+  getInheritedFunctionalSpecs,
+  getSpecificationItemMarkdown,
+  getSpecificationsForFrid,
+  TEST_REQUIREMENTS,
+  type MarshalledPlainSource,
+  type SpecificationItem,
+} from "../plain/spec.ts";
 import { reportActivity, reportSpec, reportStage, type BuildingSpec } from "./activity.ts";
-import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
-import { recordHistory, startFromLastCommit } from "./history.ts";
+import { codebaseMap } from "./codebase.ts";
+import { abandonWork, recordHistory, startFromLastCommit, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import { createScriptTool, findTestScripts, projectRootFor, requireTestScripts, runUnitScript, withTestingScripts } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
@@ -13,7 +23,7 @@ import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, tryDirFor, projectDirOf } from "./paths.ts";
-import { readState, recordFunctionality, recordRegeneration, specStateFor, STATE_FILE, type RequiredSpec } from "./state.ts";
+import { readBuiltTree, recordBuiltFunctionality, recordBuiltRequiredFunctionality, STATE_FILE, type RequiredSpec } from "./state.ts";
 import { buildRegeneratePrompt, buildRenderPrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
 import {
@@ -179,12 +189,12 @@ export async function renderFunctionality(
   // Work starts from the last known good state of the codebase it is done in: whatever an
   // interrupted run left half-written is gone before anything reads the code.
   stage("starting from the codebase's last commit");
-  if (!options.dryRun) startFromLastCommit(buildDir, host?.moduleName ?? moduleName);
+  const start: WorkStart | undefined = options.dryRun ? undefined : startFromLastCommit(buildDir, host?.moduleName ?? moduleName);
 
   stage(options.regenerate === undefined ? "mapping the codebase and writing the prompt" : "working out what changed, and writing the prompt");
   let prompt: string;
   if (options.regenerate === undefined) {
-    const codebase = codebaseMap(tree, buildDir, frid);
+    const codebase = codebaseMap(buildDir);
     prompt = buildRenderPrompt({ moduleName, frid, specifications, linkedResources, codebase, required });
   } else {
     const context = regenerationContext({
@@ -233,7 +243,6 @@ export async function renderFunctionality(
   }
 
   const filesBefore = new Set(listFiles(buildDir));
-  const digestsBefore = digestFiles(buildDir);
 
   mkdirSync(buildDir, { recursive: true });
 
@@ -330,34 +339,25 @@ export async function renderFunctionality(
     // Passing means the harness's own run of the unit testing script passed, last.
     const passed = verified;
 
-    // Record what this build now contains, here rather than in each caller. Every route
-    // into a render - the render queue, the CLI, renderModule - has to leave
-    // the state file behind it, or nothing downstream can tell a functionality that was
-    // built from one that was never attempted.
-    const built = {
-      unitTests: passed ? ("passed" as const) : ("failed" as const),
-      // What the next render is told about where this functionality lives.
-      files: diffFiles(digestsBefore, digestFiles(buildDir)),
-    };
-    const outcome = passed ? "unit tests pass" : "unit tests NOT passing";
+    // What the code is now built from, recorded here rather than in each caller - every route
+    // into a render, the render queue, the CLI, renderModule, lands the same way. A render that
+    // does not pass lands nothing: the codebase goes back to where it started, as if it had
+    // never been tried, and the tree still says what the code is built from.
     const what = targetFunctionality(specifications).split("\n")[0]!.replace(/^- /, "");
-    stage(`recording the build and committing it (${outcome})`);
-    if (host === undefined) {
-      recordFunctionality(buildDir, moduleName, { frid, ...specStateFor(tree, frid), ...built, required });
-      recordHistory(
-        buildDir,
-        `${options.regenerate ? "regenerate" : "render"} ${moduleName} fs ${frid}: ${what} (${outcome})`,
-      );
+    if (!passed) {
+      stage("unit tests NOT passing - undoing the render");
+      abandonWork(start, host?.moduleName ?? moduleName, `functionality ${frid} did not pass its unit tests`);
+    } else if (host === undefined) {
+      stage("recording what the code is built from, and committing it");
+      recordBuiltFunctionality(buildDir, tree, frid);
+      recordHistory(buildDir, `${options.regenerate ? "regenerate" : "render"} ${moduleName} fs ${frid}: ${what}`);
     } else {
-      // Updated in a later module's codebase: that codebase's record says so. This module's
-      // own build is left as it was - an older snapshot, no longer where the code lives.
-      recordRegeneration(buildDir, host.moduleName, {
-        module: moduleName,
-        frid,
-        required: requiredFunctionalSpecs(host.plainFile, options.templateDirs),
-        build: { specHash: specStateFor(tree, frid).specHash, ...built },
-      });
-      recordHistory(buildDir, `regenerate ${moduleName} fs ${frid} in ${host.moduleName}: ${what} (${outcome})`);
+      // Rebuilt in a later module's codebase: that codebase's tree says so. This module's own
+      // build is left as it was - an older snapshot, no longer where the code lives.
+      stage("recording what the code is built from, and committing it");
+      const item = (tree[FUNCTIONAL_REQUIREMENTS] as SpecificationItem[])[Number(frid) - 1]!;
+      recordBuiltRequiredFunctionality(buildDir, moduleName, frid, item);
+      recordHistory(buildDir, `regenerate ${moduleName} fs ${frid} in ${host.moduleName}: ${what}`);
     }
 
     return {
@@ -401,22 +401,26 @@ function regenerationContext(input: {
   current: { spec: string; acceptanceTests?: string[] };
 }): { implemented: RequiredSpec[]; previous?: string; added: boolean; unchanged: boolean; codebase: string | null } {
   const owner = input.host ?? { moduleName: input.moduleName, plainFile: input.plainFile };
-  const state = readState(input.buildDir);
-  const [, ownerTree] = plainFileParser(basename(owner.plainFile), resolveTemplateDirs(owner.plainFile, input.templateDirs));
+  const built = readBuiltTree(input.buildDir);
 
-  const ownBuilt: RequiredSpec[] = Object.values(state?.functionalities ?? {})
-    .sort((a, b) => Number(a.frid) - Number(b.frid))
-    .map((entry) => ({ module: owner.moduleName, frid: entry.frid, spec: entry.spec }));
+  // What the codebase holds: what it inherits, and what of the owner's own is built.
+  const ownBuilt: RequiredSpec[] = ((built?.[FUNCTIONAL_REQUIREMENTS] as SpecificationItem[] | undefined) ?? []).map((item, index) => ({
+    module: owner.moduleName,
+    frid: String(index + 1),
+    ...asSpec(item),
+  }));
   const everything = [...requiredFunctionalSpecs(owner.plainFile, input.templateDirs), ...ownBuilt];
   const implemented = everything.filter((spec) => !(spec.module === input.moduleName && spec.frid === input.frid));
 
   const recorded =
     input.host === undefined
-      ? state?.functionalities[input.frid]
-      : state?.required.find((spec) => spec.module === input.moduleName && spec.frid === input.frid);
-  // Missing from a record that lists everything else means it is new since the build. A
-  // record without the list says nothing either way, so it is treated as a change.
-  const listsEverything = input.host === undefined ? state !== null : (state?.required.length ?? 0) > 0;
+      ? ownBuilt.find((spec) => spec.frid === input.frid)
+      : built === null
+        ? undefined
+        : getInheritedFunctionalSpecs(built).find((spec) => spec.module === input.moduleName && spec.frid === input.frid);
+  // Missing from a tree that holds everything else means it is new since the build. No tree -
+  // or one without the inherited specs - says nothing either way, so it is treated as a change.
+  const listsEverything = input.host === undefined ? built !== null : getInheritedFunctionalSpecs(built ?? {}).length > 0;
   const added = recorded === undefined && listsEverything;
 
   const unchanged =
@@ -424,7 +428,16 @@ function regenerationContext(input: {
     recorded.spec === input.current.spec &&
     JSON.stringify(recorded.acceptanceTests ?? []) === JSON.stringify(input.current.acceptanceTests ?? []);
 
-  return { implemented, previous: recorded?.spec, added, unchanged, codebase: codebaseMap(ownerTree, input.buildDir) };
+  return { implemented, previous: recorded?.spec, added, unchanged, codebase: codebaseMap(input.buildDir) };
+}
+
+/** A functional spec item as text, its acceptance tests with it. */
+function asSpec(item: SpecificationItem): { spec: string; acceptanceTests?: string[] } {
+  const tests = item[ACCEPTANCE_TESTS];
+  return {
+    spec: getSpecificationItemMarkdown(item, {}, true),
+    ...(tests !== undefined ? { acceptanceTests: tests.map((test) => getSpecificationItemMarkdown(test, {}, true)) } : {}),
+  };
 }
 
 /** The functionality just built: the last of the ones in scope. */

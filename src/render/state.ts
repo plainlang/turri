@@ -1,43 +1,40 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { extractConceptsFromDefinition, extractConceptsFromSpecText } from "../plain/concepts.ts";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
   FUNCTIONAL_REQUIREMENTS,
   getFrids,
   getHashValue,
+  getInheritedFunctionalSpecs,
   getSpecificationItemMarkdown,
   getSpecificationsForFrid,
   NON_FUNCTIONAL_REQUIREMENTS,
+  REQUIRED_FUNCTIONAL_SPECS,
   TEST_REQUIREMENTS,
   type MarshalledPlainSource,
-  type Specifications,
+  type SpecificationItem,
 } from "../plain/spec.ts";
 
 /**
- * What a build directory already contains, in terms of the specification it was built from.
+ * What a build directory's code was built from: the marshalled plain tree, and nothing else.
  *
- * Laid out the way the specification is, not as one snapshot per functionality: the
- * definitions and the implementation and test reqs once, as of the latest build, and the
- * functional specs as one list that grows as functionalities are rendered. That list starts
- * with every functional spec of the modules this one requires, transitively - their code is
- * in this codebase too, so they are part of what it is - and each of this module's own specs
- * carries how it was built: when, whether its tests passed, what it did to the files.
+ * `plain_modules/<module>/code/.plainwright.json` holds the tree as JSON - the definitions, the
+ * implementation and test reqs, the module's own functional specs and those it inherits - as
+ * the code in that directory implements them. Not whether its tests passed, not which files each
+ * functionality touched: what matters is that the tests run when they have to, and the history
+ * says what happened. The tree answers the one question nothing else can: what is this code
+ * built from, so what does it take to bring it up to the spec as it now stands.
  *
- * The spec text is stored, not just a hash. The hash answers "has this changed"; the text
- * answers "what was this code actually built from", which is the question you have when the
- * code and the spec disagree.
- *
- * It is written into the build directory itself - `plain_modules/<module>/code` - so it
- * lives in the codebase it describes and is committed with it. A state file kept outside
- * the codebase can be cleared without the code changing, and then nothing knows which
- * functionalities the code already holds.
+ * It is written only when a unit of work lands - a functionality rendered, a spec change
+ * rendered - and it lives in the code directory, committed with the code, so undoing a failed
+ * unit (`abandonWork`) puts the tree back with the code it describes.
  */
 
 export const STATE_FILE = ".plainwright.json";
-const STATE_VERSION = 2;
 
-/** The sections a module shares across all its functionalities. */
+/** The sections a module shares across all its functionalities, as text. */
 export interface SharedSections {
   [DEFINITIONS]: string[];
   [NON_FUNCTIONAL_REQUIREMENTS]: string[];
@@ -50,219 +47,221 @@ export interface RequiredSpec {
   frid: string;
   spec: string;
   acceptanceTests?: string[];
-  /**
-   * How the code for it that this codebase holds was built, and in whose codebase: its own
-   * module's, copied up the chain with the code, or this one's when it was regenerated here.
-   * Absent when that was never recorded.
-   */
-  build?: RequiredBuild;
 }
 
-export type RequiredBuild = Omit<FunctionalityState, "frid" | "spec" | "acceptanceTests"> & {
-  /** The module whose codebase it was built in. */
-  in: string;
-};
+type Item = SpecificationItem & { module?: string; frid?: string };
 
-export interface FunctionalityState {
-  frid: string;
-  /** Hash of the whole context it was rendered from. A record, not what staleness uses. */
-  specHash: string;
-  /** Its functional spec, as it was built. */
-  spec: string;
-  acceptanceTests?: string[];
-  renderedAt: string;
-  unitTests: "passed" | "failed";
-  conformance?: "passed" | "failed" | "skipped";
-  /** What its render did to the codebase, by content, so the next render knows where it lives. */
-  files?: { added: string[]; changed: string[]; removed: string[] };
-  /** The unit test command that last passed while building it. */
-  testCommand?: string;
-}
+const items = (tree: MarshalledPlainSource | null | undefined, heading: string): Item[] =>
+  ((tree?.[heading] as Item[] | undefined) ?? []).slice();
 
-export interface BuildState {
-  module: string;
-  updatedAt: string;
-  sections: SharedSections;
-  /** The required modules' functional specs, bottom of the chain first. */
-  required: RequiredSpec[];
-  /** This module's own, by functionality id. */
-  functionalities: Record<string, FunctionalityState>;
-  /**
-   * Every spec diff rendered in this codebase, oldest first. The rest of the record is the
-   * spec as it stood when the last of them was written.
-   */
-  specDiffs?: SpecDiffRecord[];
-}
-
-export interface SpecDiffRecord {
-  diff: string;
-  renderedAt: string;
-}
-
-const EMPTY_SECTIONS: SharedSections = {
-  [DEFINITIONS]: [],
-  [NON_FUNCTIONAL_REQUIREMENTS]: [],
-  [TEST_REQUIREMENTS]: [],
-};
-
-/** One entry of the stored `functional specs` list. */
-interface StoredSpec {
-  module: string;
-  frid: string;
-  spec: string;
-  "acceptance tests"?: string[];
-  build?: RequiredBuild;
-  specHash?: string;
-  renderedAt?: string;
-  unitTests?: "passed" | "failed";
-  conformance?: "passed" | "failed" | "skipped";
-  files?: FunctionalityState["files"];
-  testCommand?: string;
-}
-
-interface StoredState extends SharedSections {
+/** A record written before the tree was all it held: v2's layout, with its sections as text. */
+interface StoredV2 {
   version: number;
   module: string;
-  updatedAt: string;
-  specDiffs?: SpecDiffRecord[];
-  /** Written by the first version of spec diff rendering, which kept only the last one. */
-  specDiff?: SpecDiffRecord;
-  [FUNCTIONAL_REQUIREMENTS]: StoredSpec[];
+  [DEFINITIONS]?: string[];
+  [NON_FUNCTIONAL_REQUIREMENTS]?: string[];
+  [TEST_REQUIREMENTS]?: string[];
+  [FUNCTIONAL_REQUIREMENTS]: Array<{ module: string; frid: string; spec: string; "acceptance tests"?: string[]; unitTests?: string }>;
 }
 
-/** The first format: one full context snapshot per functionality. Read, never written. */
-interface LegacyState {
+/** The first layout of all: one context snapshot per functionality. */
+interface StoredLegacy {
   module: string;
-  updatedAt: string;
-  functionalities: Record<string, Omit<FunctionalityState, "spec" | "acceptanceTests"> & { specifications: Specifications }>;
+  functionalities: Record<string, { frid: string; unitTests?: string; specifications: Record<string, string[]> }>;
 }
 
-function byFrid(a: string, b: string): number {
-  return Number(a) - Number(b);
+const asItem = (markdown: string, acceptanceTests?: string[]): Item => ({
+  markdown,
+  ...(acceptanceTests !== undefined && acceptanceTests.length > 0 ? { [ACCEPTANCE_TESTS]: acceptanceTests.map((test) => ({ markdown: test })) } : {}),
+});
+
+/**
+ * An older record, as the tree it describes. Its own functional specs are taken up to the first
+ * that did not build: the tree says what is built, and the one that failed is not.
+ */
+function treeFromV2(stored: StoredV2): MarshalledPlainSource {
+  const own = stored[FUNCTIONAL_REQUIREMENTS].filter((entry) => entry.module === stored.module).sort((a, b) => Number(a.frid) - Number(b.frid));
+  const built: Item[] = [];
+  for (const [index, entry] of own.entries()) {
+    if (Number(entry.frid) !== index + 1 || entry.unitTests !== "passed") break;
+    built.push(asItem(entry.spec, entry["acceptance tests"]));
+  }
+  const required = stored[FUNCTIONAL_REQUIREMENTS]
+    .filter((entry) => entry.module !== stored.module)
+    .map((entry) => ({ ...asItem(entry.spec, entry["acceptance tests"]), module: entry.module, frid: entry.frid }));
+  return withoutEmpty({
+    [DEFINITIONS]: (stored[DEFINITIONS] ?? []).map((text) => asItem(text)),
+    [NON_FUNCTIONAL_REQUIREMENTS]: (stored[NON_FUNCTIONAL_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [TEST_REQUIREMENTS]: (stored[TEST_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [FUNCTIONAL_REQUIREMENTS]: built,
+    [REQUIRED_FUNCTIONAL_SPECS]: required,
+  });
 }
 
-function fromStored(stored: StoredState): BuildState {
-  const own = stored[FUNCTIONAL_REQUIREMENTS].filter((entry) => entry.module === stored.module);
-  return {
-    module: stored.module,
-    updatedAt: stored.updatedAt,
-    specDiffs: stored.specDiffs ?? (stored.specDiff ? [stored.specDiff] : []),
-    sections: {
-      [DEFINITIONS]: stored[DEFINITIONS] ?? [],
-      [NON_FUNCTIONAL_REQUIREMENTS]: stored[NON_FUNCTIONAL_REQUIREMENTS] ?? [],
-      [TEST_REQUIREMENTS]: stored[TEST_REQUIREMENTS] ?? [],
-    },
-    required: stored[FUNCTIONAL_REQUIREMENTS]
-      .filter((entry) => entry.module !== stored.module)
-      .map((entry) => ({
-        module: entry.module,
-        frid: entry.frid,
-        spec: entry.spec,
-        acceptanceTests: entry["acceptance tests"],
-        build: entry.build,
-      })),
-    functionalities: Object.fromEntries(
-      own.map((entry) => [
-        entry.frid,
-        {
-          frid: entry.frid,
-          specHash: entry.specHash ?? "",
-          spec: entry.spec,
-          acceptanceTests: entry["acceptance tests"],
-          renderedAt: entry.renderedAt ?? "",
-          unitTests: entry.unitTests ?? "failed",
-          conformance: entry.conformance,
-          files: entry.files,
-          testCommand: entry.testCommand,
-        },
-      ]),
-    ),
-  };
-}
-
-/** A build recorded in the first format, so an existing build is not mistaken for none. */
-function fromLegacy(legacy: LegacyState): BuildState {
-  const entries = Object.values(legacy.functionalities).sort((a, b) => byFrid(a.frid, b.frid));
+function treeFromLegacy(stored: StoredLegacy): MarshalledPlainSource {
+  const entries = Object.values(stored.functionalities).sort((a, b) => Number(a.frid) - Number(b.frid));
   const latest = entries.at(-1)?.specifications;
-  return {
-    module: legacy.module,
-    updatedAt: legacy.updatedAt,
-    sections: latest
-      ? {
-          [DEFINITIONS]: latest[DEFINITIONS] ?? [],
-          [NON_FUNCTIONAL_REQUIREMENTS]: latest[NON_FUNCTIONAL_REQUIREMENTS] ?? [],
-          [TEST_REQUIREMENTS]: latest[TEST_REQUIREMENTS] ?? [],
-        }
-      : { ...EMPTY_SECTIONS },
-    required: [],
-    functionalities: Object.fromEntries(
-      entries.map(({ specifications, ...rest }) => [
-        rest.frid,
-        { ...rest, spec: specifications[FUNCTIONAL_REQUIREMENTS].at(-1) ?? "", acceptanceTests: specifications[ACCEPTANCE_TESTS] },
-      ]),
-    ),
-  };
+  const built: Item[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (Number(entry.frid) !== index + 1 || entry.unitTests !== "passed") break;
+    built.push(asItem(entry.specifications[FUNCTIONAL_REQUIREMENTS]?.at(-1) ?? "", entry.specifications[ACCEPTANCE_TESTS]));
+  }
+  return withoutEmpty({
+    [DEFINITIONS]: (latest?.[DEFINITIONS] ?? []).map((text) => asItem(text)),
+    [NON_FUNCTIONAL_REQUIREMENTS]: (latest?.[NON_FUNCTIONAL_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [TEST_REQUIREMENTS]: (latest?.[TEST_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [FUNCTIONAL_REQUIREMENTS]: built,
+  });
 }
 
-export function readState(buildDir: string): BuildState | null {
+/** A tree without the sections it has nothing in, as the parser leaves them out. */
+function withoutEmpty(tree: MarshalledPlainSource): MarshalledPlainSource {
+  return Object.fromEntries(Object.entries(tree).filter(([, value]) => !Array.isArray(value) || value.length > 0));
+}
+
+/** The tree the code in `buildDir` was built from - or null when nothing records one. */
+export function readBuiltTree(buildDir: string): MarshalledPlainSource | null {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(join(buildDir, STATE_FILE), "utf8"));
   } catch {
     return null;
   }
-  if (raw === null || typeof raw !== "object") return null;
-  if ((raw as { version?: unknown }).version === STATE_VERSION) return fromStored(raw as StoredState);
-  if ("functionalities" in raw) return fromLegacy(raw as LegacyState);
-  return null;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (typeof (raw as { version?: unknown }).version === "number") return treeFromV2(raw as StoredV2);
+  if ("functionalities" in raw) return treeFromLegacy(raw as StoredLegacy);
+  return raw as MarshalledPlainSource;
+}
+
+export function writeBuiltTree(buildDir: string, tree: MarshalledPlainSource): void {
+  mkdirSync(buildDir, { recursive: true });
+  writeFileSync(join(buildDir, STATE_FILE), `${JSON.stringify(withoutEmpty(tree), null, 2)}\n`);
+}
+
+/** The concepts an item uses, its acceptance tests included. */
+function conceptsUsedBy(item: Item): string[] {
+  return [item, ...(item[ACCEPTANCE_TESTS] ?? [])].flatMap((part) => extractConceptsFromSpecText(part.markdown));
+}
+
+/** The concepts a definition defines. */
+function conceptsDefinedBy(item: Item): string[] {
+  return extractConceptsFromDefinition(item.markdown)[0];
 }
 
 /**
- * What a build of one functionality records, field by field. The shared sections are stored
- * once, at the top of the record, so nothing handed in alongside - a copy of them, a stray
- * field - ends up on an entry.
+ * The tree after functionality `frid` of `current` is built on the code: what was built before,
+ * with that functional spec in its place - and whatever it is the first to need.
+ *
+ * Only what the render actually built is recorded. The definitions already built stay as they
+ * were built, even where the spec has moved on since, so a later sync still sees that change;
+ * a definition the functionality uses that nothing built defined is added, with every concept
+ * it uses in turn. The reqs are taken from the spec when nothing of the module's own was built
+ * before - the first functionality is built with all of them - and otherwise stay as built,
+ * with any req added that names a concept this functionality brought in.
  */
-function builtFields(build: Partial<RequiredBuild>): Partial<RequiredBuild> {
-  const fields: Partial<RequiredBuild> = {
-    specHash: build.specHash,
-    renderedAt: build.renderedAt,
-    unitTests: build.unitTests,
-    conformance: build.conformance,
-    files: build.files,
-    testCommand: build.testCommand,
-    in: build.in,
+export function withBuiltFunctionality(built: MarshalledPlainSource | null, current: MarshalledPlainSource, frid: string): MarshalledPlainSource {
+  const index = Number(frid) - 1;
+  const currentSpecs = items(current, FUNCTIONAL_REQUIREMENTS);
+  const item = currentSpecs[index];
+  if (item === undefined) throw new Error(`Functionality ${frid} does not exist.`);
+
+  const first = items(built, FUNCTIONAL_REQUIREMENTS).length === 0;
+  // What it inherits is what the code was started from - or rebuilt here since - not what the
+  // required modules' specs say now. Only with nothing recorded are those taken.
+  const inherited = items(built, REQUIRED_FUNCTIONAL_SPECS).length > 0 ? items(built, REQUIRED_FUNCTIONAL_SPECS) : items(current, REQUIRED_FUNCTIONAL_SPECS);
+  // Built on the functionalities before it: any the record lacks are there in the code.
+  const specs = items(built, FUNCTIONAL_REQUIREMENTS);
+  for (let before = specs.length; before < index; before += 1) specs.push(currentSpecs[before]!);
+  specs[index] = item;
+
+  if (first) {
+    return withoutEmpty({
+      ...current,
+      [FUNCTIONAL_REQUIREMENTS]: specs,
+      [REQUIRED_FUNCTIONAL_SPECS]: inherited,
+    });
+  }
+
+  // The definitions it needs that nothing built defined, and the ones those need.
+  const definitions = items(built, DEFINITIONS);
+  const defined = new Set(definitions.flatMap(conceptsDefinedBy));
+  const available = items(current, DEFINITIONS);
+  const added = new Set<string>();
+  const wanted = [...conceptsUsedBy(item), ...specs.slice(0, index).flatMap(conceptsUsedBy)];
+  while (wanted.length > 0) {
+    const concept = wanted.pop()!;
+    if (defined.has(concept)) continue;
+    const definition = available.find((candidate) => conceptsDefinedBy(candidate).includes(concept));
+    if (definition === undefined) continue;
+    definitions.push(definition);
+    for (const concept of conceptsDefinedBy(definition)) {
+      defined.add(concept);
+      added.add(concept);
+    }
+    wanted.push(...conceptsUsedBy(definition));
+  }
+  // A req that names what this functionality brought in came with it.
+  const withNew = (heading: string) => {
+    const kept = items(built, heading);
+    const known = new Set(kept.map((entry) => JSON.stringify(entry)));
+    const brought = items(current, heading).filter(
+      (entry) => !known.has(JSON.stringify(entry)) && conceptsUsedBy(entry).some((concept) => added.has(concept)),
+    );
+    return [...kept, ...brought];
   };
-  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+  return withoutEmpty({
+    ...built,
+    [DEFINITIONS]: definitions,
+    [NON_FUNCTIONAL_REQUIREMENTS]: withNew(NON_FUNCTIONAL_REQUIREMENTS),
+    [TEST_REQUIREMENTS]: withNew(TEST_REQUIREMENTS),
+    [FUNCTIONAL_REQUIREMENTS]: specs,
+    [REQUIRED_FUNCTIONAL_SPECS]: inherited,
+  });
 }
 
-export function writeState(buildDir: string, state: BuildState): void {
-  const own = Object.values(state.functionalities).sort((a, b) => byFrid(a.frid, b.frid));
-  const stored: StoredState = {
-    version: STATE_VERSION,
-    module: state.module,
-    updatedAt: state.updatedAt,
-    ...(state.specDiffs?.length ? { specDiffs: state.specDiffs } : {}),
-    ...state.sections,
-    [FUNCTIONAL_REQUIREMENTS]: [
-      ...state.required.map((entry) => ({
-        module: entry.module,
-        frid: entry.frid,
-        spec: entry.spec,
-        ...(entry.acceptanceTests?.length ? { "acceptance tests": entry.acceptanceTests } : {}),
-        ...(entry.build ? { build: builtFields(entry.build) as RequiredBuild } : {}),
-      })),
-      ...own.map((entry) => ({
-        module: state.module,
-        frid: entry.frid,
-        specHash: entry.specHash,
-        spec: entry.spec,
-        ...(entry.acceptanceTests?.length ? { "acceptance tests": entry.acceptanceTests } : {}),
-        ...builtFields(entry),
-      })),
-    ],
-  };
-  mkdirSync(buildDir, { recursive: true });
-  writeFileSync(join(buildDir, STATE_FILE), JSON.stringify(stored, null, 2));
+/** Record that functionality `frid` of `current` is built in `buildDir`. */
+export function recordBuiltFunctionality(buildDir: string, current: MarshalledPlainSource, frid: string): MarshalledPlainSource {
+  const tree = withBuiltFunctionality(readBuiltTree(buildDir), current, frid);
+  writeBuiltTree(buildDir, tree);
+  return tree;
+}
+
+/**
+ * Record, in the codebase of a later module, that a functional spec of a module it requires was
+ * rebuilt there, as that module's spec - `item` - now has it. Nothing else of its tree moves.
+ */
+export function recordBuiltRequiredFunctionality(buildDir: string, module: string, frid: string, item: SpecificationItem): void {
+  const built = readBuiltTree(buildDir) ?? {};
+  const required = items(built, REQUIRED_FUNCTIONAL_SPECS);
+  const at = required.findIndex((entry) => entry.module === module && entry.frid === frid);
+  const entry = { ...item, module, frid };
+  if (at === -1) required.push(entry);
+  else required[at] = entry;
+  writeBuiltTree(buildDir, { ...built, [REQUIRED_FUNCTIONAL_SPECS]: required });
+}
+
+/**
+ * Carry what a codebase is built from into a new module's, started on top of its code. The code
+ * comes with everything the source's tree has - what it inherits, and its own functional specs -
+ * as the new module's inheritance. The new module has built nothing of its own: a tree it already
+ * has keeps its own functional specs, and the rest of it.
+ */
+export function inheritBuiltTree(fromBuildDir: string, toBuildDir: string, fromModule: string): void {
+  const source = readBuiltTree(fromBuildDir);
+  if (source === null) return;
+  const carried = [
+    ...items(source, REQUIRED_FUNCTIONAL_SPECS),
+    ...items(source, FUNCTIONAL_REQUIREMENTS).map((item, index) => ({ ...item, module: fromModule, frid: String(index + 1) })),
+  ];
+  const target = readBuiltTree(toBuildDir) ?? {};
+  writeBuiltTree(toBuildDir, { ...target, [REQUIRED_FUNCTIONAL_SPECS]: carried });
+}
+
+/** The required modules' functional specs a codebase is built on, as text - or null when nothing records them. */
+export function builtRequiredSpecs(buildDir: string): RequiredSpec[] | null {
+  const built = readBuiltTree(buildDir);
+  if (built === null) return null;
+  return getInheritedFunctionalSpecs(built);
 }
 
 /** What a functionality would be rendered from right now: its own spec, the shared sections, and a hash of it all. */
@@ -296,221 +295,7 @@ export function sectionsOf(tree: MarshalledPlainSource): SharedSections {
   };
 }
 
-export type RecordInput = Omit<FunctionalityState, "renderedAt"> & {
-  renderedAt?: string;
-  /** The shared sections as of this build. Omitted: kept as they were. */
-  sections?: SharedSections;
-  /** The required modules' specs as of this build. Omitted: kept as they were. */
-  required?: RequiredSpec[];
-};
-
-export function recordFunctionality(buildDir: string, moduleName: string, input: RecordInput): BuildState {
-  const { sections, required, ...entry } = input;
-  const state: BuildState = readState(buildDir) ?? {
-    module: moduleName,
-    updatedAt: "",
-    sections: { ...EMPTY_SECTIONS },
-    required: [],
-    functionalities: {},
-  };
-
-  state.module = moduleName;
-  if (sections !== undefined) state.sections = sections;
-  if (required !== undefined) state.required = mergeRequired(state.required, required);
-
-  // A later write about the same build - conformance finishing, say - does not know what
-  // the render touched. What the render recorded is kept, as long as it was built from the
-  // same specification; a new render always brings its own.
-  const previous = state.functionalities[entry.frid];
-  const sameBuild = previous !== undefined && previous.specHash === entry.specHash;
-  state.functionalities[entry.frid] = {
-    ...entry,
-    files: entry.files ?? (sameBuild ? previous.files : undefined),
-    testCommand: entry.testCommand ?? (sameBuild ? previous.testCommand : undefined),
-    renderedAt: entry.renderedAt ?? new Date().toISOString(),
-  };
-  state.updatedAt = new Date().toISOString();
-
-  writeState(buildDir, state);
-  return state;
-}
-
-/**
- * The required specs as they stand now, keeping how each was built for any entry whose spec
- * has not moved since. Refreshing the list must not forget where the code came from.
- */
-function mergeRequired(previous: RequiredSpec[], next: RequiredSpec[]): RequiredSpec[] {
-  const before = new Map(previous.map((entry) => [`${entry.module}/${entry.frid}`, entry]));
-  return next.map((entry) => {
-    const old = before.get(`${entry.module}/${entry.frid}`);
-    return old?.build && old.spec === entry.spec ? { ...entry, build: old.build } : entry;
-  });
-}
-
-/**
- * Record, in the codebase of `host`, that a functionality of one of the modules it requires
- * was regenerated there.
- *
- * The required list is refreshed to the specs as they stand now - that is what this
- * codebase holds after the regeneration - and what earlier regenerations recorded is kept
- * for every entry whose spec has not moved since. Written whether or not it passed: the
- * code changed either way, and the record has to say so.
- */
-export function recordRegeneration(
-  buildDir: string,
-  host: string,
-  input: {
-    module: string;
-    frid: string;
-    required: RequiredSpec[];
-    build: Omit<FunctionalityState, "frid" | "spec" | "acceptanceTests" | "renderedAt"> & { renderedAt?: string };
-  },
-): BuildState {
-  const state: BuildState = readState(buildDir) ?? {
-    module: host,
-    updatedAt: "",
-    sections: { ...EMPTY_SECTIONS },
-    required: [],
-    functionalities: {},
-  };
-  state.required = mergeRequired(state.required, input.required).map((entry) =>
-    entry.module === input.module && entry.frid === input.frid
-      ? { ...entry, build: { ...input.build, in: host, renderedAt: input.build.renderedAt ?? new Date().toISOString() } }
-      : entry,
-  );
-  state.updatedAt = new Date().toISOString();
-  writeState(buildDir, state);
-  return state;
-}
-
-/**
- * Carry a build's record into the build that is being started on top of its code.
- *
- * The code comes with everything the source module's codebase holds, so the record does
- * too, as the new module's inheritance: the source's own inheritance as it stands, then its
- * own functionalities, each keeping how it was built and marked as built in the source's
- * codebase. Nothing of the new module's own is claimed - it has built nothing yet.
- *
- * The shared sections are the new module's own, from its spec - what it defines and what
- * it imports - not the source's: `requires` passes on functional specs, never
- * implementation reqs. They are known before anything is built, so they are recorded now.
- * A build that already has a record keeps its own functionalities.
- */
-export function inheritRecord(
-  fromBuildDir: string,
-  toBuildDir: string,
-  toModule: string,
-  sections?: SharedSections,
-): BuildState | null {
-  const source = readState(fromBuildDir);
-  if (source === null) return null;
-
-  const carried: RequiredSpec[] = [
-    ...source.required,
-    ...Object.values(source.functionalities)
-      .sort((a, b) => byFrid(a.frid, b.frid))
-      .map(({ frid, spec, acceptanceTests, ...build }) => ({
-        module: source.module,
-        frid,
-        spec,
-        acceptanceTests,
-        build: { ...build, in: source.module },
-      })),
-  ];
-
-  const target: BuildState = readState(toBuildDir) ?? {
-    module: toModule,
-    updatedAt: "",
-    sections: { ...EMPTY_SECTIONS },
-    required: [],
-    functionalities: {},
-  };
-  target.module = toModule;
-  target.required = carried;
-  if (sections !== undefined) target.sections = sections;
-  target.updatedAt = new Date().toISOString();
-  writeState(toBuildDir, target);
-  return target;
-}
-
-/**
- * Rewrite a build's record to the specs a change was rendered from - every section, the
- * required modules' functional specs and this module's own - replacing what was there. Unlike
- * a render of one functionality, which only adds to the list, a spec change may have changed
- * anything, and the codebase now holds exactly what those specs say.
- *
- * Functionalities are numbered by position, so a change that adds or removes specs moves the
- * numbers: the record keeps exactly the functionalities the spec has, and nothing under a
- * number that no longer exists. What a functionality's earlier render recorded - its file
- * changes, its test command - is kept where its spec did not change.
- */
-export function rewriteRecord(
-  buildDir: string,
-  moduleName: string,
-  input: {
-    sections: SharedSections;
-    required: RequiredSpec[];
-    functionalities: Array<Omit<FunctionalityState, "renderedAt"> & { renderedAt?: string }>;
-    /** The change that was rendered, as a git diff of the .plain files. */
-    specDiff?: string;
-  },
-): BuildState {
-  const previous = readState(buildDir);
-  const now = new Date().toISOString();
-  const state: BuildState = {
-    module: moduleName,
-    updatedAt: now,
-    specDiffs: [...(previous?.specDiffs ?? []), ...(input.specDiff !== undefined ? [{ diff: input.specDiff, renderedAt: now }] : [])],
-    sections: input.sections,
-    required: mergeRequired(previous?.required ?? [], input.required),
-    functionalities: Object.fromEntries(
-      input.functionalities.map((entry) => {
-        const before = previous?.functionalities[entry.frid];
-        const same = before !== undefined && before.spec === entry.spec;
-        return [
-          entry.frid,
-          {
-            ...entry,
-            files: entry.files ?? (same ? before.files : undefined),
-            testCommand: entry.testCommand ?? (same ? before.testCommand : undefined),
-            renderedAt: entry.renderedAt ?? (same ? before.renderedAt : now),
-          },
-        ];
-      }),
-    ),
-  };
-  writeState(buildDir, state);
-  return state;
-}
-
-/**
- * Record a conformance verdict in the codebase it was reached in - on the functionality's
- * own entry when it is this module's, on its required entry when it belongs to a module below.
- */
-export function recordConformance(
-  buildDir: string,
-  module: string,
-  frid: string,
-  conformance: "passed" | "failed",
-): void {
-  const state = readState(buildDir);
-  if (state === null) return;
-  if (module === state.module) {
-    const own = state.functionalities[frid];
-    if (own === undefined) return;
-    own.conformance = conformance;
-  } else {
-    const entry = state.required.find((spec) => spec.module === module && spec.frid === frid);
-    if (entry === undefined) return;
-    entry.build = entry.build
-      ? { ...entry.build, conformance }
-      : { in: state.module, specHash: "", renderedAt: new Date().toISOString(), unitTests: "passed", conformance };
-  }
-  state.updatedAt = new Date().toISOString();
-  writeState(buildDir, state);
-}
-
-export type PendingReason = "never built" | "specification changed" | "unit tests were failing";
+export type PendingReason = "never built" | "specification changed";
 
 export interface Pending {
   frid: string;
@@ -550,21 +335,17 @@ export function pendingFrids(
     throw new Error(`Functionality ${upTo} does not exist. Available: ${all.join(", ")}.`);
   }
 
-  const state = readState(buildDir);
+  const built = readBuiltTree(buildDir);
+  const builtFrids = new Set(built === null ? [] : getFrids(built));
   const pending: Pending[] = [];
 
   for (const frid of all.slice(0, limit)) {
-    const built = state?.functionalities[frid];
-    if (built === undefined) {
+    if (!builtFrids.has(frid)) {
       pending.push({ frid, reason: "never built" });
       continue;
     }
-    if (ownSpec(built) !== ownSpec(specStateFor(tree, frid))) {
+    if (ownSpec(specStateFor(built!, frid)) !== ownSpec(specStateFor(tree, frid))) {
       pending.push({ frid, reason: "specification changed" });
-      continue;
-    }
-    if (built.unitTests !== "passed") {
-      pending.push({ frid, reason: "unit tests were failing" });
     }
   }
 

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,8 +31,7 @@ vi.mock("../../src/render/conformance.ts", async (importOriginal) => {
 });
 
 const { renderSpecDiffConformance, describeSpecDiffConformance } = await import("../../src/render/spec-change-conformance.ts");
-const { requiredFunctionalSpecs } = await import("../../src/render/requires.ts");
-const { readState, recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
+const { readBuiltTree, recordBuiltFunctionality } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/render/render.ts");
 
@@ -50,7 +49,7 @@ function built(name: string) {
   mkdirSync(buildOf(name), { recursive: true });
   writeFileSync(join(buildOf(name), "app.sh"), `echo ${name}\n`);
   for (const frid of ["1", "2"].slice(0, (tree["functional specs"] as unknown[]).length)) {
-    recordFunctionality(buildOf(name), moduleName, { frid, ...specStateFor(tree, frid), unitTests: "passed", required: requiredFunctionalSpecs(file(name)) });
+    recordBuiltFunctionality(buildOf(name), tree, frid);
   }
 }
 
@@ -99,20 +98,22 @@ describe("conformance for a spec diff", () => {
     expect(result.regression?.passed).toBe(true);
     expect(result.passed).toBe(true);
     expect(result.tested).toEqual(["1"]);
-    expect(readState(buildOf("top"))!.functionalities["1"]!.conformance).toBe("passed");
     // Nothing was rendered: the record still says what the code was built from.
-    expect(readState(buildOf("top"))!.required.find((spec) => spec.module === "base" && spec.frid === "2")!.spec).toBe("- Base two.");
+    const inherited = readBuiltTree(buildOf("top"))!["required functional specs"] as Array<{ markdown: string; module: string; frid: string }>;
+    expect(inherited.find((spec) => spec.module === "base" && spec.frid === "2")!.markdown).toBe("- Base two.");
+    // The tests it wrote are committed.
+    expect(existsSync(join(testsOf("top"), "check_1.sh"))).toBe(true);
     expect(describeSpecDiffConformance(result)).toContain("in line with the spec change");
   });
 
-  it("stops at a conformance step that does not pass, and records it", async () => {
+  it("stops at a conformance step that does not pass, and undoes it", async () => {
     built("base");
     passing = false;
     const diff = diffOf("base", module_(["- Base one.", "- Base two, now with a limit of ten."]));
     const result = await renderSpecDiffConformance({ plainFile: file("base"), diff, cwd: dir });
     expect(result).toMatchObject({ passed: false, stoppedAt: "conformance" });
     expect(result.regression).toBeUndefined();
-    expect(readState(buildOf("base"))!.functionalities["1"]!.conformance).toBe("failed");
+    expect(existsSync(join(testsOf("base"), "check_1.sh"))).toBe(false);
   });
 
   it("needs test reqs to write conformance tests from", async () => {

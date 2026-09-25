@@ -7,12 +7,15 @@ import { listFiles } from "../../src/render/testing.ts";
 import { resolveTemplateDirs } from "../../src/render/render.ts";
 import {
   describePending,
+  inheritBuiltTree,
   isModuleUpToDate,
   pendingFrids,
-  readState,
-  recordFunctionality,
+  readBuiltTree,
+  recordBuiltFunctionality,
   specStateFor,
   STATE_FILE,
+  withBuiltFunctionality,
+  writeBuiltTree,
 } from "../../src/render/state.ts";
 
 let dir: string;
@@ -36,8 +39,8 @@ function tree(source = THREE) {
   return plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1];
 }
 
-function build_(t: ReturnType<typeof tree>, frid: string, status: "passed" | "failed" = "passed") {
-  recordFunctionality(build, "app", { frid, ...specStateFor(t, frid), unitTests: status });
+function build_(t: ReturnType<typeof tree>, frid: string) {
+  recordBuiltFunctionality(build, t, frid);
 }
 
 beforeEach(() => {
@@ -98,54 +101,130 @@ describe("what needs building", () => {
     expect(pendingFrids(changed, build)).toEqual([]);
   });
 
-  it("rebuilds a functionality whose unit tests were failing", () => {
-    const t = tree();
-    build_(t, "1", "failed");
-    expect(pendingFrids(t, build, "1")[0]!.reason).toBe("unit tests were failing");
+  it("rejects a functionality that does not exist", () => {
+    expect(() => pendingFrids(tree(), build, "9")).toThrow("Functionality 9 does not exist");
   });
 });
 
-describe("the state file", () => {
-  it("stores the shared sections once and each functional spec as it is built", () => {
+describe("the tree the code is built from", () => {
+  const SPEC = `***definitions***
+
+- :User: is a person.
+
+- :Order: is something a :User: bought.
+
+- :Refund: is money back for an :Order:.
+
+***implementation reqs***
+
+- Python.
+
+- :Refund: is paid out within a day.
+
+***functional specs***
+
+- A :User: can sign up.
+
+- A :User: can see an :Order:.
+
+- A :User: can ask for a :Refund:.
+`;
+
+  it("is all the file holds, as JSON", () => {
+    const t = tree(SPEC);
+    build_(t, "1");
+    const stored = JSON.parse(readFileSync(join(build, STATE_FILE), "utf8"));
+    expect(Object.keys(stored).sort()).toEqual(["definitions", "functional specs", "implementation reqs"]);
+    expect(stored["functional specs"]).toEqual([{ markdown: "- A :User: can sign up." }]);
+    expect(readBuiltTree(build)).toEqual(stored);
+  });
+
+  it("starts with the spec's sections and the first functional spec - the first build is built with all of them", () => {
+    const t = tree(SPEC);
+    const built = withBuiltFunctionality(null, t, "1");
+    expect(built["implementation reqs"]).toEqual(t["implementation reqs"]);
+    expect(built.definitions).toEqual(t.definitions);
+    expect(built["functional specs"]).toEqual([(t["functional specs"] as unknown[])[0]]);
+  });
+
+  it("then gains each functional spec, with the definitions and reqs it is the first to need - and keeps what was built as built", () => {
+    // The first build: a spec that had only its first functional spec, and what that needs.
+    const first = tree("***definitions***\n\n- :User: is a person.\n\n***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- A :User: can sign up.\n");
+    let built = withBuiltFunctionality(null, first, "1");
+    expect((built.definitions as Array<{ markdown: string }>).map((d) => d.markdown)).toEqual(["- :User: is a person."]);
+
+    // Since the first build, :User:'s definition changed and two concepts came in.
+    const now = tree(SPEC.replace("- :User: is a person.", "- :User: is a person with an email."));
+    built = withBuiltFunctionality(built, now, "2");
+    expect((built.definitions as Array<{ markdown: string }>).map((d) => d.markdown)).toEqual([
+      // As built: the change to :User: is not built yet.
+      "- :User: is a person.",
+      "- :Order: is something a :User: bought.",
+    ]);
+    // The refund req names a concept functionality 2 did not bring.
+    expect((built["implementation reqs"] as Array<{ markdown: string }>).map((r) => r.markdown)).toEqual(["- Python."]);
+
+    built = withBuiltFunctionality(built, now, "3");
+    expect((built.definitions as Array<{ markdown: string }>).map((d) => d.markdown)).toEqual([
+      "- :User: is a person.",
+      "- :Order: is something a :User: bought.",
+      "- :Refund: is money back for an :Order:.",
+    ]);
+    expect((built["implementation reqs"] as Array<{ markdown: string }>).map((r) => r.markdown)).toEqual(["- Python.", "- :Refund: is paid out within a day."]);
+    expect((built["functional specs"] as unknown[]).length).toBe(3);
+  });
+
+  it("replaces a functional spec rebuilt from a changed spec, in its place", () => {
+    const t = tree();
+    for (const frid of ["1", "2", "3"]) build_(t, frid);
+    const changed = tree(THREE.replace("- Two.", "- Two, reworded."));
+    build_(changed, "2");
+    expect((readBuiltTree(build)!["functional specs"] as Array<{ markdown: string }>).map((s) => s.markdown)).toEqual(["- One.", "- Two, reworded.", "- Three."]);
+  });
+
+  it("comes with the code into a module built on it, as what that module inherits", () => {
     const t = tree();
     build_(t, "1");
     build_(t, "2");
-
-    const stored = JSON.parse(readFileSync(join(build, STATE_FILE), "utf8"));
-    expect(stored.version).toBe(2);
-    expect(stored["implementation reqs"]).toEqual(["- A requirement."]);
-    expect(stored["functional specs"].map((e: { frid: string; spec: string }) => [e.frid, e.spec])).toEqual([
-      ["1", "- One."],
-      ["2", "- Two."],
+    const next = join(dir, "next");
+    inheritBuiltTree(build, next, "app");
+    const inherited = readBuiltTree(next)!;
+    expect(inherited["functional specs"]).toBeUndefined();
+    expect(inherited["required functional specs"]).toEqual([
+      { markdown: "- One.", module: "app", frid: "1" },
+      { markdown: "- Two.", module: "app", frid: "2" },
     ]);
-    expect(stored["functional specs"][1].specHash).toHaveLength(64);
-    expect(stored["functional specs"][1].renderedAt).toMatch(/^\d{4}-/);
-    // No per-functionality copy of the whole context any more.
-    expect(stored["functional specs"][1].specifications).toBeUndefined();
   });
 
-  it("puts the required modules' functional specs first, without build details", () => {
+  it("is read from a record in the earlier format, up to the first functionality that did not build", () => {
     const t = tree();
-    recordFunctionality(build, "app", {
-      frid: "1", ...specStateFor(t, "1"), unitTests: "passed",
-      required: [
-        { module: "c", frid: "1", spec: "- From c." },
-        { module: "b", frid: "1", spec: "- From b.", acceptanceTests: ["- b works."] },
-      ],
+    mkdirSync(build, { recursive: true });
+    writeFileSync(
+      join(build, STATE_FILE),
+      JSON.stringify({
+        version: 2,
+        module: "app",
+        updatedAt: "2026-09-22T00:00:00.000Z",
+        definitions: [],
+        "implementation reqs": ["- A requirement."],
+        "test reqs": [],
+        "functional specs": [
+          { module: "base", frid: "1", spec: "- Base one.", "acceptance tests": ["- It works."] },
+          { module: "app", frid: "1", spec: "- One.", unitTests: "passed" },
+          { module: "app", frid: "2", spec: "- Two.", unitTests: "failed" },
+          { module: "app", frid: "3", spec: "- Three.", unitTests: "passed" },
+        ],
+      }),
+    );
+    expect(readBuiltTree(build)).toEqual({
+      "implementation reqs": [{ markdown: "- A requirement." }],
+      "functional specs": [{ markdown: "- One." }],
+      "required functional specs": [{ markdown: "- Base one.", acceptance_tests: [{ markdown: "- It works." }], module: "base", frid: "1" }],
     });
-
-    const stored = JSON.parse(readFileSync(join(build, STATE_FILE), "utf8"));
-    expect(stored["functional specs"]).toEqual([
-      { module: "c", frid: "1", spec: "- From c." },
-      { module: "b", frid: "1", spec: "- From b.", "acceptance tests": ["- b works."] },
-      expect.objectContaining({ module: "app", frid: "1", spec: "- One.", unitTests: "passed" }),
-    ]);
-    const state = readState(build)!;
-    expect(state.required.map((r) => r.module)).toEqual(["c", "b"]);
-    expect(Object.keys(state.functionalities)).toEqual(["1"]);
+    expect(pendingFrids(t, build).map((p) => [p.frid, p.reason])).toEqual([["2", "never built"], ["3", "never built"]]);
   });
 
-  it("reads a build recorded in the first format, so it is not mistaken for unbuilt", () => {
+  it("is read from a record in the first format, so an existing build is not mistaken for none", () => {
     const t = tree();
     const { specHash } = specStateFor(t, "1");
     mkdirSync(build, { recursive: true });
@@ -166,52 +245,30 @@ describe("the state file", () => {
     );
 
     expect(pendingFrids(t, build, "1")).toEqual([]);
-    expect(readState(build)!.sections["implementation reqs"]).toEqual(["- A requirement."]);
+    expect(readBuiltTree(build)!["implementation reqs"]).toEqual([{ markdown: "- A requirement." }]);
   });
 
-  it("updates one functionality without disturbing the others", () => {
+  it("is nothing built when there is no file, or it does not read", () => {
     const t = tree();
-    build_(t, "1");
-    build_(t, "2");
-    recordFunctionality(build, "app", {
-      frid: "1",
-      ...specStateFor(t, "1"),
-      unitTests: "passed",
-      conformance: "passed",
-    });
-
-    const state = readState(build)!;
-    expect(Object.keys(state.functionalities).sort()).toEqual(["1", "2"]);
-    expect(state.functionalities["1"]!.conformance).toBe("passed");
-    expect(state.functionalities["2"]!.conformance).toBeUndefined();
-  });
-
-  it("lives beside the code it describes", () => {
-    const t = tree();
-    build_(t, "1");
-    expect(JSON.parse(readFileSync(join(build, STATE_FILE), "utf8")).module).toBe("app");
-  });
-
-  it("treats an unreadable state file as nothing built", () => {
-    writeFileSync(join(dir, "app.plain"), THREE);
-    const t = tree();
-    rmSync(build, { recursive: true, force: true });
-    expect(readState(build)).toBeNull();
+    expect(readBuiltTree(build)).toBeNull();
+    mkdirSync(build, { recursive: true });
+    writeFileSync(join(build, STATE_FILE), "not json");
+    expect(readBuiltTree(build)).toBeNull();
     expect(pendingFrids(t, build)).toHaveLength(3);
   });
 
-  it("rejects a functionality that does not exist", () => {
-    expect(() => pendingFrids(tree(), build, "9")).toThrow("Functionality 9 does not exist");
+  it("is written without the sections it has nothing in", () => {
+    writeBuiltTree(build, { definitions: [], "functional specs": [{ markdown: "- One." }] });
+    expect(JSON.parse(readFileSync(join(build, STATE_FILE), "utf8"))).toEqual({ "functional specs": [{ markdown: "- One." }] });
   });
 });
 
 describe("describePending", () => {
   it("names each functionality and why it is pending", () => {
     const t = tree();
-    build_(t, "1", "failed");
-    expect(describePending(pendingFrids(t, build, "2"))).toBe(
-      "1 (unit tests were failing), 2 (never built)",
-    );
+    build_(t, "1");
+    const changed = tree(THREE.replace("- One.", "- One, changed."));
+    expect(describePending(pendingFrids(changed, build, "2"))).toBe("1 (specification changed), 2 (never built)");
   });
 
   it("says so when there is nothing to do", () => {
@@ -260,12 +317,7 @@ describe("the state file is not part of the codebase", () => {
   it("is left out of the build manifest", () => {
     mkdirSync(build, { recursive: true });
     writeFileSync(join(build, "app.py"), "print('hi')\n");
-    recordFunctionality(build, "demo", {
-      frid: "1",
-      specHash: "h",
-      specifications: {},
-      unitTests: "passed",
-    });
+    build_(tree(), "1");
 
     expect(existsSync(join(build, STATE_FILE))).toBe(true);
     expect(listFiles(build)).toEqual(["app.py"]);

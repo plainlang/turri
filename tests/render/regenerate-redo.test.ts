@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { plainFileParser } from "../../src/plain/parser.ts";
 import { buildRegeneratePrompt } from "../../src/render/prompt.ts";
 import { renderFunctionality, resolveTemplateDirs } from "../../src/render/render.ts";
-import { recordFunctionality, specStateFor } from "../../src/render/state.ts";
+import { recordBuiltFunctionality } from "../../src/render/state.ts";
 
 let dir: string;
 let build: string;
@@ -19,7 +19,7 @@ beforeEach(() => {
   writeFileSync(join(build, "app.py"), "x\n");
   writeFileSync(join(dir, "app.plain"), plain("Two."));
   const [, tree] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
-  for (const frid of ["1", "2"]) recordFunctionality(build, "app", { frid, ...specStateFor(tree, frid), unitTests: "passed" });
+  for (const frid of ["1", "2"]) recordBuiltFunctionality(build, tree, frid);
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 

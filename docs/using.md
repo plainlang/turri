@@ -137,8 +137,9 @@ change. `/history [module]` and `module_history` show it.
 
 The last commit is also the last known good state. Every render, regeneration, spec change and
 conformance run starts by putting the codebase it works in back to it, so if plainwright was
-stopped or restarted mid-job, whatever that job left half-written is undone first. Installed
-dependencies and caches are not in the history and stay. With git directly:
+stopped or restarted mid-job, whatever that job left half-written is undone first - and one that
+does not pass is undone the same way when it ends, commits and all. Only work that passed is
+committed. Installed dependencies and caches are not in the history and stay. With git directly:
 
 ```bash
 git --git-dir=plain_modules/<module>/.plaingit --work-tree=plain_modules/<module> log

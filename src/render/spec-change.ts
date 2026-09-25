@@ -22,7 +22,7 @@ import { modulesRoot, specChangeTryDirFor, projectDirOf } from "./paths.ts";
 import { describeTryIt } from "./delivery.ts";
 import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 import { buildSpecDiffPrompt } from "./prompt.ts";
-import { recordHistory, startFromLastCommit } from "./history.ts";
+import { abandonWork, recordHistory, startWork } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
   createScriptTool,
@@ -39,7 +39,7 @@ import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.ts";
 import { loadLinkedResources } from "./resources.ts";
-import { rewriteRecord, sectionsOf, specStateFor } from "./state.ts";
+import { sectionsOf, writeBuiltTree } from "./state.ts";
 import {
   findTestRemovals,
   inventoryTests,
@@ -223,7 +223,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // The change is made to the codebase's last known good state, not to what an interrupted
   // run left half-written.
   stage("starting from the codebase's last commit");
-  startFromLastCommit(tip.buildDir, moduleName);
+  // The change is one unit - its code, its conformance tests, the whole suite - landed whole,
+  // with the spec it was built from, or undone whole.
+  const unit = startWork([tip.buildDir, conformanceDirFor(moduleName, modulesRoot(projectDirOf(tip.plainFile)))], moduleName);
   const frids = [...getFrids(tree)];
   const lastFrid = frids.at(-1);
   const sections = sectionsOf(tree);
@@ -235,7 +237,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     const source = chain.find((entry) => entry.moduleName === tip.requires);
     if (source !== undefined) {
       stage(`no code here yet - starting from ${source.moduleName}'s code`);
-      copyRequiredCode(source.buildDir, buildDir, moduleName, sections);
+      copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName);
     }
   }
 
@@ -249,7 +251,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     specifications,
     required,
     linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
-    codebase: codebaseMap(tree, buildDir),
+    codebase: codebaseMap(buildDir),
     empty: listFiles(buildDir).length === 0,
   });
 
@@ -346,26 +348,16 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
   const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files, tryIt };
 
-  /** The record, rewritten to the spec the change was rendered from - whatever happened - and committed. */
-  const record = (conformance: "passed" | "failed" | "skipped") => {
-    rewriteRecord(buildDir, moduleName, {
-      specDiff: options.diff,
-      sections,
-      required,
-      functionalities: frids.map((frid) => ({
-        frid,
-        ...specStateFor(tree, frid),
-        unitTests: unitPassed ? ("passed" as const) : ("failed" as const),
-        conformance,
-      })),
-    });
-    const outcome = unitPassed ? `conformance ${conformance}` : "unit tests NOT passing";
-    stage(`recording the specs the change was built from, and committing it (${outcome})`);
-    recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)} (${outcome})`, options.diff);
+  /** The change landed: what the code is built from is now the spec with the change in, committed with it. */
+  const land = () => {
+    stage("recording what the code is built from, and committing it");
+    writeBuiltTree(buildDir, tree);
+    recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)}`, options.diff);
   };
 
   if (!unitPassed) {
-    record("skipped");
+    stage("unit tests NOT passing - undoing the change");
+    abandonWork(unit, moduleName, "the spec change did not pass its unit tests");
     return { ...base, passed: false, stoppedAt: "unit tests" };
   }
 
@@ -378,11 +370,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // passing: the change must not break what they check.
     stage(options.conformance === false ? "conformance is off - done" : "no conformance tests to write for this change - keeping the existing ones passing");
     const regression = await ensureRegressionPasses({
+      start: unit,
       step: `${moduleName} spec change`,
       buildDir, conformanceRoot, moduleName, frids, tree, required, scripts,
       model: options.model, onDelta: options.onDelta,
     });
-    record("skipped");
+    if (regression.passed) land();
     return { ...base, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
   }
 
@@ -401,12 +394,13 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     onDelta: options.onDelta,
   });
   if (!conformance.passed) {
-    record("failed");
+    abandonWork(unit, moduleName, "the spec change's conformance tests do not pass");
     return { ...base, conformance, passed: false, stoppedAt: "conformance" };
   }
 
   stage("conformance tests pass - running the codebase's whole conformance suite");
   const regression = await ensureRegressionPasses({
+    start: unit,
     step: `${moduleName} spec change`,
     buildDir,
     conformanceRoot,
@@ -418,7 +412,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     model: options.model,
     onDelta: options.onDelta,
   });
-  record(regression.passed ? "passed" : "failed");
+  if (regression.passed) land();
   return { ...base, conformance, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
 }
 

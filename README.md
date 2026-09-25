@@ -158,7 +158,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [Using **plainwright**](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
-| [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, the build record |
+| [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, what the code is built from |
 | [The sandbox](docs/sandbox.md) | what agents can reach, the VM every command runs in, time limits, the web tools |
 | [Skills and gates](docs/skills-and-gates.md) | the gate syntax, what the harness enforces, judges, rules |
 | [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `plainwright check`, fidelity to the reference parser |

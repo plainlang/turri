@@ -43,7 +43,10 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 
 const { applySpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/render/spec-change.ts");
 const { buildSpecDiffPrompt } = await import("../../src/render/prompt.ts");
-const { readState, recordFunctionality, rewriteRecord, specStateFor } = await import("../../src/render/state.ts");
+const { readBuiltTree } = await import("../../src/render/state.ts");
+const { listFiles } = await import("../../src/render/testing.ts");
+/** The spec as the parser has it now. */
+const parsed = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1];
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/render/render.ts");
 
@@ -116,30 +119,6 @@ describe("the change agent's prompt", () => {
   });
 });
 
-describe("the record after a change", () => {
-  it("keeps exactly the functionalities the spec now has", () => {
-    writeFileSync(join(dir, "app.plain"), plain(["- One.", "- Two.", "- Three."]));
-    const [, three] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
-    const build = join(dir, "build");
-    for (const frid of ["1", "2", "3"]) {
-      recordFunctionality(build, "app", { frid, ...specStateFor(three, frid), unitTests: "passed", testCommand: `run ${frid}` });
-    }
-
-    writeFileSync(join(dir, "app.plain"), plain(["- One.", "- Three."]));
-    const [, two] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
-    rewriteRecord(build, "app", {
-      sections: specStateFor(two, "1").sections,
-      required: [],
-      functionalities: ["1", "2"].map((frid) => ({ frid, ...specStateFor(two, frid), unitTests: "passed" as const })),
-    });
-
-    const state = readState(build)!;
-    expect(Object.keys(state.functionalities)).toEqual(["1", "2"]);
-    expect(state.functionalities["2"]!.spec).toBe("- Three.");
-    expect(state.functionalities["1"]!.testCommand).toBe("run 1");
-  });
-});
-
 describe("rendering a spec diff", () => {
   it("from scratch: applies the diff, renders it, and records the specs as they now stand", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
@@ -152,11 +131,9 @@ describe("rendering a spec diff", () => {
     expect(result.buildDir).toBe(join(dir, "plain_modules", "app", "code"));
     expect(prompts[0]).toContain("<spec change>");
     expect(prompts[0]).toContain('<functionality module="app" id="2">\n- Two.');
-    const state = readState(result.buildDir)!;
-    expect(Object.values(state.functionalities).map((f) => [f.frid, f.spec, f.unitTests])).toEqual([
-      ["1", "- One.", "passed"],
-      ["2", "- Two.", "passed"],
-    ]);
+    // What the code is built from: the spec with the change in, and nothing else in the file.
+    expect(readBuiltTree(result.buildDir)).toEqual(parsed());
+    expect(Object.keys(JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"))).sort()).toEqual(["functional specs", "implementation reqs"]);
   });
 
   it("ignores the conformance testing script when conformance is turned off - in the prompt and in the runs", async () => {
@@ -195,14 +172,19 @@ describe("rendering a spec diff", () => {
     expect(readNotes(code).assumptions).toEqual(["[2026-09-24 09:00 · app 1] One means exactly one"]);
   });
 
-  it("stops at the unit tests when they do not pass, and still records what the code now holds", async () => {
+  it("stops at the unit tests when they do not pass, and undoes the change - no code, no tree", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     mkdirSync(join(dir, "plain_modules", "app", "code"), { recursive: true });
     const { ask } = await import("../../src/pi.ts");
-    vi.mocked(ask).mockImplementation(((session: StubSession, prompt: string) => agentRunning("false", session, prompt)) as never);
+    // It writes code, and its unit tests fail.
+    vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+      if (!prompt.startsWith("Before you finish")) await session.tools.find((tool) => tool.name === "write")!.execute("id", { path: "app.py", content: "print('uno')\n" });
+      return agentRunning("false", session, prompt);
+    }) as never);
     const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- Uno."])), cwd: dir });
     expect(result.stoppedAt).toBe("unit tests");
-    expect(readState(result.buildDir)!.functionalities["1"]).toMatchObject({ spec: "- Uno.", unitTests: "failed" });
+    expect(readBuiltTree(result.buildDir)).toBeNull();
+    expect(listFiles(result.buildDir)).toEqual([]);
   });
 });
 
@@ -231,9 +213,10 @@ describe("rendering a spec diff before any functional spec exists", () => {
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(after);
     expect(prompts.at(-1)).toContain("+- :User: is a person.");
     expect(result.passed).toBe(true);
-    const state = readState(result.buildDir)!;
-    expect(state.sections.definitions).toEqual(["- :User: is a person."]);
-    expect(state.functionalities).toEqual({});
+    expect(readBuiltTree(result.buildDir)).toEqual({
+      definitions: [{ markdown: "- :User: is a person." }],
+      "implementation reqs": [{ markdown: "- Python." }],
+    });
   });
 });
 
@@ -290,17 +273,12 @@ describe("renders queued behind the interview", () => {
     const result = await renderSpecDiff({ plainFile: "app.plain", diff: change, cwd: dir, applied: "applied", spec });
 
     expect(result.diff).toBe("applied");
-    const state = readState(result.buildDir)!;
-    expect(state.sections.definitions).toEqual(["- :User: is a person."]);
-    expect(Object.values(state.functionalities).map((f) => f.spec)).toEqual(["- One.", "- :User: signs in."]);
-    expect(state.specDiffs?.map((entry) => entry.diff)).toEqual([change]);
-    // The sections are stored once, at the top - never again on each functional spec.
-    const stored = JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"));
-    expect(stored.definitions).toEqual(["- :User: is a person."]);
-    for (const entry of stored["functional specs"]) expect(entry).not.toHaveProperty("sections");
+    // The spec as it stood with this change in - not the file as it is now.
+    expect(readBuiltTree(result.buildDir)).toEqual(spec.tree);
+    expect((readBuiltTree(result.buildDir)!["functional specs"] as Array<{ markdown: string }>).map((f) => f.markdown)).toEqual(["- One.", "- :User: signs in."]);
   });
 
-  it("keep every spec diff rendered in the codebase, oldest first", async () => {
+  it("leave each spec diff in the history, oldest first - and the tree as the last one left it", async () => {
     const one = plain(["- One."]);
     const two = plain(["- One.", "- Two."]);
     const three = plain(["- One.", "- Two.", "- Three."]);
@@ -311,22 +289,9 @@ describe("renders queued behind the interview", () => {
     await renderSpecDiff({ plainFile: "app.plain", diff: first, cwd: dir });
     const result = await renderSpecDiff({ plainFile: "app.plain", diff: second, cwd: dir });
 
-    const stored = JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"));
-    expect(stored.specDiffs.map((entry: { diff: string }) => entry.diff)).toEqual([first, second]);
-    expect(stored.specDiff).toBeUndefined();
-  });
-
-  it("read a record that kept only the last spec diff as a list of one", () => {
-    const buildDir = join(dir, "plain_modules", "app", "code");
-    mkdirSync(buildDir, { recursive: true });
-    writeFileSync(
-      join(buildDir, ".plainwright.json"),
-      JSON.stringify({
-        version: 2, module: "app", updatedAt: "", definitions: [], "implementation reqs": [], "test reqs": [],
-        "functional specs": [], specDiff: { diff: "old", renderedAt: "then" },
-      }),
-    );
-    expect(readState(buildDir)!.specDiffs).toEqual([{ diff: "old", renderedAt: "then" }]);
+    const { historyLog } = await import("../../src/render/history.ts");
+    expect(historyLog(result.buildDir).split("\n").filter((line) => line.includes("spec diff:"))).toHaveLength(2);
+    expect(readBuiltTree(result.buildDir)).toEqual(parsed());
   });
 });
 
@@ -342,7 +307,7 @@ describe("the history of a rendered spec change", () => {
     recordHistory(result.buildDir, "render app fs 2");
 
     const log = historyLog(result.buildDir);
-    expect(log).toMatch(/spec diff: app\.plain \+\d+ −\d+ · .+ \(conformance skipped\)/);
+    expect(log).toMatch(/spec diff: app\.plain \+\d+ −\d+ · .+/);
     const commit = log.split("\n").find((line) => line.includes("spec diff:"))!.split("  ")[0]!;
     expect(historyShow(result.buildDir, commit)).toContain("+- Two.");
     expect(head(result.buildDir)).toBeDefined();

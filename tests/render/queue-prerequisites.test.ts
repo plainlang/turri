@@ -21,7 +21,7 @@ vi.mock("../../src/render/render.ts", async (importOriginal) => {
 
 const { createRenderQueue } = await import("../../src/render/queue.ts");
 const { createJobRegistry } = await import("../../src/render/jobs.ts");
-const { recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
+const { recordBuiltFunctionality } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/render/render.ts");
 
@@ -48,7 +48,7 @@ describe("a queued render whose earlier functionalities are not built", () => {
 
   it("builds only what is missing", async () => {
     const [, tree] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
-    recordFunctionality(join(dir, "build"), "app", { frid: "1", ...specStateFor(tree, "1"), unitTests: "passed" });
+    recordBuiltFunctionality(join(dir, "build"), tree, "1");
     const queue = createRenderQueue({ registry: createJobRegistry(), cwd: dir, buildDir: join(dir, "build") });
     queue.enqueue({ plainFile: "app.plain", frid: "3" });
     await queue.drain();

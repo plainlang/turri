@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
+import { markWork } from "./history.ts";
 
 /**
  * Renders queued while an interview carries on.
@@ -304,13 +305,16 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
       prerequisites.push(`functionality ${entry.frid} was not built yet, so it was built first${built.passed ? "" : " - its unit tests are NOT passing"}.`);
     }
 
-    // Queued from an interview: the person is there, trying each spec as it lands.
+    // Queued from an interview: the person is there, trying each spec as it lands. The
+    // functionality and the whole suite passing with it are one unit, undone whole.
+    const unit = markWork([target]);
     const result = await renderFunctionality({ ...common, tryIt: true });
 
     // The conformance tests already in this codebase - its own, and those carried up from
     // the modules below - are kept passing, even though none are written here.
     const regression = result.passed
       ? await ensureRegressionPasses({
+          start: unit,
           buildDir: result.buildDir,
           conformanceRoot: modulesRoot(projectDirOf(request.plainFile)),
           moduleName,

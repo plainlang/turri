@@ -5,7 +5,7 @@ import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
 import { resolveTemplateDirs } from "./render.ts";
-import { inheritRecord, STATE_FILE, type RequiredSpec, type SharedSections } from "./state.ts";
+import { inheritBuiltTree, STATE_FILE, type RequiredSpec } from "./state.ts";
 import { head, recordHistory } from "./history.ts";
 import { listFiles } from "./testing.ts";
 
@@ -183,17 +183,16 @@ export function requiredFunctionalSpecs(plainFile: string, templateDirs: string[
 /**
  * Copy a required module's codebase into the build that is about to be created.
  *
- * The build record comes too, converted: what the source module built becomes what the new
- * one inherits, with how and where each functionality was built, while the new module's own
- * functionalities start empty. Copied as-is, it would claim the source's work as the new
+ * What the code is built from comes too, converted: what the source module built becomes what
+ * the new one inherits, while the new module's own functional specs start empty. Copied as-is, it would claim the source's work as the new
  * module's own. And the conformance tests come, into the new module's tests directory.
  */
 export function copyRequiredCode(
   from: string,
   to: string,
   toModule: string,
-  /** The new module's own definitions and reqs, imports included, for its record. */
-  sections?: SharedSections,
+  /** The module the code comes from: its functional specs are what the new one inherits. */
+  fromModule: string,
 ): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
@@ -208,8 +207,8 @@ export function copyRequiredCode(
   }
   // The working notes describe this code, so they come up with it.
   if (existsSync(notesPath(from)) && !existsSync(notesPath(to))) copyFileSync(notesPath(from), notesPath(to));
-  // The record comes with the code, as what the new module inherits - not as its own work.
-  inheritRecord(from, to, toModule, sections);
+  // What the code is built from comes with it, as what the new module inherits - not as its own work.
+  inheritBuiltTree(from, to, fromModule);
 
   // A new module's history starts here: where its code came from, and at which commit.
   const source = basename(dirname(from));

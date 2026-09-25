@@ -574,7 +574,6 @@ function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conv
       chain: Type.Optional(
         Type.Boolean({ description: "Every module this one requires, each in full" }),
       ),
-      force: Type.Optional(Type.Boolean({ description: "Rewrite suites that already pass" })),
       in_module: Type.Optional(
         Type.String({ description: "The codebase to test in, when modules built on this one branch" }),
       ),
@@ -612,7 +611,6 @@ function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conv
             frids: params.frids,
             range: params.range,
             chain: params.chain,
-            force: params.force,
             inModule: params.in_module,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
@@ -626,7 +624,7 @@ function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conv
 }
 
 function suiteReport(result: Awaited<ReturnType<typeof renderConformanceSuite>>): string {
-  const written = result.outcomes.filter((o) => !o.skipped);
+  const written = result.outcomes;
   const failing = written.filter((o) => o.result && !o.result.passed);
 
   const lines = [
@@ -642,11 +640,7 @@ function suiteReport(result: Awaited<ReturnType<typeof renderConformanceSuite>>)
     "</targets>",
     "",
     "<results>",
-    ...result.outcomes.map((o) =>
-      o.skipped
-        ? `${o.moduleName} ${o.frid}: already passing, skipped`
-        : `${o.moduleName} ${o.frid}: ${o.result?.passed ? "pass" : "fail"}`,
-    ),
+    ...result.outcomes.map((o) => `${o.moduleName} ${o.frid}: ${o.result?.passed ? "pass" : "fail"}`),
     "</results>",
   ];
 

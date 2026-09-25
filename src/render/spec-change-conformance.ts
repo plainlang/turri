@@ -2,11 +2,11 @@ import { relative, resolve } from "node:path";
 import { getFrids, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
-import { recordHistory } from "./history.ts";
+import { abandonWork, startWork } from "./history.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
 import { applySpecDiff, snapshotSpec, type SpecSnapshot } from "./spec-change.ts";
-import { recordConformance, sectionsOf } from "./state.ts";
+import { sectionsOf } from "./state.ts";
 import { describeStop } from "./stop-report.ts";
 import { missingTestLabels } from "./test-kinds.ts";
 import { findTestScripts, projectRootFor, requireTestScripts } from "./test-scripts.ts";
@@ -98,7 +98,9 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
   const conformanceRoot = modulesRoot(projectDirOf(tip.plainFile));
   const conformanceDir = conformanceDirFor(moduleName, conformanceRoot);
   // From the codebase's last commit, the tests' too: the change is made to the last known good
-  // state, not to what an interrupted run left half-written.
+  // state, not to what an interrupted run left half-written. The tests and the whole suite are
+  // one unit, landed whole or undone whole.
+  const unit = startWork([buildDir, conformanceDir], moduleName);
   const conformance = await renderConformanceTests({
     plainFile: tip.plainFile,
     frid: lastFrid,
@@ -111,22 +113,18 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
     onDelta: options.onDelta,
   });
 
-  // What the codebase now has conformance tests for, and whether they pass - on its record, as
-  // render_functionality_conformance leaves it for a functionality, committed with it.
-  const tested = frids.filter((frid) => missingTestLabels(conformanceDir, frid, []).length === 0);
-  const record = (passed: boolean) => {
-    for (const frid of tested) recordConformance(buildDir, moduleName, frid, passed ? "passed" : "failed");
-    recordHistory(buildDir, `conformance ${moduleName} for a spec change: verdicts recorded (${passed ? "pass" : "fail"})`);
-  };
-  const base = { moduleName, buildDir, conformanceDir, diff: applied, conformance, tested };
+  // What the codebase now has conformance tests for, as their labels say.
+  const tested = () => frids.filter((frid) => missingTestLabels(conformanceDir, frid, []).length === 0);
+  const base = { moduleName, buildDir, conformanceDir, diff: applied, conformance };
 
   if (!conformance.passed) {
-    record(false);
-    return { ...base, passed: false, stoppedAt: "conformance" };
+    abandonWork(unit, moduleName, "the conformance tests for the spec change do not pass");
+    return { ...base, tested: tested(), passed: false, stoppedAt: "conformance" };
   }
 
   stage("conformance tests pass - running the codebase's whole conformance suite");
   const regression = await ensureRegressionPasses({
+    start: unit,
     step: `${moduleName} spec change conformance`,
     buildDir,
     conformanceRoot,
@@ -138,8 +136,7 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
     model: options.model,
     onDelta: options.onDelta,
   });
-  record(regression.passed);
-  return { ...base, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
+  return { ...base, tested: tested(), regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
 }
 
 /** What the conformance for a spec change did, for the agent and the person. */
