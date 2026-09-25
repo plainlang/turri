@@ -43,6 +43,11 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
   switch (entry.kind) {
     case "stage":
       return ["", style.heading(`── ${entry.text}`)];
+    case "spec": {
+      // The functional spec being built, whole: its first line says which, the rest is the text.
+      const [label, ...text] = entry.text.split("\n");
+      return ["", style.heading(`── building ${label}`), ...text.flatMap((line) => wrap(line, width, "  │ ").map(style.accent))];
+    }
     case "prompt":
       return ["", style.muted("harness ▸"), ...wrap(entry.text, width, "  ").map(style.muted)];
     case "text":

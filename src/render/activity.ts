@@ -28,6 +28,20 @@ export interface ActivitySink {
   transcript(entry: TranscriptEntry): void;
   /** Aborted when the job is asked to stop. */
   signal?: AbortSignal;
+  /** The functional spec being built now, or nothing when none is. */
+  spec?(spec: BuildingSpec | undefined): void;
+}
+
+/** A functional spec as it is being built: where it sits, and its text as the spec has it. */
+export interface BuildingSpec {
+  /** E.g. "rt_tuples functionality 2 of 5". */
+  label: string;
+  text: string;
+}
+
+/** Say which functional spec is being built now - shown with the job, and in its transcript. */
+export function reportSpec(spec: BuildingSpec | undefined): void {
+  store.getStore()?.spec?.(spec);
 }
 
 /** Raised inside a job that was asked to stop, so the work unwinds instead of carrying on. */
@@ -49,7 +63,7 @@ export function currentStopSignal(): AbortSignal | undefined {
  * joined to the entry before them of the same kind.
  */
 export interface TranscriptEntry {
-  kind: "stage" | "prompt" | "text" | "thinking" | "tool" | "result";
+  kind: "stage" | "spec" | "prompt" | "text" | "thinking" | "tool" | "result";
   text: string;
   /** For a result: whether the tool failed. */
   error?: boolean;

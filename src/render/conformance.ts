@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
-import { reportActivity, reportStage } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { moduleDirOf, recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -29,7 +29,7 @@ import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScrat
 import { buildConformancePrompt } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
-import { resolveTemplateDirs } from "./render.ts";
+import { buildingSpec, resolveTemplateDirs } from "./render.ts";
 import {
   findTestRemovals,
   inventoryTests,
@@ -141,6 +141,7 @@ export async function renderConformanceTests(
     if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
   };
   stage(options.diff !== undefined ? "conformance tests for the spec change" : `conformance tests for functionality ${frid}`);
+  if (!options.dryRun && options.diff === undefined) reportSpec(buildingSpec(moduleName, frid, frids.length, getSpecificationsForFrid(tree, frid)[0], true));
   // From the last known good state, unless this step continues work not yet committed.
   if (!options.dryRun && options.continuing !== true) {
     stage("starting from the codebase's last commit");

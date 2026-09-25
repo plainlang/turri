@@ -3,7 +3,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, type MarshalledPlainSource, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
-import { reportActivity, reportStage } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, type BuildingSpec } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { recordHistory, startFromLastCommit } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -174,6 +174,7 @@ export async function renderFunctionality(
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: false });
   if (!options.dryRun) reportActivity(`  unit testing script: ${relative(root, scripts.unit!)}`);
   const conformance = options.conformance ?? specifications[TEST_REQUIREMENTS].length > 0;
+  if (!options.dryRun) reportSpec(buildingSpec(moduleName, frid, frids.length, specifications, conformance));
   const required = getInheritedFunctionalSpecs(tree);
   // Work starts from the last known good state of the codebase it is done in: whatever an
   // interrupted run left half-written is gone before anything reads the code.
@@ -429,4 +430,23 @@ function regenerationContext(input: {
 /** The functionality just built: the last of the ones in scope. */
 function targetFunctionality(specifications: { "functional specs": string[] }): string {
   return specifications["functional specs"].at(-1) ?? "";
+}
+
+/**
+ * The functional spec a step builds, for the person watching: which one of how many, and its
+ * text as the spec has it - with its acceptance tests after it when conformance is on, since
+ * only then are they built.
+ */
+export function buildingSpec(
+  moduleName: string,
+  frid: string,
+  total: number,
+  specifications: { "functional specs": string[]; [ACCEPTANCE_TESTS]?: string[] },
+  conformance: boolean,
+): BuildingSpec {
+  const acceptance = conformance ? (specifications[ACCEPTANCE_TESTS] ?? []) : [];
+  return {
+    label: `${moduleName} functionality ${frid} of ${total}`,
+    text: [targetFunctionality(specifications).trim(), ...(acceptance.length > 0 ? ["", "acceptance tests:", ...acceptance.map((test) => test.trim())] : [])].join("\n"),
+  };
 }

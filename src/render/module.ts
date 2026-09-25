@@ -133,7 +133,7 @@ export interface RenderModuleOptions {
 }
 
 export type ModuleEvent =
-  | { type: "functionality_start"; frid: string; index: number; total: number }
+  | { type: "functionality_start"; frid: string; index: number; total: number; spec?: string }
   | { type: "functionality_skipped"; frid: string }
   | { type: "phase"; frid: string; phase: "render" | "conformance" | "regression" }
   | { type: "run"; command: string; exitCode: number; frids?: string[] }
@@ -391,7 +391,13 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       continue;
     }
 
-    options.onEvent?.({ type: "functionality_start", frid, index: index + 1, total: allFrids.length });
+    options.onEvent?.({
+      type: "functionality_start",
+      frid,
+      index: index + 1,
+      total: allFrids.length,
+      spec: getSpecificationsForFrid(tree, frid)[0]["functional specs"].at(-1)?.trim(),
+    });
 
     options.onEvent?.({ type: "phase", frid, phase: "render" });
     const render = await renderFunctionality({

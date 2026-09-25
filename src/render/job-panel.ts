@@ -34,6 +34,9 @@ function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
 }
 
+/** Spec lines shown per running job while expanded. */
+const EXPANDED_SPEC_LINES = 30;
+
 /** Diff lines shown per running job while expanded. */
 const EXPANDED_DIFF_LINES = 20;
 
@@ -117,6 +120,18 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
         const body = diffBody(job.diff);
         for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${styleDiffLine(line, diffStyle)}`);
         if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - /watch ${job.id} shows it all`);
+      }
+    }
+    if (job.building !== undefined) {
+      const text = job.building.text.split("\n").filter((line) => line.trim() !== "");
+      if (!expanded) {
+        const more = text.length > 1 ? `  (+${text.length - 1} line${text.length === 2 ? "" : "s"} · ctrl+o)` : "";
+        lines.push(`    ${job.building.label}: ${(text[0] ?? "").trim()}${more}`);
+        if (text.length > 1) hidden = true;
+      } else {
+        lines.push(`    ${job.building.label}:`);
+        for (const line of text.slice(0, EXPANDED_SPEC_LINES)) lines.push(`      │ ${line}`);
+        if (text.length > EXPANDED_SPEC_LINES) lines.push(`      │ … ${text.length - EXPANDED_SPEC_LINES} more lines - /watch ${job.id} shows it all`);
       }
     }
     lines.push(`    ${job.stage ?? "starting"}`);

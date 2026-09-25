@@ -154,3 +154,19 @@ describe("a long chain, compact", () => {
     expect(t.compactLines()).toEqual(t.lines());
   });
 });
+
+describe("the functional spec being built, in the progress widget", () => {
+  it("shows its first line, and all of it when expanded", async () => {
+    const { createProgressTracker } = await import("../../src/render/progress.ts");
+    const progress = createProgressTracker();
+    progress.onChainEvent({ type: "chain", chain: [{ moduleName: "rt_tuples", frids: ["1", "2"] }] } as never);
+    progress.onChainEvent({ type: "module_start", module: "rt_tuples", index: 1, total: 1 } as never);
+    progress.onModuleEvent({ type: "functionality_start", frid: "2", index: 2, total: 2, spec: "A :Tuple: supports arithmetic.\n  - Adding two tuples adds each component." });
+
+    expect(progress.compactLines()).toContain("    │ A :Tuple: supports arithmetic.  (+1 line · ctrl+o)");
+    expect(progress.lines()).toEqual(expect.arrayContaining(["    │ A :Tuple: supports arithmetic.", "    │   - Adding two tuples adds each component."]));
+
+    progress.onModuleEvent({ type: "functionality_done", frid: "2" });
+    expect(progress.lines().join("\n")).not.toContain("supports arithmetic");
+  });
+});

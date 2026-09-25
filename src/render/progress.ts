@@ -18,6 +18,8 @@ interface ModuleProgress {
   frids: string[];
   done: string[];
   current?: string;
+  /** The text of the functional spec being built now. */
+  spec?: string;
   phase?: Phase;
   state: "queued" | "building" | "built" | "skipped" | "stopped";
   copied?: number;
@@ -50,6 +52,39 @@ export function createProgressTracker(): ProgressTracker {
   let finished = false;
 
   const current = () => modules.find((m) => m.state === "building");
+
+  /**
+   * Each module's lines: one, and for the module being built the text of the functional spec
+   * it is on - its first line, or all of it when expanded.
+   */
+  const rowsFor = (expanded: boolean): string[][] => {
+    if (modules.length === 0) return [];
+    const width = Math.max(...modules.map((x) => x.module.length));
+    return modules.map((m) => {
+      const mark = MARK[m.state];
+      const name = m.module.padEnd(width);
+
+      if (m.state === "skipped") return [`${mark} ${name}  already built`];
+      if (m.state === "queued") return [`${mark} ${name}  queued`];
+
+      const bar = progressBar(m.done.length, m.frids.length);
+      const detail =
+        m.state === "building"
+          ? `${bar} ${m.done.length}/${m.frids.length}` +
+            (m.current !== undefined ? `  functionality ${m.current}${m.phase ? ` · ${m.phase}` : ""}` : "") +
+            (m.copied !== undefined && m.done.length === 0 ? `  (${m.copied} files copied in)` : "")
+          : `${bar} ${m.done.length}/${m.frids.length}`;
+      const repairs = m.repairs > 0 ? `  ${m.repairs} repair${m.repairs === 1 ? "" : "s"}` : "";
+      const row = [`${mark} ${name}  ${detail}${repairs}`];
+
+      if (m.state === "building" && m.spec !== undefined) {
+        const text = m.spec.split("\n").filter((line) => line.trim() !== "");
+        if (expanded) row.push(...text.map((line) => `    │ ${line}`));
+        else row.push(`    │ ${(text[0] ?? "").trim()}${text.length > 1 ? `  (+${text.length - 1} line${text.length === 2 ? "" : "s"} · ctrl+o)` : ""}`);
+      }
+      return row;
+    });
+  };
 
   return {
     onChainEvent(event) {
@@ -88,6 +123,7 @@ export function createProgressTracker(): ProgressTracker {
 
       if (event.type === "functionality_start") {
         target.current = event.frid;
+        target.spec = event.spec;
         target.phase = undefined;
       } else if (event.type === "phase") {
         target.phase = event.phase;
@@ -98,6 +134,7 @@ export function createProgressTracker(): ProgressTracker {
       } else if (event.type === "functionality_done") {
         if (!target.done.includes(event.frid)) target.done.push(event.frid);
         target.current = undefined;
+        target.spec = undefined;
         target.phase = undefined;
       } else if (event.type === "stopped") {
         target.state = "stopped";
@@ -105,37 +142,18 @@ export function createProgressTracker(): ProgressTracker {
     },
 
     lines() {
-      if (modules.length === 0) return [];
-
-      return modules.map((m) => {
-        const mark = MARK[m.state];
-        const name = m.module.padEnd(Math.max(...modules.map((x) => x.module.length)));
-
-        if (m.state === "skipped") return `${mark} ${name}  already built`;
-        if (m.state === "queued") return `${mark} ${name}  queued`;
-
-        const bar = progressBar(m.done.length, m.frids.length);
-        const detail =
-          m.state === "building"
-            ? `${bar} ${m.done.length}/${m.frids.length}` +
-              (m.current !== undefined ? `  functionality ${m.current}${m.phase ? ` · ${m.phase}` : ""}` : "") +
-              (m.copied !== undefined && m.done.length === 0 ? `  (${m.copied} files copied in)` : "")
-            : `${bar} ${m.done.length}/${m.frids.length}`;
-
-        const repairs = m.repairs > 0 ? `  ${m.repairs} repair${m.repairs === 1 ? "" : "s"}` : "";
-        return `${mark} ${name}  ${detail}${repairs}`;
-      });
+      return rowsFor(true).flat();
     },
 
     compactLines() {
-      const all = this.lines();
-      if (modules.length <= COMPACT_THRESHOLD) return all;
+      const rows = rowsFor(false);
+      if (modules.length <= COMPACT_THRESHOLD) return rows.flat();
 
       const finished = modules.filter((m) => m.state === "built" || m.state === "skipped").length;
       const lines = [`${finished}/${modules.length} modules built`];
       const waiting: string[] = [];
       modules.forEach((m, index) => {
-        if (m.state === "building" || m.state === "stopped") lines.push(all[index]!);
+        if (m.state === "building" || m.state === "stopped") lines.push(...rows[index]!);
         else if (m.state === "queued") waiting.push(m.module);
       });
       if (waiting.length > 0) lines.push(`  queued (${waiting.length}): ${waiting.join(" → ")}`);

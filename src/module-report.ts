@@ -15,6 +15,7 @@ export function reportEvent(event: ModuleEvent): void {
       console.log(
         `\n${c.bold(c.cyan(`── functionality ${event.frid}`))} ${c.dim(`(${event.index}/${event.total})`)}`,
       );
+      if (event.spec) console.log(event.spec.split("\n").map((line) => `   ${c.dim("│")} ${line}`).join("\n"));
       break;
     case "phase":
       console.log(`\n${c.bold(`> ${event.phase}`)} ${c.dim(event.frid)}`);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { JobStoppedError, withActivity, type TranscriptEntry, type UsageReport } from "./activity.ts";
+import { JobStoppedError, withActivity, type BuildingSpec, type TranscriptEntry, type UsageReport } from "./activity.ts";
 
 /**
  * Background jobs for conversation mode.
@@ -34,6 +34,8 @@ export interface Job {
   tail: string;
   /** The stage the work is at, as the work itself last reported it. */
   stage?: string;
+  /** The functional spec it is building now, when it builds one. */
+  building?: BuildingSpec;
   /** The most recent things the agents did, newest last. */
   activity: string[];
   /** What is happening right now, and since when. */
@@ -167,6 +169,11 @@ export function createJobRegistry(options?: {
         stage(label: string) {
           job.stage = label;
           this.transcript({ kind: "stage", text: label });
+          changed();
+        },
+        spec(spec: BuildingSpec | undefined) {
+          job.building = spec;
+          if (spec !== undefined) this.transcript({ kind: "spec", text: `${spec.label}\n${spec.text}` });
           changed();
         },
         transcript(entry: TranscriptEntry) {
@@ -309,6 +316,7 @@ export function describeJob(job: Job): string {
   if (job.status === "running") {
     return [
       header,
+      ...(job.building ? ["", `building ${job.building.label}:`, job.building.text] : []),
       ...(job.stage ? ["", `stage: ${job.stage}`] : []),
       ...(job.activity.length > 0 ? ["", "<recent activity>", ...job.activity, "</recent activity>"] : []),
       "",

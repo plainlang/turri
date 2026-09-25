@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { describeUsage, reportStage, reportTranscript, reportUsage } from "../../src/render/activity.ts";
-import { createJobRegistry } from "../../src/render/jobs.ts";
+import { describeUsage, reportSpec, reportStage, reportTranscript, reportUsage } from "../../src/render/activity.ts";
+import { createJobRegistry, describeJob } from "../../src/render/jobs.ts";
+import { jobPanelLines } from "../../src/render/job-panel.ts";
 import { createTranscriptView, transcriptLines } from "../../src/render/transcript-view.ts";
 
 async function jobWith(run: () => void) {
@@ -141,5 +142,57 @@ describe("a job that is over, in /watch", () => {
     const running = jobs.start({ kind: "render", summary: "still going", run: () => new Promise(() => {}) });
     reportStage("unused");
     expect(transcriptLines(running, 80).join("\n")).not.toContain("── finished");
+  });
+});
+
+describe("the functional spec a job is building", () => {
+  const spec = {
+    label: "rt_tuples functionality 2 of 5",
+    text: "A :Tuple: supports arithmetic.\n  - Adding two tuples adds each component.\n\nacceptance tests:\n- (3, -2, 5, 1) + (-2, 3, 1, 0) is (1, 1, 6, 1).",
+  };
+
+  it("is shown with the job: its first line, and all of it while expanded", async () => {
+    const jobs = createJobRegistry();
+    let release = () => {};
+    const job = jobs.start({
+      kind: "render",
+      summary: "rt_tuples.plain module",
+      run: async () => {
+        reportSpec(spec);
+        reportStage("rt_tuples 2: the agent is writing the code and its unit tests");
+        await new Promise<void>((done) => (release = done));
+        return { report: "" };
+      },
+    });
+    await new Promise((done) => setTimeout(done, 10));
+
+    const compact = jobPanelLines([job]);
+    expect(compact).toContain("    rt_tuples functionality 2 of 5: A :Tuple: supports arithmetic.  (+3 lines · ctrl+o)");
+    expect(compact.join("\n")).not.toContain("Adding two tuples");
+
+    const expanded = jobPanelLines([job], { expanded: true });
+    expect(expanded).toContain("    rt_tuples functionality 2 of 5:");
+    expect(expanded).toContain("      │   - Adding two tuples adds each component.");
+    expect(expanded).toContain("      │ - (3, -2, 5, 1) + (-2, 3, 1, 0) is (1, 1, 6, 1).");
+
+    // And whole in /watch, where it began.
+    const lines = transcriptLines(job, 80);
+    expect(lines).toContain("── building rt_tuples functionality 2 of 5");
+    expect(lines.join("\n")).toContain("Adding two tuples adds each component.");
+    expect(describeJob(job)).toContain("building rt_tuples functionality 2 of 5:");
+    release();
+    await jobs.wait(job.id);
+  });
+});
+
+describe("the spec text shown for a functionality", () => {
+  it("carries its acceptance tests only when conformance is on", async () => {
+    const { buildingSpec } = await import("../../src/render/render.ts");
+    const specifications = { "functional specs": ["- One.", "- A :Tuple: supports arithmetic."], acceptance_tests: ["- 1 + 1 is 2."] };
+    expect(buildingSpec("rt_tuples", "2", 5, specifications as never, true)).toEqual({
+      label: "rt_tuples functionality 2 of 5",
+      text: "- A :Tuple: supports arithmetic.\n\nacceptance tests:\n- 1 + 1 is 2.",
+    });
+    expect(buildingSpec("rt_tuples", "2", 5, specifications as never, false).text).toBe("- A :Tuple: supports arithmetic.");
   });
 });
