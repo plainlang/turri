@@ -5,7 +5,8 @@ import { pendingFrids, staleFrids } from "./state.ts";
 import { describeDelivery } from "./delivery.ts";
 import { defaultBuildDir, modulesRoot } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
-import { findTestScripts, projectRootFor } from "./test-scripts.ts";
+import { readProjectConfig } from "../config.ts";
+import { findTestScripts, projectRootFor, withoutConformance } from "./test-scripts.ts";
 import { renderFunctionality } from "./render.ts";
 import { ensureRegressionPasses, regenerateFunctionality, describeRegenerationStop } from "./module.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
@@ -122,6 +123,8 @@ export function createRenderQueue(options: {
             plainFile,
             diff: request.diff,
             cwd: options.cwd,
+            // Off when the project's config.yaml turns conformance off; otherwise as its test reqs say.
+            conformance: conformanceOff(options.cwd) ? false : undefined,
             model,
             applied: request.applied,
             spec: request.spec,
@@ -239,13 +242,22 @@ function codebaseOf(plainFile: string): string {
   }
 }
 
+/** Whether the project's config.yaml turns conformance off. */
+function conformanceOff(cwd: string): boolean {
+  return readProjectConfig(cwd).conformanceTests === false;
+}
+
 function defaultRunner(options: { buildDir?: string; model?: string; cwd: string }): RenderRunner {
   return async (request, onDelta) => {
+    // Off when the project's config.yaml turns conformance off - read for each build, so an edit
+    // to the file holds for the next one.
+    const off = conformanceOff(options.cwd);
     const common = {
       plainFile: request.plainFile,
       frid: request.frid,
       buildDir: options.buildDir,
       model: request.model ?? options.model,
+      ...(off ? { conformance: false } : {}),
       onDelta,
     };
 
@@ -287,7 +299,9 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
           frids: [...getFrids(tree)].slice(0, [...getFrids(tree)].indexOf(request.frid) + 1),
           tree,
           required: getInheritedFunctionalSpecs(tree),
-          scripts: findTestScripts(projectRootFor(request.plainFile, result.buildDir)),
+          scripts: off
+            ? withoutConformance(findTestScripts(projectRootFor(request.plainFile, result.buildDir)))
+            : findTestScripts(projectRootFor(request.plainFile, result.buildDir)),
           model: options.model,
           onDelta,
         })

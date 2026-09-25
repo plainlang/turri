@@ -70,6 +70,14 @@ other, jobs on different modules run side by side.
 In `print`, `json` and `rpc` modes the process ends when the answer is written, so the tools wait
 for the work there instead. Jobs live in memory for the session; the work itself is on disk.
 
+## The project's config.yaml
+
+The chat reads the project's `config.yaml` afresh every turn and follows it: its agent is told what
+it sets, and the render tools default to it - `module` when you ask to build without naming one,
+`conformance-tests: false` to render without conformance tests (none written, none of the existing
+ones run) unless you ask for them, `coding-model` for what renders run on, and the testing scripts.
+`harness-model` is what `plainwright chat` starts on. What you ask for in the conversation wins.
+
 ## Choosing a model
 
 There are two: the **harness model**, the one you chat with, and the **coding model**, the one

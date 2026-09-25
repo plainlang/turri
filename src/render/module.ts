@@ -591,8 +591,8 @@ export async function regenerateFunctionality(
   const render = await renderFunctionality({
     plainFile: options.plainFile,
     frid: options.frid,
-    // Regenerating always brings the conformance tests in line: they judge it too.
-    conformance: true,
+    // Its conformance tests are brought in line after it, unless conformance is off.
+    conformance: options.conformance !== false,
     templateDirs: options.templateDirs,
     buildDir,
     model: options.model,
@@ -626,6 +626,32 @@ export async function regenerateFunctionality(
     return { ...base, render, passed: false, stoppedAt: "unit tests" };
   }
 
+  // The scripts of the codebase it is regenerated in; turned off, no conformance testing script is used.
+  const found = findTestScripts(projectRootFor(host?.plainFile ?? options.plainFile, buildDir));
+  const scripts = options.conformance === false ? withoutConformance(found) : found;
+  const hasTestReqs = (getSpecificationItems(tree, TEST_REQUIREMENTS) ?? []).length > 0;
+
+  // No conformance tests of its own to bring in line - conformance is off, or the module has no
+  // test reqs to write them from. The codebase's existing ones are still kept passing, unless off.
+  if (options.conformance === false || !hasTestReqs) {
+    reportStage(`${moduleName} ${options.frid}: regenerated - ${options.conformance === false ? "conformance is off" : "no test reqs, so no conformance tests of its own"}`);
+    const regression = await ensureRegressionPasses({
+      buildDir,
+      conformanceRoot,
+      moduleName: host?.moduleName ?? moduleName,
+      frids: allFrids,
+      tree,
+      required: requiredFunctionalSpecs(host?.plainFile ?? options.plainFile, options.templateDirs),
+      scripts,
+      model: options.model,
+      maxRounds: options.maxRegressionRounds,
+      onDelta: options.onDelta,
+      onEvent: options.onEvent,
+    });
+    record(options.conformance === false ? "skipped" : regression.passed ? "passed" : "failed");
+    return { ...base, render, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
+  }
+
   reportStage(`${moduleName} ${options.frid}: regenerated - bringing its conformance tests in line with the new spec`);
   options.onEvent?.({ type: "phase", frid: options.frid, phase: "conformance" });
   const conformance = await renderConformanceTests({
@@ -657,7 +683,7 @@ export async function regenerateFunctionality(
     tree,
     required: requiredFunctionalSpecs(host?.plainFile ?? options.plainFile, options.templateDirs),
     // The suite of the codebase it is regenerated in, run by that codebase's script.
-    scripts: findTestScripts(projectRootFor(host?.plainFile ?? options.plainFile, buildDir)),
+    scripts,
     model: options.model,
     maxRounds: options.maxRegressionRounds,
     onDelta: options.onDelta,

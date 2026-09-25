@@ -30,7 +30,7 @@ vi.mock("../../src/render/render.ts", async (importOriginal) => {
 });
 
 const { renderConformanceSuite } = await import("../../src/render/conformance-suite.ts");
-const { ensureRegressionPasses, renderModule } = await import("../../src/render/module.ts");
+const { ensureRegressionPasses, regenerateFunctionality, renderModule } = await import("../../src/render/module.ts");
 const { copyRequiredCode, requiredFunctionalSpecs } = await import("../../src/render/requires.ts");
 const { readState, recordFunctionality, specStateFor } = await import("../../src/render/state.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
@@ -140,6 +140,19 @@ describe("the tests already in a codebase", () => {
     expect(conformanceRuns).toEqual([]);
     expect(result.outcomes.at(-1)!.regression).toMatchObject({ passed: true, runs: [], conformanceOff: true });
     expect(result.passed).toBe(true);
+  });
+
+  it("are not written or run by a regeneration when conformance is turned off", async () => {
+    built("top");
+    scripts();
+    mkdirSync(testsOf("top"), { recursive: true });
+    // It would fail: turned off, nothing runs it.
+    writeFileSync(join(testsOf("top"), "check.sh"), "exit 1\n");
+
+    const result = await regenerateFunctionality({ plainFile: file("top"), frid: "1", buildDir: buildOf("top"), conformance: false });
+
+    expect(conformanceRuns).toEqual([]);
+    expect(result).toMatchObject({ passed: true, stoppedAt: null, regression: { conformanceOff: true, runs: [] } });
   });
 
   it("stop a build before it starts when the project has no unit testing script", async () => {

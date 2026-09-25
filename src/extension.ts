@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
@@ -8,6 +8,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
+import { findTestScripts } from "./render/test-scripts.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
@@ -159,8 +160,10 @@ export default function (pi: ExtensionAPI) {
   // line - enforced below, not only asked for.
   const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"));
   const rulesBlock = renderRulesBlock(rules);
+  // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
+  // the tools default to it.
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: [event.systemPrompt, TOOLS_NOT_CLI, rulesBlock].filter((part) => part !== "").join("\n\n"),
+    systemPrompt: [event.systemPrompt, TOOLS_NOT_CLI, projectConfigBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
   }));
 
   // The conversation's agent does not run plainwright again through its shell, unless the person
@@ -657,12 +660,14 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     promptSnippet: "render_module: build every functionality of a .plain specification in order",
     promptGuidelines: [
       "Prefer render_module over looping render_functionality yourself: it enforces the regression gate between functionalities.",
-      "Pass conformance: false when the user asks to render without conformance tests; otherwise leave it out, and each module with test reqs gets them.",
+      "Pass conformance: false when the user asks to render without conformance tests, true when they ask for them; otherwise leave it out, and the project's config.yaml decides.",
       "Report which functionalities completed and where it stopped. Do not describe an incomplete module as finished.",
       "render_module takes a long time and runs in the background. Report the job id, keep talking, and check_job when the user asks.",
     ],
     parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file" }),
+      plain_file: Type.Optional(
+        Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" }),
+      ),
       from: Type.Optional(Type.String({ description: "Start at this functionality id" })),
       to: Type.Optional(Type.String({ description: "Stop after this functionality id" })),
       only: Type.Optional(
@@ -683,7 +688,11 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, params, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, onUpdate, ctx) {
+      // No file named: the project's config.yaml says which module.
+      const named = given.plain_file ?? readProjectConfig(cwd).module;
+      if (named === undefined) throw new Error(`Name the .plain file to build, or set module: in ${CONFIG_FILE}.`);
+      const params = { ...given, plain_file: named };
       const model = jobModel(ctx, "functionalities", params.model);
       return deliver(jobs, {
         kind: "render_module",
@@ -993,6 +1002,8 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
             inModule: params.in_module,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
+            // As the project's config.yaml says: off there, no conformance tests written or run.
+            conformance: conformanceOption(undefined),
             onDelta,
           });
           return {
@@ -1025,9 +1036,10 @@ function regenerateReport(result: Awaited<ReturnType<typeof regenerateFunctional
 const CONFORMANCE_PARAM = Type.Optional(
   Type.Boolean({
     description:
-      "Write and run black-box conformance tests as each functionality is built. Default: on for every " +
-      "module that has test reqs - which is what they are written from - and off for every module that " +
-      "does not. Set false when the user asks to render without conformance tests.",
+      "Write and run black-box conformance tests as each functionality is built. Default: what the project's " +
+      "config.yaml says (conformance-tests), and without it on for every module that has test reqs - which is " +
+      "what they are written from - and off for every module that does not. Set false when the user asks to " +
+      "render without conformance tests, true when they ask for them.",
   }),
 );
 
@@ -1036,8 +1048,45 @@ const CONFORMANCE_PARAM = Type.Optional(
  * module decides by its own test reqs: a chain can mix modules that have them with modules
  * that do not, and asking for conformance must not fail on the ones that cannot have it.
  */
+/**
+ * Whether a render writes and runs conformance tests: as asked, or else as the project's
+ * config.yaml says (`conformance-tests:`), or else wherever a module has test reqs. Off means
+ * off - none written, and none of the existing ones run.
+ */
 function conformanceOption(asked: boolean | undefined): false | undefined {
-  return asked === false ? false : undefined;
+  if (asked === false) return false;
+  if (asked === true) return undefined;
+  return readProjectConfig(process.cwd()).conformanceTests === false ? false : undefined;
+}
+
+/**
+ * The project's config.yaml, for the chat's agent: what it says, and what that means for the
+ * tools - so a question about the project's settings is answered from the file, not from the
+ * tools' defaults.
+ */
+export function projectConfigBlock(root: string): string {
+  if (!existsSync(join(root, CONFIG_FILE))) return "";
+  const config = readProjectConfig(root);
+  const scripts = findTestScripts(root);
+  const lines = [
+    config.module !== undefined ? `- module: ${config.module} - the module to build when the user does not name one.` : undefined,
+    config.conformanceTests === false
+      ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
+      : config.conformanceTests === true
+        ? "- conformance-tests: true - conformance tests are on, for every module that has test reqs."
+        : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
+    config.codingModel !== undefined ? `- coding-model: ${config.codingModel} - what renders run on, unless set_render_model chose another in this session.` : undefined,
+    config.harnessModel !== undefined ? `- harness-model: ${config.harnessModel} - the model plainwright chat starts with.` : undefined,
+    `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : "none found - every build stops until there is one"}`,
+    `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : "none found"}`,
+  ].filter((line): line is string => line !== undefined);
+  return [
+    `<project config>`,
+    `The project's ${CONFIG_FILE} sets how it is built. The render tools follow it; answer questions about the`,
+    "project's settings from it, and say when a render will differ from it because the user asked.",
+    ...lines,
+    `</project config>`,
+  ].join("\n");
 }
 
 const MODEL_PARAM = Type.Optional(
