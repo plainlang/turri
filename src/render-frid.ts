@@ -1,3 +1,4 @@
+import { readProjectConfig } from "./config.ts";
 import { listFrids, renderFunctionality } from "./render/render.ts";
 import { describeStop } from "./render/stop-report.ts";
 
@@ -70,7 +71,8 @@ async function main() {
     templateDirs: args.templateDirs,
     buildDir: args.buildDir,
     dryRun: args.dryRun,
-    model: args.model,
+    // The project's config.yaml gives the default.
+    model: args.model ?? readProjectConfig(process.cwd()).model,
     tryIt: args.tryIt,
     onDelta: (delta) => process.stdout.write(delta),
     onRun: (command, exitCode) =>

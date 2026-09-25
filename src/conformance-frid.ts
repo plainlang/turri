@@ -1,3 +1,4 @@
+import { readProjectConfig } from "./config.ts";
 import { renderConformanceSuite } from "./render/conformance-suite.ts";
 
 const c = {
@@ -83,7 +84,8 @@ async function main() {
     templateDirs: args.templateDirs,
     buildDir: args.buildDir,
     conformanceRoot: args.conformanceRoot,
-    model: args.model,
+    // The project's config.yaml gives the default.
+    model: args.model ?? readProjectConfig(process.cwd()).model,
     onDelta: (delta) => process.stdout.write(delta),
     onEvent: (event) => {
       if (event.type === "targets") {

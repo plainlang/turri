@@ -131,7 +131,9 @@ They are looked for at the project root - the folder that holds `plain_modules` 
 2. the root itself: the one `run_unittests*.sh` and `run_conformance_tests*.sh` there;
 3. `test_scripts/`: the one of each there.
 
-A folder holding two of a kind is not guessed between: name the one to use in `config.yaml`. The
+The same `config.yaml` holds the project's other defaults - `module`, `model`, `conformance-tests` -
+for [unattended runs](headless.md). A folder holding two of a kind is not guessed between: name the
+one to use in `config.yaml`. The
 scripts are not linked from the specs; a link to one is ignored.
 
 They are required: a build with no unit testing script, or with conformance on and no conformance

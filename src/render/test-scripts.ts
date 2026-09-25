@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { load as loadYaml } from "js-yaml";
+import { CONFIG_FILE, CONFIG_KEYS, readProjectConfig } from "../config.ts";
 import { reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -65,11 +65,10 @@ function isFile(path: string): boolean {
   }
 }
 
-/** The project's config file, and the key that names each script in it. */
-export const CONFIG_FILE = "config.yaml";
-const CONFIG_KEYS: Record<ScriptKind, string> = {
-  unit: "unittests-script",
-  conformance: "conformance-tests-script",
+/** The key in the project's config.yaml that names each script. */
+const SCRIPT_KEYS: Record<ScriptKind, string> = {
+  unit: CONFIG_KEYS.unittestsScript,
+  conformance: CONFIG_KEYS.conformanceTestsScript,
 };
 export const SCRIPTS_DIR = "test_scripts";
 
@@ -81,17 +80,6 @@ export function projectRootFor(plainFile: string, buildDir: string): string {
   const parts = resolve(buildDir).split(sep);
   const index = parts.lastIndexOf("plain_modules");
   return index > 0 ? parts.slice(0, index).join(sep) : dirname(resolve(plainFile));
-}
-
-function readConfig(root: string): Record<string, unknown> {
-  const path = join(root, CONFIG_FILE);
-  if (!isFile(path)) return {};
-  try {
-    const parsed = loadYaml(readFileSync(path, "utf8"));
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
 }
 
 /** The one script of a kind in a folder, by the names the skills give them; two or more say which. */
@@ -118,19 +106,19 @@ function onlyScriptIn(dir: string, kind: ScriptKind): { path?: string; several?:
 export function findTestScripts(root: string): TestScripts {
   const found: TestScripts = {};
   const notes: Partial<Record<ScriptKind, string>> = {};
-  const config = readConfig(root);
-  for (const kind of Object.keys(CONFIG_KEYS) as ScriptKind[]) {
-    const named = config[CONFIG_KEYS[kind]];
-    if (typeof named === "string" && named.trim() !== "") {
+  const config = readProjectConfig(root);
+  for (const kind of Object.keys(SCRIPT_KEYS) as ScriptKind[]) {
+    const named = kind === "unit" ? config.unittestsScript : config.conformanceTestsScript;
+    if (named !== undefined) {
       const path = resolve(root, named.trim());
       // Agents write in plain_modules: a script there could be changed by the work it judges.
       if (path.split(sep).includes("plain_modules")) {
-        notes[kind] = `${CONFIG_FILE} names ${named.trim()} as the ${CONFIG_KEYS[kind]}, inside plain_modules - where agents write, so it is not used.`;
+        notes[kind] = `${CONFIG_FILE} names ${named.trim()} as the ${SCRIPT_KEYS[kind]}, inside plain_modules - where agents write, so it is not used.`;
       } else if (isFile(path)) {
         found[kind] = path;
         continue;
       } else {
-        notes[kind] = `${CONFIG_FILE} names ${named.trim()} as the ${CONFIG_KEYS[kind]}, and there is no such file.`;
+        notes[kind] = `${CONFIG_FILE} names ${named.trim()} as the ${SCRIPT_KEYS[kind]}, and there is no such file.`;
       }
     }
     for (const dir of [root, join(root, SCRIPTS_DIR)]) {
@@ -168,7 +156,7 @@ export class MissingTestScriptError extends Error {
         "",
         "What to change in the project:",
         `- Add one with the \`${skill}\` skill: it writes \`${SCRIPTS_DIR}/${file}_<language>.sh\`.`,
-        `- It is looked for in \`${CONFIG_FILE}\` at the project root (\`${CONFIG_KEYS[kind]}: <path>\`), then in the root,`,
+        `- It is looked for in \`${CONFIG_FILE}\` at the project root (\`${SCRIPT_KEYS[kind]}: <path>\`), then in the root,`,
         `  then in \`${SCRIPTS_DIR}/\` - one ${file}*.sh in either folder is used.`,
         "",
         "Then build again.",
