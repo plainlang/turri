@@ -41,6 +41,12 @@ import {
 export interface Confinement {
   /** Where the agent starts and where relative paths resolve. It sees the plain_modules this is in. */
   workdir: string;
+  /** Narrower than that: the only folders its file tools may read. */
+  read?: string[];
+  /** The only folders they may write; none, and it has no write or edit tool at all. */
+  write?: string[];
+  /** No shell either - for an agent that only reads. */
+  noBash?: boolean;
 }
 
 export class ConfinementError extends Error {
@@ -191,8 +197,8 @@ export function confinedTools(c: Confinement): ConfinedTools {
   const workdir = resolve(c.workdir);
   // Every agent's file tools see the whole of plain_modules and nothing above it; its VM, only its module.
   const root = ceilingFor(workdir);
-  const read = [root];
-  const write = [root];
+  const read = (c.read ?? [root]).map((dir) => resolve(dir));
+  const write = (c.write ?? [root]).map((dir) => resolve(dir));
 
   const readOps = guardedOps(read, "read");
   const writeOps = guardedOps(write, "write");
@@ -241,11 +247,18 @@ export function confinedTools(c: Confinement): ConfinedTools {
     }),
   ];
 
-  let description = `file tools fenced to ${root}`;
+  // Nothing to write to: no tool that writes.
+  if (write.length === 0) {
+    for (const name of ["write", "edit"]) tools.splice(tools.findIndex((tool) => tool.name === name), 1);
+  }
+
+  let description = `file tools fenced to ${read.join(", ")}${write.length === 0 ? ", read only" : ""}`;
 
   // The shell runs in its module's VM, which holds that module's folder and the VM scratch and
   // nothing else. Whatever it cds to or cats, nothing outside them exists.
-  if (vmSupported()) {
+  if (c.noBash === true) {
+    description += ", no bash";
+  } else if (vmSupported()) {
     const bash = createBashToolDefinition(workdir, {
       operations: vmBashOperations(),
       exposeSessionEnvironment: false,

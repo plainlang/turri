@@ -219,6 +219,16 @@ already applied), and the spec is parsed with it in. One agent, given the diff a
 spec as they now stand, makes the code match; then the conformance tests are brought in line, the
 whole suite runs with repairs, and try-it is worked out and checked.
 
+In a conversation, rendering and conformance are separate jobs in the render queue. A render spec
+diff job - forge-plain's, `render_spec_diff`'s, or one of the spec diffs `render_module` brings a
+spec in as - lands the change on its unit tests, and a render spec diff conformance job is queued
+right behind it, which brings the tests in line and runs the whole suite with repairs. It runs only
+if the render landed. A functionality rendered through the queue is followed the same way by a
+render functionality conformance job for it, and both conformance tools queue their jobs there too.
+With conformance off, or no test reqs, no conformance job is queued and the render keeps the
+existing tests passing itself. A call that waits - `wait: true`, or pi's print mode - still does it
+all in one.
+
 When it passes, the tree the code is built from becomes the spec as parsed when the diff went in -
 every section, not only the functional specs - and the diff is committed with it. A diff queued
 behind others is rendered from its own parse, not from the files as they are by the time it runs.
@@ -266,27 +276,36 @@ sends the agent back for a functionality with no labelled conformance tests, or 
 test that has no test of its own. Anyone reading the tests - or the next agent - sees at a glance
 which is which, and which acceptance test a test implements.
 
-### Black box in shape, not in blindness
+### Rendered apart from the code
 
-The test author can read the implementation: to find out how the thing is invoked, never to decide
-what it should do. The tests call the built software from outside, through its entry point, and
-every assertion comes from the spec - a test written from the code agrees with the code by
-construction and can never catch it being wrong. `run_conformance_tests` copies the build and the
-tests into a throwaway directory and runs a command there, so tests cannot accumulate state
-between attempts and nothing they write reaches the code.
+The code and its conformance tests are rendered apart, each in its own folder and its own VM (see
+[the sandbox](sandbox.md#commands-run-in-a-vm)). The test author never sees the code: its file tools
+and its shell hold the tests folder and nothing else. So before it starts, an explorer - an agent in
+the code's folder and VM, which reads the code and runs it but changes nothing - writes down how the
+built software is invoked from outside: what to install and run, its entry points, how each thing
+the spec describes is reached, what it needs around it. That account, not the code, is what the
+tests are written against, and every assertion comes from the spec. `run_conformance_tests` puts
+the whole suite together with a copy of the build in a throwaway directory, in the tests' VM, so
+tests cannot accumulate state between attempts and nothing they write reaches the code.
+
+This is the same for a functionality's conformance tests and a spec diff's.
 
 ### When a conformance test fails
 
-It works like the unit tests: one agent goes back and forth until they pass. When a run fails, the
-failure goes back to the same agent, which works out against the spec what is wrong and fixes that
-one - a test that misreads the spec is corrected, code that does not do what the spec says is
-fixed, and its unit tests kept passing. It is told never to change a test so it agrees with code
-that contradicts the spec, and a test it deletes is challenged by name.
+The harness runs the project's conformance testing script on the whole suite. When it passes, the
+unit testing script runs too, and both passing is done. When it fails, a judge - an agent that reads
+the code and the tests, changes neither, and holds both to the spec - decides which is wrong:
 
-When its own run passes, the harness checks for itself: both kinds of test are there and labelled,
-none of them is in the code folder, then it runs the project's conformance testing script on the
-whole suite, and the unit testing script after it, every time. Only those runs count, and both have
-to pass. It goes back and forth up to 20 times.
+- **the code:** the coding agent - in the code's folder and VM, seeing nothing of the tests - fixes it,
+  and keeps its unit tests passing;
+- **the tests:** the conformance agent corrects them to what the spec says.
+
+Then the suite runs again. A run that never got to the tests - a toolchain missing, a time limit - goes
+back to the conformance agent without a judge: the tests' environment is its. Unit tests failing after
+the suite passes go to the coding agent. It goes round up to 20 times; still failing, the work is undone.
+
+Before each run the harness checks for itself: both kinds of test are there and labelled, none of
+them is in the code folder, and no test went missing without being justified.
 
 Conformance and acceptance tests live in the module's `tests` folder and nowhere else. One found in
 the code folder - by its label, or as a test file under a name or folder that says conformance or

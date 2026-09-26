@@ -347,6 +347,12 @@ export interface ConformancePromptInput {
   manifest: string[];
   /** Where the code is, for fixing it when it is what is wrong. */
   codeDir?: string;
+  /**
+   * How to invoke the built software from outside, as an agent that explored the code wrote it.
+   * Given, the author works from this and never sees the code: it cannot read it, and it fixes
+   * only tests - when a run fails, another agent decides whether the test or the code is wrong.
+   */
+  invocation?: string;
   /** Tests already in the conformance directory, from an earlier version of the spec. */
   existingTests?: string[];
   /** Functional specs of the modules this one requires, transitively. */
@@ -380,12 +386,23 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "running its executable or importing its public entry point - and check that it behaves as",
     "the specification says.",
     "",
-    "You can read the implementation, and you should, but only to find out how the thing is",
-    "invoked: its entry point, its arguments, the shape of its output. Every assertion comes",
-    "from the specification. A test that asserts what the code happens to do agrees with the",
-    "code by construction and can never catch it being wrong - which is the only thing these",
-    "tests are for. Where the code and the specification disagree, the test follows the",
-    "specification and fails.",
+    ...(input.invocation !== undefined
+      ? [
+          "You cannot see the implementation. An agent that explored it wrote down how it is invoked from the",
+          "outside, in <how to invoke it>: use that to reach it. Every assertion comes from the specification,",
+          "never from what that account says the code does. Where the code and the specification disagree, the",
+          "test follows the specification and fails.",
+          "",
+          `<how to invoke it>\n${input.invocation.trim()}\n</how to invoke it>`,
+        ]
+      : [
+          "You can read the implementation, and you should, but only to find out how the thing is",
+          "invoked: its entry point, its arguments, the shape of its output. Every assertion comes",
+          "from the specification. A test that asserts what the code happens to do agrees with the",
+          "code by construction and can never catch it being wrong - which is the only thing these",
+          "tests are for. Where the code and the specification disagree, the test follows the",
+          "specification and fails.",
+        ]),
     "",
     section(DEFINITIONS, specifications[DEFINITIONS]),
     section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
@@ -454,15 +471,27 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "- Test observable behaviour only: output, exit codes, files produced, values returned by the",
     "  public entry point. Never assert on internal names, private helpers or implementation detail.",
     "- The test reqs say how conformance tests must be written and run. Follow them.",
-    "- Run them however you like while you work - one file, one case, any configuration - with bash.",
-    "  Before you finish, call run_conformance_tests: it runs the project's conformance testing script on",
-    "  the whole suite exactly as the harness does to decide whether this is done, and that run is the",
-    "  only one that counts.",
-    "- When a test fails, work out against the specification what is wrong - the test or the code - and",
-    "  fix that one. A test that misreads the specification is corrected. Code that does not do what the",
-    input.codeDir
-      ? `  specification says is fixed, in ${input.codeDir}; then check its unit tests with run_unit_tests.`
-      : "  specification says is fixed; then check its unit tests with run_unit_tests.",
+    ...(input.invocation !== undefined
+      ? [
+          "- Your shell holds the tests folder and nothing of the code. Run the tests with run_conformance_tests:",
+          "  it puts the whole suite together with a copy of the build and runs the project's conformance",
+          "  testing script exactly as the harness does to decide whether this is done, and that run is the only",
+          "  one that counts. Call it before you finish.",
+          "- You change tests, never code. When the harness's run fails, another agent works out against the",
+          "  specification whether a test or the code is wrong. When it is a test, you are sent back with why:",
+          "  correct it to what the specification says. When it is the code, the coding agent fixes that.",
+        ]
+      : [
+          "- Run them however you like while you work - one file, one case, any configuration - with bash.",
+          "  Before you finish, call run_conformance_tests: it runs the project's conformance testing script on",
+          "  the whole suite exactly as the harness does to decide whether this is done, and that run is the",
+          "  only one that counts.",
+          "- When a test fails, work out against the specification what is wrong - the test or the code - and",
+          "  fix that one. A test that misreads the specification is corrected. Code that does not do what the",
+          input.codeDir
+            ? `  specification says is fixed, in ${input.codeDir}; then check its unit tests with run_unit_tests.`
+            : "  specification says is fixed; then check its unit tests with run_unit_tests.",
+        ]),
     "- Never change a test so it agrees with code that contradicts the specification: the tests say what",
     "  the specification requires, and the code is what has to meet it.",
     "- Never delete, skip or weaken a test to get a pass. A test may be removed only when it asserts",

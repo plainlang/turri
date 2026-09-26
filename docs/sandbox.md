@@ -31,13 +31,17 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 read or write. So it does not run on the host at all. Every command - the agent's `bash`,
 `run_unit_tests`, conformance runs, the harness's runs of the project's testing scripts, the try-it
 checks - runs in a
-[Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux) for the module it
-works in:
+[Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux). A module has two:
 
-- It holds that module's folder, `plain_modules/<module>`, and `plain_modules/.plainwright` - the
-  package caches and the copies test runs happen in - mounted read-write at the paths they have on
-  the host. The other modules, the specs, the home directory and every other project do not exist
-  in there.
+- **Its code's**, holding `plain_modules/<module>/code`: where code is rendered - the coding agent's
+  and the explorer's commands - and the unit tests run.
+- **Its tests'**, holding `plain_modules/<module>/tests`: where conformance tests are rendered - the
+  conformance agent's commands - and the conformance suite runs, on a copy of the build staged beside
+  the tests.
+
+Each also holds `plain_modules/.plainwright` - the package caches and the copies test runs happen
+in - mounted read-write at the paths they have on the host. Neither holds the other's folder; the
+other modules, the specs, the home directory and every other project do not exist in either.
 - The host environment is not passed in, so the provider's API keys stay out.
 - The network is open: any host on the web, internal addresses included, and this machine's
   localhost on any port - a storage service or a mock API the tests talk to, running here. In the VM,
@@ -60,10 +64,10 @@ background or given its input. A job that is stopped ends the command it is wait
 Either way the command is killed in the VM too, with everything it started - Gondolin's abort only
 stops waiting for a command, so each one records its process ID and is killed by it.
 
-A project works through its modules one at a time, and so has one VM at a time. A module's VM starts
-on the first command run in it, and its jobs - functionalities, spec changes, conformance tests - reuse
-it one after another. The moment the project moves on to another module, the old VM is shut down and
-the new one's started, which costs a second or two; the system packages come back from the cache and
+A project works through its modules one at a time, and so has one module's VMs at a time. Each starts
+on the first command run in it, and the module's jobs - functionalities, spec changes, conformance
+tests - reuse them one after another; a job holds both while it works in the module. The moment the
+project moves on to another module, the old module's VMs are shut down and the new one's started, which costs a second or two; the system packages come back from the cache and
 the dependencies are in the module's folder. A VM nothing has used for a minute is shut down too. Two
 modules rendering at once each keep their own, and several projects never share one. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent

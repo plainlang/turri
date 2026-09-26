@@ -7,7 +7,9 @@ import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
+  DEFINITIONS,
   FUNCTIONAL_REQUIREMENTS,
+  NON_FUNCTIONAL_REQUIREMENTS,
   getFrids,
   getInheritedFunctionalSpecs,
   getSpecificationsForFrid,
@@ -32,6 +34,8 @@ import {
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import { codeFixPrompt, createCodeFixer, exploreInvocation, judgeFailure, testsFixPrompt, type SpecContext } from "./conformance-agents.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
@@ -238,11 +242,34 @@ export async function renderConformanceTests(
     return diff.added.length + diff.changed.length + diff.removed.length > 0;
   };
 
-  // One agent, going back and forth until the tests pass: it writes them from the spec, and
-  // when one fails it works out - against the spec - whether the test or the code is wrong, and
-  // fixes that one. It works in its tests and sees plain_modules, the code included.
-  const fence = confinedTools({ workdir: conformanceDir });
-  const notes = notesForSession(buildDir, `${moduleName} ${options.diff !== undefined ? "spec change" : frid} conformance`);
+  // The code and its tests are rendered apart: the tests in their own folder and VM, by an agent
+  // that never sees the code. An explorer reads the code first and writes down how the software is
+  // invoked, which is what the tests are written against.
+  const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
+  const specContext: SpecContext = { moduleName, text: specText(specifications, options.diff) };
+  stage(`exploring the code for how it is invoked${options.model ? ` (${options.model})` : ""}`);
+  const invocation = await exploreInvocation({ buildDir, spec: specContext, label, model: options.model, onDelta: options.onDelta });
+  reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
+  const agentPrompt = withTestingScripts(
+    buildConformancePrompt({
+      moduleName,
+      frid,
+      specifications,
+      linkedResources,
+      manifest,
+      existingTests: listFiles(conformanceDir),
+      required,
+      diff: options.diff,
+      invocation,
+    }),
+    scripts,
+    ["conformance"],
+    root,
+  );
+
+  // The conformance agent: its file tools and its shell hold the tests folder, nothing of the code.
+  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir], write: [conformanceDir] });
+  const notes = notesForSession(buildDir, `${label} conformance`);
   stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
     cwd: conformanceDir,
@@ -257,15 +284,30 @@ export async function renderConformanceTests(
         runs,
         onRun: options.onRun,
       }),
-      createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns }),
     ],
-    tools: [...fence.names, ...CONFORMANCE_TOOLS, "update_notes", ...WEB_TOOLS],
+    tools: [...fence.names, "run_conformance_tests", "update_notes", ...WEB_TOOLS],
     model: options.model,
-    label: `${moduleName} ${options.diff !== undefined ? "spec change" : frid} conformance agent`,
+    label: `${label} conformance agent`,
   });
+
+  // The coding agent, made the first time the code is what is wrong.
+  let fixer: AgentSession | undefined;
+  const fixerNotes = notesForSession(buildDir, `${label} conformance code fix`);
+  const askFixer = async (text: (first: boolean) => string) => {
+    const first = fixer === undefined;
+    fixer ??= await createCodeFixer({
+      buildDir,
+      label,
+      model: options.model,
+      tools: [fixerNotes.tool, createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns })],
+      toolNames: ["run_unit_tests", "update_notes"],
+    });
+    return ask(fixer, withNotes(text(first), buildDir), options.onDelta);
+  };
 
   try {
     let inventory = inventoryTests(conformanceDir);
+    let unitInventory = inventoryTests(buildDir);
     // Acceptance tests only when the spec has them for this functionality.
     const acceptance = options.diff === undefined ? (specifications[ACCEPTANCE_TESTS] ?? []).length : 0;
     stage(
@@ -275,7 +317,7 @@ export async function renderConformanceTests(
           ? "plainwright is bringing the conformance tests in line with the spec change"
           : "plainwright is writing conformance tests from the spec",
     );
-    let response = await ask(executor, withNotes(prompt, buildDir), options.onDelta);
+    let response = await ask(executor, withNotes(agentPrompt, buildDir), options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
     let verified = false;
@@ -290,6 +332,16 @@ export async function renderConformanceTests(
         response = await ask(executor, removalChallengePrompt(removals, "conformance tests"), options.onDelta);
         continue;
       }
+      // The coding agent keeps the unit tests it found.
+      const unitNow = inventoryTests(buildDir);
+      const unitRemovals = findTestRemovals(unitInventory, unitNow);
+      unitInventory = unitNow;
+      if (unitRemovals.length > 0 && fixer !== undefined) {
+        stage(`justifying ${unitRemovals.length} removed unit test${unitRemovals.length === 1 ? "" : "s"}`);
+        testRemovals.push(...unitRemovals);
+        await askFixer(() => removalChallengePrompt(unitRemovals, "unit tests"));
+        continue;
+      }
 
       // The conformance tests and each acceptance test have to be there, and labelled as what
       // they are, before anything else counts.
@@ -302,49 +354,60 @@ export async function renderConformanceTests(
         }
       }
 
-      // The suite is the tests folder: a conformance test written into the code folder is in the
-      // wrong place, and would not be run as one.
+      // The suite is the tests folder: a conformance test in the code folder is in the wrong place,
+      // and not the coding agent's to write.
       const misplaced = misplacedConformanceTests(buildDir);
       if (misplaced.length > 0) {
-        stage(`conformance tests in the code folder - moving ${misplaced.length === 1 ? "it" : "them"} into the tests folder`);
-        response = await ask(executor, misplacedTestsPrompt(misplaced, buildDir, conformanceDir), options.onDelta);
+        stage(`conformance tests in the code folder - the coding agent removes ${misplaced.length === 1 ? "it" : "them"}`);
+        await askFixer(() => misplacedTestsPrompt(misplaced, buildDir, conformanceDir));
         continue;
       }
 
-      // Whether the functionality is done is the harness's run of the project's conformance
-      // testing script, on every functionality's tests - and the code's unit testing script, when
-      // the agent changed the code.
-      stage(`running the conformance testing script on the whole suite (round ${rounds + 1})`);
+      // Whether it is done is the harness's run of the project's conformance testing script, on
+      // every functionality's tests, in the tests VM - and the code's unit testing script.
+      stage(`running the conformance testing script on the whole suite (attempt ${rounds + 1} of ${maxRounds})`);
       rounds += 1;
       const recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
       options.onRun?.(recheck.command, recheck.exitCode);
       if (recheck.exitCode !== 0) {
-        stage(`conformance tests failing - fixing (round ${round + 1} of ${maxRounds})`);
-        response = await ask(executor, conformanceFailingPrompt(recheck, buildDir), options.onDelta);
+        // A toolchain missing, or a run out of time, is not a question of test or code: the tests'
+        // environment is the conformance agent's.
+        if (recheck.exitCode === 69 || recheck.timedOut === true) {
+          stage("the conformance run did not get to the tests - back to the conformance agent");
+          response = await ask(executor, scriptFailure(recheck, "conformance testing"), options.onDelta);
+          continue;
+        }
+        stage("conformance tests failing - working out whether the code or the tests are wrong");
+        const verdict = await judgeFailure({ buildDir, conformanceDir, spec: specContext, run: recheck, invocation, label, model: options.model, onDelta: options.onDelta });
+        reportActivity(`  ${verdict.culprit === "code" ? "the code" : "the tests"}: ${verdict.reason.split("\n")[0]!.slice(0, 160)}`);
+        if (verdict.culprit === "code") {
+          stage("the code is wrong - the coding agent fixes it");
+          await askFixer((first) => codeFixPrompt({ buildDir, spec: specContext, run: recheck, reason: verdict.reason, first }));
+        } else {
+          stage("the tests are wrong - the conformance agent fixes them");
+          response = await ask(executor, testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta);
+        }
         continue;
       }
-      stage(`conformance tests pass (round ${rounds})`);
+      stage(`conformance tests pass (attempt ${rounds})`);
       // Done is both: the conformance suite passing, and the unit tests with it - whether or not
       // the code looks changed. Conformance passing on code whose unit tests fail is not done.
       stage("running the unit testing script too");
       const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
-      if (unit.ok) stage("unit tests pass too");
       if (!unit.ok) {
-        stage("unit tests NOT passing - fixing");
-        response = await ask(
-          executor,
-          `The conformance tests pass, but the code's unit tests do not - and both have to.\n\n${unit.prompt}`,
-          options.onDelta,
-        );
+        stage("unit tests NOT passing - the coding agent fixes the code");
+        await askFixer(() => `The conformance tests pass, but the code's unit tests do not - and both have to.\n\n${unit.prompt}`);
         continue;
       }
+      stage("unit tests pass too");
       verified = true;
       break;
     }
 
     stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
+    if (fixer !== undefined) await fixerNotes.ensureWritten((next) => ask(fixer!, next, options.onDelta));
     const changed = codeChanged();
     if (verified) {
       // The tests, and the code when it changed: one commit if they share a module folder.
@@ -362,7 +425,7 @@ export async function renderConformanceTests(
       frid: frid ?? "",
       buildDir,
       conformanceDir,
-      prompt,
+      prompt: agentPrompt,
       response,
       files: listFiles(conformanceDir),
       runs,
@@ -373,22 +436,16 @@ export async function renderConformanceTests(
     };
   } finally {
     executor.dispose();
+    fixer?.dispose();
   }
 }
 
-/** A failing run, handed back to the conformance agent to fix - the test or the code. */
-function conformanceFailingPrompt(run: ScriptRun, codeDir: string): string {
-  // A toolchain missing, or a run out of time, is not a question of test or code.
-  if (run.exitCode === 69 || run.timedOut === true) return scriptFailure(run, "conformance testing");
-  return [
-    `The harness ran the project's conformance testing script, \`${run.command}\`, on the whole suite, and it failed (exit ${run.exitCode}):`,
-    "",
-    run.output.trimEnd(),
-    "",
-    "Work out, against the specification, what is wrong - your test or the code - and fix that one:",
-    "- A test that asserts something the specification does not require, or misreads it, is corrected.",
-    `- Code that does not do what the specification says is fixed, in ${codeDir}, and its unit tests kept passing.`,
-    "Never change a test so it agrees with code that contradicts the specification, and never delete, skip or",
-    "weaken a test to get a pass.",
-  ].join("\n");
+/** The spec as the explorer, the judge and the coding agent are shown it. */
+function specText(specifications: Specifications, diff?: string): string {
+  const sections = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, FUNCTIONAL_REQUIREMENTS, ACCEPTANCE_TESTS]
+    .map((key) => [key, (specifications as unknown as Record<string, string[] | undefined>)[key] ?? []] as const)
+    .filter(([, items]) => items.length > 0)
+    .map(([key, items]) => `***${key}***\n\n${items.join("\n\n")}`);
+  if (diff !== undefined) sections.push(`<spec change>\n${diff.trim()}\n</spec change>`);
+  return sections.join("\n\n");
 }

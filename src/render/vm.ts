@@ -304,6 +304,8 @@ export function timedOutNote(timeoutMs: number): string {
 interface PoolEntry {
   /** The modules root it belongs to. */
   project: string;
+  /** The module it is for - a module has two: its code's and its tests'. */
+  module: string;
   vm: Promise<VM>;
   /** Jobs working in it. */
   holders: number;
@@ -313,8 +315,8 @@ interface PoolEntry {
 }
 const pool = new Map<string, PoolEntry>();
 
-/** The VM the current job holds, by project. */
-const lease = new AsyncLocalStorage<Map<string, string>>();
+/** The VMs the current job holds, by project: the module it works in, and which of its VMs it has used. */
+const lease = new AsyncLocalStorage<Map<string, { module: string; keys: Set<string> }>>();
 
 let idleMs = 60_000;
 
@@ -328,11 +330,11 @@ export function setVmIdleForTests(ms: number | undefined): void {
  * however it ends.
  */
 export async function withVmLease<T>(work: () => Promise<T>): Promise<T> {
-  const held = new Map<string, string>();
+  const held = new Map<string, { module: string; keys: Set<string> }>();
   try {
     return await lease.run(held, work);
   } finally {
-    for (const key of held.values()) letGo(key);
+    for (const { keys } of held.values()) for (const key of keys) letGo(key);
   }
 }
 
@@ -358,25 +360,33 @@ async function shutDown(key: string): Promise<void> {
   await entry.vm.then((vm) => vm.close()).catch(() => {});
 }
 
+/** A module's two folders, each with a VM of its own: the code, and the conformance tests. */
+const MODULE_PARTS = new Set(["code", "tests"]);
+
 /**
- * Which VM a command runs in, and what it holds. A command in a module's folder - or for one, a
- * test run staged in the scratch for its build - runs in that module's. One in the scratch alone
+ * Which VM a command runs in, and what it holds. A module has two: one for its code folder -
+ * where code is rendered, and the unit tests run - and one for its tests folder - where
+ * conformance tests are rendered, and the conformance suite runs - each holding that folder and
+ * the VM scratch. A command in one, or for one - a test run staged in the scratch - runs in its
+ * VM. Anywhere else in a module, the module's folder is one of its own. One in the scratch alone
  * runs in whichever VM the project has, the job's own first. Outside any `plain_modules`, the
  * folder is a VM of its own, holding just that.
  */
-function vmFor(dir: string, forDir?: string): { project: string; key: string; mounts: string[] } {
+function vmFor(dir: string, forDir?: string): { project: string; module: string; key: string; mounts: string[] } {
   const project = modulesRootOf(dir);
-  if (basename(project) !== MODULES_DIR) return { project, key: project, mounts: [project] };
+  if (basename(project) !== MODULES_DIR) return { project, module: project, key: project, mounts: [project] };
   const scratch = vmScratchDir(project);
-  const inside = relative(project, resolve(forDir ?? dir)).split(sep)[0];
+  const [inside, part] = relative(project, resolve(forDir ?? dir)).split(sep);
   if (inside && inside !== ".." && inside !== basename(scratch)) {
     const module = join(project, inside);
-    return { project, key: module, mounts: [module, scratch] };
+    const folder = part !== undefined && MODULE_PARTS.has(part) ? join(module, part) : module;
+    return { project, module, key: folder, mounts: [folder, scratch] };
   }
   const own = lease.getStore()?.get(project);
-  const existing = own !== undefined && pool.has(own) ? own : [...pool.keys()].find((key) => pool.get(key)!.project === project);
-  if (existing !== undefined) return { project, key: existing, mounts: [] };
-  return { project, key: scratch, mounts: [scratch] };
+  const mine = own !== undefined ? [...own.keys].find((key) => pool.has(key)) : undefined;
+  const existing = mine ?? [...pool.keys()].find((key) => pool.get(key)!.project === project);
+  if (existing !== undefined) return { project, module: pool.get(existing)!.module, key: existing, mounts: [] };
+  return { project, module: scratch, key: scratch, mounts: [scratch] };
 }
 
 async function start(project: string, mounts: string[]): Promise<VM> {
@@ -423,10 +433,10 @@ async function start(project: string, mounts: string[]): Promise<VM> {
  * it from now on; the project's other idle VMs are shut down - it has moved on.
  */
 async function acquire(dir: string, forDir?: string): Promise<{ vm: VM; project: string; done: () => void }> {
-  const { project, key, mounts } = vmFor(dir, forDir);
+  const { project, module, key, mounts } = vmFor(dir, forDir);
   let entry = pool.get(key);
   if (entry === undefined) {
-    const created: PoolEntry = { project, vm: start(project, mounts), holders: 0, running: 0 };
+    const created: PoolEntry = { project, module, vm: start(project, mounts), holders: 0, running: 0 };
     entry = created;
     pool.set(key, created);
     // A VM that failed to start is not kept: the next command tries again.
@@ -439,15 +449,27 @@ async function acquire(dir: string, forDir?: string): Promise<{ vm: VM; project:
   current.idle = undefined;
   current.running += 1;
 
+  // The job holds every VM of the module it works in - its code's and its tests' - and lets go of
+  // them when it moves on to another module.
   const held = lease.getStore();
-  const previous = held?.get(project);
-  if (held !== undefined && previous !== key) {
-    held.set(project, key);
-    current.holders += 1;
-    if (previous !== undefined) letGo(previous);
+  if (held !== undefined) {
+    let mine = held.get(project);
+    if (mine !== undefined && mine.module !== current.module) {
+      for (const previous of mine.keys) letGo(previous);
+      mine = undefined;
+    }
+    if (mine === undefined) {
+      mine = { module: current.module, keys: new Set() };
+      held.set(project, mine);
+    }
+    if (!mine.keys.has(key)) {
+      mine.keys.add(key);
+      current.holders += 1;
+    }
   }
+  // The project has moved on to this module: another module's idle VMs go. This module's other one stays.
   for (const [other, candidate] of pool) {
-    if (other !== key && candidate.project === project && isIdle(candidate)) void shutDown(other);
+    if (other !== key && candidate.project === project && candidate.module !== current.module && isIdle(candidate)) void shutDown(other);
   }
 
   let finished = false;

@@ -5,14 +5,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { closeAllVms, runInVm, runningVms, setVmIdleForTests, vmSupported, withVmLease } from "../../src/render/vm.ts";
 
 const roots: string[] = [];
-/** A project of its own, in a folder of its own, with a module `a` and a module `b`. */
+/** A project of its own, in a folder of its own, with a module `a` and a module `b`, each with its code and tests. */
 function project() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-vm-lease-")));
   roots.push(root);
   const modules = join(root, "plain_modules");
   const scratch = join(modules, ".plainwright", "staging");
-  for (const dir of ["a/code", "b/code", ".plainwright/staging"]) mkdirSync(join(modules, dir), { recursive: true });
-  return { a: join(modules, "a"), b: join(modules, "b"), aCode: join(modules, "a", "code"), bCode: join(modules, "b", "code"), scratch };
+  for (const dir of ["a/code", "a/tests", "b/code", "b/tests", ".plainwright/staging"]) mkdirSync(join(modules, dir), { recursive: true });
+  const at = (module: string, part: string) => join(modules, module, part);
+  return { aCode: at("a", "code"), aTests: at("a", "tests"), bCode: at("b", "code"), bTests: at("b", "tests"), scratch };
 }
 
 const run = async (command: string, cwd: string, extra: { for?: string } = {}) => (await runInVm(command, { cwd, ...extra })).output.trim();
@@ -23,37 +24,48 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe.runIf(vmSupported())("a module's VM", { timeout: 120_000 }, () => {
-  it("is reused by the module's jobs one after another, and shut down once the project moves on", async () => {
+describe.runIf(vmSupported())("a module's VMs", { timeout: 180_000 }, () => {
+  it("are two - its code's and its tests' - each holding its own folder, reused by its jobs, and shut down once the project moves on", async () => {
     const p = project();
-    // Two jobs of module a, one after the other: the second finds what the first left in the VM.
+    // Two jobs in module a's code, one after the other: the second finds what the first left in the VM.
     await withVmLease(() => run("echo hello > /tmp/mark", p.aCode));
-    expect(runningVms()).toEqual([p.a]);
+    expect(runningVms()).toEqual([p.aCode]);
     expect(await withVmLease(() => run("cat /tmp/mark", p.aCode))).toBe("hello");
 
-    // It holds its module and nothing of the others.
-    expect(await withVmLease(() => run(`ls ${p.b} 2>&1 || true`, p.aCode))).toContain("No such file or directory");
+    // The code's VM holds the code and nothing of the tests, or of the other modules.
+    expect(await withVmLease(() => run(`ls ${p.aTests} 2>&1 || true`, p.aCode))).toContain("No such file or directory");
+    expect(await withVmLease(() => run(`ls ${p.bCode} 2>&1 || true`, p.aCode))).toContain("No such file or directory");
 
-    // The next module: a's VM goes, b's comes - one VM for the project at a time.
+    // The tests have a VM of their own, holding the tests and nothing of the code - and a job in
+    // the module keeps both.
+    await withVmLease(async () => {
+      expect(await run(`ls ${p.aCode} 2>&1 || true`, p.aTests)).toContain("No such file or directory");
+      await run("true", p.aCode);
+      expect(runningVms().sort()).toEqual([p.aCode, p.aTests].sort());
+    });
+
+    // The next module: a's VMs go, b's come.
     await withVmLease(() => run("true", p.bCode));
-    expect(runningVms()).toEqual([p.b]);
+    expect(runningVms()).toEqual([p.bCode]);
 
-    // A test run staged in the scratch for a build runs in that build's module's VM.
-    expect(await withVmLease(() => run(`ls ${p.bCode} > /dev/null && echo seen`, p.scratch, { for: p.bCode }))).toBe("seen");
-    expect(runningVms()).toEqual([p.b]);
+    // A test run staged in the scratch runs in the VM of the folder it is for: the conformance
+    // suite in the tests' VM, the unit tests in the code's.
+    expect(await withVmLease(() => run(`ls ${p.bTests} > /dev/null && echo seen`, p.scratch, { for: p.bTests }))).toBe("seen");
+    expect(runningVms().sort()).toEqual([p.bCode, p.bTests].sort());
   });
 
-  it("moves on within a job too: a chain of modules has one VM at a time", async () => {
+  it("move on within a job too: a chain of modules has one module's VMs at a time", async () => {
     const p = project();
     await withVmLease(async () => {
       await run("true", p.aCode);
-      expect(runningVms()).toEqual([p.a]);
+      await run("true", p.aTests);
+      expect(runningVms().sort()).toEqual([p.aCode, p.aTests].sort());
       await run("true", p.bCode);
-      expect(runningVms()).toEqual([p.b]);
+      expect(runningVms()).toEqual([p.bCode]);
     });
   });
 
-  it("stays up for two modules rendering at once, and for each of several projects", async () => {
+  it("stay up for two modules rendering at once, and for each of several projects", async () => {
     const p = project();
     const q = project();
     let finishA!: () => void;
@@ -66,7 +78,7 @@ describe.runIf(vmSupported())("a module's VM", { timeout: 120_000 }, () => {
     await withVmLease(async () => {
       await run("true", p.bCode);
       await run("true", q.aCode);
-      expect(runningVms().sort()).toEqual([p.a, p.b, q.a].sort());
+      expect(runningVms().sort()).toEqual([p.aCode, p.bCode, q.aCode].sort());
     });
     finishA();
     await jobA;

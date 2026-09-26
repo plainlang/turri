@@ -15,8 +15,11 @@ import { createWebTools } from "./render/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
-import { listFrids } from "./render/render.ts";
-import { renderConformanceSuite } from "./render/conformance-suite.ts";
+import { listFrids, resolveTemplateDirs } from "./render/render.ts";
+import { plainFileParser } from "./plain/parser.ts";
+import { TEST_REQUIREMENTS } from "./plain/spec.ts";
+import { sectionsOf } from "./render/state.ts";
+import { describeConformanceSuite, renderConformanceSuite } from "./render/conformance-suite.ts";
 import type { RenderConformanceTestsResult } from "./render/conformance.ts";
 import { regenerateFunctionality, renderChain, type RenderModuleResult, describeChainStop, describeRegenerationStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
@@ -26,7 +29,7 @@ import { vmSummary } from "./render/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
-import { createRenderQueue } from "./render/queue.ts";
+import { createRenderQueue, type RenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createTranscriptView } from "./render/transcript-view.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
@@ -224,6 +227,20 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", endTurnCapture);
   pi.on("agent_settled", endTurnCapture);
 
+  // Whether renders write conformance tests, always in sight: read again as each turn starts and
+  // ends, since a turn can change it - forge-plain's testing phase writes it into config.yaml.
+  const showConformance = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+    try {
+      ctx.ui.setStatus("plainwright-conformance", conformanceStatus(cwd));
+    } catch {
+      // A status line is a convenience; never let it stop a turn.
+    }
+  };
+  pi.on("session_start", (_event, ctx) => showConformance(ctx));
+  pi.on("agent_start", (_event, ctx) => showConformance(ctx));
+  pi.on("agent_end", (_event, ctx) => showConformance(ctx));
+
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI) return;
     const ui = ctx.ui;
@@ -372,7 +389,7 @@ export default function (pi: ExtensionAPI) {
         // Renders queued by a step land in the same registry as everything else, so
         // check_job and list_jobs see them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
-        renderQueue: createRenderQueue({ registry: jobs, cwd, modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(ctx, plainFile) ?? chatModelOf(ctx)) }),
+        renderQueue: renderQueueFor(jobs, cwd, ctx),
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderFunctionalityConformanceTool(cwd, jobs, ctx), ...createWebTools()],
@@ -595,6 +612,19 @@ function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conv
           : params.range !== undefined
             ? `functionalities ${params.range}`
             : "whole module";
+      if (!shouldWait(ctx.mode, params.wait)) {
+        const queued = renderQueueFor(jobs, cwd, ctx).enqueueConformance({
+          plainFile: resolve(cwd, params.plain_file),
+          frids: params.frids,
+          range: params.range,
+          chain: params.chain,
+          inModule: params.in_module,
+          buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
+          model,
+          scope,
+        });
+        return queuedReport(jobs, queued.jobId, "render_functionality_conformance");
+      }
       return deliver(jobs, {
         kind: "render_functionality_conformance",
         summary: `${basename(params.plain_file)} conformance, ${scope}`,
@@ -617,63 +647,11 @@ function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conv
             model,
             onDelta,
           });
-          return { report: suiteReport(result), details: { passed: result.passed } };
+          return { report: describeConformanceSuite(result), details: { passed: result.passed } };
         },
       });
     },
   });
-}
-
-function suiteReport(result: Awaited<ReturnType<typeof renderConformanceSuite>>): string {
-  const written = result.outcomes;
-  const failing = written.filter((o) => o.result && !o.result.passed);
-
-  const lines = [
-    ...(result.codebaseOf !== undefined
-      ? [`Written and run in the codebase of ${result.codebaseOf}, where the chain's code now lives; carried up to every module built on it.`, ""]
-      : []),
-    result.passed
-      ? `Conformance suite passes for ${result.targets.map((t) => t.moduleName).join(", ")}.`
-      : `Conformance suite is NOT passing. ${failing.length} of ${written.length} failed.`,
-    "",
-    "<targets>",
-    ...result.targets.map((t) => `${t.moduleName}: ${t.frids.join(", ")}`),
-    "</targets>",
-    "",
-    "<results>",
-    ...result.outcomes.map((o) => `${o.moduleName} ${o.frid}: ${o.result?.passed ? "pass" : "fail"}`),
-    "</results>",
-  ];
-
-  const last = written.at(-1)?.result;
-  if (last !== undefined) lines.push("", conformanceReport(last));
-  return lines.join("\n");
-}
-
-function conformanceReport(result: RenderConformanceTestsResult): string {
-  return [
-    result.passed
-      ? `Conformance tests pass for ${result.moduleName} functionality ${result.frid}.`
-      : `Conformance tests are NOT passing for ${result.moduleName} functionality ${result.frid}.`,
-    `Tests in ${result.conformanceDir}, run against ${result.buildDir}.`,
-    result.codeChanged
-      ? "The implementation was changed to make the conformance tests pass."
-      : "",
-    "",
-    "<files>",
-    ...result.files,
-    "</files>",
-    "",
-    "<runs>",
-    ...result.runs.map((run) => `exit ${run.exitCode}: ${run.command}`),
-    "</runs>",
-    "",
-    "<agent report>",
-    result.response,
-    "</agent report>",
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 /**
@@ -785,13 +763,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
           try {
             // In the background, a spec that moved on is brought in as forge-plain brings in its
             // answers: each spec diff a render spec diff job of its own, queued behind this one.
-            const specDiffQueue = shouldWait(ctx.mode, params.wait)
-              ? undefined
-              : createRenderQueue({
-                  registry: jobs,
-                  cwd,
-                  modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(ctx, plainFile) ?? chatModelOf(ctx)),
-                });
+            const specDiffQueue = shouldWait(ctx.mode, params.wait) ? undefined : renderQueueFor(jobs, cwd, ctx);
             const result = await renderChain({
               queueSpecDiffs: specDiffQueue
                 ? (steps) =>
@@ -997,6 +969,22 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       // whatever changes reach the files while it waits its turn.
       const applied = applySpecDiff(params.diff, params.base);
       const spec = snapshotSpec(plainFile, { cwd: params.base, inModule: params.in_module });
+      // In the background it joins the render queue, as forge-plain's changes do - its conformance
+      // tests a job of their own behind it.
+      if (!shouldWait(ctx.mode, params.wait)) {
+        const queued = renderQueueFor(jobs, cwd, ctx).enqueueSpecDiff({
+          plainFile,
+          diff: params.diff,
+          applied,
+          spec,
+          cwd: params.base,
+          inModule: params.in_module,
+          model,
+          tryIt: params.try_it ?? true,
+          conformance: conformanceOption(params.conformance, params.plain_file),
+        });
+        return queuedReport(jobs, queued.jobId, "render_spec_diff", queued.conformanceJobId);
+      }
       return deliver(jobs, {
         kind: "render_spec_diff",
         summary: `${basename(params.plain_file)} render spec diff`,
@@ -1069,6 +1057,12 @@ function registerRenderSpecDiffConformance(pi: ExtensionAPI, cwd: string, jobs: 
       // changes reach the files while it waits its turn.
       const applied = applySpecDiff(params.diff, params.base);
       const spec = snapshotSpec(plainFile, { cwd: params.base, inModule: params.in_module });
+      if (!shouldWait(ctx.mode, params.wait)) {
+        const queued = renderQueueFor(jobs, cwd, ctx).enqueueSpecDiffConformance({
+          plainFile, diff: params.diff, applied, spec, cwd: params.base, inModule: params.in_module, model,
+        });
+        return queuedReport(jobs, queued.jobId, "render_spec_diff_conformance");
+      }
       return deliver(jobs, {
         kind: "render_spec_diff_conformance",
         summary: `${basename(params.plain_file)} spec diff conformance`,
@@ -1222,6 +1216,32 @@ function conformanceOption(asked: boolean | undefined, plainFile?: string): fals
 /** Where the config.yaml for a spec is: its project's, or - with no spec - the session's folder. */
 function configDirFor(plainFile?: string): string {
   return plainFile !== undefined ? projectDirOf(resolve(process.cwd(), plainFile)) : process.cwd();
+}
+
+/**
+ * Whether renders write conformance tests, for the status bar - and why: the project's config.yaml
+ * says so, or, where it says nothing, whether the module has the test reqs they are written from.
+ * Nothing when there is no project here.
+ */
+export function conformanceStatus(root: string): string | undefined {
+  const project = existsSync(join(root, CONFIG_FILE))
+    ? root
+    : readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "plain_modules")
+        .map((entry) => join(root, entry.name))
+        .find((dir) => existsSync(join(dir, CONFIG_FILE)));
+  if (project === undefined) return undefined;
+  const config = readProjectConfig(project);
+  if (config.conformanceTests === false) return "conformance off (config.yaml)";
+  if (config.conformanceTests === true) return "conformance on (config.yaml)";
+  if (config.module === undefined) return "conformance on where there are test reqs";
+  try {
+    const file = resolve(project, config.module);
+    const [, tree] = plainFileParser(basename(file), resolveTemplateDirs(file));
+    return (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0 ? "conformance on (test reqs)" : "conformance off (no test reqs)";
+  } catch {
+    return "conformance on where there are test reqs";
+  }
 }
 
 /**
@@ -1497,6 +1517,55 @@ const WAIT_PARAM = Type.Optional(
  * modes the process is gone the moment the answer is written, taking the job with it, so
  * those wait by default.
  */
+/**
+ * The conversation's render queue: one, shared by every tool that queues a render or its
+ * conformance tests - forge-plain's changes, render_spec_diff, render_module's spec diffs, the
+ * conformance tools - so they run in the order they were asked for. Models not named are asked of
+ * the conversation it was last queued from.
+ */
+const renderQueues = new WeakMap<JobRegistry, { queue: RenderQueue; from: { ctx: ExtensionContext } }>();
+
+function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): RenderQueue {
+  let shared = renderQueues.get(jobs);
+  if (shared === undefined) {
+    const from = { ctx };
+    const queue = createRenderQueue({
+      registry: jobs,
+      cwd,
+      modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
+    });
+    shared = { queue, from };
+    renderQueues.set(jobs, shared);
+  }
+  shared.from.ctx = ctx;
+  return shared.queue;
+}
+
+/** What a tool says when it queued its work - and its conformance tests, when they follow as a job of their own. */
+function queuedReport(jobs: JobRegistry, jobId: string, kind: string, conformanceJobId?: string) {
+  const job = jobs.get(jobId);
+  const model = job?.model ? ` on ${job.model}` : "";
+  const when =
+    job?.status === "queued"
+      ? `It is queued behind ${job.waitingOn.map((id) => `job ${id}`).join(" and ")}, and starts when that finishes.`
+      : "It is running now.";
+  const conformance =
+    conformanceJobId !== undefined
+      ? ` Its conformance tests are a job of their own, ${conformanceJobId}, queued right behind it; they run once it lands.`
+      : "";
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          `Queued ${kind} as background job ${jobId}${model}: ${job?.summary ?? ""}. ${when}${conformance} ` +
+          `Tell the user, and carry on. Use check_job with "${jobId}" if they ask how it is going.`,
+      },
+    ],
+    details: { jobId, status: job?.status, conformanceJobId },
+  };
+}
+
 async function deliver(
   jobs: JobRegistry,
   input: {

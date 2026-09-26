@@ -195,6 +195,12 @@ export interface RenderSpecDiffOptions {
   /** Write and run conformance tests. Default: when the module has test reqs. */
   conformance?: boolean;
   /**
+   * The conformance tests follow as a job of their own - render spec diff conformance, queued
+   * behind this one. The change lands on its unit tests: the suite is run by that job, once the
+   * tests are brought in line with the change, since the ones here may check what it changed.
+   */
+  conformanceLater?: boolean;
+  /**
    * The diff was already put in when it was written - how that went - and is not to be applied
    * again. A render queued behind the interview runs after later changes have gone on top of
    * it, so its diff no longer fits the file either way - but it is in, and that is what matters.
@@ -228,6 +234,8 @@ export interface RenderSpecDiffResult {
   tryIt?: TryIt;
   passed: boolean;
   stoppedAt: "unit tests" | "conformance" | "regression" | null;
+  /** Conformance was left to a job of its own, which should run now. */
+  conformanceLater?: boolean;
 }
 
 export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<RenderSpecDiffResult> {
@@ -417,6 +425,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     return { ...base, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
   }
 
+  if (options.conformanceLater === true) {
+    stage("unit tests pass - landing the change; its conformance tests follow as a job of their own");
+    land();
+    return { ...base, passed: true, stoppedAt: null, conformanceLater: true };
+  }
+
   stage("unit tests pass - bringing the conformance tests in line with the change");
   const conformance = await renderConformanceTests({
     plainFile: tip.plainFile,
@@ -471,7 +485,9 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
         }),
     result.diff === "applied" ? "The diff was applied to the .plain files." : "The diff was already applied.",
     `Files: ${added.length} added, ${changed.length} changed, ${removed.length} removed.`,
-    result.conformance === undefined
+    result.conformanceLater === true
+      ? "Its conformance tests follow as a job of their own, queued behind this one."
+      : result.conformance === undefined
       ? "Conformance tests were not run: the module has no test reqs, or they were turned off."
       : result.conformance.passed
         ? "Conformance tests were brought in line with the change and pass."

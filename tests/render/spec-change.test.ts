@@ -17,12 +17,18 @@ async function agentRunning(command: string, session: StubSession, prompt: strin
     return "Done.";
   }
   prompts.push(prompt);
-  await session.tools.find((tool) => tool.name === "run_unit_tests")!.execute("id", { command });
+  // The coding agent checks its unit tests; the conformance agent, which has no code, its suite.
+  const check = session.tools.find((tool) => tool.name === "run_unit_tests") ?? session.tools.find((tool) => tool.name === "run_conformance_tests")!;
+  await check.execute("id", { command });
   return "Done.";
 }
 /** As a real agent would: a unit test, then the whole suite - the run the harness then repeats. */
 async function passingAgent(session: StubSession, prompt: string) {
   if (prompt.startsWith("Before you finish: call update_notes")) return agentRunning("", session, prompt);
+  // The explorer a conformance run starts with, and the judge of a failing run.
+  const own = (name: string) => session.tools.find((tool) => tool.name === name);
+  if (own("submit_invocation")) return (await own("submit_invocation")!.execute("id", { invocation: "python3 app.py" }), "Done.");
+  if (own("submit_verdict")) return (await own("submit_verdict")!.execute("id", { culprit: "tests", reason: "stub" }), "Done.");
   await session.tools.find((tool) => tool.name === "write")!.execute("id", {
     path: "test_app.py",
     content: "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",

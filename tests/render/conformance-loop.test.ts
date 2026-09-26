@@ -5,28 +5,47 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeTestScripts } from "../test-scripts.ts";
 
 /**
- * One conformance agent, going back and forth: it writes a test from the spec, the test fails
- * because the code is wrong, and it fixes the code. Stubbed, but every run is real, in the VM.
+ * The conformance step: an explorer says how the code is invoked, the conformance agent - who never
+ * sees the code - writes the tests from the spec, a test fails because the code is wrong, a judge
+ * says so, and the coding agent fixes the code. Stubbed agents, but every run is real, in the VMs.
  */
-type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
-const prompts: string[] = [];
+type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; role: string };
+/** What each agent was asked, by who it is. */
+const asked: Array<{ role: string; prompt: string }> = [];
 let codeDir = "";
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: StubSession["tools"] }) => ({ tools: opts.customTools, dispose() {} }),
+    createExecutor: vi.fn(async (opts: { customTools: StubSession["tools"]; label?: string }) => ({
+      tools: opts.customTools,
+      role: opts.label?.split(" ").at(-1) === "agent" ? opts.label.split(" ").slice(-2).join(" ") : (opts.label?.split(" ").at(-1) ?? ""),
+      dispose() {},
+    })),
     ask: vi.fn(async (session: StubSession, prompt: string) => {
+      const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
       // Asked to leave notes, it does - and that is not a turn the test is about.
       if (prompt.startsWith("Before you finish: call update_notes")) {
-        await session.tools.find((candidate) => candidate.name === "update_notes")!.execute("id", {
-          changes: [{ section: "where", action: "add", text: "stub agent was here" }],
-        });
+        await tool("update_notes").execute("id", { changes: [{ section: "where", action: "add", text: "stub agent was here" }] });
         return "Done.";
       }
-      prompts.push(prompt);
-      const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
+      asked.push({ role: session.role, prompt });
+      if (session.role === "explorer") {
+        await tool("submit_invocation").execute("id", { invocation: "Run `python3 app.py` from the build folder; it writes to stdout." });
+        return "Done.";
+      }
+      if (session.role === "judge") {
+        await tool("submit_verdict").execute("id", { culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
+        return "Done.";
+      }
+      if (session.role === "coding agent") {
+        // The code is what is wrong: fixed, its unit tests kept passing.
+        await tool("write").execute("id", { path: join(codeDir, "app.py"), content: "print('hello')\n" });
+        await tool("run_unit_tests").execute("id", {});
+        return "Done.";
+      }
+      // The conformance agent.
       if (prompt.includes("they are not labelled")) {
         // Sent back for the acceptance test it left out: written as a test of its own.
         await tool("write").execute("id", {
@@ -38,8 +57,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
             "        run = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True)\n" +
             "        self.assertEqual((run.stdout.strip(), run.returncode), ('hello', 0))\n",
         });
-      } else if (prompts.length === 1) {
-        // From the functional spec: the app prints hello.
+      } else {
         await tool("write").execute("id", {
           path: "test_conformance_hello.py",
           content:
@@ -48,12 +66,8 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
             "        self.assertEqual(out.strip(), 'hello')\n",
         });
-      } else {
-        // The run failed and the code is what is wrong: fix it, and keep its unit tests passing.
-        await tool("write").execute("id", { path: join(codeDir, "app.py"), content: "print('hello')\n" });
-        await tool("run_unit_tests").execute("id", { command: "python3 -m unittest discover" });
       }
-      await tool("run_conformance_tests").execute("id", { command: "python3 -m unittest discover" });
+      await tool("run_conformance_tests").execute("id", {});
       return "Done.";
     }),
   };
@@ -76,7 +90,7 @@ beforeEach(() => {
     "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest and run the app as a subprocess.\n\n" +
       "***functional specs***\n\n- The app prints hello.\n\n  ***acceptance tests***\n\n  - Running the app prints hello and exits 0.\n",
   );
-  prompts.length = 0;
+  asked.length = 0;
 });
 afterEach(async () => {
   await closeAllVms();
@@ -84,7 +98,7 @@ afterEach(async () => {
 });
 
 describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () => {
-  it("is one agent that writes the tests and fixes what is wrong until the harness's own run passes", async () => {
+  it("explores how the code is invoked, has the tests written apart from it, and sends a failure to whichever is wrong", async () => {
     const stages: string[] = [];
     const sink = { stage: (label: string) => stages.push(label), activity() {}, now() {}, usage() {}, transcript() {}, spec() {} };
     const result = await withActivity(sink, () =>
@@ -95,46 +109,43 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
         conformanceDir: join(root, "plain_modules", "app", "tests"),
       }),
     );
-    // It has one acceptance test, and the stage says so.
-    expect(stages).toContain("app 1: plainwright is writing conformance tests from the spec, and its 1 acceptance test apart from them");
 
     expect(result.passed).toBe(true);
     expect(result.codeChanged).toBe(true);
     expect(readFileSync(join(codeDir, "app.py"), "utf8")).toBe("print('hello')\n");
-    // Sent back first for the acceptance test it left out, then with the harness's failing run -
-    // the spec as the judge.
-    expect(prompts[1]).toContain('No test is labelled "acceptance test 1 of functionality 1"');
-    expect(prompts[2]).toContain("Work out, against the specification, what is wrong - your test or the code");
-    // Conformance tests from the functional spec, and the acceptance test apart from them.
-    expect(prompts[0]).toContain("Conformance tests come from the functional spec itself");
-    expect(prompts[0]).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
-    expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_acceptance_hello.py"), "utf8")).toContain(
-      "# acceptance test 1 of functionality 1:",
-    );
-    // Its own final checks and the harness's runs - the same script: failing until the code is fixed.
-    expect(result.runs.map((run) => run.exitCode)).toEqual([1, 1, 1, 0, 0]);
-    expect(new Set(result.runs.map((run) => run.command))).toEqual(new Set(["test_scripts/run_conformance_tests_python.sh"]));
 
-    // It started with no notes, and left some - which the next agent on this codebase starts with.
-    expect(prompts[0]).toContain("No earlier agent has left notes on this codebase yet.");
-    prompts.length = 0;
-    writeFileSync(join(codeDir, "app.py"), "print('goodbye')\n");
-    // Without acceptance tests, none are mentioned.
-    writeFileSync(
-      join(root, "app.plain"),
-      "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest and run the app as a subprocess.\n\n***functional specs***\n\n- The app prints hello.\n",
-    );
-    stages.length = 0;
-    await withActivity(sink, () => renderConformanceTests({
+    // In order: the explorer, the conformance agent (sent back once for the acceptance test it left
+    // out), the judge, who says the code is wrong, and the coding agent, who fixes it.
+    expect(asked.map((turn) => turn.role)).toEqual(["explorer", "conformance agent", "conformance agent", "judge", "coding agent"]);
+    const [explorer, writer, , judge, coder] = asked;
+    expect(explorer!.prompt).toContain("They will never see the code");
+    // The test author is given how to invoke it, and nothing of the code's place.
+    expect(writer!.prompt).toContain("<how to invoke it>\nRun `python3 app.py` from the build folder; it writes to stdout.\n</how to invoke it>");
+    expect(writer!.prompt).toContain("You cannot see the implementation");
+    expect(writer!.prompt).not.toContain(codeDir);
+    expect(writer!.prompt).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
+    expect(judge!.prompt).toContain("Decide what is wrong: the code or the tests");
+    expect(judge!.prompt).toMatch(/<failing run exit="1"/);
+    expect(coder!.prompt).toContain("The spec says the app prints hello; the code prints goodbye.");
+    expect(stages).toContain("app 1: the code is wrong - the coding agent fixes it");
+
+    // The harness's own runs decide: failing until the code is fixed, then the suite and the unit tests pass.
+    expect(result.runs.at(-1)!.exitCode).toBe(0);
+    expect(new Set(result.runs.map((run) => run.command))).toEqual(new Set(["test_scripts/run_conformance_tests_python.sh"]));
+    expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_acceptance_hello.py"), "utf8")).toContain("# acceptance test 1 of functionality 1:");
+  });
+
+  it("gives the conformance agent file tools that cannot reach the code", async () => {
+    const { createExecutor } = await import("../../src/pi.ts");
+    const spy = vi.mocked(createExecutor);
+    await renderConformanceTests({
       plainFile: join(root, "app.plain"),
       frid: "1",
       buildDir: codeDir,
       conformanceDir: join(root, "plain_modules", "app", "tests"),
-      continuing: true,
-    }));
-    expect(stages).toContain("app 1: plainwright is writing conformance tests from the spec");
-    expect(stages.join("\n")).not.toContain("acceptance test");
-    expect(prompts[0]).toContain("<notes from earlier agents>");
-    expect(prompts[0]).toMatch(/- \[[\d: -]+ · app 1 conformance\] stub agent was here/);
+    });
+    const conformanceCall = spy.mock.calls.find(([opts]) => (opts as { label?: string }).label?.endsWith("conformance agent"))!;
+    const read = (conformanceCall[0] as { customTools: StubSession["tools"] }).customTools.find((tool) => tool.name === "read")!;
+    await expect(read.execute("id", { path: join(codeDir, "app.py") })).rejects.toThrow(/outside this agent's read directory/);
   });
 });

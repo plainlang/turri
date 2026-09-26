@@ -127,11 +127,15 @@ const VM_TIMEOUT = 120_000;
 describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () => {
   const sh = (command: string, cwd = code) => runInVm(command, { cwd });
 
-  it("lets the agent write anywhere in plain_modules", async () => {
-    const result = await sh(`echo built > out.txt && echo t > ${join(tests, "t.txt")} && cat out.txt`);
-    expect(result.exitCode).toBe(0);
+  it("lets the agent write its own folder - the code's shell has the code, the tests' shell the tests, neither the other", async () => {
+    const result = await sh(`echo built > out.txt && cat out.txt; ls ${tests} 2>&1 || true`);
     expect(result.output).toContain("built");
+    expect(result.output).toContain("No such file or directory");
     expect(existsSync(join(code, "out.txt"))).toBe(true);
+
+    const inTests = await sh(`echo t > t.txt && cat t.txt; ls ${code} 2>&1 || true`, tests);
+    expect(inTests.output).toContain("t\n");
+    expect(inTests.output).toContain("No such file or directory");
     expect(existsSync(join(tests, "t.txt"))).toBe(true);
   });
 

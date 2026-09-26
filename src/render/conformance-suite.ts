@@ -205,3 +205,56 @@ export async function renderConformanceSuite(
 
   return { targets, outcomes, regression, passed, codebaseOf: codebase?.moduleName };
 }
+
+/** What a conformance suite run did, for the agent and the person. */
+export function describeConformanceSuite(result: ConformanceSuiteResult): string {
+  const written = result.outcomes;
+  const failing = written.filter((o) => o.result && !o.result.passed);
+
+  const lines = [
+    ...(result.codebaseOf !== undefined
+      ? [`Written and run in the codebase of ${result.codebaseOf}, where the chain's code now lives; carried up to every module built on it.`, ""]
+      : []),
+    result.passed
+      ? `Conformance suite passes for ${result.targets.map((t) => t.moduleName).join(", ")}.`
+      : `Conformance suite is NOT passing. ${failing.length} of ${written.length} failed.`,
+    "",
+    "<targets>",
+    ...result.targets.map((t) => `${t.moduleName}: ${t.frids.join(", ")}`),
+    "</targets>",
+    "",
+    "<results>",
+    ...result.outcomes.map((o) => `${o.moduleName} ${o.frid}: ${o.result?.passed ? "pass" : "fail"}`),
+    "</results>",
+  ];
+
+  const last = written.at(-1)?.result;
+  if (last !== undefined) lines.push("", conformanceReport(last));
+  return lines.join("\n");
+}
+
+function conformanceReport(result: RenderConformanceTestsResult): string {
+  return [
+    result.passed
+      ? `Conformance tests pass for ${result.moduleName} functionality ${result.frid}.`
+      : `Conformance tests are NOT passing for ${result.moduleName} functionality ${result.frid}.`,
+    `Tests in ${result.conformanceDir}, run against ${result.buildDir}.`,
+    result.codeChanged
+      ? "The implementation was changed to make the conformance tests pass."
+      : "",
+    "",
+    "<files>",
+    ...result.files,
+    "</files>",
+    "",
+    "<runs>",
+    ...result.runs.map((run) => `exit ${run.exitCode}: ${run.command}`),
+    "</runs>",
+    "",
+    "<agent report>",
+    result.response,
+    "</agent report>",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

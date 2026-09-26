@@ -291,15 +291,25 @@ function current(buildDir: string): string | undefined {
  * is asked to, until it has. `source` is the step it is - `backend 3`, `backend 3 conformance` -
  * and every line it writes says so, with the time.
  */
+/**
+ * The notes as update_notes last left them, by file - shared by every session on the codebase, so
+ * one agent's update is not taken for another's direct write. Two agents can work one codebase in
+ * the same run: the conformance agent, and the coding agent it sends the code to.
+ */
+const knownNotes = new Map<string, string | undefined>();
+
 export function notesForSession(buildDir: string, source?: string) {
   let written = false;
-  let known = current(buildDir);
+  const file = notesPath(buildDir);
+  // What is there when the session starts is what it starts from; after that, update_notes says.
+  knownNotes.set(file, current(buildDir));
 
   /** Put back what update_notes did not write; whether there was anything to put back. */
   const undoDirectWrites = (): boolean => {
+    const known = knownNotes.get(file);
     if (current(buildDir) === known) return false;
-    if (known === undefined) rmSync(notesPath(buildDir), { force: true });
-    else writeFileSync(notesPath(buildDir), known);
+    if (known === undefined) rmSync(file, { force: true });
+    else writeFileSync(file, known);
     return true;
   };
 
@@ -308,7 +318,7 @@ export function notesForSession(buildDir: string, source?: string) {
       buildDir,
       (text) => {
         written = true;
-        known = text;
+        knownNotes.set(file, text);
       },
       undoDirectWrites,
       source,
