@@ -94,7 +94,7 @@ answer, and build each one in the background while the interview goes on:
 
 | skill | phases | how a spec change is written |
 | --- | --- | --- |
-| `forge-plain` | intent → stack → product, feature by feature → testing | one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job; then, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing - and conformance tests for the functional specs you pick |
+| `forge-plain` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
 
 For an existing project, `add-feature` runs a short feature interview and then writes the
 concepts, reqs and functional specs the feature needs, one question at a time.

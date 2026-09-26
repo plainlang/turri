@@ -26,6 +26,7 @@ import { defaultBuildDir, tryDirFor, projectDirOf } from "./paths.ts";
 import { readBuiltTree, recordBuiltFunctionality, recordBuiltRequiredFunctionality, STATE_FILE, type RequiredSpec } from "./state.ts";
 import { buildRegeneratePrompt, buildRenderPrompt } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
+import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import {
   findTestRemovals,
   inventoryTests,
@@ -266,6 +267,7 @@ export async function renderFunctionality(
     customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...createWebTools(), ...fence.tools],
     tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
+    label: `${moduleName} ${frid} coding agent`,
   });
 
   try {
@@ -296,6 +298,14 @@ export async function renderFunctionality(
           inventory = current;
           stage(`justifying ${removals.length} removed test${removals.length === 1 ? "" : "s"}`);
           response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
+          continue;
+        }
+
+        // Conformance tests are the conformance step's, in the tests folder: none of them here.
+        const misplaced = misplacedConformanceTests(buildDir);
+        if (misplaced.length > 0) {
+          stage(`conformance tests in the code folder - sending ${misplaced.length === 1 ? "it" : "them"} back`);
+          response = await ask(executor, misplacedTestsPrompt(misplaced, buildDir), options.onDelta);
           continue;
         }
 

@@ -36,5 +36,18 @@ export function reportEvent(event: ModuleEvent): void {
     case "stopped":
       console.log(`\n${c.red(c.bold(`stopped at ${event.at}`))} ${c.dim(`functionality ${event.frid}`)}`);
       break;
+    case "spec_diff_start":
+      console.log(`\n${c.bold(c.cyan(`── spec diff ${event.index}/${event.total}`))} ${event.title}`);
+      console.log(
+        event.diff
+          .trimEnd()
+          .split("\n")
+          .map((line) => `   ${c.dim("│")} ${/^\+(?!\+\+)/.test(line) ? c.green(line) : /^-(?!--)/.test(line) ? c.red(line) : c.dim(line)}`)
+          .join("\n"),
+      );
+      break;
+    case "spec_diff_done":
+      console.log(`\n${event.passed ? c.green(c.bold(`spec diff ${event.index} complete`)) : c.red(c.bold(`spec diff ${event.index} did not pass`))}`);
+      break;
   }
 }

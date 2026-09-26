@@ -3,7 +3,9 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { plainFileParser } from "./plain/parser.ts";
 import { resolveTemplateDirs } from "./render/render.ts";
-import { applySpecDiff, plainFilesOf, revertSpecDiff, snapshotSpec } from "./render/spec-change.ts";
+import { applySpecDiff, plainFilesOf, revertSpecDiff, snapshotSpec, wholeSpecDiff } from "./render/spec-change.ts";
+import { readBuiltTree } from "./render/state.ts";
+import { listFiles } from "./render/testing.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
 import type { RenderQueue } from "./render/queue.ts";
 import { reviewNote, type LiveReviewer } from "./tools.ts";
@@ -31,6 +33,9 @@ export function createSpecDiffTools(options: {
 }): { tools: AnyTool[]; pace: SpecPace } {
   const { queue, cwd, liveReview } = options;
   let answeredSinceLastDiff = true;
+  // The codebases a change of this interview has been queued for: only the first to one that
+  // holds nothing yet is given the whole spec.
+  const started = new Set<string>();
 
   const writeDiff = defineTool({
     name: "write_spec_diff",
@@ -82,10 +87,18 @@ export function createSpecDiffTools(options: {
 
       // The spec as it stands with this change in is what its render builds and records.
       const spec = snapshotSpec(params.plain_file, { cwd });
-      const jobId = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec }).jobId;
+      // The first change built into a codebase that holds nothing yet is built from nothing: its
+      // build is told the whole spec as the change - what the earlier phases wrote with the file
+      // tools, as well as this answer - not only the lines this answer changed.
+      const codebase = spec.chain.at(-1)!.buildDir;
+      const fromNothing = !started.has(codebase) && readBuiltTree(codebase) === null && listFiles(codebase).length === 0;
+      started.add(codebase);
+      const diff = fromNothing ? wholeSpecDiff(spec.plainFile, cwd) : params.diff;
+      const jobId = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff, applied: result, spec }).jobId;
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
         `Rendering it as job ${jobId}, in the background - carry on with the interview.`,
+        ...(fromNothing ? ["Nothing is built yet, so this build is given the whole spec as the change - everything written so far, not only this answer."] : []),
       ];
       return {
         content: [{ type: "text" as const, text: lines.join(" ") + reviewNote(liveReview) }],

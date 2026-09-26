@@ -14,6 +14,15 @@ vi.mock("../../src/render/render.ts", async (importOriginal) => {
       plainFile: string; frid: string; buildDir: string; regenerate?: { in?: { moduleName: string } };
     }) => {
       renders.push({ plainFile: options.plainFile, frid: options.frid, buildDir: options.buildDir, in: options.regenerate?.in?.moduleName });
+      // What it built is recorded as the real one records it - in the codebase it was built in.
+      const { recordBuiltFunctionality, recordBuiltRequiredFunctionality } = await import("../../src/render/state.ts");
+      const { plainFileParser } = await import("../../src/plain/parser.ts");
+      const [moduleName, tree] = plainFileParser(options.plainFile.split("/").pop()!, actual.resolveTemplateDirs(options.plainFile));
+      if (options.regenerate?.in !== undefined) {
+        recordBuiltRequiredFunctionality(options.buildDir, moduleName, options.frid, (tree["functional specs"] as Array<{ markdown: string }>)[Number(options.frid) - 1]!);
+      } else {
+        recordBuiltFunctionality(options.buildDir, tree, options.frid);
+      }
       return {
         moduleName: "x", frid: options.frid, buildDir: options.buildDir, prompt: "", response: "", files: [], added: [],
         functionality: "", runs: [{ command: "true", exitCode: 0 }], passed: true, testRemovals: [],

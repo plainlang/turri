@@ -43,6 +43,17 @@ fi
 rm -rf "$JAVA_BUILD_SUBFOLDER"
 mkdir -p "$JAVA_BUILD_SUBFOLDER"
 
+# Conformance tests live in the conformance tests folder and nowhere else. One in the
+# build folder is in the wrong place: nothing would run it as part of the suite. Refuse.
+MISPLACED=$( (grep -rlE --exclude=".plainwright*" --exclude-dir=target --exclude-dir=.m2 \
+    "conformance tests of (functionality [0-9]|the spec)|acceptance test [0-9]+ of functionality" "$1" 2>/dev/null; \
+  find "$1" -type f \( -ipath "*conformance*" -o -ipath "*acceptance*" \) -iname "*test*" \
+    -not -name ".plainwright*" -not -path "*/target/*" -not -path "*/.m2/*" 2>/dev/null) | sort -u)
+if [ -n "$MISPLACED" ]; then
+  printf "Error: conformance tests found in the build folder %s - they belong in the conformance tests folder %s:\n%s\n" "$1" "$2" "$MISPLACED" >&2
+  exit 1
+fi
+
 cp -R "$1"/* "$JAVA_BUILD_SUBFOLDER"
 printf "Copied from $1 to $JAVA_BUILD_SUBFOLDER...\n"
 

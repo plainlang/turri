@@ -166,6 +166,9 @@ function find(lines: string[], quoted: string): number {
   return exact !== -1 ? exact : lines.findIndex((line) => body(line).startsWith(wanted));
 }
 
+/** A note about running the project's testing scripts by hand. */
+const RUNS_TESTING_SCRIPTS = /test_scripts\/|\brun_(unittests|unit_tests|conformance_tests)\w*\.sh\b/;
+
 /**
  * Apply the changes; the notes that result, or what could not be applied. A line added or
  * changed is stamped with `stamp` - when, and which step wrote it.
@@ -177,6 +180,15 @@ export function applyNotesChanges(notes: Notes, changes: NotesChange[], stamp?: 
     const lines = next[change.section];
     const said = body(change.text.replace(/\s*\n\s*/g, " "));
     const text = stamp ? `[${stamp}] ${said}` : said;
+    // How the tests are run is the harness's: a note telling the next agent to run the project's
+    // testing scripts itself sends it looking for files it cannot reach, and writing its own.
+    if (change.action !== "remove" && RUNS_TESTING_SCRIPTS.test(said)) {
+      problems.push(
+        `"${change.text.trim()}" tells the next agent to run the testing scripts itself. It cannot: they are not in the ` +
+          "codebase, and run_unit_tests and run_conformance_tests are how the tests are run. Leave that out.",
+      );
+      continue;
+    }
     if (change.action !== "remove" && isFiller(said)) {
       problems.push(
         `"${change.text.trim()}" in ${SECTIONS[change.section]} is not a note. Leave a section with nothing new alone.`,

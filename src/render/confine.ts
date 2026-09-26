@@ -105,11 +105,37 @@ function refuseNotes(path: string): void {
   );
 }
 
+/**
+ * What is the harness's, not the agent's, to write: the project's testing scripts - the harness
+ * runs them, through run_unit_tests and run_conformance_tests - and the specs. A copy of either in
+ * the codebase is an agent running its own version of what the harness runs, or building from a
+ * spec it was never meant to hold.
+ */
+function refuseHarnessFiles(path: string): void {
+  const name = basename(path);
+  if (path.split(sep).includes("test_scripts") || /^(run_unittests|run_unit_tests|run_conformance_tests|prepare_environment)[^/]*\.sh$/.test(name)) {
+    throw new ConfinementError(
+      `${name} is a copy of the project's testing scripts, and those are not written here. They are not in your ` +
+        "workspace, and are never copied, recreated or run by you: call run_unit_tests and run_conformance_tests, " +
+        "which run them exactly as the harness does.",
+    );
+  }
+  if (name.endsWith(".plain")) {
+    throw new ConfinementError(
+      `${name} is a ***plain spec, and specs are not written here. What you build from is in your prompt; the code is ` +
+        "what you write.",
+    );
+  }
+}
+
 function check(raw: string | undefined, cwd: string, roots: string[], verb: "read" | "write"): void {
   if (raw === undefined) return;
   const path = absolutize(raw, cwd);
   if (!insideAny(path, roots)) refuse(path, roots, verb);
-  if (verb === "write") refuseNotes(path);
+  if (verb === "write") {
+    refuseNotes(path);
+    refuseHarnessFiles(path);
+  }
 }
 
 /** A glob is a path too: `../../*` escapes just as well as `..`. */
@@ -146,7 +172,10 @@ function guard(def: AnyTool, inspect: (params: any) => void): AnyTool {
 function guardedOps(roots: string[], verb: "read" | "write") {
   return (path: string) => {
     if (!insideAny(path, roots)) refuse(path, roots, verb);
-    if (verb === "write") refuseNotes(path);
+    if (verb === "write") {
+      refuseNotes(path);
+      refuseHarnessFiles(path);
+    }
   };
 }
 

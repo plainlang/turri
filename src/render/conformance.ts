@@ -5,12 +5,21 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
-import { ACCEPTANCE_TESTS, getFrids, getSpecificationsForFrid, TEST_REQUIREMENTS, getInheritedFunctionalSpecs, type MarshalledPlainSource } from "../plain/spec.ts";
+import {
+  ACCEPTANCE_TESTS,
+  FUNCTIONAL_REQUIREMENTS,
+  getFrids,
+  getInheritedFunctionalSpecs,
+  getSpecificationsForFrid,
+  TEST_REQUIREMENTS,
+  type MarshalledPlainSource,
+  type Specifications,
+} from "../plain/spec.ts";
 import { reportActivity, reportSpec, reportStage } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { abandonWork, moduleDirOf, recordHistory, startWork, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
-import { labelsPrompt, missingTestLabels } from "./test-kinds.ts";
+import { labelsPrompt, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
   createScriptTool,
   findTestScripts,
@@ -24,7 +33,7 @@ import {
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
-import type { RequiredSpec } from "./state.ts";
+import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
@@ -128,20 +137,23 @@ export async function renderConformanceTests(
     ? [options.spec.moduleName, options.spec.tree]
     : plainFileParser(basename(options.plainFile), templateDirs);
 
+  // For a spec change, the tests follow the change, whatever it touches - a definition, a req -
+  // with or without a functional spec yet; for one functionality, they are that functionality's.
+  const forChange = options.diff !== undefined;
   const frids = [...getFrids(tree)];
-  const frid = options.frid ?? frids[0];
-  if (frid === undefined) throw new Error(`Module '${moduleName}' has no functionalities.`);
-  if (!frids.includes(frid)) {
+  const frid = options.frid ?? (forChange ? frids.at(-1) : frids[0]);
+  if (frid === undefined && !forChange) throw new Error(`Module '${moduleName}' has no functionalities.`);
+  if (frid !== undefined && !frids.includes(frid)) {
     throw new Error(`Functionality ${frid} does not exist. Available: ${frids.join(", ")}.`);
   }
 
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
   const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName, modulesRoot(projectDirOf(options.plainFile))));
   const stage = (label: string) => {
-    if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
+    if (!options.dryRun) reportStage(`${forChange ? moduleName : `${moduleName} ${frid}`}: ${label}`);
   };
   stage(options.diff !== undefined ? "conformance tests for the spec change" : `conformance tests for functionality ${frid}`);
-  if (!options.dryRun && options.diff === undefined) reportSpec(buildingSpec(moduleName, frid, frids.length, getSpecificationsForFrid(tree, frid)[0], true));
+  if (!options.dryRun && !forChange) reportSpec(buildingSpec(moduleName, frid!, frids.length, getSpecificationsForFrid(tree, frid!)[0], true));
   // From the last known good state, unless this step continues work not yet committed.
   // On its own it is one unit - its tests, and any change to the code - landed whole or undone
   // whole. Continuing work already under way, it is part of that work's unit instead.
@@ -154,11 +166,16 @@ export async function renderConformanceTests(
   if (manifest.length === 0) {
     throw new Error(
       `Nothing to test: ${buildDir} is empty or missing. ` +
-        `Render the functionality first, for example: npm run render -- ${options.plainFile} ${frid}`,
+        (forChange ? "Render the spec change first." : `Render the functionality first, for example: npm run render -- ${options.plainFile} ${frid}`),
     );
   }
 
-  const [specifications] = getSpecificationsForFrid(tree, frid);
+  // The spec as it stands: every section, and the functional specs - none, for a change made
+  // before any was written.
+  const specifications: Specifications =
+    frid !== undefined
+      ? getSpecificationsForFrid(tree, frid)[0]
+      : { ...sectionsOf(tree), [FUNCTIONAL_REQUIREMENTS]: [], [ACCEPTANCE_TESTS]: [] };
 
   // Conformance tests are written from the test reqs: they say how the suite is built and
   // run. Without them there is nothing to write tests against, and an agent asked anyway
@@ -178,7 +195,7 @@ export async function renderConformanceTests(
   const scripts = findTestScripts(root);
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: true });
 
-  const linkedResources = loadLinkedResources(tree, frid, templateDirs);
+  const linkedResources = loadLinkedResources(tree, forChange ? null : frid!, templateDirs);
   const required = getInheritedFunctionalSpecs(tree);
   const prompt = withTestingScripts(buildConformancePrompt({
     moduleName,
@@ -195,7 +212,7 @@ export async function renderConformanceTests(
   if (options.dryRun) {
     return {
       moduleName,
-      frid,
+      frid: frid ?? "",
       buildDir,
       conformanceDir,
       prompt,
@@ -244,6 +261,7 @@ export async function renderConformanceTests(
     ],
     tools: [...fence.names, ...CONFORMANCE_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
+    label: `${moduleName} ${options.diff !== undefined ? "spec change" : frid} conformance agent`,
   });
 
   try {
@@ -276,12 +294,21 @@ export async function renderConformanceTests(
       // The conformance tests and each acceptance test have to be there, and labelled as what
       // they are, before anything else counts.
       if (options.diff === undefined) {
-        const missing = missingTestLabels(conformanceDir, frid, specifications[ACCEPTANCE_TESTS] ?? []);
+        const missing = missingTestLabels(conformanceDir, frid!, specifications[ACCEPTANCE_TESTS] ?? []);
         if (missing.length > 0) {
           stage("labelling the conformance and acceptance tests");
-          response = await ask(executor, labelsPrompt(frid, missing), options.onDelta);
+          response = await ask(executor, labelsPrompt(frid!, missing), options.onDelta);
           continue;
         }
+      }
+
+      // The suite is the tests folder: a conformance test written into the code folder is in the
+      // wrong place, and would not be run as one.
+      const misplaced = misplacedConformanceTests(buildDir);
+      if (misplaced.length > 0) {
+        stage(`conformance tests in the code folder - moving ${misplaced.length === 1 ? "it" : "them"} into the tests folder`);
+        response = await ask(executor, misplacedTestsPrompt(misplaced, buildDir, conformanceDir), options.onDelta);
+        continue;
       }
 
       // Whether the functionality is done is the harness's run of the project's conformance
@@ -298,19 +325,19 @@ export async function renderConformanceTests(
         continue;
       }
       stage(`conformance tests pass (round ${rounds})`);
-      if (codeChanged()) {
-        stage("the code changed - running the unit testing script too");
-        const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
-        if (unit.ok) stage("unit tests still pass");
-        if (!unit.ok) {
-          stage("the code change broke its unit tests - fixing");
-          response = await ask(
-            executor,
-            `You changed the code, so its unit tests must still pass.\n\n${unit.prompt}`,
-            options.onDelta,
-          );
-          continue;
-        }
+      // Done is both: the conformance suite passing, and the unit tests with it - whether or not
+      // the code looks changed. Conformance passing on code whose unit tests fail is not done.
+      stage("running the unit testing script too");
+      const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
+      if (unit.ok) stage("unit tests pass too");
+      if (!unit.ok) {
+        stage("unit tests NOT passing - fixing");
+        response = await ask(
+          executor,
+          `The conformance tests pass, but the code's unit tests do not - and both have to.\n\n${unit.prompt}`,
+          options.onDelta,
+        );
+        continue;
       }
       verified = true;
       break;
@@ -332,7 +359,7 @@ export async function renderConformanceTests(
 
     return {
       moduleName,
-      frid,
+      frid: frid ?? "",
       buildDir,
       conformanceDir,
       prompt,

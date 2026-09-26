@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { extractConceptsFromDefinition, extractConceptsFromSpecText } from "../plain/concepts.ts";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
@@ -138,26 +137,14 @@ export function writeBuiltTree(buildDir: string, tree: MarshalledPlainSource): v
   writeFileSync(join(buildDir, STATE_FILE), `${JSON.stringify(withoutEmpty(tree), null, 2)}\n`);
 }
 
-/** The concepts an item uses, its acceptance tests included. */
-function conceptsUsedBy(item: Item): string[] {
-  return [item, ...(item[ACCEPTANCE_TESTS] ?? [])].flatMap((part) => extractConceptsFromSpecText(part.markdown));
-}
-
-/** The concepts a definition defines. */
-function conceptsDefinedBy(item: Item): string[] {
-  return extractConceptsFromDefinition(item.markdown)[0];
-}
-
 /**
  * The tree after functionality `frid` of `current` is built on the code: what was built before,
- * with that functional spec in its place - and whatever it is the first to need.
+ * with that functional spec in its place, and the module's definitions, implementation reqs and
+ * test reqs as the spec has them. Every functional spec of a module shares those - the parser
+ * gives each one all of them - so the functionality was built with all of them.
  *
- * Only what the render actually built is recorded. The definitions already built stay as they
- * were built, even where the spec has moved on since, so a later sync still sees that change;
- * a definition the functionality uses that nothing built defined is added, with every concept
- * it uses in turn. The reqs are taken from the spec when nothing of the module's own was built
- * before - the first functionality is built with all of them - and otherwise stay as built,
- * with any req added that names a concept this functionality brought in.
+ * What it inherits stays as built: the code it was started from, or what was rebuilt here since.
+ * Only with nothing recorded is it taken from the spec.
  */
 export function withBuiltFunctionality(built: MarshalledPlainSource | null, current: MarshalledPlainSource, frid: string): MarshalledPlainSource {
   const index = Number(frid) - 1;
@@ -165,58 +152,13 @@ export function withBuiltFunctionality(built: MarshalledPlainSource | null, curr
   const item = currentSpecs[index];
   if (item === undefined) throw new Error(`Functionality ${frid} does not exist.`);
 
-  const first = items(built, FUNCTIONAL_REQUIREMENTS).length === 0;
-  // What it inherits is what the code was started from - or rebuilt here since - not what the
-  // required modules' specs say now. Only with nothing recorded are those taken.
-  const inherited = items(built, REQUIRED_FUNCTIONAL_SPECS).length > 0 ? items(built, REQUIRED_FUNCTIONAL_SPECS) : items(current, REQUIRED_FUNCTIONAL_SPECS);
   // Built on the functionalities before it: any the record lacks are there in the code.
   const specs = items(built, FUNCTIONAL_REQUIREMENTS);
   for (let before = specs.length; before < index; before += 1) specs.push(currentSpecs[before]!);
   specs[index] = item;
 
-  if (first) {
-    return withoutEmpty({
-      ...current,
-      [FUNCTIONAL_REQUIREMENTS]: specs,
-      [REQUIRED_FUNCTIONAL_SPECS]: inherited,
-    });
-  }
-
-  // The definitions it needs that nothing built defined, and the ones those need.
-  const definitions = items(built, DEFINITIONS);
-  const defined = new Set(definitions.flatMap(conceptsDefinedBy));
-  const available = items(current, DEFINITIONS);
-  const added = new Set<string>();
-  const wanted = [...conceptsUsedBy(item), ...specs.slice(0, index).flatMap(conceptsUsedBy)];
-  while (wanted.length > 0) {
-    const concept = wanted.pop()!;
-    if (defined.has(concept)) continue;
-    const definition = available.find((candidate) => conceptsDefinedBy(candidate).includes(concept));
-    if (definition === undefined) continue;
-    definitions.push(definition);
-    for (const concept of conceptsDefinedBy(definition)) {
-      defined.add(concept);
-      added.add(concept);
-    }
-    wanted.push(...conceptsUsedBy(definition));
-  }
-  // A req that names what this functionality brought in came with it.
-  const withNew = (heading: string) => {
-    const kept = items(built, heading);
-    const known = new Set(kept.map((entry) => JSON.stringify(entry)));
-    const brought = items(current, heading).filter(
-      (entry) => !known.has(JSON.stringify(entry)) && conceptsUsedBy(entry).some((concept) => added.has(concept)),
-    );
-    return [...kept, ...brought];
-  };
-  return withoutEmpty({
-    ...built,
-    [DEFINITIONS]: definitions,
-    [NON_FUNCTIONAL_REQUIREMENTS]: withNew(NON_FUNCTIONAL_REQUIREMENTS),
-    [TEST_REQUIREMENTS]: withNew(TEST_REQUIREMENTS),
-    [FUNCTIONAL_REQUIREMENTS]: specs,
-    [REQUIRED_FUNCTIONAL_SPECS]: inherited,
-  });
+  const inherited = items(built, REQUIRED_FUNCTIONAL_SPECS).length > 0 ? items(built, REQUIRED_FUNCTIONAL_SPECS) : items(current, REQUIRED_FUNCTIONAL_SPECS);
+  return withoutEmpty({ ...current, [FUNCTIONAL_REQUIREMENTS]: specs, [REQUIRED_FUNCTIONAL_SPECS]: inherited });
 }
 
 /** Record that functionality `frid` of `current` is built in `buildDir`. */
@@ -363,6 +305,10 @@ export function staleFrids(tree: MarshalledPlainSource, buildDir: string): Pendi
   return pendingFrids(tree, buildDir).filter((entry) => entry.reason === "specification changed");
 }
 
+/**
+ * Whether every functionality is built from its current spec. The sections around them are not
+ * looked at here: `reachedByRendering` says whether the code is built from the spec as a whole.
+ */
 export function isModuleUpToDate(tree: MarshalledPlainSource, buildDir: string): boolean {
   return existsSync(buildDir) && pendingFrids(tree, buildDir).length === 0;
 }

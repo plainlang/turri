@@ -1,11 +1,12 @@
 ---
 name: forge-plain
 description: >-
-  `***plain` spec authoring in four phases - intent, stack, product, testing - where every answer
+  `***plain` spec authoring in four phases - intent, stack, testing, product - where every answer
   in the product interview becomes one spec change, written as a git diff of the .plain files and
-  built the moment it is written, so code appears while the interview is still going; the testing
-  phase decides on conformance tests, writes the test reqs and the conformance testing script,
-  and starts the conformance tests the user picks. Gated review of the product phase. Use when the user starts a new project or wants to build
+  built the moment it is written, so code appears while the interview is still going. The testing
+  phase comes first, so each change is conformance tested as it is built: it decides on
+  conformance tests and writes the test reqs and the conformance testing script. Gated review of
+  the product phase. Use when the user starts a new project or wants to build
   something new from scratch. Not for adding a
   feature to an existing project (use add-feature) or for editing generated code (the .plain
   specs are the source of truth).
@@ -38,7 +39,7 @@ Act as a `***plain` spec writer. The only output is `.plain` specification files
 
 In the product phase, every change you make to the specs is a **spec diff**: a git diff of the `.plain` files, written with `write_spec_diff`, which applies it and starts building it. The spec diffs are the output of the interview; the builds follow from them.
 
-The testing phase is the exception: it changes only `***test reqs***`, which builds nothing, so it writes them with the ordinary file tools and never with `write_spec_diff`. The conformance tests it starts, it starts with `render_functionality_conformance`.
+The testing phase is the exception: it changes only `***test reqs***`, and comes before anything is built, so it writes them with the ordinary file tools and never with `write_spec_diff`. It comes before the product phase so that every spec change the product phase writes is conformance tested as it is built: with conformance on, each build writes and runs the change's conformance tests, and keeps every earlier one passing.
 
 ## How the phases end
 
@@ -132,9 +133,30 @@ on top of a file that does not parse.
 Finish by summarizing the stack, the architecture and the unit testing script, and getting explicit confirmation. There is
 no gate on this phase — the user reading the stack back is the check.
 
+### testing
+
+Read `references/testing.md`. Carry the intent brief and the stack in; ask about neither again. Walk
+its topics in order. Nothing is built yet, and nothing is built in this phase.
+
+First the decision: are there conformance tests at all? Ask it explicitly, and write the answer to
+`config.yaml` as `conformance-tests:` - the chat and every build follow it. Off, and the phase is
+done once the user confirms: the product phase's builds then write and run no conformance tests.
+
+On: each answer about how the tests are written and run becomes a `:ConformanceTests:` requirement
+in `***test reqs***`, written with the ordinary file tools. A change to the test reqs is not a spec
+diff: never use `write_spec_diff` in this phase. Then make sure the project has its conformance
+testing script - `implement-conformance-testing-script` writes it into `test_scripts/` when
+plainwright finds none - and run `check_plain` on what you changed. Without both, the first build of
+the product phase stops before it starts.
+
+Finish by summarizing the decision, the test reqs and the script, and saying that from the first
+spec change on, every build writes and runs its conformance tests. Get explicit confirmation. There
+is no gate on this phase.
+
 ### product
 
-Read `references/product.md`. Carry the intent brief and the stack in; restart neither. This
+Read `references/product.md`. Carry the intent brief, the stack and the testing decisions in;
+restart none of them. This
 is the whole product interview, walked **feature by feature** - never section by section. Do
 not fill in the definitions first and the functional specs after: that is not this skill.
 
@@ -147,7 +169,8 @@ Walk its topics in order, and run this loop until the product is specified:
    every section it needs: the concepts it introduces, a policy it states, the functional spec it
    adds or changes.
 4. **Write it with `write_spec_diff`**, which applies it and starts a render spec diff job for it,
-   whatever it touches. Move straight on to the next question; never wait for a build.
+   whatever it touches. With conformance on, that build also writes and runs the change's
+   conformance tests. Move straight on to the next question; never wait for a build.
 
 One answer, one spec change, one render spec diff job. Correct something already written with
 a diff and `fixes_earlier`, before the next question. Never change a `.plain` file in this
@@ -159,24 +182,3 @@ user asks how the builds are going.
 Finish by summarizing the full concept list and feature list in build order, saying what is
 built and what is still queued, getting explicit confirmation, and writing the evidence record
 to `product.md`.
-
-### testing
-
-Read `references/testing.md`. Carry the stack and the product in; ask about neither again. Walk its
-topics in order.
-
-First the decision: are there conformance tests at all? Ask it explicitly, and write the answer to
-`config.yaml` as `conformance-tests:` - the chat and every render follow it. Off, and the phase is
-done once the user confirms.
-
-On: each answer about how the tests are written and run becomes a `:ConformanceTests:` requirement
-in `***test reqs***`, written with the ordinary file tools. A change to the test reqs is not a spec
-diff and triggers no build: never use `write_spec_diff` in this phase. Then make sure the project
-has its conformance testing script - `implement-conformance-testing-script` writes it into
-`test_scripts/` when plainwright finds none - and run `check_plain` on what you changed.
-
-Last, ask which of the functional specs already built to write and run conformance tests for now,
-and start them with `render_functionality_conformance`. Do not wait for them.
-
-Finish by summarizing the decision, the test reqs, the script and the conformance jobs started, and
-getting explicit confirmation. There is no gate on this phase.

@@ -29,7 +29,7 @@ never a change to generated code, and never "ask more questions".
 
 ## The module as it stands
 
-- [ ] No `***test reqs***` and no `***acceptance tests***` have been written.
+- [ ] No spec change of the product phase touched the `***test reqs***` - the testing phase settled them - and no `***acceptance tests***` have been written.
 - [ ] Every `***implementation reqs***` bullet added in the product phase is technology-free policy. The technology was settled in the stack phase.
 - [ ] The file parses and its frontmatter is intact.
 

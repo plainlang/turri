@@ -36,7 +36,7 @@ about ≤200 LOC, define-before-use and language-agnostic wording can actually b
 - [ ] **[record]** Every question was about the product - a feature, a step, a rule - not about a spec section.
 - [ ] **[disk]** Every concept a functional spec references is defined in `***definitions***`.
 - [ ] **[disk]** Every functional spec is language-agnostic, ≤200 LOC, and in chronological build order.
-- [ ] **[disk]** No `***test reqs***` or `***acceptance tests***` written.
+- [ ] **[both]** No spec change touched `***test reqs***` - they are as the testing phase left them - and no `***acceptance tests***` written.
 - [ ] **[disk]** Every `***implementation reqs***` bullet written this phase is technology-free policy.
 - [ ] **[record]** The interview never waited on a build. Questions continued while renders ran, and build results were reported when they arrived.
 - [ ] **[record]** Summarized the full concept and feature list, said what is built and what is still queued, and got explicit confirmation.

@@ -106,10 +106,25 @@ describe("the tests already in a codebase", () => {
 
     await expect(run({})).rejects.toThrow("it has no conformance testing script");
     const ran = await run(scripts());
-    expect(ran.runs.map((r) => [r.command, r.exitCode])).toEqual([["test_scripts/run_conformance_tests_sh.sh", 0]]);
+    // The whole suite, and the unit tests with it: both have to pass.
+    expect(ran.runs.map((r) => [r.command, r.exitCode])).toEqual([["test_scripts/run_conformance_tests_sh.sh", 0], ["test_scripts/run_unittests_sh.sh", 0]]);
+  });
+
+  it("do not pass while the unit tests fail - the suite passing is half of it", async () => {
+    built("top");
+    const paths = scripts();
+    writeFileSync(paths.unit, "echo unit tests failing; exit 1\n");
+    mkdirSync(testsOf("top"), { recursive: true });
+    writeFileSync(join(testsOf("top"), "check.sh"), "exit 0\n");
+    const [, tree] = plainFileParser("top.plain", resolveTemplateDirs(file("top")));
+    const ran = await ensureRegressionPasses({ buildDir: buildOf("top"), conformanceRoot: join(dir, "plain_modules"), moduleName: "top", frids: ["1"], tree, required: [], scripts: paths, maxRounds: 0 });
+    expect(ran.runs.map((r) => [r.command, r.exitCode])).toEqual([["test_scripts/run_conformance_tests_sh.sh", 0], ["test_scripts/run_unittests_sh.sh", 1]]);
+    expect(ran.passed).toBe(false);
   });
 
   it("are kept passing by a render that writes none of its own because its module has no test reqs", async () => {
+    // A module without test reqs, built as far as its first functionality.
+    writeFileSync(file("top"), "---\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- Top one.\n");
     built("top");
     scripts();
     mkdirSync(testsOf("top"), { recursive: true });
@@ -119,7 +134,7 @@ describe("the tests already in a codebase", () => {
     const result = await renderModule({ plainFile: file("top"), buildDir: buildOf("top") });
 
     expect(conformanceRuns).toEqual([]);
-    expect(result.outcomes.at(-1)!.regression?.runs.map((r) => r.command)).toEqual(["test_scripts/run_conformance_tests_sh.sh"]);
+    expect(result.outcomes.at(-1)!.regression?.runs.map((r) => r.command)).toEqual(["test_scripts/run_conformance_tests_sh.sh", "test_scripts/run_unittests_sh.sh"]);
     expect(result.passed).toBe(true);
   });
 

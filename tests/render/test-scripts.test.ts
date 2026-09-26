@@ -87,6 +87,10 @@ describe("the testing scripts, in an agent's prompt", () => {
     expect(both).toContain('<script kind="conformance tests" path="test_scripts/run_conformance_tests_python.sh">');
     expect(both.endsWith("Build it.")).toBe(true);
     expect(withTestingScripts("Build it.", scripts, ["unit"], root)).not.toContain("conformance tests");
+    // Shown, not to be run: the agent calls the tools.
+    expect(both).toContain("not in your workspace");
+    expect(both).toContain("Never copy, recreate or adapt them in the codebase");
+    expect(both).toContain("call run_unit_tests and run_conformance_tests");
   });
 
   it("carry the conformance testing script to the coding agent only when conformance tests are written", async () => {

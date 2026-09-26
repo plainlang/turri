@@ -116,6 +116,34 @@ describe("conformance for a spec diff", () => {
     expect(existsSync(join(testsOf("base"), "check_1.sh"))).toBe(false);
   });
 
+  it("tests a change with no functional spec written yet - a definition - rather than refusing it", async () => {
+    const none = "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- Shell scripts.\n";
+    writeFileSync(file("base"), none);
+    mkdirSync(buildOf("base"), { recursive: true });
+    writeFileSync(join(buildOf("base"), "app.sh"), "echo base\n");
+    const diff = diffOf("base", "***definitions***\n\n- :User: is a person.\n\n" + none);
+
+    const result = await renderSpecDiffConformance({ plainFile: file("base"), diff, cwd: dir });
+
+    expect(conformanceRuns).toHaveLength(1);
+    expect(conformanceRuns[0]).toMatchObject({ frid: undefined, diff, module: "base" });
+    expect(result.passed).toBe(true);
+  });
+
+  it("tests a change with no functional spec written yet - a definition - rather than refusing it", async () => {
+    const none = "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- Shell scripts.\n";
+    writeFileSync(file("base"), none);
+    mkdirSync(buildOf("base"), { recursive: true });
+    writeFileSync(join(buildOf("base"), "app.sh"), "echo base\n");
+    const diff = diffOf("base", "***definitions***\n\n- :User: is a person.\n\n" + none);
+
+    const result = await renderSpecDiffConformance({ plainFile: file("base"), diff, cwd: dir });
+
+    expect(conformanceRuns).toHaveLength(1);
+    expect(conformanceRuns[0]).toMatchObject({ frid: undefined, diff, module: "base" });
+    expect(result.passed).toBe(true);
+  });
+
   it("needs test reqs to write conformance tests from", async () => {
     writeFileSync(file("base"), module_(["- Base one."], undefined, false));
     built("base");

@@ -139,39 +139,18 @@ describe("the tree the code is built from", () => {
     expect(readBuiltTree(build)).toEqual(stored);
   });
 
-  it("starts with the spec's sections and the first functional spec - the first build is built with all of them", () => {
+  it("gains each functional spec as it is built, with the module's definitions and reqs as the spec has them - every functional spec shares them", () => {
     const t = tree(SPEC);
-    const built = withBuiltFunctionality(null, t, "1");
-    expect(built["implementation reqs"]).toEqual(t["implementation reqs"]);
+    let built = withBuiltFunctionality(null, t, "1");
     expect(built.definitions).toEqual(t.definitions);
+    expect(built["implementation reqs"]).toEqual(t["implementation reqs"]);
     expect(built["functional specs"]).toEqual([(t["functional specs"] as unknown[])[0]]);
-  });
 
-  it("then gains each functional spec, with the definitions and reqs it is the first to need - and keeps what was built as built", () => {
-    // The first build: a spec that had only its first functional spec, and what that needs.
-    const first = tree("***definitions***\n\n- :User: is a person.\n\n***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- A :User: can sign up.\n");
-    let built = withBuiltFunctionality(null, first, "1");
-    expect((built.definitions as Array<{ markdown: string }>).map((d) => d.markdown)).toEqual(["- :User: is a person."]);
-
-    // Since the first build, :User:'s definition changed and two concepts came in.
+    // The spec's sections moved on: the next functionality is built with them as they are now.
     const now = tree(SPEC.replace("- :User: is a person.", "- :User: is a person with an email."));
     built = withBuiltFunctionality(built, now, "2");
-    expect((built.definitions as Array<{ markdown: string }>).map((d) => d.markdown)).toEqual([
-      // As built: the change to :User: is not built yet.
-      "- :User: is a person.",
-      "- :Order: is something a :User: bought.",
-    ]);
-    // The refund req names a concept functionality 2 did not bring.
-    expect((built["implementation reqs"] as Array<{ markdown: string }>).map((r) => r.markdown)).toEqual(["- Python."]);
-
-    built = withBuiltFunctionality(built, now, "3");
-    expect((built.definitions as Array<{ markdown: string }>).map((d) => d.markdown)).toEqual([
-      "- :User: is a person.",
-      "- :Order: is something a :User: bought.",
-      "- :Refund: is money back for an :Order:.",
-    ]);
-    expect((built["implementation reqs"] as Array<{ markdown: string }>).map((r) => r.markdown)).toEqual(["- Python.", "- :Refund: is paid out within a day."]);
-    expect((built["functional specs"] as unknown[]).length).toBe(3);
+    expect(built.definitions).toEqual(now.definitions);
+    expect(built["functional specs"]).toEqual((now["functional specs"] as unknown[]).slice(0, 2));
   });
 
   it("replaces a functional spec rebuilt from a changed spec, in its place", () => {

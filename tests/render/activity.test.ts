@@ -67,6 +67,16 @@ describe("tool calls as one line", () => {
     expect(describeToolCall("something_new", {})).toBe("  something_new");
   });
 
+  it("gives paths as they are inside plain_modules, wherever they appear", () => {
+    const root = "/Users/someone/Work/hycu/hycu-dynamics-365-modules/plain_modules";
+    expect(describeToolCall("write", { path: `${root}/d365_version/code/src/Version.java` })).toBe("✎ write d365_version/code/src/Version.java");
+    expect(describeToolCall("bash", { command: `cd ${root}/d365_version/code && mvn -q test` })).toBe("$ cd d365_version/code && mvn -q test");
+    expect(describeToolCall("read", { path: `${root}/d365_version/tests/VersionTest.java` })).toBe("  read d365_version/tests/VersionTest.java");
+    expect(describeToolCall("edit", { path: "plain_modules/app/code/main.py" })).toBe("✎ edit app/code/main.py");
+    // Anything else is left as it is.
+    expect(describeToolCall("bash", { command: "ls /tmp/other && cat my_plain_modules/x" })).toBe("$ ls /tmp/other && cat my_plain_modules/x");
+  });
+
   it("reports whether a test run passed", () => {
     expect(describeToolResult("run_unit_tests", { details: { exitCode: 0 } }, false)).toBe("  ✓ passing");
     expect(describeToolResult("run_unit_tests", { details: { exitCode: 1 } }, false)).toBe("  ✗ failing (exit 1)");

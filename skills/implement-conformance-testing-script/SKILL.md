@@ -61,10 +61,11 @@ A PowerShell (`.ps1`) copy is optional and only for people who run the script by
 
    Never concatenate `$current_dir/$2` at the point of use — with an absolute `$2` that produces a doubled path (`/project//abs/path/...`), the classic symptom being `ImportError: Start directory is not importable` pointing at a path that contains the project root twice.
 4. **Working directory setup.** Define a working folder at `<temp>/<lang>_<basename>` (`/tmp/<lang>_$(basename "$1")` in Bash, `Join-Path ([System.IO.Path]::GetTempPath()) "<lang>_$(Split-Path $BuildFolder -Leaf)"` in PowerShell). Wipe it (`rm -rf` / `Remove-Item -Recurse -Force`) and recreate it. Register cleanup so the folder is removed when the script exits — `trap 'rm -rf "$WORKING_FOLDER"' EXIT` in Bash, `Remove-Item -Recurse -Force` in the `finally` block in PowerShell. This folder — and **only** this folder — is where every subsequent write must land.
+4b. **Refuse conformance tests in the build folder.** Conformance and acceptance tests live in the conformance tests folder (`$2`) and nowhere else. Before anything is staged, look for them in `$1`: any file carrying a conformance or acceptance label (`conformance tests of functionality`, `conformance tests of the spec`, `acceptance test <n> of functionality`), and any test file under a folder or name that says conformance or acceptance. Found any: print each path, say they belong in the conformance tests folder, and exit `1`. See [Tests in the build folder](#tests-in-the-build-folder).
 5. **Copy the build.** Recursively copy everything from `<build_folder>` (`$1`) into the working folder. **Do not** copy the conformance tests — they stay where they are. After this step both `$1` (build folder) and `$2` (conformance tests folder) are treated as **read-only** for the rest of the script.
 6. **Enter the working directory.** `cd` / `Set-Location` into `<temp>/<lang>_<basename>`. If that fails, exit with code `69`. All remaining steps run from inside the working folder; they must never write back to `$1` or `$2`.
 7. **Install dependencies into an isolated environment inside `<temp>/<lang>_<basename>`.** Set up a per-working-folder dependency location (a Python venv at `./.venv`, a local `./node_modules`, a project-scoped Maven repo at `./.m2`, etc.) and install/resolve all dependencies into it. **Never** install into the source build folder (`$1`), the conformance tests folder (`$2`), the user's global cache (`~/.m2`, system-wide `pip`, `~/.cargo`, `~/.npm`, ...), or anywhere outside `<temp>/<lang>_<basename>`. If the install command fails, propagate its exit code immediately and **do not** proceed to step 8. See [Dependency isolation](#dependency-isolation).
-8. **Run the conformance tests.** Invoke the language's standard test command, **pointed at `$CONFORMANCE_TESTS_FOLDER`** (the absolute path resolved in step 3), so it runs the whole suite in one go. The script's final exit code is whatever the test command returns — except for the "no tests discovered" case below.
+8. **Run the conformance tests.** Invoke the language's standard test command, **pointed at `$CONFORMANCE_TESTS_FOLDER`** (the absolute path resolved in step 3) **and at nothing else**, so it runs the whole suite in one go - and only it. The build's own tests (its unit tests, and anything else in it) are never collected: no discovery from the working folder, and no test configuration in the build (a `pytest.ini` / `pyproject.toml` `testpaths`, a Jest `roots`) allowed to widen the run beyond `$CONFORMANCE_TESTS_FOLDER`. The script's final exit code is whatever the test command returns — except for the "no tests discovered" case below.
 
    The test command is **read-only** with respect to `$CONFORMANCE_TESTS_FOLDER`. It loads test files from there, but any artifacts the runner produces (caches, JUnit XML, coverage reports, compiled test classes, etc.) must land inside `<temp>/<lang>_<basename>`, not next to the test files. If your chosen runner defaults to writing output beside the tests, pass an explicit output-directory flag pointing inside the working folder (e.g. `pytest --basetemp=./.pytest_tmp`, `jest --cacheDirectory=./.jest_cache`, Maven `target/` under the working folder via `mvn -f "$CONFORMANCE_TESTS_FOLDER/pom.xml" -Dproject.build.directory="$(pwd)/target" test`).
 
@@ -83,6 +84,21 @@ Why each input is read-only:
 - **`$2` (conformance tests folder)** is the user's authored test source — typically checked into version control. Writing into it pollutes the working tree, churns git status, and (with frameworks that auto-discover) can make subsequent runs pick up generated files as if they were tests.
 
 If you find yourself about to issue any command whose `cwd` is `$1` or `$2`, or whose target path starts with `$1/` or `$2/`, **stop**. Either move the operation into `<temp>/<lang>_<basename>`, or you're doing something the script must not do.
+
+### Tests in the build folder
+
+A conformance test written into the build folder is in the wrong place: nothing runs it as part of the conformance suite, and a runner that discovers tests from the working folder would run it as if it were one - a suite that seems to pass whatever `$2` holds. So the script catches it before it runs anything (step 4b), and says where it belongs. In Bash:
+
+```bash
+MISPLACED=$(grep -rlE --exclude=".plainwright*" --exclude-dir=.venv --exclude-dir=node_modules --exclude-dir=target \
+  "conformance tests of (functionality [0-9]|the spec)|acceptance test [0-9]+ of functionality" "$1" 2>/dev/null; \
+  find "$1" -type f \( -ipath "*conformance*" -o -ipath "*acceptance*" \) -iname "*test*" \
+  -not -name ".plainwright*" -not -path "*/.venv/*" -not -path "*/node_modules/*" -not -path "*/target/*" 2>/dev/null)
+if [ -n "$MISPLACED" ]; then
+  printf "Conformance tests found in the build folder %s - they belong in the conformance tests folder %s:\n%s\n" "$1" "$CONFORMANCE_TESTS_FOLDER" "$(echo "$MISPLACED" | sort -u)" >&2
+  exit 1
+fi
+```
 
 ### "No tests discovered" detection
 
@@ -165,7 +181,7 @@ The harness never runs `.ps1` scripts. These notes apply only to an optional cop
 2. Read [assets/run_conformance_tests_java.sh](assets/run_conformance_tests_java.sh) and [assets/run_conformance_tests_python.sh](assets/run_conformance_tests_python.sh) to refresh the exact structure.
 3. Translate each step into the equivalent Bash commands for the target language. The toolchain check, dependency install, and test invocation are the language-specific parts; the rest is mechanical.
 4. Pick the right row from the [Dependency isolation](#dependency-isolation) table — use the same flag/env var in steps 7 and 8.
-5. Add the language-appropriate "no tests discovered" guard from [No tests discovered detection](#no-tests-discovered-detection).
+5. Add the language-appropriate "no tests discovered" guard from [No tests discovered detection](#no-tests-discovered-detection), and the guard against conformance tests in the build folder from [Tests in the build folder](#tests-in-the-build-folder).
 6. Save the new script as `test_scripts/run_conformance_tests_<lang>.sh` and `chmod +x` it. Write a `.ps1` copy only if the user wants to run it by hand on Windows.
 7. **Make sure plainwright finds the script.** Do not link it from the specs - plainwright finds the conformance testing script in the project root (the folder that holds `plain_modules/`) and puts it, whole, into the prompts of the agents that write and review the conformance tests itself, whenever conformance tests are written for a build; a link to it from a spec is ignored. It looks, in order, at `config.yaml` in the root (`conformance-tests-script: <path relative to the root>`), then for the one `run_conformance_tests*.sh` in the root, then for the one in `test_scripts/`. Saving the script in `test_scripts/` (or the root) is enough when it is the only one there. If the project has more than one conformance testing script (e.g. a Python backend and a React frontend), or keeps it elsewhere, name the one to use in `config.yaml` as `conformance-tests-script:` - plainwright never guesses between two. The script is required: with conformance testing on, a build without one stops before it starts. The `***test reqs***` still describe the conformance framework and command in words; do not paraphrase the script into them.
 
@@ -177,6 +193,7 @@ The harness never runs `.ps1` scripts. These notes apply only to an optional cop
 - **Don't copy the conformance tests folder into the working folder.** Only the build folder is staged. The test folder is read in place from `$CONFORMANCE_TESTS_FOLDER`.
 - **Don't compute the test path after `cd`.** Resolve `$2` to an absolute path in step 3; otherwise a relative `$2` will be resolved against the working folder and silently miss the tests.
 - **Don't expect per-functionality subfolders in `$2`.** `$2` holds the module's whole conformance suite; point the test command at it and let the runner discover every test in it.
+- **Don't run tests from anywhere but the conformance tests folder, and don't let conformance tests in the build folder pass unnoticed.** The build's tests are the unit testing script's; a conformance test in the build folder is misplaced, and the script fails on it (step 4b) instead of running it or ignoring it.
 - **Don't skip the "no tests discovered" check.** A conformance suite that finds zero tests and exits `0` is the worst possible failure mode — it looks like success.
 - **Don't skip the toolchain check**, even when "everyone has it installed" — exit code `69` is what the calling system relies on to detect a missing runtime.
 - **Don't reuse the source folder in place.** Always copy into `<temp>/<lang>_<basename>` first; the renderer relies on this isolation.

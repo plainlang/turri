@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -11,9 +11,12 @@ import {
   NON_FUNCTIONAL_REQUIREMENTS,
   REQUIRED_FUNCTIONAL_SPECS,
   TEST_REQUIREMENTS,
+  getFrids,
+  getInheritedFunctionalSpecs,
   type MarshalledPlainSource,
 } from "../plain/spec.ts";
 import { validateConcepts } from "../plain/concepts.ts";
+import { sectionsOf, specStateFor } from "./state.ts";
 import { ask, createExecutor } from "../pi.ts";
 
 /**
@@ -89,6 +92,35 @@ export function onlyAppendsFunctionalSpecs(from: MarshalledPlainSource, to: Mars
   return serializeTree({ ...to, [FUNCTIONAL_REQUIREMENTS]: after.slice(0, before.length) }) === serializeTree({ ...from, [FUNCTIONAL_REQUIREMENTS]: before });
 }
 
+/**
+ * Whether `current` is `built` with functional specs added at the end, and nothing else - so the
+ * new ones are rendered one by one, on top of what is there, as render_module builds a module.
+ * The definitions, the implementation and test reqs and the inherited functional specs as built,
+ * and the functional specs built unchanged at the start of the spec. Nothing of the module's own
+ * built yet is the first case of it: its first render is built from the spec as it stands. Two the
+ * same are too: there is nothing to do. Anything else - a spec changed in place, a req added, a
+ * definition changed - takes spec diffs.
+ *
+ * Compared as the specs read - their text, with their acceptance tests - so a tree recorded by an
+ * earlier plainwright, which kept the text, compares as it should.
+ */
+export function reachedByRendering(built: MarshalledPlainSource | null, current: MarshalledPlainSource): boolean {
+  const builtFrids = built === null ? [] : [...getFrids(built)];
+  // Nothing of the module's own built - no functional spec, no section: only what it inherits,
+  // or nothing at all. A spec change that built the sections has built something, and what was
+  // added to them since is a change like any other.
+  const ownSections = built === null ? [] : Object.values(sectionsOf(built)).flat();
+  if (builtFrids.length === 0 && ownSections.length === 0) return true;
+  const currentFrids = [...getFrids(current)];
+  if (builtFrids.length > currentFrids.length) return false;
+  const own = (tree: MarshalledPlainSource, frid: string) => {
+    const { spec, acceptanceTests } = specStateFor(tree, frid);
+    return JSON.stringify([spec, acceptanceTests ?? []]);
+  };
+  const around = (tree: MarshalledPlainSource) => JSON.stringify([sectionsOf(tree), getInheritedFunctionalSpecs(tree)]);
+  return around(built!) === around(current) && builtFrids.every((frid) => own(built!, frid) === own(current, frid));
+}
+
 /** Whether a line of a serialized tree is a section's name rather than an item. */
 function headerOf(line: string): { key: string; value: boolean } | undefined {
   if (!line.startsWith("[")) return undefined;
@@ -120,18 +152,31 @@ export function parseTree(text: string): MarshalledPlainSource {
 
 /** git's diff of two serialized trees, with `context` lines around each change. */
 export function diffTrees(before: string, after: string, context = 3): string {
+  return gitDiff(before, after, context, ["spec.before", "spec.after"]);
+}
+
+/** git's diff of two texts, written to files of the names given. */
+function gitDiff(before: string, after: string, context: number, [from, to]: [string, string]): string {
   const dir = mkdtempSync(join(tmpdir(), "plainwright-spec-steps-"));
   try {
-    writeFileSync(join(dir, "spec.before"), before);
-    writeFileSync(join(dir, "spec.after"), after);
+    mkdirSync(join(dir, "a"));
+    mkdirSync(join(dir, "b"));
+    writeFileSync(join(dir, "a", from), before);
+    writeFileSync(join(dir, "b", to), after);
     const run = spawnSync(
       "git",
-      ["diff", "--no-index", "--no-color", "--no-ext-diff", `-U${context}`, "spec.before", "spec.after"],
+      ["diff", "--no-index", "--no-color", "--no-ext-diff", "--no-prefix", `-U${context}`, `a/${from}`, `b/${to}`],
       { cwd: dir, encoding: "utf8" },
     );
     // 1 means the two differ: that is the diff, not a failure.
     if (run.status !== 0 && run.status !== 1) throw new Error(`git diff failed: ${run.stderr}`);
-    return run.stdout;
+    // As a spec diff written in the interview reads: no index line, and no heading git guesses
+    // for a hunk - in a .plain file that is whatever line above it starts with a letter.
+    return run.stdout
+      .split("\n")
+      .filter((line) => !line.startsWith("index "))
+      .map((line) => line.replace(/^(@@ -\S+ \+\S+ @@).*$/, "$1"))
+      .join("\n");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -401,8 +446,13 @@ export interface SpecStep {
   after: string;
   /** The spec after it, as a tree: what a render of this step builds from. */
   tree: MarshalledPlainSource;
-  /** git's diff of `before` to `after`. */
+  /** git's diff of `before` to `after`, as serialized. */
   diff: string;
+  /**
+   * The same change as a person - or a coding agent - reads a spec change: git's diff of the spec
+   * before and after, written out as ***plain text, section by section.
+   */
+  textDiff: string;
   /** The sections it changes. */
   sections: string[];
   /** Made by the harness for what the agent never placed, after its rounds ran out. */
@@ -424,8 +474,17 @@ export const DEFAULT_PLAN_ROUNDS = 4;
 export async function planSpecSteps(
   from: MarshalledPlainSource,
   to: MarshalledPlainSource,
-  options: { planner: Planner; maxRounds?: number },
+  options: {
+    planner: Planner;
+    maxRounds?: number;
+    /** What the text diffs call the spec: the module's .plain file. */
+    specFile?: string;
+    /** That file's text, whose layout the text diffs follow - see layoutOf. */
+    specText?: string;
+  },
 ): Promise<SpecStepsResult> {
+  const file = options.specFile ?? "spec.plain";
+  const layout = options.specText !== undefined ? layoutOf(options.specText) : undefined;
   const target = serializeTree(to);
   let current = serializeTree(from);
   const steps: SpecStep[] = [];
@@ -488,7 +547,7 @@ export async function planSpecSteps(
       }
       sofar.push(...picked);
       placed += picked.length;
-      steps.push(makeStep(step.title, step.reason, picked, previous, next));
+      steps.push(makeStep(step.title, step.reason, picked, previous, next, file, layout));
       previous = next;
     }
     current = previous;
@@ -501,7 +560,7 @@ export async function planSpecSteps(
     // so the sequence is complete whatever the agent did.
     const rest = changesBetween(current, target);
     steps.push({
-      ...makeStep("The rest of the change", "Changes no planned step placed.", rest, current, applyChanges(current, rest)),
+      ...makeStep("The rest of the change", "Changes no planned step placed.", rest, current, applyChanges(current, rest), file, layout),
       fallback: true,
     });
     current = steps.at(-1)!.after;
@@ -518,7 +577,90 @@ function inconsistencies(tree: MarshalledPlainSource, endpoints: Set<string>): s
   return validateConcepts(tree).filter((error) => !endpoints.has(error));
 }
 
-function makeStep(title: string, reason: string, changes: SpecChange[], before: string, after: string): SpecStep {
+/** How the module's `.plain` file is laid out, for writing a tree out as that file would have it. */
+export interface SpecLayout {
+  /** Everything before the first section: the frontmatter, imports and requires. */
+  preamble: string;
+  /** The sections, in the order the file has them. */
+  sections: string[];
+  /** Each concept's place in the file's definitions - the parser orders them by what uses what. */
+  concepts: Map<string, number>;
+  /** The sections whose items the file writes with no blank line between them. */
+  tight: Set<string>;
+}
+
+const SECTION_HEADING = /^\*\*\*\s*(.+?)\s*\*\*\*\s*$/;
+const CONCEPT = /^- :([^:\s]+):/;
+
+export function layoutOf(text: string): SpecLayout {
+  const lines = text.split("\n");
+  const first = lines.findIndex((line) => SECTION_HEADING.test(line));
+  const sections: string[] = [];
+  const concepts = new Map<string, number>();
+  const tight = new Set<string>();
+  let section: string | undefined;
+  let previous = "";
+  for (const line of first === -1 ? [] : lines.slice(first)) {
+    const heading = SECTION_HEADING.exec(line);
+    if (heading) {
+      section = heading[1]!;
+      sections.push(section);
+      previous = "";
+      continue;
+    }
+    // An item straight after another's last line, with no blank line: the section is written tight.
+    if (section !== undefined && line.startsWith("- ") && previous.trim() !== "" && !SECTION_HEADING.test(previous)) tight.add(section);
+    previous = line;
+    const concept = CONCEPT.exec(line);
+    if (section === DEFINITIONS && concept && !concepts.has(concept[1]!)) concepts.set(concept[1]!, concepts.size);
+  }
+  return { preamble: first === -1 ? "" : lines.slice(0, first).join("\n").trimEnd(), sections, concepts, tight };
+}
+
+/**
+ * A serialized tree as the module's `.plain` file would have it: only its own sections, and only
+ * the ones with something in them. The functional specs it inherits are the required modules'
+ * - `required functional specs` is the parser's key for them, not a section anyone writes. With
+ * the file's layout, it is written as the file is: its preamble, its sections in its order, a
+ * blank line between items, and the definitions in the file's order rather than the parser's -
+ * so a spec diff reads as an edit to the file, at the file's line numbers.
+ */
+export function plainText(serialized: string, layout?: SpecLayout): string {
+  const sections: Array<{ key: string; items: string[] }> = [];
+  for (const line of serialized.split("\n")) {
+    if (line === "") continue;
+    const header = headerOf(line);
+    if (header !== undefined) sections.push({ key: header.key, items: [] });
+    else sections.at(-1)?.items.push(itemText(line));
+  }
+  const own = sections.filter((section) => section.key !== REQUIRED_FUNCTIONAL_SPECS && section.items.length > 0);
+  if (layout === undefined) return own.map((section) => [`***${section.key}***`, "", ...section.items].join("\n")).join("\n\n");
+
+  const place = (key: string) => {
+    const index = layout.sections.indexOf(key);
+    return index === -1 ? layout.sections.length + TREE_SECTIONS.indexOf(key) : index;
+  };
+  const rank = (item: string) => {
+    const concept = CONCEPT.exec(item);
+    return concept ? (layout.concepts.get(concept[1]!) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+  };
+  const body = [...own]
+    .sort((a, b) => place(a.key) - place(b.key))
+    .map((section) => {
+      // A stable sort: concepts the file does not have yet keep the parser's order, after the rest.
+      const items = section.key === DEFINITIONS ? [...section.items].sort((a, b) => rank(a) - rank(b)) : section.items;
+      return [`***${section.key}***`, "", items.join(layout.tight.has(section.key) ? "\n" : "\n\n")].join("\n");
+    })
+    .join("\n\n");
+  return layout.preamble === "" ? body : `${layout.preamble}\n\n${body}`;
+}
+
+/** git's diff of two serialized trees, as ***plain text - see plainText. */
+export function diffSpecText(before: string, after: string, file = "spec.plain", layout?: SpecLayout): string {
+  return gitDiff(`${plainText(before, layout)}\n`, `${plainText(after, layout)}\n`, 3, [file, file]);
+}
+
+function makeStep(title: string, reason: string, changes: SpecChange[], before: string, after: string, file: string, layout?: SpecLayout): SpecStep {
   return {
     title,
     reason,
@@ -527,6 +669,7 @@ function makeStep(title: string, reason: string, changes: SpecChange[], before: 
     after,
     tree: parseTree(after),
     diff: diffTrees(before, after),
+    textDiff: diffSpecText(before, after, file, layout),
     sections: [...new Set(changes.map((change) => change.section))],
   };
 }
@@ -577,7 +720,7 @@ export function planPrompt(request: PlanRequest): string {
 }
 
 /** The planning agent: a model with one tool, to hand its plan back with. */
-export function llmPlanner(options: { cwd: string; model?: string }): Planner {
+export function llmPlanner(options: { cwd: string; model?: string; label?: string }): Planner {
   return async (request) => {
     let steps: PlannedStep[] | undefined;
     const submit: ToolDefinition = defineTool({
@@ -598,7 +741,13 @@ export function llmPlanner(options: { cwd: string; model?: string }): Planner {
         return { content: [{ type: "text" as const, text: "Plan recorded." }], details: {}, terminate: true };
       },
     }) as ToolDefinition;
-    const session = await createExecutor({ cwd: options.cwd, customTools: [submit], tools: ["submit_plan"], model: options.model });
+    const session = await createExecutor({
+      cwd: options.cwd,
+      customTools: [submit],
+      tools: ["submit_plan"],
+      model: options.model,
+      label: options.label ?? "spec steps planner",
+    });
     try {
       await ask(session, planPrompt(request));
     } finally {

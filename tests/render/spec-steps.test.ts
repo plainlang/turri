@@ -9,6 +9,7 @@ import {
   describeChange,
   onlyAppendsFunctionalSpecs,
   parseTree,
+  reachedByRendering,
   planPrompt,
   planSpecSteps,
   serializeTree,
@@ -17,6 +18,7 @@ import {
   type Planner,
 } from "../../src/render/spec-steps.ts";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
+import { withBuiltFunctionality } from "../../src/render/state.ts";
 
 const item = (markdown: string, extra: object = {}) => ({ markdown, ...extra });
 const tree = (sections: Record<string, string[]>): MarshalledPlainSource =>
@@ -94,6 +96,73 @@ describe("a change that only adds functional specs at the end", () => {
     expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(item("- A :User: can log out.")), "implementation reqs": [item("- Python 3.12.")] })).toBe(false);
     expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(item("- A :User: can log out.")), "test reqs": [item("- Tests run fresh.")] })).toBe(false);
     expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(item("- A :User: can log out.")), "required functional specs": [item("- Base one.")] })).toBe(false);
+  });
+});
+
+describe("whether the code reaches the spec by rendering the functional specs it lacks", () => {
+  const spec = (extra: { definitions?: string[]; reqs?: string[]; specs?: string[] } = {}): MarshalledPlainSource => ({
+    definitions: ["- :User: is a person.", "- :Order: is something a :User: bought.", ...(extra.definitions ?? [])].map((text) => item(text)),
+    "implementation reqs": ["- Python.", ...(extra.reqs ?? [])].map((text) => item(text)),
+    "functional specs": (extra.specs ?? ["- A :User: can sign up.", "- A :User: can see an :Order:."]).map((text) => item(text)),
+  });
+  /** What the code is built from after its first `count` functionalities were rendered from `tree`. */
+  const builtUpTo = (tree: MarshalledPlainSource, count: number) => {
+    let built: MarshalledPlainSource | null = null;
+    for (let frid = 1; frid <= count; frid += 1) built = withBuiltFunctionality(built, tree, String(frid));
+    return built;
+  };
+
+  it("does with nothing built, part built, and all built", () => {
+    const current = spec();
+    expect(reachedByRendering(null, current)).toBe(true);
+    expect(reachedByRendering(builtUpTo(current, 1), current)).toBe(true);
+    expect(reachedByRendering(builtUpTo(current, 2), current)).toBe(true);
+  });
+
+  it("does not when new functional specs come with a definition or a req: the shared sections changed", () => {
+    const before = spec();
+    const after = spec({
+      definitions: ["- :Refund: is money back for an :Order:."],
+      specs: ["- A :User: can sign up.", "- A :User: can see an :Order:.", "- A :User: can ask for a :Refund:."],
+    });
+    expect(reachedByRendering(builtUpTo(before, 2), after)).toBe(false);
+    expect(reachedByRendering(builtUpTo(before, 2), spec({ specs: ["- A :User: can sign up.", "- A :User: can see an :Order:.", "- A :User: can leave."] }))).toBe(true);
+  });
+
+  it("does not when a spec change built the sections and definitions came in since - no functional spec built yet", () => {
+    // As cognio's first spec change left it: the reqs built, no definitions, no functional spec.
+    const built = { "implementation reqs": [item("- Python.")], "test reqs": [item("- Conformance tests use pytest.")] };
+    const current = { ...built, definitions: [item("- :User: is a person.")], "functional specs": [item("- A :User: can sign up.")] };
+    expect(reachedByRendering(built, current)).toBe(false);
+    // With the sections as built, the new functional specs are rendered one by one.
+    expect(reachedByRendering(built, { ...built, "functional specs": [item("- The app starts.")] })).toBe(true);
+  });
+
+  it("does for a module with nothing of its own built - started from another's code, say - whatever it inherits", () => {
+    expect(reachedByRendering({ "required functional specs": [item("- Base one.", { module: "base", frid: "1" })] }, spec())).toBe(true);
+  });
+
+  it("does not when a built spec changed, a req came in on its own, a definition changed, or a spec went in before the end", () => {
+    const built = builtUpTo(spec(), 2);
+    expect(reachedByRendering(built, spec({ specs: ["- A :User: can sign up with an email.", "- A :User: can see an :Order:."] }))).toBe(false);
+    expect(reachedByRendering(built, spec({ reqs: ["- Every error is JSON."] }))).toBe(false);
+    const redefined = spec();
+    (redefined.definitions as Array<{ markdown: string }>)[0]!.markdown = "- :User: is a person with an email.";
+    expect(reachedByRendering(built, redefined)).toBe(false);
+    expect(reachedByRendering(built, spec({ specs: ["- A :User: can sign up.", "- A :User: can log in.", "- A :User: can see an :Order:."] }))).toBe(false);
+    expect(reachedByRendering(built, spec({ specs: ["- A :User: can sign up."] }))).toBe(false);
+  });
+
+  it("does not when only a built spec's acceptance tests changed", () => {
+    const withTest = (test: string): MarshalledPlainSource => ({ ...spec(), "functional specs": [item("- A :User: can sign up.", { acceptance_tests: [item(test)] })] });
+    expect(reachedByRendering(builtUpTo(withTest("- It returns 201."), 1), withTest("- It returns 200."))).toBe(false);
+  });
+
+  it("compares a tree recorded as text by an earlier plainwright as the spec reads", () => {
+    // Items with only their text, as an old record converts to - no code variables or links kept.
+    const old = { definitions: [item("- :User: is a person.")], "implementation reqs": [item("- Python.")], "functional specs": [item("- A :User: can sign up.")] };
+    const current = { ...old, "functional specs": [item("- A :User: can sign up.", { code_variables: [] }), item("- A :User: can log in.")] };
+    expect(reachedByRendering(old, current)).toBe(true);
   });
 });
 
@@ -412,5 +481,92 @@ describe("planning the steps", () => {
     const result = await planSpecSteps(from, to, { planner: oneEach });
     expect(result.steps).toHaveLength(4);
     expect(result.steps.at(-1)!.after).toBe(serializeTree(to));
+  });
+});
+
+describe("a spec change as ***plain text", () => {
+  it("has only the module's own sections, and only those with something in them - never the functional specs it inherits", async () => {
+    const { plainText, diffSpecText, serializeTree } = await import("../../src/render/spec-steps.ts");
+    const before = serializeTree({
+      "functional specs": [{ markdown: "- A :User: can sign up." }],
+      "required functional specs": [{ markdown: "- The base can boot." }],
+    } as never);
+    const after = serializeTree({
+      "implementation reqs": [{ markdown: "- Python." }],
+      "functional specs": [{ markdown: "- A :User: can sign up." }],
+      "required functional specs": [{ markdown: "- The base can boot, fast." }],
+    } as never);
+    expect(plainText(before)).toBe("***functional specs***\n\n- A :User: can sign up.");
+    const diff = diffSpecText(before, after, "app.plain");
+    expect(diff).toContain("+***implementation reqs***");
+    expect(diff).toContain("+- Python.");
+    expect(diff).not.toContain("required functional specs");
+    expect(diff).not.toContain("***definitions***");
+    expect(diff).not.toContain("The base can boot");
+  });
+});
+
+describe("a spec change laid out as the module's file", () => {
+  const FILE = [
+    "---",
+    "description: An app.",
+    "---",
+    "",
+    "***definitions***",
+    "",
+    "- :User: is a person.",
+    "",
+    "- :Profile: is what others see of a :User:.",
+    "",
+    "- :Token: is a bearer token.",
+    "",
+    "***implementation reqs***",
+    "",
+    "- :Implementation: is in Python.",
+    "- :Implementation: uses FastAPI.",
+    "",
+    "***functional specs***",
+    "",
+    "- A :User: can sign up.",
+    "",
+    "- A :User: can log in and gets a :Token:.",
+    "",
+  ].join("\n");
+
+  it("writes the spec back as the file has it: preamble, the file's order of definitions, its spacing", async () => {
+    const { plainFileParser } = await import("../../src/plain/parser.ts");
+    const { layoutOf, plainText, serializeTree } = await import("../../src/render/spec-steps.ts");
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "plainwright-layout-"));
+    writeFileSync(join(dir, "app.plain"), FILE);
+    const [, tree] = plainFileParser(join(dir, "app.plain"), [dir]);
+    expect(plainText(serializeTree(tree), layoutOf(FILE))).toBe(FILE.trimEnd());
+  });
+
+  it("numbers a step's lines as the file's, so its hunks point where the change is in the file", async () => {
+    const { layoutOf, diffSpecText, serializeTree } = await import("../../src/render/spec-steps.ts");
+    const before = serializeTree({
+      definitions: [{ markdown: "- :User: is a person." }, { markdown: "- :Profile: is what others see of a :User:." }],
+      "implementation reqs": [{ markdown: "- :Implementation: is in Python." }, { markdown: "- :Implementation: uses FastAPI." }],
+      "functional specs": [{ markdown: "- A :User: can sign up." }],
+    } as never);
+    const after = serializeTree({
+      // The parser's order - by what uses what - not the file's.
+      definitions: [{ markdown: "- :User: is a person." }, { markdown: "- :Token: is a bearer token." }, { markdown: "- :Profile: is what others see of a :User:." }],
+      "implementation reqs": [{ markdown: "- :Implementation: is in Python." }, { markdown: "- :Implementation: uses FastAPI." }],
+      "functional specs": [{ markdown: "- A :User: can sign up." }, { markdown: "- A :User: can log in and gets a :Token:." }],
+    } as never);
+    const diff = diffSpecText(before, after, "app.plain", layoutOf(FILE));
+    // :Token: after :Profile:, as in the file, on the file's line 11.
+    expect(diff).toContain(" - :Profile: is what others see of a :User:.\n \n+- :Token: is a bearer token.\n");
+    // Shaped as a spec diff written in the interview: no index line, nothing after a hunk's range.
+    expect(diff).not.toMatch(/^index /m);
+    expect(diff).toMatch(/^@@ -\d+(,\d+)? \+\d+(,\d+)? @@$/m);
+    expect(diff).not.toMatch(/^@@ .* @@ ./m);
+    expect(diff).toContain("+- A :User: can log in and gets a :Token:.");
+    // Three lines of context before it: :Token: goes in at the file's line 11.
+    expect(diff).toContain("@@ -8,6 +8,8 @@\n");
   });
 });

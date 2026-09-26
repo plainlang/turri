@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildConformancePrompt } from "../../src/render/prompt.ts";
-import { missingTestLabels } from "../../src/render/test-kinds.ts";
+import { acceptanceLabel, conformanceLabel, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "../../src/render/test-kinds.ts";
 
 let tests: string;
 beforeEach(() => {
@@ -80,3 +80,34 @@ describe("the conformance prompt", () => {
     expect(prompt).not.toContain("acceptance test 1");
   });
 });
+
+describe("conformance tests in the code folder", () => {
+  /** A file in the code folder under test. */
+  const write = (file: string, content: string) => {
+    mkdirSync(join(tests, file, ".."), { recursive: true });
+    writeFileSync(join(tests, file), content);
+  };
+
+  it("are found by their label, or as test files named or foldered for conformance or acceptance", () => {
+    write("src/app.py", "print('hi')\n");
+    write("tests/test_app.py", "def test_unit(): pass\n");
+    write("conformance_tests/test_conformance.py", "def test_x(): pass\n");
+    write("tests/test_login.py", `# ${conformanceLabel("1")}\ndef test_login(): pass\n`);
+    write("tests/test_accept_1.py", `# ${acceptanceLabel("2", 1)}: it works\n`);
+    write("tests/test_change.py", "# conformance tests of the spec\n");
+    expect(misplacedConformanceTests(tests).sort()).toEqual(["conformance_tests/test_conformance.py", "tests/test_accept_1.py", "tests/test_change.py", "tests/test_login.py"]);
+  });
+
+  it("are none in a code folder with only code and its unit tests - the working notes may name a label", () => {
+    write("src/app.py", "print('hi')\n");
+    write("tests/test_app.py", "def test_unit(): pass\n");
+    write(".plainwright-notes.md", `- ${conformanceLabel("1")} are in the tests folder\n`);
+    expect(misplacedConformanceTests(tests)).toEqual([]);
+  });
+
+  it("are sent back to be removed by the code agent, and moved by the conformance agent", () => {
+    expect(misplacedTestsPrompt(["tests/test_login.py"], "/p/code")).toContain("are not yours to write");
+    expect(misplacedTestsPrompt(["tests/test_login.py"], "/p/code", "/p/tests")).toContain("live in your working directory, /p/tests");
+  });
+});
+

@@ -74,3 +74,41 @@ export function labelsPrompt(frid: string, missing: string[]): string {
     "test of its own, not folded into a conformance test - and run the tests again.",
   ].join("\n");
 }
+
+/**
+ * Conformance and acceptance tests in the code folder, where they do not belong: they live in the
+ * module's tests folder, which the harness runs as the conformance suite. Found by their label, or
+ * by a test file under a name or folder that says conformance or acceptance - one written without
+ * a label is misplaced all the same.
+ */
+export function misplacedConformanceTests(codeDir: string): string[] {
+  const label = /conformance tests of (functionality [0-9]|the spec)|acceptance test [0-9]+ of functionality/i;
+  return listFiles(codeDir).filter((file) => {
+    const parts = file.toLowerCase().split("/");
+    const named = parts.some((part) => /conformance|acceptance/.test(part)) && /test/.test(parts.at(-1)!);
+    if (named) return true;
+    try {
+      const text = readFileSync(join(codeDir, file), "utf8");
+      return text.length < 500_000 && label.test(text);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Sent back when there are: to the agent writing the code, or to the one writing the tests. */
+export function misplacedTestsPrompt(files: string[], codeDir: string, testsDir?: string): string {
+  return [
+    `These are conformance or acceptance tests, in the code folder (${codeDir}), where they do not belong:`,
+    "",
+    ...files.map((file) => `- ${file}`),
+    "",
+    testsDir === undefined
+      ? "Conformance and acceptance tests are not yours to write: the conformance step writes them, in the module's " +
+        "tests folder. Remove these from the code folder. Your tests are the unit tests - write them as unit tests."
+      : `Conformance and acceptance tests live in your working directory, ${testsDir}, and nowhere else. Move these ` +
+        "there - labelled as they must be - and remove them from the code folder; the harness runs only that folder as " +
+        "the conformance suite.",
+  ].join("\n");
+}
+

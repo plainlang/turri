@@ -220,6 +220,40 @@ describe("rendering a spec diff before any functional spec exists", () => {
   });
 });
 
+describe("conformance for a spec change", () => {
+  it("follows the change whatever it touches - a definition, with no functional spec written yet", async () => {
+    const before = "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest.\n";
+    const after = "***definitions***\n\n- :User: is a person.\n\n" + before;
+    writeFileSync(join(dir, "app.plain"), before);
+    const diff = [
+      "diff --git a/app.plain b/app.plain",
+      "--- a/app.plain",
+      "+++ b/app.plain",
+      "@@ -1,3 +1,7 @@",
+      "+***definitions***",
+      "+",
+      "+- :User: is a person.",
+      "+",
+      " ***implementation reqs***",
+      " ",
+      " - Python.",
+      "",
+    ].join("\n");
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+
+    expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(after);
+    // The conformance step ran: the agent was asked, and the whole suite with it passes.
+    expect(result.conformance).toBeDefined();
+    expect(result.conformance!.passed).toBe(true);
+    const conformancePrompt = prompts.find((prompt) => prompt.includes("You are writing conformance tests"))!;
+    expect(conformancePrompt).toContain("+- :User: is a person.");
+    expect(conformancePrompt).toContain("The change is tested whatever it touches");
+    expect(conformancePrompt).toContain('"conformance tests of the spec"');
+    expect(result.passed).toBe(true);
+  });
+});
+
 describe("renders queued behind the interview", () => {
   it("render a diff that later changes have since gone on top of, without applying it again", async () => {
     const { createRenderQueue } = await import("../../src/render/queue.ts");

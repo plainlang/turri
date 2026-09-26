@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { basename } from "node:path";
 
 /**
  * What a background job is doing right now.
@@ -28,6 +27,8 @@ export interface ActivitySink {
   transcript(entry: TranscriptEntry): void;
   /** Aborted when the job is asked to stop. */
   signal?: AbortSignal;
+  /** Which job this is, for what records it - a debug log's header. */
+  job?: { id: string; kind: string; summary: string };
   /** The functional spec being built now, or nothing when none is. */
   spec?(spec: BuildingSpec | undefined): void;
 }
@@ -57,13 +58,19 @@ export function currentStopSignal(): AbortSignal | undefined {
   return store.getStore()?.signal;
 }
 
+/** The job this code is running for, if it is running for one. */
+export function currentJob(): { id: string; kind: string; summary: string } | undefined {
+  return store.getStore()?.job;
+}
+
 /**
  * The conversation an agent is having, as it happens: what it was asked, what it wrote and
  * thought, what it called and what came back. Text and thinking arrive as deltas and are
  * joined to the entry before them of the same kind.
  */
 export interface TranscriptEntry {
-  kind: "stage" | "spec" | "prompt" | "text" | "thinking" | "tool" | "result";
+  /** `diff`: a spec change the job is about to render, as a git diff. */
+  kind: "stage" | "spec" | "diff" | "prompt" | "text" | "thinking" | "tool" | "result";
   text: string;
   /** For a result: whether the tool failed. */
   error?: boolean;
@@ -120,11 +127,22 @@ function clip(text: string): string {
   return one.length > MAX_ARG ? `${one.slice(0, MAX_ARG - 1)}…` : one;
 }
 
+/**
+ * Paths as they are inside `plain_modules`: everything up to and including it left out, wherever
+ * a path to it appears - `/Users/…/project/plain_modules/app/code/main.py` is `app/code/main.py`.
+ * The rest of the path is the same for every line, and is what pushes the part that differs off
+ * the end of it.
+ */
+export function withinModules(text: string): string {
+  return text.replace(/(?:(?:\/|~\/)(?:[^\s'"`/]+\/)*|(?<![\w.-]))plain_modules\//g, "");
+}
+
 /** A tool call as one short line. Unknown tools still show up, by name. */
 export function describeToolCall(name: string, args: Record<string, unknown> | undefined): string {
-  const path = typeof args?.path === "string" ? args.path : undefined;
-  const command = typeof args?.command === "string" ? args.command : undefined;
-  const pattern = typeof args?.pattern === "string" ? args.pattern : undefined;
+  const text = (key: string) => (typeof args?.[key] === "string" ? withinModules(args[key] as string) : undefined);
+  const path = text("path");
+  const command = text("command");
+  const pattern = text("pattern");
 
   switch (name) {
     case "write":
@@ -132,7 +150,7 @@ export function describeToolCall(name: string, args: Record<string, unknown> | u
     case "edit":
       return `✎ edit ${path ?? ""}`.trimEnd();
     case "read":
-      return `  read ${path ? basename(path) : ""}`.trimEnd();
+      return `  read ${path ?? ""}`.trimEnd();
     case "ls":
     case "find":
     case "grep":

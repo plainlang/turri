@@ -74,6 +74,35 @@ describe("the transcript viewer", () => {
     expect(lines).toContain("agent ▸");
   });
 
+  it("shows a spec change a job renders where it comes, coloured, as the change a render spec diff job leads with", async () => {
+    const job = await jobWith(() => {
+      reportTranscript({ kind: "stage", text: "cognio: spec diff 2 of 3 - Reject duplicate registrations" });
+      reportTranscript({ kind: "diff", text: "--- a/cognio.plain\n+++ b/cognio.plain\n@@ -3 +3,2 @@\n - A student can register.\n+  - Duplicates return 409.\n-  - Old line." });
+      reportTranscript({ kind: "prompt", text: "Make the code match the spec change." });
+    });
+    const style = { heading: (t: string) => t, muted: (t: string) => `~${t}`, accent: (t: string) => t, error: (t: string) => t, added: (t: string) => `+${t}`, removed: (t: string) => `-${t}` };
+    const lines = transcriptLines(job, 80, style);
+    const at = lines.indexOf("── the spec change");
+    expect(at).toBeGreaterThan(lines.indexOf("── cognio: spec diff 2 of 3 - Reject duplicate registrations"));
+    expect(lines.slice(at + 1, at + 7)).toEqual([
+      "~--- a/cognio.plain",
+      "~+++ b/cognio.plain",
+      "~@@ -3 +3,2 @@",
+      "~ - A student can register.",
+      "++  - Duplicates return 409.",
+      "--  - Old line.",
+    ]);
+    expect(lines.indexOf("~harness ▸")).toBeGreaterThan(at);
+  });
+
+  it("wraps a spec diff line wider than the screen, so a change near its end is still there", async () => {
+    const long = `+- A student can register with an email and a handle, and a request whose email or handle already exists returns 409 Conflict`;
+    const job = await jobWith(() => reportTranscript({ kind: "diff", text: long }));
+    const lines = transcriptLines(job, 60);
+    expect(lines.every((line) => line.length <= 60)).toBe(true);
+    expect(lines.join(" ").replace(/\s+/g, " ")).toContain("already exists returns 409 Conflict");
+  });
+
   it("follows the newest line, and scrolls back when asked", async () => {
     const job = await jobWith(() => {
       for (let i = 0; i < 50; i += 1) reportTranscript({ kind: "result", text: `line ${i}` });

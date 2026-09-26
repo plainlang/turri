@@ -18,7 +18,7 @@ The skills that build from scratch:
 
 | skill | how it works |
 | --- | --- |
-| `forge-plain` | intent, stack, then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job the moment it is written - then testing: conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing, and conformance tests for the functional specs you pick |
+| `forge-plain` | intent, stack, then testing - conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job the moment it is written, with its conformance tests when they are on |
 
 `skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
@@ -144,6 +144,30 @@ committed. Installed dependencies and caches are not in the history and stay. Wi
 ```bash
 git --git-dir=plain_modules/<module>/.plaingit --work-tree=plain_modules/<module> log
 ```
+
+## Agent logs
+
+When an agent does something you cannot explain, `/watch` is not always enough: it clips a tool
+call's arguments and results, and it is gone when pi exits. So every agent a render starts - the
+coding agent, the conformance agent, the repair agent, the spec-steps planner - also streams its
+whole conversation to a file of its own, always.
+
+The logs are in `.plainwright/debug/` in the project, beside `plain_modules`, one per agent, named
+by when it started and what it is: `2026-09-26T13-45-02-123Z-app-3-coding-agent.log`. Each starts
+with the job it runs for, its model and thinking level, its folder, its saved pi session, its
+tools and its system prompt, and then has, in order and stamped with the time: every prompt it is
+sent, whole; its thinking and replies as they stream; every tool call with its arguments, numbered
+- `→ #3 bash` - and its whole result under the same number, `← #3 bash done`, since calls made
+together run at once and finish in any order; a tool call a response was cut off in, marked as
+never run; each response's stop reason, tokens and cost; the provider's
+retries and errors; and how each turn ended. Every line is on disk as it happens, so
+`tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The job
+panel names each agent's log as it starts.
+
+No agent can read the logs: they are outside `plain_modules` - or, for a `--build-dir` outside it,
+beside that folder rather than in it. Nothing prunes them either - delete
+the folder when you are done with it. A log that cannot be written is given up on without failing
+the render.
 
 ## From the command line
 

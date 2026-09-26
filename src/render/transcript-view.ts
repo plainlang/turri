@@ -39,6 +39,23 @@ function wrap(text: string, width: number, indent: string): string[] {
     .map((line) => `${indent}${line}`);
 }
 
+/**
+ * A spec change's diff, whole: what it adds and removes coloured, the rest receding. A line wider
+ * than the screen wraps rather than being cut - a spec line changed near its end is the change.
+ */
+function diffLines(diff: string, width: number, style: TranscriptStyle): string[] {
+  return diff
+    .trimEnd()
+    .split("\n")
+    .flatMap((line) => {
+      const colour = styleDiffLine(line, style) === line ? style.muted : line.startsWith("+") ? style.added : style.removed;
+      if (line === "") return [""];
+      const [first = "", ...rest] = wrapTextWithAnsi(line, Math.max(10, width));
+      // Continuations indented past the +/- column, so it stays readable.
+      return [colour(first), ...rest.flatMap((part) => wrapTextWithAnsi(part, Math.max(10, width - 2))).map((part) => colour(`  ${part}`))];
+    });
+}
+
 function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyle): string[] {
   switch (entry.kind) {
     case "stage":
@@ -48,6 +65,8 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
       const [label, ...text] = entry.text.split("\n");
       return ["", style.heading(`── building ${label}`), ...text.flatMap((line) => wrap(line, width, "  │ ").map(style.accent))];
     }
+    case "diff":
+      return ["", style.heading("── the spec change"), ...diffLines(entry.text, width, style)];
     case "prompt":
       return ["", style.muted("harness ▸"), ...wrap(entry.text, width, "  ").map(style.muted)];
     case "text":
@@ -66,21 +85,7 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
  * job, by the change it renders, which is readable before the job has even started.
  */
 export function transcriptLines(job: Job, width: number, style: TranscriptStyle = PLAIN): string[] {
-  const change =
-    job.diff === undefined
-      ? []
-      : [
-          style.heading("── the spec change"),
-          ...job.diff
-            .trimEnd()
-            .split("\n")
-            .map((line) => {
-              const clipped = truncateToWidth(line, width);
-              const styled = styleDiffLine(clipped, style);
-              // Headers and unchanged context are there to place the change; they recede.
-              return styled === clipped ? style.muted(clipped) : styled;
-            }),
-        ];
+  const change = job.diff === undefined ? [] : [style.heading("── the spec change"), ...diffLines(job.diff, width, style)];
   if (job.transcript.length === 0) {
     return [...change, ...(change.length > 0 ? [""] : []), style.muted(job.status === "queued" ? "(queued - not started yet)" : "(nothing yet)")];
   }

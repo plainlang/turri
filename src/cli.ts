@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { CODING_MODEL_ENV, chatModels } from "./chat-models.ts";
 import { readProjectConfig } from "./config.ts";
 import { extensionInstalledGlobally, PACKAGE_ROOT, themesInstalledGlobally } from "./environment.ts";
+import { dropNoise } from "./quiet.ts";
 
 /**
  * Start pi with this project's extension and themes already wired in.
@@ -83,12 +84,14 @@ const USAGE = [
   "specification, so that linked resources inside it resolve the way the parser expects.",
 ].join("\n");
 
+dropNoise();
 const [command, ...rest] = process.argv.slice(2);
 
 if (command === undefined || command === "-h" || command === "--help") {
   console.log(USAGE);
   process.exit(command === undefined ? 1 : 0);
 }
+
 
 if (command === "chat") chat(rest);
 

@@ -21,6 +21,7 @@ import {
   reportTranscript,
   reportUsage,
 } from "./render/activity.ts";
+import { debugLogOf, startDebugLog } from "./render/debug-log.ts";
 
 type ThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
 
@@ -208,20 +209,33 @@ export async function ask(
   const onStop = () => void session.abort();
   stop?.addEventListener("abort", onStop, { once: true });
 
+  // For the agent's log: the whole prompt and how the turn ended; the session streams the rest.
+  const debug = debugLogOf(session);
+  const turnStarted = Date.now();
+  debug?.prompt(text);
+
   try {
     await session.prompt(text, { expandPromptTemplates: false });
+  } catch (error) {
+    debug?.note(`turn failed after ${seconds(Date.now() - turnStarted)}: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   } finally {
     unsubscribe();
     stop?.removeEventListener("abort", onStop);
     reportNow(undefined);
   }
 
-  if (stop?.aborted) throw new JobStoppedError();
+  if (stop?.aborted) {
+    debug?.note(`turn stopped on request after ${seconds(Date.now() - turnStarted)}`);
+    throw new JobStoppedError();
+  }
 
   if (providerError !== undefined) {
+    debug?.note(`turn ended with a provider error after ${seconds(Date.now() - turnStarted)}: ${providerError}`);
     throw new ProviderError(`${session.model?.id ?? "model"}: ${providerError}`);
   }
 
+  debug?.note(`turn finished after ${seconds(Date.now() - turnStarted)}`);
   return out.trim();
 }
 
@@ -240,6 +254,11 @@ export async function createExecutor(opts: {
   rules?: boolean;
   /** Continue the session saved in this file, instead of starting a new one. */
   resumeFrom?: string;
+  /**
+   * What the agent is, e.g. "app 3 coding agent". Given, the agent is one a render started: its
+   * whole conversation is streamed to a log named after it (see debug-log.ts).
+   */
+  label?: string;
 }): Promise<AgentSession> {
   // Saved to disk, in the project: an agent's session is the record of what it did, and the
   // only way to pick a long run back up after the process that ran it is gone.
@@ -266,6 +285,9 @@ export async function createExecutor(opts: {
   // After the model: switching models picks a thinking level of its own.
   const thinking = inheritedThinkingLevel();
   if (thinking !== undefined) session.setThinkingLevel(thinking);
+
+  // After both, so the log's header says what it really runs on.
+  if (opts.label !== undefined) startDebugLog(session, { cwd: opts.cwd, label: opts.label, tools: opts.tools });
 
   return session;
 }

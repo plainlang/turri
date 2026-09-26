@@ -113,9 +113,10 @@ describe("continuous review", () => {
 });
 
 describe("forge-plain's phases", () => {
-  it("are intent, stack, product and testing - the product phase gated, testing after it", () => {
+  it("are intent, stack, testing and product - testing before the product phase, so its changes are conformance tested as they are built", () => {
     const skill = loadSkill("skills/forge-plain");
-    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "stack", "product", "testing"]);
+    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "stack", "testing", "product"]);
+    expect(skill.steps.find((step) => step.name === "product")!.gate).toBeDefined();
     expect(skill.steps.find((step) => step.name === "testing")!.gate).toBeUndefined();
   });
 });

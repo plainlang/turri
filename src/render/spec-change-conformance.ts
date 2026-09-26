@@ -76,11 +76,9 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
       `bringing the conformance tests in ${moduleName}'s codebase in line with it`,
   );
 
+  // The change is tested whatever it touches - with or without a functional spec yet.
   const frids = [...getFrids(tree)];
   const lastFrid = frids.at(-1);
-  if (lastFrid === undefined) {
-    throw new Error(`${moduleName} has no functional specs yet, so there is nothing for conformance tests to test.`);
-  }
   if ((sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length === 0) {
     throw new Error(
       `${moduleName} has no ${TEST_REQUIREMENTS}, so conformance tests cannot be written: they say how conformance tests ` +

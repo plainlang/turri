@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import { ask, createExecutor } from "../pi.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { getFrids,
@@ -12,7 +12,7 @@ import {
   renderConformanceTests,
   type RenderConformanceTestsResult,
 } from "./conformance.ts";
-import { reportActivity, reportStage } from "./activity.ts";
+import { reportActivity, reportStage, reportTranscript } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot, projectRootOf, projectDirOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
@@ -40,6 +40,9 @@ import {
   type ChainEntry,
 } from "./requires.ts";
 import type { RequiredSpec } from "./state.ts";
+import { readBuiltTree } from "./state.ts";
+import { llmPlanner, planSpecSteps, reachedByRendering, type Planner } from "./spec-steps.ts";
+import type { RenderSpecDiffResult, SpecSnapshot } from "./spec-change.ts";
 import {
   describePending,
   isModuleUpToDate,
@@ -99,6 +102,30 @@ export interface RenderModuleResult {
   /** Whether conformance tests were written, and if not, why not. */
   conformance: "on" | "off: no test reqs" | "off: asked";
   passed: boolean;
+  /**
+   * When the spec had moved on from the code in more than new functional specs, the spec diffs it
+   * was brought up to date with, in order - rendered up to the first that did not pass - and
+   * `outcomes` is empty.
+   */
+  specSteps?: SpecStepOutcome[];
+  /** Those spec diffs, when they were queued as render spec diff jobs rather than rendered here. */
+  queuedSpecDiffs?: Array<{ title: string; jobId: string }>;
+}
+
+/** A spec diff to queue as a job of its own: the diff, and the spec as it leaves it. */
+export interface QueuedSpecStep {
+  title: string;
+  plainFile: string;
+  diff: string;
+  spec: SpecSnapshot;
+}
+
+export interface SpecStepOutcome {
+  title: string;
+  reason: string;
+  /** The sections it changed. */
+  sections: string[];
+  result: RenderSpecDiffResult;
 }
 
 export interface RenderModuleOptions {
@@ -127,6 +154,13 @@ export interface RenderModuleOptions {
   tryIt?: boolean;
   onDelta?: (delta: string) => void;
   onEvent?: (event: ModuleEvent) => void;
+  /** Orders the changes into spec diffs when it takes them. The planning agent, by default. */
+  planner?: Planner;
+  /**
+   * Given, spec diffs are not rendered here but handed over, in order, to be queued as render spec
+   * diff jobs - as forge-plain queues them. Returns each one's job id.
+   */
+  queueSpecDiffs?: (steps: QueuedSpecStep[]) => string[];
 }
 
 export type ModuleEvent =
@@ -136,7 +170,10 @@ export type ModuleEvent =
   | { type: "run"; command: string; exitCode: number; frids?: string[] }
   | { type: "repair"; frids: string[] }
   | { type: "functionality_done"; frid: string }
-  | { type: "stopped"; frid: string; at: string };
+  | { type: "stopped"; frid: string; at: string }
+  /** A spec diff of the several a spec that moved on is brought in as, starting: its place, its title, the diff. */
+  | { type: "spec_diff_start"; index: number; total: number; title: string; diff: string }
+  | { type: "spec_diff_done"; index: number; passed: boolean };
 
 /** The module's conformance tests, when there are any: the chain's, copied up, and its own. */
 function conformanceDirs(conformanceRoot: string, moduleName: string): string[] {
@@ -183,6 +220,7 @@ async function repairRegression(input: {
     ],
     tools: [...fence.names, ...FIX_TOOLS, ...WEB_TOOLS],
     model: input.model,
+    label: `${input.step} repair agent`,
   });
 
   try {
@@ -283,8 +321,23 @@ export async function ensureRegressionPasses(input: {
     reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
     input.onEvent?.({ type: "run", command, exitCode: result.exitCode, frids: input.frids });
 
-    if (result.exitCode === 0) {
-      reportStage(`${input.moduleName}: the whole conformance suite passes${repairs.length > 0 ? ` after ${repairs.length} repair${repairs.length === 1 ? "" : "s"}` : ""}`);
+    // The whole suite passing is half of it: the unit tests have to pass with it.
+    let failure = result.output;
+    let passing = result.exitCode === 0;
+    if (passing && input.scripts.unit !== undefined) {
+      reportStage(`${input.moduleName}: the whole conformance suite passes - running the unit testing script too`);
+      const unit = await runUnitScript(input.buildDir, input.scripts.unit);
+      runs.push({ command: unit.command, exitCode: unit.exitCode, frids: input.frids });
+      input.onEvent?.({ type: "run", command: unit.command, exitCode: unit.exitCode, frids: input.frids });
+      if (unit.exitCode !== 0) {
+        reportActivity(`  ✗ unit tests failing (exit ${unit.exitCode}) with the conformance suite passing`);
+        passing = false;
+        failure = `The conformance suite passes, but the code's unit tests do not - and both have to.\n\n${unit.output}`;
+      }
+    }
+
+    if (passing) {
+      reportStage(`${input.moduleName}: the whole conformance suite passes, and the unit tests with it${repairs.length > 0 ? ` after ${repairs.length} repair${repairs.length === 1 ? "" : "s"}` : ""}`);
       if (repairs.length > 0) {
         recordHistory(input.buildDir, `regression ${input.moduleName} (pass after ${repairs.length} repair(s))`);
       }
@@ -302,7 +355,7 @@ export async function ensureRegressionPasses(input: {
         frids: input.frids,
         tree: input.tree,
         required: input.required,
-        failure: result.output,
+        failure,
         step: input.step ?? `${input.moduleName} ${input.frids.at(-1)}`,
         scripts: input.scripts,
         model: input.model,
@@ -331,6 +384,48 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot(projectDirOf(options.plainFile)));
   // A module build starts from the last known good state of its codebase.
   startFromLastCommit(buildDir, moduleName);
+
+  // The spec may have moved on from the code in more than new functional specs - one changed in
+  // place, a req added, a definition changed. Rendering the new ones would miss that, so the
+  // change is brought in as spec diffs instead. Asked for a range, or to rebuild, it is built
+  // functionality by functionality as asked.
+  if (options.from === undefined && options.to === undefined && !options.force) {
+    const built = readBuiltTree(buildDir);
+    if (built !== null && !reachedByRendering(built, tree)) {
+      const brought = await renderAsSpecDiffs(options, { moduleName, tree, built, buildDir });
+      if (brought !== undefined && "queued" in brought) {
+        return {
+          moduleName,
+          buildDir,
+          conformanceRoot,
+          frids: allFrids,
+          outcomes: [],
+          completed: [],
+          conformance: options.conformance === false ? "off: asked" : "on",
+          passed: true,
+          specSteps: [],
+          queuedSpecDiffs: brought.queued,
+        };
+      }
+      const specSteps = brought;
+      if (specSteps !== undefined) {
+        const conformanceRoot = resolve(options.conformanceRoot ?? modulesRoot(projectDirOf(options.plainFile)));
+        const hasTestReqs = (getSpecificationItems(tree, TEST_REQUIREMENTS) ?? []).length > 0;
+        const passed = specSteps.every((step) => step.result.passed);
+        return {
+          moduleName,
+          buildDir,
+          conformanceRoot,
+          frids: allFrids,
+          outcomes: [],
+          completed: passed ? allFrids : [],
+          conformance: options.conformance === false ? "off: asked" : (options.conformance ?? hasTestReqs) ? "on" : "off: no test reqs",
+          passed,
+          specSteps,
+        };
+      }
+    }
+  }
 
   const fromIndex = options.from ? allFrids.indexOf(options.from) : 0;
   if (fromIndex === -1) throw new Error(`Functionality ${options.from} does not exist.`);
@@ -505,6 +600,64 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
     conformance: conformanceEnabled ? "on" : options.conformance === false ? "off: asked" : "off: no test reqs",
     passed: outcomes.length > 0 && outcomes.every((outcome) => outcome.stoppedAt === null),
   };
+}
+
+/**
+ * Bring a module's code up to its spec as a sequence of spec diffs: the changes between the tree
+ * the code is built from and the spec, ordered into steps, each rendered as a spec diff from the
+ * spec as that step leaves it - up to the first that does not pass. Undefined when the change
+ * does not land in this module's own codebase - a later module is built on it - where the chain
+ * brings it in instead.
+ */
+async function renderAsSpecDiffs(
+  options: RenderModuleOptions,
+  module: { moduleName: string; tree: MarshalledPlainSource; built: MarshalledPlainSource; buildDir: string },
+): Promise<SpecStepOutcome[] | { queued: Array<{ title: string; jobId: string }> } | undefined> {
+  const { renderSpecDiff, snapshotSpec } = await import("./spec-change.ts");
+  const project = projectDirOf(options.plainFile);
+  const snapshot = snapshotSpec(options.plainFile, { cwd: project, templateDirs: options.templateDirs });
+  const tip = snapshot.chain.at(-1)!;
+  if (tip.moduleName !== module.moduleName || resolve(tip.buildDir) !== resolve(module.buildDir)) return undefined;
+
+  reportStage(`${module.moduleName}: the spec has moved on from the code in more than new functional specs - planning the change as spec diffs`);
+  const plan = await planSpecSteps(module.built, module.tree, {
+    planner: options.planner ?? llmPlanner({ cwd: project, model: options.model, label: `${module.moduleName} spec steps planner` }),
+    specFile: relative(project, options.plainFile),
+    specText: readFileSync(options.plainFile, "utf8"),
+  });
+  reportStage(`${module.moduleName}: ${plan.steps.length} spec diff${plan.steps.length === 1 ? "" : "s"} - ${plan.steps.map((step) => step.title).join("; ")}`);
+
+  if (options.queueSpecDiffs !== undefined) {
+    const ids = options.queueSpecDiffs(
+      plan.steps.map((step) => ({ title: step.title, plainFile: options.plainFile, diff: step.textDiff, spec: { ...snapshot, tree: step.tree } })),
+    );
+    return { queued: plan.steps.map((step, index) => ({ title: step.title, jobId: ids[index]! })) };
+  }
+
+  const outcomes: SpecStepOutcome[] = [];
+  for (const [index, step] of plan.steps.entries()) {
+    reportStage(`${module.moduleName}: spec diff ${index + 1} of ${plan.steps.length} - ${step.title}`);
+    // What it renders, as a render spec diff job shows its diff: with the progress, and in /watch.
+    reportTranscript({ kind: "diff", text: step.textDiff });
+    options.onEvent?.({ type: "spec_diff_start", index: index + 1, total: plan.steps.length, title: step.title, diff: step.textDiff });
+    const result = await renderSpecDiff({
+      plainFile: options.plainFile,
+      diff: step.textDiff,
+      cwd: project,
+      templateDirs: options.templateDirs,
+      // The spec is already as it ends; each step is built from the spec as it leaves it.
+      applied: "already applied",
+      spec: { ...snapshot, tree: step.tree },
+      conformance: options.conformance,
+      model: options.model,
+      tryIt: options.tryIt === true && index === plan.steps.length - 1,
+      onDelta: options.onDelta,
+    });
+    outcomes.push({ title: step.title, reason: step.reason, sections: step.sections, result });
+    options.onEvent?.({ type: "spec_diff_done", index: index + 1, passed: result.passed });
+    if (!result.passed) break;
+  }
+  return outcomes;
 }
 
 export interface RegenerateFunctionalityOptions extends RenderModuleOptions {
@@ -795,7 +948,8 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
     }
 
     const [, entryTree] = plainFileParser(basename(entry.plainFile), resolveTemplateDirs(entry.plainFile, options.templateDirs));
-    if (!options.force && isModuleUpToDate(entryTree, entry.buildDir)) {
+    // Up to date: every functionality built, from the spec as it stands - its sections too.
+    if (!options.force && isModuleUpToDate(entryTree, entry.buildDir) && reachedByRendering(readBuiltTree(entry.buildDir), entryTree)) {
       reportActivity(`  ${entry.moduleName}: already built from its current spec - skipped`);
       options.onChainEvent?.({ type: "module_skipped", module: entry.moduleName });
       outcomes.push({ module: entry.moduleName, skipped: true, copied: 0 });
@@ -837,6 +991,9 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
     options.onChainEvent?.({ type: "module_done", module: entry.moduleName, passed: result.passed });
 
     if (!result.passed) return { chain, outcomes, passed: false };
+    // Its spec diffs are queued, not built: a module after it would be built on the code before them.
+    // The chain stops here; asking again once they land picks it up.
+    if (result.queuedSpecDiffs !== undefined && index < chain.length - 1) return { chain, outcomes, passed: true };
   }
 
   return { chain, outcomes, passed: true };
@@ -862,6 +1019,18 @@ export function describeChainStop(result: RenderChainResult): string | undefined
     for (const regenerated of outcome.regenerated ?? []) {
       const facts = stopFacts(regenerated.moduleName, regenerated);
       if (facts) return describeStop(facts);
+    }
+    for (const step of outcome.result?.specSteps ?? []) {
+      const { result: change } = step;
+      if (change.stoppedAt === null) continue;
+      return describeStop({
+        moduleName: change.moduleName,
+        at: change.stoppedAt,
+        runs: change.runs,
+        attempts: change.attempts,
+        conformance: change.conformance,
+        repairs: change.regression?.repairs.length,
+      });
     }
     for (const functionality of outcome.result?.outcomes ?? []) {
       const facts = stopFacts(outcome.module, functionality);

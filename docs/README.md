@@ -24,6 +24,7 @@ pages go into each part.
 | how to build the full VM image, and what the stock one cannot do | [installation](installation.md#building-the-vm-image) |
 | how to start a project, or add a feature, in a conversation | [using](using.md#in-a-conversation) |
 | which model renders, and how to change it | [using](using.md#choosing-a-model) |
+| everything an agent was sent and did, to debug it | [using](using.md#agent-logs) |
 | how to render a spec overnight, and resume it | [running unattended](headless.md) |
 | how to rebuild one functionality | [running unattended](headless.md#rebuilding-one-functionality) |
 | what goes in which section of a spec | [authoring \*\*\*plain](authoring-plain.md#what-a-spec-is-made-of) |

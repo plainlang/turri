@@ -53,7 +53,9 @@ go through `write_spec_diff` is a change nothing renders.
   policy, an ordering guarantee, a data-format rule. The technology was settled in the stack
   phase; an answer that needs a new technology is a stack answer - note it and steer back.
 
-Write no `***test reqs***` and no `***acceptance tests***`.
+Leave the `***test reqs***` as the testing phase wrote them, and write no `***acceptance tests***`.
+With conformance on, every change is built with its conformance tests - from the test reqs as they
+stand.
 
 ## Topics (in order)
 

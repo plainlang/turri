@@ -113,7 +113,9 @@ async function main() {
       continue;
     }
     const inner = outcome.result;
-    const detail = inner
+    const detail = inner?.specSteps !== undefined
+      ? `${inner.specSteps.filter((step) => step.result.passed).length}/${inner.specSteps.length} spec diffs`
+      : inner
       ? `${inner.completed.length}/${inner.frids.length} functionalities` +
         (outcome.copied > 0 ? `, ${outcome.copied} files copied in` : "")
       : "not started";

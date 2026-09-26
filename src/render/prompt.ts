@@ -152,6 +152,8 @@ function workingRules(hasCodebase: boolean): string[] {
         ]
       : []),
     "- Write the implementation first, then unit tests covering it.",
+    "- Your tests are unit tests, in the code. Conformance and acceptance tests are not yours: they are",
+    "  written after you, from the spec, in the module's tests folder.",
     "- Honour every implementation req: they constrain the whole codebase, not just this step.",
     "- The implementation reqs say how the code and its unit tests must be built. Follow them.",
     "- Terms in `:ColonWrapped:` form are defined in the definitions; use them as written.",
@@ -220,6 +222,8 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
     "",
     "- Implement what the change adds. Update what it changes. Remove what it removes - its code and its",
     "  unit tests - where nothing that remains still needs it.",
+    "- Your tests are unit tests, in the code. Conformance and acceptance tests are not yours: they are",
+    "  written after you, from the spec, in the module's tests folder.",
     "- A change to a definition or a req reaches every functional spec that relies on it. Follow it there.",
     "- Everything the change does not touch must keep working, and its tests passing.",
     "- If the specs as they now stand hold changes that are not in <spec change>, those are later changes,",
@@ -335,7 +339,8 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
 
 export interface ConformancePromptInput {
   moduleName: string;
-  frid: string;
+  /** The functionality under test; for a spec change, the last there is - none before the first is written. */
+  frid?: string;
   specifications: Specifications;
   linkedResources: LoadedResource[];
   /** File names in the build directory. */
@@ -364,8 +369,9 @@ export interface ConformancePromptInput {
 export function buildConformancePrompt(input: ConformancePromptInput): string {
   const { specifications } = input;
   const functionalities = specifications[FUNCTIONAL_REQUIREMENTS];
+  const forChange = input.diff !== undefined;
   const target = functionalities[functionalities.length - 1];
-  if (target === undefined) throw new Error(`Functionality ${input.frid} has no specification text.`);
+  if (target === undefined && !forChange) throw new Error(`Functionality ${input.frid} has no specification text.`);
 
   const parts: Array<string | null> = [
     `You are writing conformance tests for the \`${input.moduleName}\` specification.`,
@@ -403,7 +409,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     input.diff !== undefined
       ? `<spec change>\n${input.diff.trim()}\n</spec change>`
       : `<functionality id="${input.frid}">\n${target}\n</functionality>`,
-    input.diff !== undefined ? null : numberedAcceptanceTests(input.frid, specifications[ACCEPTANCE_TESTS] ?? []),
+    input.diff !== undefined ? null : numberedAcceptanceTests(input.frid!, specifications[ACCEPTANCE_TESTS] ?? []),
     `<files in the build>\n${input.manifest.join("\n")}\n</files in the build>`,
     input.existingTests && input.existingTests.length > 0
       ? [
@@ -424,6 +430,9 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           "",
           "- Add tests for behaviour the change adds, change the tests of behaviour it changes, and remove the",
           "  tests of behaviour it removes. Leave the tests of everything the change does not touch as they are.",
+          "- The change is tested whatever it touches: a definition, an implementation req, the test reqs, as",
+          "  well as a functional spec. Where it changes what built software must do or how the tests reach it,",
+          "  the tests check that - with or without a functional spec that uses it yet.",
           "- A test is removed only because the spec no longer asks for what it checks. Say which, and why.",
         ]
       : [
@@ -432,12 +441,16 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           `- Test functionality ${input.frid} only. What is listed as already implemented is there to be`,
           "  used - to set up the state a test needs - not tested again.",
         ]),
-    "- Write them in the working directory. It is merged with the build when they run, so refer",
+    "- Write them in your working directory - the module's tests folder - and nowhere else: never in the",
+    "  code folder, never beside the unit tests. That folder is the conformance suite; the harness runs it,",
+    "  and nothing else, as one. When it runs, the tests are put together with a copy of the build, so refer",
     "  to the built files by the paths in <files in the build>, resolved against the current working",
     "  directory rather than against your test file's own location.",
     "- Organise the tests however suits them - files, folders, shared helpers. Make it clear which",
-    `  functionality a test covers, so functionality ${input.frid}'s tests can be found and updated later.`,
-    ...testKinds(input.frid, input.diff !== undefined ? undefined : (specifications[ACCEPTANCE_TESTS] ?? []).length),
+    forChange
+      ? "  functionality a test covers, so its tests can be found and updated later."
+      : `  functionality a test covers, so functionality ${input.frid}'s tests can be found and updated later.`,
+    ...(forChange ? changeTestKinds() : testKinds(input.frid!, (specifications[ACCEPTANCE_TESTS] ?? []).length)),
     "- Test observable behaviour only: output, exit codes, files produced, values returned by the",
     "  public entry point. Never assert on internal names, private helpers or implementation detail.",
     "- The test reqs say how conformance tests must be written and run. Follow them.",
@@ -466,6 +479,23 @@ function numberedAcceptanceTests(frid: string, items: string[]): string | null {
   const rendered = items.map((item, i) => `${acceptanceLabel(frid, i + 1)}: ${acceptanceText(item)}`);
   return `<acceptance tests>\n${rendered.join("\n\n")}\n</acceptance tests>`;
 }
+
+/** The two kinds of test, for a spec change: each labelled with what it covers. */
+function changeTestKinds(): string[] {
+  return [
+    "- Conformance tests come from the specs themselves: what they say the software does, its edge cases, its",
+    "  errors - written as if no acceptance tests had been given. They do not copy the acceptance tests.",
+    `- Label them: files whose names say conformance, each with a comment at its top naming the functionality it`,
+    `  covers - "${conformanceLabel("<id>")}" - or, for one that covers no functional spec yet, "${CHANGE_LABEL}".`,
+    "- Acceptance tests - the ones the specs list under acceptance tests - are implemented separately from the",
+    "  conformance tests, each as its own test, doing what it says, in files whose names say acceptance.",
+    `- Label each acceptance test with a comment right above it: "${acceptanceLabel("<id>", 1)}:" and the text`,
+    "  of the acceptance test, numbered as the spec lists them.",
+  ];
+}
+
+/** What a conformance test covering no functional spec yet - a definition, a req - is labelled. */
+export const CHANGE_LABEL = "conformance tests of the spec";
 
 /**
  * The two kinds of test, kept apart and labelled (see test-kinds.ts). `acceptance` is how many

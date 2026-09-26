@@ -37,7 +37,7 @@ import { moduleLanes } from "./render/lanes.ts";
 import { findCodebaseTip } from "./render/requires.ts";
 import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from "./render/spec-change.ts";
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./render/spec-change-conformance.ts";
-import { beginCapture, captureConsole, describeCaptured } from "./quiet.ts";
+import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
@@ -147,6 +147,7 @@ export function chatAskUserTool() {
 }
 
 export default function (pi: ExtensionAPI) {
+  dropNoise();
   const cwd = process.cwd();
   const discoveredSkills = discoverSkills();
 
@@ -756,11 +757,16 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
                 mounted = true;
                 const ui = ctx.ui;
                 type ComponentWidget = Extract<Parameters<typeof ui.setWidget>[1], (...args: never[]) => unknown>;
-                const widget: ComponentWidget = (next) => {
+                const widget: ComponentWidget = (next, theme) => {
                   tui = next;
+                  // A spec diff being brought in is coloured as the job panel colours one.
+                  const diffStyle = {
+                    added: (text: string) => theme.fg("toolDiffAdded", text),
+                    removed: (text: string) => theme.fg("toolDiffRemoved", text),
+                  };
                   return {
                     render: (width: number) =>
-                      (ui.getToolsExpanded() ? progress.lines() : progress.compactLines()).map((line) =>
+                      (ui.getToolsExpanded() ? progress.lines(diffStyle) : progress.compactLines(diffStyle)).map((line) =>
                         truncateToWidth(line, width),
                       ),
                     invalidate() {},
@@ -777,7 +783,23 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
           };
 
           try {
+            // In the background, a spec that moved on is brought in as forge-plain brings in its
+            // answers: each spec diff a render spec diff job of its own, queued behind this one.
+            const specDiffQueue = shouldWait(ctx.mode, params.wait)
+              ? undefined
+              : createRenderQueue({
+                  registry: jobs,
+                  cwd,
+                  modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(ctx, plainFile) ?? chatModelOf(ctx)),
+                });
             const result = await renderChain({
+              queueSpecDiffs: specDiffQueue
+                ? (steps) =>
+                    steps.map(
+                      (step) =>
+                        specDiffQueue.enqueueSpecDiff({ plainFile: step.plainFile, diff: step.diff, applied: "already applied", spec: step.spec }).jobId,
+                    )
+                : undefined,
               plainFile: resolve(cwd, params.plain_file),
               from: params.from,
               to: params.to,
@@ -832,6 +854,9 @@ function chainAnnouncement(result: Awaited<ReturnType<typeof renderChain>>): str
   const stop = describeChainStop(result);
   if (stop !== undefined) return stop;
   const built = result.outcomes.at(-1)?.result;
+  if (built?.queuedSpecDiffs !== undefined) {
+    return `${built.moduleName}: queued ${built.queuedSpecDiffs.length} render spec diff job${built.queuedSpecDiffs.length === 1 ? "" : "s"} - ${built.queuedSpecDiffs.map((step) => step.jobId).join(", ")}.`;
+  }
   const delivery = built ? deliveryReport(built) : undefined;
   if (delivery !== undefined) return delivery;
   return result.passed ? "Everything was already built; nothing to do." : "The chain stopped before building anything.";
@@ -880,6 +905,30 @@ function chainReport(result: Awaited<ReturnType<typeof renderChain>>): string {
 }
 
 function moduleReport(result: RenderModuleResult): string {
+  if (result.queuedSpecDiffs !== undefined) {
+    return [
+      `${result.moduleName}'s spec had changed in more than new functional specs: queued ${result.queuedSpecDiffs.length} render spec diff job${result.queuedSpecDiffs.length === 1 ? "" : "s"}, rendered one after another as forge-plain's are.`,
+      "",
+      "<spec diffs>",
+      ...result.queuedSpecDiffs.map((step, index) => `${index + 1}. ${step.title}: job ${step.jobId}`),
+      "</spec diffs>",
+    ].join("\n");
+  }
+  if (result.specSteps !== undefined) {
+    const done = result.specSteps.filter((step) => step.result.passed).length;
+    return [
+      result.passed
+        ? `Brought ${result.moduleName} up to its spec in ${result.specSteps.length} spec diff${result.specSteps.length === 1 ? "" : "s"}: the spec had changed in more than new functional specs.`
+        : `${result.moduleName} is not up to its spec: ${done} of the spec diffs planned passed, and the one after them did not.`,
+      `Build in ${result.buildDir}.`,
+      "",
+      "<spec diffs>",
+      ...result.specSteps.map((step, index) =>
+        `${index + 1}. ${step.title} [${step.sections.join(", ")}]: ${step.result.passed ? "done" : `stopped at ${step.result.stoppedAt}`}`,
+      ),
+      "</spec diffs>",
+    ].join("\n");
+  }
   return [
     result.passed
       ? `Built all of ${result.moduleName}: ${result.completed.join(", ")}.`
@@ -1607,6 +1656,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
+  // Debug mode, for the render agents started from now on - see debug-log.ts.
   // A module's history: every render, regeneration and conformance run, as git commits.
   pi.registerCommand("history", {
     description: "Show a module's history - every render, regeneration and conformance run: /history [module]",
@@ -2082,7 +2132,14 @@ function registerBranding(
 ) {
   pi.registerEntryRenderer(BANNER_ENTRY, (entry, _options, theme) => {
     const data = entry.data as
-      | { version: string; rules: number; skills: number; pending: number; cwd: string; sandbox?: ReturnType<typeof vmSummary> }
+      | {
+          version: string;
+          rules: number;
+          skills: number;
+          pending: number;
+          cwd: string;
+          sandbox?: ReturnType<typeof vmSummary>;
+        }
       | undefined;
     if (data === undefined) return undefined;
 

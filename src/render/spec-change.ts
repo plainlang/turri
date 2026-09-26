@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
-import { plainFileParser, withParseCache } from "../plain/parser.ts";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata, withParseCache } from "../plain/parser.ts";
 import {
   FUNCTIONAL_REQUIREMENTS,
   getFrids,
@@ -39,6 +39,7 @@ import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.ts";
 import { loadLinkedResources } from "./resources.ts";
+import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { sectionsOf, writeBuiltTree } from "./state.ts";
 import {
   findTestRemovals,
@@ -120,6 +121,34 @@ export function plainFilesOf(diff: string): string[] {
     if (match) files.add(match[1]!);
   }
   return [...files];
+}
+
+/**
+ * The whole spec of a module as one change: every .plain file it is built from - its own and the
+ * ones it imports, in the project - added from nothing. What a build that starts from nothing is
+ * given, so it is told everything it builds, not only the last thing written.
+ */
+export function wholeSpecDiff(plainFile: string, cwd: string, templateDirs: string[] = []): string {
+  const root = resolve(cwd);
+  const dirs = resolveTemplateDirs(resolve(root, plainFile), templateDirs);
+  const files: string[] = [];
+  const visit = (path: string) => {
+    if (files.includes(path) || !existsSync(path)) return;
+    files.push(path);
+    const imports = (readPlainSourceMetadata(readFileSync(path, "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined) ?? [];
+    for (const name of imports) {
+      const found = [dirname(path), ...dirs].map((dir) => join(dir, `${name}.plain`)).find((candidate) => existsSync(candidate));
+      if (found !== undefined) visit(resolve(found));
+    }
+  };
+  visit(resolve(root, plainFile));
+  return files
+    .filter((path) => !relative(root, path).startsWith(".."))
+    .map((path) => {
+      const run = spawnSync("git", ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative(root, path)], { cwd: root, encoding: "utf8" });
+      return run.stdout;
+    })
+    .join("");
 }
 
 /**
@@ -272,6 +301,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     ],
     tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes", ...WEB_TOOLS],
     model: options.model,
+    label: `${moduleName} spec change coding agent`,
   });
 
   let response: string;
@@ -302,6 +332,13 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           inventory = current;
           stage(`justifying ${removals.length} removed test${removals.length === 1 ? "" : "s"}`);
           response = await ask(executor, removalChallengePrompt(removals, "unit tests"), options.onDelta);
+          continue;
+        }
+        // Conformance tests are the conformance step's, in the tests folder: none of them here.
+        const misplaced = misplacedConformanceTests(buildDir);
+        if (misplaced.length > 0) {
+          stage(`conformance tests in the code folder - sending ${misplaced.length === 1 ? "it" : "them"} back`);
+          response = await ask(executor, misplacedTestsPrompt(misplaced, buildDir), options.onDelta);
           continue;
         }
         stage(`running the unit testing script (attempt ${attempts + 1})`);
@@ -362,10 +399,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   }
 
   const conformanceRoot = modulesRoot(projectDirOf(tip.plainFile));
-  // Conformance tests are written for functionalities; a change with none to test writes
-  // none, but still keeps the existing ones passing.
+  // Conformance tests follow the change, whatever it touches - a definition, a req, the test reqs -
+  // with or without a functional spec yet. Only with conformance off, or no test reqs to write them
+  // from, are none written; the ones already here are kept passing all the same.
   const hasTestReqs = specifications[TEST_REQUIREMENTS].length > 0;
-  if (options.conformance === false || !hasTestReqs || lastFrid === undefined) {
+  if (options.conformance === false || !hasTestReqs) {
     // No conformance tests written for the change - but the ones already here are kept
     // passing: the change must not break what they check.
     stage(options.conformance === false ? "conformance is off - done" : "no conformance tests to write for this change - keeping the existing ones passing");

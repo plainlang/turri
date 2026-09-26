@@ -1,16 +1,18 @@
 # the testing phase — How is what was built checked from the outside?
 
 Decide whether the project has conformance tests, and if it does, say in `***test reqs***` how they
-are written and run, and give it the script that runs them. Nothing here is built: a change to the
-test reqs is not a spec diff, so it is written with the ordinary file tools, never `write_spec_diff`.
+are written and run, and give it the script that runs them. This comes before the product phase, and
+nothing here is built: a change to the test reqs is not a spec diff, so it is written with the
+ordinary file tools, never `write_spec_diff`. What is settled here is what every build of the
+product phase follows - with conformance on, each spec change is built with its conformance tests.
 Run the core loop for each topic below, in order: ask, then write. When the user has no preference,
-propose a default that fits the stack and the product and ask them to confirm.
+propose a default that fits the stack and the intent brief and ask them to confirm.
 
 Conformance tests are black-box tests written from the spec: for each functional spec, tests that
 run the built software from the outside - as a command, over HTTP, through its public entry point -
 and check it does what the spec says, kept apart from the spec's acceptance tests. The harness runs
-the whole suite after every functionality, so they catch one functionality breaking another. They
-cost time and tokens on every build.
+the whole suite after every spec change, so they catch one change breaking another. They cost time
+and tokens on every build.
 
 ## Author target for this phase
 
@@ -43,15 +45,5 @@ Write no `***acceptance tests***`, no functional specs and no `***implementation
    If `test_scripts/` would hold two of a kind, name the one to use in `config.yaml`.
 7. **Anything else** - anything about testing the user wants to add or change.
 
-Run `check_plain` on every module you changed.
-
-## Which functional specs to test now
-
-Last, ask with `ask_user` (`multi_select: true`) which functional specs to write and run conformance
-tests for now. Offer each functional spec that is already built - `render_status` says which - by
-its id and first line, plus "all of them" and "none for now". A functional spec that is not built
-yet cannot be tested; say so, and that its tests come with its build once conformance is on.
-
-For the ones chosen, call `render_functionality_conformance` with the module's `.plain` file and their ids
-(`frids`), once per module. It starts a background job and returns at once - do not wait for it;
-say what started.
+Run `check_plain` on every module you changed. The product phase's first build needs the test reqs
+and the conformance testing script both there: without them it stops before it starts.

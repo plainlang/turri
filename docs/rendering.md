@@ -95,12 +95,26 @@ plainwright module <file.plain> --from 3 --to 5
 ```
 
 For each functionality in order: render the code and unit tests, write its conformance tests,
-then run **every** conformance test in the codebase as one suite. It advances only when that whole
-suite is green. When it goes red, a repair agent works on the code with the module's spec and the
+then run **every** conformance test in the codebase as one suite, and the unit testing script with
+it. It advances only when both are green - a suite that passes on code whose unit tests fail is not
+done. When it goes red, a repair agent works on the code with the module's spec and the
 failure; the suite runs again after each repair, up to `--max-regression-rounds` (default 20). The
 repair agent is not allowed to change the tests: the harness photographs them before it starts,
 and puts back anything it changed before sending it to fix the code instead. A functionality is finished when it passes alongside
 everything before it.
+
+That is when the spec has only grown since the code was built: new functional specs at the end, and
+nothing else - the definitions, the implementation and test reqs and the inherited functional specs
+as they were built. When it has moved on in any other way - a functional spec changed in place, an
+acceptance test changed, a definition or a req added or changed, a spec inserted or removed -
+rendering the new ones would miss it. Then the tree the code is built
+from is compared with the spec, and the changes are ordered into steps by an agent, checked to add
+up to the spec and to hold together at every step (`src/render/spec-steps.ts`). Each step is
+rendered as a spec diff, from the spec as that step leaves it, in order, up to the first that does
+not pass. In a conversation each step is queued as a render spec diff job of its own, exactly as
+forge-plain queues an answer: behind the module job, one after another, each shown in the panel
+with its diff and read in full in `/watch`. On the command line they are rendered in turn, each
+diff printed in full as it starts. `--from`, `--to` and `--force` always build functionality by functionality, as asked.
 
 ### Regenerating after a spec change
 
@@ -270,9 +284,21 @@ fixed, and its unit tests kept passing. It is told never to change a test so it 
 that contradicts the spec, and a test it deletes is challenged by name.
 
 When its own run passes, the harness checks for itself: both kinds of test are there and labelled,
-then it runs the project's conformance testing script on the whole suite, and - if the agent
-changed the code - the unit testing script too. Only those runs count. It goes back and forth up to
-20 times.
+none of them is in the code folder, then it runs the project's conformance testing script on the
+whole suite, and the unit testing script after it, every time. Only those runs count, and both have
+to pass. It goes back and forth up to 20 times.
+
+Conformance and acceptance tests live in the module's `tests` folder and nowhere else. One found in
+the code folder - by its label, or as a test file under a name or folder that says conformance or
+acceptance - is sent back: to the agent writing the tests, to move it; to an agent writing the code,
+to remove it, since those tests are not its to write. The conformance testing script refuses them too
+(see `implement-conformance-testing-script`), so a suite in the wrong place fails rather than
+passing unnoticed.
+
+No agent runs the testing scripts itself. They are in its prompt so it knows what judges its work,
+but they are not in its workspace: it calls `run_unit_tests` and `run_conformance_tests`, which run
+them as the harness does. Its file tools refuse to write a copy of them, or a `.plain` spec, into the
+codebase, and its working notes refuse a line telling the next agent to run them.
 
 ### Verified
 
@@ -286,7 +312,7 @@ self.assertEqual(completed.stdout.strip(), "hello, world")
 ```
 
 Code that prints `goodbye` instead fails the test; the agent fixes the code, and the harness's own
-runs - the suite, then the unit tests of the changed code - pass (`tests/render/conformance-loop.test.ts`).
+runs - the suite, then the unit tests - pass (`tests/render/conformance-loop.test.ts`).
 
 ## Working notes
 
@@ -339,10 +365,9 @@ when its own spec no longer matches what the tree says it was built from.
 
 What goes into it:
 
-- **A functionality rendered:** the tree as it was, with that functional spec in its place - and the
-  definitions it is the first to use, with the reqs that name them. What was built before stays as
-  built: a definition changed since is not claimed as built, so the change is still there to render.
-  The first functionality of a module is built with all of the spec's reqs, so they all go in.
+- **A functionality rendered:** the tree as it was, with that functional spec in its place, and the
+  module's definitions, implementation reqs and test reqs as the spec has them. Every functional spec
+  of a module shares those - each is rendered with all of them - so that is what it was built with.
 - **A spec diff rendered:** the spec as parsed with the diff in, whole.
 - **A required module's functionality rebuilt in a later module's codebase:** that spec, in the
   inherited ones of the later module's tree.

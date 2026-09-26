@@ -1,3 +1,4 @@
+import { diffBody, styleDiffLine, summarizeDiff, type DiffStyle } from "./job-panel.ts";
 import type { ChainEntry } from "./requires.ts";
 import type { ChainEvent } from "./module.ts";
 import type { ModuleEvent } from "./module.ts";
@@ -20,6 +21,8 @@ interface ModuleProgress {
   current?: string;
   /** The text of the functional spec being built now. */
   spec?: string;
+  /** The spec diff being rendered now, when the spec moved on and is brought in as spec diffs. */
+  change?: { index: number; total: number; title: string; diff: string };
   phase?: Phase;
   state: "queued" | "building" | "built" | "skipped" | "stopped";
   repairs: number;
@@ -28,14 +31,14 @@ interface ModuleProgress {
 export interface ProgressTracker {
   onChainEvent(event: ChainEvent): void;
   onModuleEvent(event: ModuleEvent): void;
-  /** Every module, one line each. Empty before the chain is known. */
-  lines(): string[];
+  /** Every module, one line each. Empty before the chain is known. `style` colours a spec diff. */
+  lines(style?: DiffStyle): string[];
   /**
    * The same, sized for a long chain: finished modules counted rather than listed, the
    * waiting ones on one counted line. Nothing that matters is dropped - the module being
    * built and any that stopped keep their full line - and a short chain is shown in full.
    */
-  compactLines(): string[];
+  compactLines(style?: DiffStyle): string[];
   /** One line for the status bar. */
   summary(): string;
   done(): boolean;
@@ -76,7 +79,7 @@ export function createProgressTracker(): ProgressTracker {
    * Each module's lines: one, and for the module being built the text of the functional spec
    * it is on - its first line, or all of it when expanded.
    */
-  const rowsFor = (expanded: boolean): string[][] => {
+  const rowsFor = (expanded: boolean, style?: DiffStyle): string[][] => {
     if (modules.length === 0) return [];
     const width = Math.max(...modules.map((x) => x.module.length));
     return modules.map((m) => {
@@ -87,12 +90,25 @@ export function createProgressTracker(): ProgressTracker {
       if (m.state === "queued") return [`${mark} ${name}  queued`];
 
       const bar = progressBar(m.done.length, m.frids.length);
+      const repairs = m.repairs > 0 ? `  ${m.repairs} repair${m.repairs === 1 ? "" : "s"}` : "";
+
+      // Bringing in a spec that moved on: which spec diff of how many, and the change itself - its
+      // one-line summary, or its lines when expanded - as a render spec diff job shows its diff.
+      if (m.state === "building" && m.change !== undefined) {
+        const { index, total, title, diff } = m.change;
+        const row = [`${mark} ${name}  ${progressBar(index - 1, total)} spec diff ${index}/${total} · ${title}${repairs}`];
+        const body = diffBody(diff);
+        if (!expanded) row.push(`    │ ${summarizeDiff(diff, style)}${body.length > 0 ? "  (ctrl+o)" : ""}`);
+        // Whole: a run waited on has no job, and so no /watch to send the rest to.
+        else row.push(...body.map((line) => `    │ ${styleDiffLine(line, style)}`));
+        return row;
+      }
+
       const detail =
         m.state === "building"
           ? `${bar} ${m.done.length}/${m.frids.length}` +
             (m.current !== undefined ? `  functionality ${m.current}${m.phase ? ` · ${m.phase}` : ""}` : "")
           : `${bar} ${m.done.length}/${m.frids.length}`;
-      const repairs = m.repairs > 0 ? `  ${m.repairs} repair${m.repairs === 1 ? "" : "s"}` : "";
       const row = [`${mark} ${name}  ${detail}${repairs}`];
 
       if (m.state === "building" && m.spec !== undefined) {
@@ -152,16 +168,23 @@ export function createProgressTracker(): ProgressTracker {
         target.phase = undefined;
       } else if (event.type === "stopped") {
         target.state = "stopped";
+      } else if (event.type === "spec_diff_start") {
+        target.change = { index: event.index, total: event.total, title: event.title, diff: event.diff };
+        target.current = undefined;
+        target.spec = undefined;
+        target.phase = undefined;
+      } else if (event.type === "spec_diff_done") {
+        target.change = undefined;
       }
     },
 
-    lines() {
-      const rows = rowsFor(true).flat();
+    lines(style) {
+      const rows = rowsFor(true, style).flat();
       return rows.length === 0 ? [] : [...overallLine(), ...rows];
     },
 
-    compactLines() {
-      const rows = rowsFor(false);
+    compactLines(style) {
+      const rows = rowsFor(false, style);
       if (rows.length === 0) return [];
       if (modules.length <= COMPACT_THRESHOLD) return [...overallLine(), ...rows.flat()];
 
@@ -190,6 +213,7 @@ export function createProgressTracker(): ProgressTracker {
       const index = modules.indexOf(active) + 1;
       return (
         `${count} · ${active.module} (${index}/${modules.length})` +
+        (active.change !== undefined ? ` · spec diff ${active.change.index}/${active.change.total}` : "") +
         (active.current !== undefined ? ` · functionality ${active.current}` : "") +
         (active.phase !== undefined ? ` · ${active.phase}` : "")
       );

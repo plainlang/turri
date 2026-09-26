@@ -175,6 +175,63 @@ describe("the functional spec being built, in the progress widget", () => {
   });
 });
 
+describe("a spec diff being brought in, in the progress widget", () => {
+  const DIFF = [
+    "diff --git a/cognio.plain b/cognio.plain",
+    "--- a/cognio.plain",
+    "+++ b/cognio.plain",
+    "@@ -3,1 +3,2 @@",
+    " - A student can register.",
+    "+  - A request with an `email` or `handle` that already exists returns `409`.",
+  ].join("\n");
+  const building = () => {
+    const t = createProgressTracker();
+    t.onChainEvent({ type: "chain", chain: [{ moduleName: "cognio", frids: ["1", "2"] }] } as never);
+    t.onChainEvent({ type: "module_start", module: "cognio", index: 1, total: 1 } as never);
+    t.onModuleEvent({ type: "spec_diff_start", index: 2, total: 3, title: "Reject duplicate registrations", diff: DIFF });
+    return t;
+  };
+
+  it("says which of how many, and shows the change: summed up in one line, whole when expanded", () => {
+    const t = building();
+    expect(t.compactLines()).toEqual([
+      "• cognio  [███·······] spec diff 2/3 · Reject duplicate registrations",
+      "    │ cognio.plain +1 −0 · - A request with an `email` or `handle` that already exists returns `409`.  (ctrl+o)",
+    ]);
+    expect(t.lines()).toEqual([
+      "• cognio  [███·······] spec diff 2/3 · Reject duplicate registrations",
+      "    │ @@ -3,1 +3,2 @@",
+      "    │  - A student can register.",
+      "    │ +  - A request with an `email` or `handle` that already exists returns `409`.",
+    ]);
+    expect(t.summary()).toBe("0/2 functionalities · cognio (1/1) · spec diff 2/3");
+  });
+
+  it("colours what the change adds and removes, as the job panel does", () => {
+    const style = { added: (text: string) => `<+>${text}`, removed: (text: string) => `<->${text}` };
+    expect(building().lines(style)).toContain("    │ <+>+  - A request with an `email` or `handle` that already exists returns `409`.");
+    expect(building().compactLines(style)[1]).toContain("<+>+1 <->−0");
+  });
+
+  it("goes back to the module's own line once that spec diff is done", () => {
+    const t = building();
+    t.onModuleEvent({ type: "spec_diff_done", index: 2, passed: true });
+    expect(t.lines().join("\n")).not.toContain("spec diff");
+    expect(t.summary()).not.toContain("spec diff");
+  });
+
+  it("shows a long diff whole when expanded", () => {
+    const t = createProgressTracker();
+    t.onChainEvent({ type: "chain", chain: [{ moduleName: "cognio", frids: ["1"] }] } as never);
+    t.onChainEvent({ type: "module_start", module: "cognio", index: 1, total: 1 } as never);
+    const long = ["@@ -1,0 +1,30 @@", ...Array.from({ length: 30 }, (_, n) => `+- line ${n + 1}`)].join("\n");
+    t.onModuleEvent({ type: "spec_diff_start", index: 1, total: 1, title: "Everything", diff: long });
+    const lines = t.lines();
+    expect(lines).toHaveLength(1 + 31);
+    expect(lines.at(-1)).toBe("    │ +- line 30");
+  });
+});
+
 describe("a chain of one module", () => {
   it("has no overall line - its own line already says it", async () => {
     const { createProgressTracker } = await import("../../src/render/progress.ts");

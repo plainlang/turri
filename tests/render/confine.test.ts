@@ -71,6 +71,18 @@ describe("confinedTools", () => {
   const execute = (tool: any, params: unknown) =>
     tool.execute("id", params, undefined, undefined, {} as never);
 
+  it("refuses a copy of the project's testing scripts, and a spec, in the codebase - pointing at the tools", async () => {
+    const fence = confinedTools({ workdir: code });
+    const write = fence.tools.find((tool) => tool.name === "write")!;
+    await expect(execute(write, { path: "test_scripts/run_unittests_python.sh", content: "pytest\n" })).rejects.toThrow(/run_unit_tests and run_conformance_tests/);
+    await expect(execute(write, { path: "run_conformance_tests_python.sh", content: "pytest\n" })).rejects.toThrow(/never copied, recreated or run by you/);
+    await expect(execute(write, { path: "cognio.plain", content: "***definitions***\n" })).rejects.toThrow(/specs are not written here/);
+    expect(existsSync(join(code, "test_scripts"))).toBe(false);
+    // Anything else - a test of the code's own - is written as ever.
+    await execute(write, { path: "tests/test_app.py", content: "def test_ok(): pass\n" });
+    expect(existsSync(join(code, "tests", "test_app.py"))).toBe(true);
+  });
+
   it("reaches every module in plain_modules", async () => {
     const fence = confinedTools({ workdir: tests });
     const read = fence.tools.find((t) => t.name === "read")!;

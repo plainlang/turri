@@ -194,6 +194,7 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
     const name = path.startsWith(`${root}${sep}`) ? path.slice(root.length + 1) : basename(path);
     return `<script kind="${kind === "unit" ? "unit tests" : "conformance tests"}" path="${name}">\n${readFileSync(path, "utf8").trimEnd()}\n</script>`;
   });
+  const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
   return [
     "<testing scripts>",
     rendered.join("\n\n"),
@@ -201,13 +202,16 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
     "",
     `The harness decides whether your work is done by running ${used.length === 1 ? "this script" : "these scripts"} itself, ` +
       (readProjectConfig(root).testingScripts === "host"
-        ? "in place on the host machine, from the project, against the host codebase it merges your code into - which your " +
-          "own bash cannot reach, so run_unit_tests / run_conformance_tests are how you see those results: "
-        : "in the same VM your commands run in: ") +
+        ? "in place on the host machine, against the host codebase it merges your code into: "
+        : "on a copy of your work: ") +
       used
         .map((kind) => (kind === "unit" ? "the unit testing script as `<script> <build folder>`" : "the conformance testing script as `<script> <build folder> <whole conformance suite folder>`"))
         .join(", ") +
       ". Make the tests pass the way the script runs them.",
+    `${used.length === 1 ? "It is" : "They are"} shown so you know what runs your tests - not to be run by you. ${used.length === 1 ? "It is" : "They are"} not in your ` +
+      `workspace, and the path above is the project's, not one you can reach. Never copy, recreate or adapt ${used.length === 1 ? "it" : "them"} in the ` +
+      `codebase, and never write a test runner of your own: call ${tools}, which run ${used.length === 1 ? "it" : "them"} exactly as the harness does - ` +
+      "that run is the one that counts. Run a single test or file with bash while you work, as you like.",
     "",
     prompt,
   ].join("\n");

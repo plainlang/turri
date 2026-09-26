@@ -99,6 +99,17 @@ describe("updating the notes", () => {
   });
 });
 
+describe("a note about running the tests", () => {
+  it("is refused when it tells the next agent to run the testing scripts itself", () => {
+    const { problems } = applyNotesChanges(parseNotes(""), [
+      { section: "run", action: "add", text: "Run `./test_scripts/run_unittests_python.sh .` to run the unit tests." },
+      { section: "run", action: "add", text: "Unit tests: call run_unit_tests; a single file with `pytest tests/test_app.py`." },
+    ]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("run_unit_tests and run_conformance_tests are how the tests are run");
+  });
+});
+
 describe("the update_notes tool", () => {
   const call = (tool: ReturnType<typeof createNotesTool>, changes: unknown[]) =>
     (tool as any).execute("id", { changes }, undefined, undefined, {} as never);

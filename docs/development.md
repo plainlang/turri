@@ -33,6 +33,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/render/confine.ts`, `src/render/vm.ts` | the file-tool fence and the sandbox VM - see [sandbox](sandbox.md) |
 | `src/render/models.ts` | choosing and resolving render models |
 | `src/render/job-panel.ts`, `src/render/transcript-view.ts` | the job panel and `/watch` |
+| `src/render/debug-log.ts` | each render agent's whole conversation, always streamed to `.plainwright/debug/` |
 | `vm/image.json` | what goes into the VM image |
 | `skills/`, `forge/rules/` | the skill library and the \*\*\*plain authoring rules |
 

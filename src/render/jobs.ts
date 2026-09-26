@@ -167,6 +167,7 @@ export function createJobRegistry(options?: {
       controllers.set(id, controller);
       const sink = {
         signal: controller.signal,
+        job: { id, kind: input.kind, summary: input.summary },
         stage(label: string) {
           job.stage = label;
           this.transcript({ kind: "stage", text: label });
