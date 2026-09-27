@@ -74,6 +74,8 @@ export interface TranscriptEntry {
   text: string;
   /** For a result: whether the tool failed. */
   error?: boolean;
+  /** The whole of it, where `text` is clipped for the screen - a tool call's arguments, its result. */
+  full?: string;
 }
 
 export function reportTranscript(entry: TranscriptEntry): void {

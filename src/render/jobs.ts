@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { withVmLease } from "./vm.ts";
 import { JobStoppedError, withActivity, type BuildingSpec, type TranscriptEntry, type UsageReport } from "./activity.ts";
+import { startJobLog, type JobLog } from "./job-log.ts";
 
 /**
  * Background jobs for conversation mode.
@@ -165,6 +166,8 @@ export function createJobRegistry(options?: {
 
       const controller = new AbortController();
       controllers.set(id, controller);
+      /** The job's transcript on disk, from when it starts running - see job-log.ts. */
+      let log: JobLog | undefined;
       const sink = {
         signal: controller.signal,
         job: { id, kind: input.kind, summary: input.summary },
@@ -179,6 +182,10 @@ export function createJobRegistry(options?: {
           changed();
         },
         transcript(entry: TranscriptEntry) {
+          log?.entry(entry);
+          // The screen keeps the clipped text; the log has the whole.
+          const { full: _full, ...shown } = entry;
+          entry = shown;
           const last = job.transcript.at(-1);
           // Deltas of a running reply join the entry they continue.
           if ((entry.kind === "text" || entry.kind === "thinking") && last?.kind === entry.kind) {
@@ -228,6 +235,8 @@ export function createJobRegistry(options?: {
             job.waitingOn = [];
             changed();
           }
+          log = startJobLog(job, claimed);
+          if (log !== undefined) sink.activity(`job log: ${log.file}`);
           // The job holds the VMs it uses until it ends, and no longer.
           return withVmLease(() =>
             withActivity(sink, () =>
@@ -254,6 +263,7 @@ export function createJobRegistry(options?: {
         )
         .then((finished) => {
           finished.finishedAt = Date.now();
+          log?.end(finished.status === "succeeded" ? "finished" : finished.status === "stopped" ? "stopped" : "finished - failed", finished.announce ?? finished.report ?? finished.error);
           // A failing listener must not take the job down with it; the result is
           // already recorded and can still be collected by asking.
           try {

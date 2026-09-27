@@ -164,6 +164,13 @@ retries and errors; and how each turn ended. Every line is on disk as it happens
 `tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The job
 panel names each agent's log as it starts.
 
+Beside them, each job has a log of its own in `.plainwright/jobs/` - `<time>-<job id>-<kind>.log`:
+what `/watch` shows for it, written as it happens. The harness's stages, the functional spec or the
+diff it builds, and every one of its agents in turn - each prompt, its thinking and replies, every
+tool call and its result, whole where the screen clips them - and how the job ended. The panel names
+it when the job starts. It is the one to read for a job as a whole; an agent's own log has its system
+prompt, tokens and retries besides.
+
 No agent can read the logs: they are outside `plain_modules` - or, for a `--build-dir` outside it,
 beside that folder rather than in it. Nothing prunes them either - delete
 the folder when you are done with it. A log that cannot be written is given up on without failing

@@ -168,14 +168,16 @@ export async function ask(
       }
     }
     if (event.type === "tool_execution_start") {
-      reportTranscript({ kind: "tool", text: `${event.toolName} ${clipText(JSON.stringify(event.args ?? {}), MAX_TOOL_ARGS)}` });
+      const args = JSON.stringify(event.args ?? {});
+      reportTranscript({ kind: "tool", text: `${event.toolName} ${clipText(args, MAX_TOOL_ARGS)}`, full: `${event.toolName} ${args}` });
       const took = Date.now() - stepStarted;
       const line = describeToolCall(event.toolName, event.args);
       reportActivity(took >= 1000 ? `${line}   (model ${seconds(took)})` : line);
       reportNow(`running ${event.toolName}`);
     }
     if (event.type === "tool_execution_end") {
-      reportTranscript({ kind: "result", text: clipText(resultText(event.result), MAX_TOOL_RESULT), error: event.isError });
+      const output = resultText(event.result);
+      reportTranscript({ kind: "result", text: clipText(output, MAX_TOOL_RESULT), error: event.isError, full: output });
       const line = describeToolResult(event.toolName, event.result, event.isError);
       if (line !== undefined) reportActivity(line);
       stepStarted = Date.now();
