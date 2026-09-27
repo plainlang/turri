@@ -22,6 +22,7 @@ import {
   MAX_COMMAND_TIMEOUT_MS,
   vmBashOperations,
   vmEnvironmentNote,
+  vmHolds,
   vmSupported,
 } from "./vm.ts";
 
@@ -191,6 +192,30 @@ export interface ConfinedTools {
   names: string[];
   /** One line for the log: what is enforced and how. */
   description: string;
+  /** The agent's sandbox, as it is told it in its system prompt: what it can reach, and that nothing else exists. */
+  note: string;
+}
+
+/**
+ * An agent's sandbox, in words, for its system prompt - from the fence itself, so it says exactly
+ * what is enforced. An agent that does not know where its walls are spends its turns walking into
+ * them: searching parent folders, absolute paths and /tmp for what it was never given.
+ */
+export function sandboxNote(fence: { read: string[]; write: string[]; shell?: string[] }): string {
+  const list = (dirs: string[]) => dirs.map((dir) => `\`${dir}\``).join(", ");
+  return [
+    "<sandbox>",
+    "You work inside a sandbox, and only there.",
+    `- Your file tools can read ${list(fence.read)}${fence.write.length === 0 ? ", and write nothing: you only read." : `, and write ${list(fence.write)}.`}`,
+    fence.shell === undefined
+      ? "- You have no shell."
+      : `- Your shell runs in a Linux VM that holds only ${list(fence.shell)}${fence.shell.length > 1 ? " - the last is the package caches and the copies test runs use" : ""}.`,
+    "Nothing else exists for you: not the rest of the machine, not the specification files, not the other folders of the",
+    "project. Everything you need that is not in your sandbox is in your prompt. Do not look for anything outside it - no",
+    "searching parent folders, absolute paths, /tmp or the home folder - and never try to get around the sandbox. It is",
+    "enforced: every attempt fails, and only costs time.",
+    "</sandbox>",
+  ].join("\n");
 }
 
 export function confinedTools(c: Confinement): ConfinedTools {
@@ -272,7 +297,8 @@ export function confinedTools(c: Confinement): ConfinedTools {
     description += ", no bash (no sandbox VM on this platform)";
   }
 
-  return { tools, names: tools.map((t) => t.name), description };
+  const shell = tools.some((tool) => tool.name === "bash") ? vmHolds(workdir) : undefined;
+  return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell }) };
 }
 
 /** What the agent is told about how long its commands may run. */

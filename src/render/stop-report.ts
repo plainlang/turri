@@ -28,7 +28,7 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
   /** How many times the harness judged it before it stopped - the unit tests' attempts. */
@@ -65,6 +65,19 @@ export function describeStop(facts: StopFacts): string {
       `Compare functional specs ${one} and ${two} (\`analyze-2-func-specs\`, \`resolve-spec-conflict\`) and change whichever is wrong - ` +
         "or both, so they say the same thing about where they meet.",
       "If one is meant to change what the other does, say so in the one that changes it, and update its acceptance tests to match.",
+    ];
+  } else if (facts.at === "conformance" && facts.conformance?.stuck !== undefined) {
+    const { error, times, rounds } = facts.conformance.stuck;
+    why =
+      `its conformance tests kept failing with ${error} - ${times} times, and ${times} more after the explorer was asked again ` +
+      `what they lacked, in ${rounds} attempts - so nothing more would have come of the rest of them.`;
+    todo = [
+      "The tests most likely cannot reach the software the way the test reqs have them do it. Say exactly how in the test reqs: " +
+        "what the tests depend on or start (for Maven, the app artifact the conformance testing script installs, and its main class), " +
+        "and how they start it.",
+      "If the tests need longer than the time limit for a run - a long-running request - raise PLAINWRIGHT_COMMAND_TIMEOUT, or say in " +
+        "the test reqs how they keep it short.",
+      "If the test reqs contradict each other, settle which is meant.",
     ];
   } else if (facts.at === "conformance") {
     why = `after ${tries} round${tries === 1 ? "" : "s"}, its conformance tests and its code still disagree about what the spec means.`;

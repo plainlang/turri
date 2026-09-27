@@ -389,6 +389,11 @@ function vmFor(dir: string, forDir?: string): { project: string; module: string;
   return { project, module: scratch, key: scratch, mounts: [scratch] };
 }
 
+/** What a command run from `dir` can see: the folders its VM holds. */
+export function vmHolds(dir: string): string[] {
+  return vmFor(dir).mounts;
+}
+
 async function start(project: string, mounts: string[]): Promise<VM> {
   const cache = packageCacheDir(project);
   ensureInVmScratch(project, join(cache, "apk"));

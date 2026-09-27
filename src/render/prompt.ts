@@ -244,6 +244,8 @@ function workingRules(hasCodebase: boolean): string[] {
     "- Your tests are unit tests, in the code. Conformance and acceptance tests are not yours: they are",
     "  written after you, from the spec, in the module's tests folder.",
     "- Honour every implementation req: they constrain the whole codebase, not just this step.",
+    "- Keep the build's identity as it is: its name, coordinates, version, package and main class. Change one only",
+    "  when the specification asks you to - other builds and the conformance tests point at them.",
     "- The implementation reqs say how the code and its unit tests must be built. Follow them.",
     "- Terms in `:ColonWrapped:` form are concepts: defined in the definitions, or predefined (see how to read the",
     "  specification, above). Use them as written.",
@@ -444,6 +446,8 @@ export interface ConformancePromptInput {
    * only tests - when a run fails, another agent decides whether the test or the code is wrong.
    */
   invocation?: string;
+  /** The code's build files, read by the harness: the exact name, coordinates and version a test project points at. */
+  manifests?: Array<{ path: string; content: string }>;
   /** Tests already in the conformance directory, from an earlier version of the spec. */
   existingTests?: string[];
   /** Functional specs of the modules this one requires, transitively. */
@@ -480,12 +484,30 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "",
     ...(input.invocation !== undefined
       ? [
-          "You cannot see the implementation. An agent that explored it wrote down how it is invoked from the",
-          "outside, in <how to invoke it>: use that to reach it. Every assertion comes from the specification,",
-          "never from what that account says the code does. Where the code and the specification disagree, the",
-          "test follows the specification and fails.",
+          "You cannot read or view the code. It is not in your sandbox - your file tools and your shell hold your",
+          "tests folder and nothing else - so do not look for it: no searching parent folders, absolute paths or /tmp.",
+          "An agent that explored the code wrote down everything you need of it, in <how to invoke it>: how it is",
+          "built and run, how each functionality is reached from outside, what it needs around it, and a plan for",
+          "these tests. Write the conformance tests from this prompt - the specification, that account and its",
+          "plan - and what is in your tests folder: the tests already there show how the suite is built and run.",
+          "Every assertion comes from the specification, never from what the account says the code does. Where the",
+          "code and the specification disagree, the test follows the specification and fails. The plan is a",
+          "starting point: where it and the specification differ, the specification is right.",
+          "The conformance testing script at the top of this prompt is how your tests are built and run: read what it",
+          "builds or installs before your tests run, and so what they can depend on or start to reach the software.",
+          "Write the tests' own build - its dependencies, how it starts the software - to fit that script.",
           "",
           `<how to invoke it>\n${input.invocation.trim()}\n</how to invoke it>`,
+          ...((input.manifests ?? []).length > 0
+            ? [
+                "",
+                "The code's build files, read from the code by the harness, as they are. They are the one place to take the",
+                "code's exact name, coordinates and version from - whatever your tests' own build has to point at. Copy them",
+                "from here; never guess them, and never take them from a folder or module name.",
+                "",
+                ...input.manifests!.map((manifest) => `<code build file path="${manifest.path}">\n${manifest.content.trimEnd()}\n</code build file>`),
+              ]
+            : []),
         ]
       : [
           "You can read the implementation, and you should, but only to find out how the thing is",
@@ -690,6 +712,8 @@ export function buildRegressionFixPrompt(input: RegressionFixPromptInput): strin
     "  run_conformance_tests and run_unit_tests - the project's scripts, run as the harness runs them.",
     "- Never delete or weaken an existing test to get a pass.",
     ...INTEGRITY_RULES,
+    "- Keep the build's identity as it is: its name, coordinates, version, package and main class. Change one only",
+    "  when the specification asks you to - other builds and the conformance tests point at them.",
     "- Report what you changed and why.",
   ];
 

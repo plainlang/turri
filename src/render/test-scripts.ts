@@ -192,11 +192,12 @@ export function requireTestScripts(
 export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: ScriptKind[], root: string): string {
   const used = kinds.filter((kind) => scripts[kind] !== undefined);
   if (used.length === 0) return prompt;
+  const named = (path: string) => (path.startsWith(`${root}${sep}`) ? path.slice(root.length + 1) : basename(path));
   const rendered = used.map((kind) => {
     const path = scripts[kind]!;
-    const name = path.startsWith(`${root}${sep}`) ? path.slice(root.length + 1) : basename(path);
-    return `<script kind="${kind === "unit" ? "unit tests" : "conformance tests"}" path="${name}">\n${readFileSync(path, "utf8").trimEnd()}\n</script>`;
+    return `<script kind="${kind === "unit" ? "unit tests" : "conformance tests"}" path="${named(path)}">\n${readFileSync(path, "utf8").trimEnd()}\n</script>`;
   });
+
   const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
   return [
     "<testing scripts>",
@@ -388,16 +389,24 @@ export async function runConformanceScript(buildDir: string, testsDirs: string[]
   rmSync(staging.root, { recursive: true, force: true });
   ensureInVmScratch(buildDir, staging.root);
   try {
+    let build: string;
+    let tests: string;
     if (project.inPlace) {
       // The real folders: the real tests folder when there is one; several merged into one, first.
-      if (testsDirs.length === 1) return await runOnHost(project.root, scripts.conformance, [resolve(buildDir), resolve(testsDirs[0]!)], buildDir);
-      stageTests(testsDirs, staging.tests);
-      return await runOnHost(project.root, scripts.conformance, [resolve(buildDir), staging.tests], buildDir);
+      build = resolve(buildDir);
+      if (testsDirs.length === 1) tests = resolve(testsDirs[0]!);
+      else {
+        stageTests(testsDirs, staging.tests);
+        tests = staging.tests;
+      }
+    } else {
+      const code = stageBuild(buildDir, staging.build);
+      const count = stageTests(testsDirs, staging.tests);
+      reportActivity(`  copying ${code} files of the code and the whole conformance suite (${count} files) for the conformance testing script`);
+      build = staging.build;
+      tests = staging.tests;
     }
-    const code = stageBuild(buildDir, staging.build);
-    const tests = stageTests(testsDirs, staging.tests);
-    reportActivity(`  copying ${code} files of the code and the whole conformance suite (${tests} files) for the conformance testing script`);
-    return await runOnHost(project.root, scripts.conformance, [staging.build, staging.tests], buildDir);
+    return await runOnHost(project.root, scripts.conformance, [build, tests], buildDir);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }

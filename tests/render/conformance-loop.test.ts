@@ -16,6 +16,8 @@ let codeDir = "";
 /** What the stubbed judge says, and which functionality the stubbed conformance agent labels its tests for. */
 let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
 let testedFrid = "1";
+/** When set, each time the tests are sent back, the stub's test fails the other way: A, B, A, B - as the artifact ping-pong did. */
+let pingPong = 0;
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -35,7 +37,13 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
       }
       asked.push({ role: session.role, prompt });
       if (session.role === "explorer") {
-        await tool("submit_invocation").execute("id", { invocation: "Run `python3 app.py` from the build folder; it writes to stdout." });
+        await tool("submit_exploration").execute("id", {
+          build_and_run: "Nothing to build or install: run `python3 app.py` from the build folder, with Python 3.",
+          tests_reach_it: "The script runs the tests from a copy of the build: app.py is in the current directory when they run.",
+          interfaces: [{ module: "app", id: testedFrid, how: "Run `python3 app.py` from the build folder; it writes to stdout and exits." }],
+          environment: "Nothing around it: no variables, services or files - every run starts from the same state.",
+          plan: [{ module: "app", id: testedFrid, tests: "Run the app as a subprocess and check what it prints to stdout, and its exit code, as the spec says." }],
+        });
         return "Done.";
       }
       if (session.role === "judge") {
@@ -49,6 +57,14 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         return "Done.";
       }
       // The conformance agent.
+      if (pingPong > 0 && prompt.includes("a test is what is wrong")) {
+        pingPong += 1;
+        await tool("write").execute("id", {
+          path: "test_conformance_hello.py",
+          content: `# conformance tests of functionality ${testedFrid}\nimport unittest\n\nclass Hello(unittest.TestCase):\n    def test_side(self):\n        self.fail("depends on artifact ${pingPong % 2 === 0 ? "alpha" : "beta"}")\n`,
+        });
+        return "Done.";
+      }
       if (prompt.includes("they are not labelled")) {
         // Sent back for the acceptance test it left out: written as a test of its own.
         await tool("write").execute("id", {
@@ -96,6 +112,7 @@ beforeEach(() => {
   asked.length = 0;
   judgeSays = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
   testedFrid = "1";
+  pingPong = 0;
 });
 afterEach(async () => {
   await closeAllVms();
@@ -125,8 +142,10 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const [explorer, writer, , judge, coder] = asked;
     expect(explorer!.prompt).toContain("They will never see the code");
     // The test author is given how to invoke it, and nothing of the code's place.
-    expect(writer!.prompt).toContain("<how to invoke it>\nRun `python3 app.py` from the build folder; it writes to stdout.\n</how to invoke it>");
-    expect(writer!.prompt).toContain("You cannot see the implementation");
+    // The whole exploration: how to run it, how the functionality is reached, what it needs, and a plan.
+    expect(writer!.prompt).toContain("## How each functionality is reached\n\n### app 1\n\nRun `python3 app.py` from the build folder; it writes to stdout and exits.");
+    expect(writer!.prompt).toContain("## Plan for the conformance tests\n\n### app 1\n\nRun the app as a subprocess");
+    expect(writer!.prompt).toContain("You cannot read or view the code. It is not in your sandbox");
     expect(writer!.prompt).not.toContain(codeDir);
     expect(writer!.prompt).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
     expect(judge!.prompt).toContain("Decide what is wrong: the code, the tests, or the specification itself");
@@ -153,6 +172,11 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const conformanceCall = spy.mock.calls.find(([opts]) => (opts as { label?: string }).label?.endsWith("conformance agent"))!;
     const read = (conformanceCall[0] as { customTools: StubSession["tools"] }).customTools.find((tool) => tool.name === "read")!;
     await expect(read.execute("id", { path: join(codeDir, "app.py") })).rejects.toThrow(/outside this agent's read directory/);
+    // And it is told so in its system prompt: its sandbox is the tests folder, and nothing else exists.
+    const system = (conformanceCall[0] as { system?: string }).system!;
+    expect(system).toContain("You work inside a sandbox, and only there.");
+    expect(system).toContain(`- Your file tools can read \`${join(root, "plain_modules", "app", "tests")}\``);
+    expect(system).not.toContain(codeDir);
   });
 
   it("raises a spec conflict only after the same two functionalities are named three times, sending the tests back in between", async () => {
@@ -194,7 +218,40 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     // Each attempt went into the notes, and the next judge read them. (A run that does not pass is
     // undone whole, and its notes with it.)
     const lastJudge = asked.filter((turn) => turn.role === "judge")[2]!.prompt;
-    expect(lastJudge).toMatch(/app 2 conformance attempt 1\] attempt 1: judged a spec conflict between functionalities app 1 & app 2/);
-    expect(lastJudge).toMatch(/app 2 conformance attempt 2\] attempt 2: judged a spec conflict between functionalities app 1 & app 2/);
+    expect(lastJudge).toMatch(/app 2 conformance attempt 1\] attempt 1: failed with "[^"]*" → judged a spec conflict between functionalities app 1 & app 2: [^→]* → the conformance agent changed /);
+    expect(lastJudge).toMatch(/app 2 conformance attempt 2\] attempt 2: failed with "[^"]*" → judged a spec conflict between functionalities app 1 & app 2/);
+  });
+
+  it("stops when nothing changes: the same failure judged the same way asks the explorer again, and then ends the run", async () => {
+    // The judge always blames the tests, and the stub's tests never change - so the failure never does.
+    judgeSays = () => ({ culprit: "tests", reason: "The tests are wrong." });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+
+    expect(result.passed).toBe(false);
+    expect(result.stuck).toBeDefined();
+    expect(result.stuck!.failure).toContain("goodbye");
+    // Asked again once, after three rounds alike; stopped after three more - never all 20 attempts.
+    expect(asked.filter((turn) => turn.role === "explorer")).toHaveLength(2);
+    expect(asked.filter((turn) => turn.role === "explorer")[1]!.prompt).toContain("You are asked again.");
+    expect(result.rounds).toBe(6);
+    const { describeStop } = await import("../../src/render/stop-report.ts");
+    const stop = describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result });
+    // The error itself, quoted - not the run's last lines - and how often, in how many attempts.
+    expect(stop).toMatch(/kept failing with "[^"]*Error[^"]*"[^-]* - 3 times, and 3 more after the explorer was asked again what they lacked, in 6 attempts/);
+  });
+
+  it("counts a failure that comes back after another as stuck too - a run swinging between two - and journals cause and effect", async () => {
+    judgeSays = () => ({ culprit: "tests", reason: "The test points at the wrong artifact." });
+    pingPong = 1;
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(false);
+    // goodbye, alpha, beta, alpha, beta...: never three alike in a row, but each keeps coming back.
+    expect(result.stuck).toBeDefined();
+    // Never all 20: a failure seen three times asks the explorer again (round 6 here), three more stop it.
+    expect(result.rounds).toBeLessThanOrEqual(12);
+    expect(asked.filter((turn) => turn.role === "explorer")).toHaveLength(2);
+    // The next judge read the journal: what failed, how it was judged, and which files were changed.
+    const judges = asked.filter((turn) => turn.role === "judge");
+    expect(judges.at(-1)!.prompt).toMatch(/attempt \d+: failed with [^→]*artifact (alpha|beta)[^→]* → judged the tests wrong: The test points at the wrong artifact\. → the conformance agent changed tests\/test_conformance_hello\.py/);
   });
 });

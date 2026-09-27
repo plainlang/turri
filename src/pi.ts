@@ -68,14 +68,15 @@ const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge"
  * agent plainwright starts sees only what plainwright gives it. The conversation still loads
  * them, as pi does.
  */
-export async function subAgentResources(cwd: string, withRules: boolean): Promise<DefaultResourceLoader> {
+export async function subAgentResources(cwd: string, withRules: boolean, system?: string): Promise<DefaultResourceLoader> {
   const rules = withRules ? renderRulesBlock(loadRules(RULES_DIR)) : "";
+  const extra = [rules, system ?? ""].filter((part) => part !== "");
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: getAgentDir(),
     noExtensions: true,
     noContextFiles: true,
-    appendSystemPrompt: rules !== "" ? [rules] : undefined,
+    appendSystemPrompt: extra.length > 0 ? extra : undefined,
   });
   await loader.reload();
   return loader;
@@ -256,6 +257,8 @@ export async function createExecutor(opts: {
   rules?: boolean;
   /** Continue the session saved in this file, instead of starting a new one. */
   resumeFrom?: string;
+  /** Added to its system prompt: its sandbox, above all - what it can reach (see confine.ts sandboxNote). */
+  system?: string;
   /**
    * What the agent is, e.g. "app 3 coding agent". Given, the agent is one a render started: its
    * whole conversation is streamed to a log named after it (see debug-log.ts).
@@ -273,7 +276,7 @@ export async function createExecutor(opts: {
     tools: opts.tools,
     customTools: opts.customTools,
     sessionManager,
-    resourceLoader: await subAgentResources(opts.cwd, opts.rules === true),
+    resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, opts.system),
   });
 
   if (opts.model !== undefined) {

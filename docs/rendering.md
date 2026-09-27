@@ -294,10 +294,20 @@ which is which, and which acceptance test a test implements.
 The code and its conformance tests are rendered apart, each in its own folder and its own VM (see
 [the sandbox](sandbox.md#commands-run-in-a-vm)). The test author never sees the code: its file tools
 and its shell hold the tests folder and nothing else. So before it starts, an explorer - an agent in
-the code's folder and VM, which reads the code and runs it but changes nothing - writes down how the
-built software is invoked from outside: what to install and run, its entry points, how each thing
-the spec describes is reached, what it needs around it. That account, not the code, is what the
-tests are written against, and every assertion comes from the spec. `run_conformance_tests` puts
+the code's folder and VM, which reads the code and runs it but changes nothing - hands over everything
+the author needs, in parts: how to build and run it; how the conformance tests reach it as the project's
+conformance testing script runs them - the explorer is given the script, and says what it builds or
+installs and what the tests depend on or start (a Maven artifact and its main class, a jar, an import);
+how each functionality is reached from outside
+(the command, or the route, method and the request and response fields); what it needs around it; and
+a plan for the conformance tests, its expectations taken from the spec. The account is checked before
+it is used: it has to say how the functionality under test is reached and what to test for it (for a
+spec diff, some of the module the change touches), and one that does not is sent back saying what is
+missing. It is kept focused: the interface to what is under test, not a survey of the codebase, in
+words rather than code, under 12,000 characters. Each hand-over ends its turn, and it hands over three
+times at most. If it never completes it, what it wrote as it worked goes along with it, so nothing it
+found is lost. That account and the tests folder, not the code, are what the tests are written from, and every
+assertion comes from the spec. `run_conformance_tests` puts
 the whole suite together with a copy of the build in a throwaway directory, in the tests' VM, so
 tests cannot accumulate state between attempts and nothing they write reaches the code.
 
@@ -327,8 +337,24 @@ whole: both functional specs as they read, and each time what could not hold. Th
 agent runs `analyze-2-func-specs` on the pair, then `resolve-spec-conflict` for the ways out, and
 puts the decision to the person - it changes nothing in the spec before they have decided.
 
-Every attempt is written into the working notes' pitfalls by the harness - what was judged wrong,
-and what the agent sent to fix it did - and each judge reads them first, so it does not send a
+The judge holds only what the spec says against the code: anything it leaves open - a name, Maven
+coordinates, a version, a path, a package - is what the code already has, and the tests follow it.
+The coding agents keep the build's identity - name, coordinates, version, package, main class - as it
+is unless the spec asks for another. And the conformance agent is given the code's build files
+(`pom.xml`, `package.json`, `pyproject.toml`, `go.mod`...) word for word, read by the harness: the one
+place to take what its tests' build points at from, never a guess from a folder name.
+
+When nothing changes - the same failure seen three times in the run, in a row or not, so a run
+swinging between two failures counts too (runs that hang until the time limit count as well) - the
+explorer is asked again, shown its last account and the failure,
+for what the tests lack; most often it is how they reach the software. Its new account goes to the
+conformance agent. If the same happens three rounds more, the run stops and says so, instead of
+spending the rest of its 20 attempts on it. The conformance agent has the testing script in its prompt,
+and is told to fit the tests' own build to it.
+
+Every attempt is written into the working notes' pitfalls by the harness as cause and effect - what
+the run failed with, how it was judged, and which files the agent sent to fix it changed; the next
+attempt's line says what came of it - and each judge reads them first, so it does not send a
 failure the way that already failed. A run that does not pass is undone whole, its notes with it.
 
 Then the suite runs again. A run that never got to the tests - a toolchain missing, a time limit - goes

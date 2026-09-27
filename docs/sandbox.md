@@ -17,6 +17,15 @@ turns that off for every agent it starts - so the project's own `AGENTS.md`, or 
 `~/.pi/agent`, never reaches a rendering agent, a judge or a skill's agent. The conversation you
 talk to still loads them, as pi does.
 
+## Every agent knows its walls
+
+Each agent's system prompt says where its sandbox is: which folders its file tools can read and
+write, what the VM its shell runs in holds, that nothing else exists for it - not the rest of the
+machine, not the specs, not the project's other folders - that everything it needs is in its prompt,
+and not to look outside or try to get around it. The words come from its fence itself, so they say
+exactly what is enforced. The conformance agent is told as well that the code is not in its sandbox:
+it writes the tests from its prompt and its tests folder.
+
 ## File tools
 
 `src/render/confine.ts` rebuilds `read`, `write`, `edit`, `ls`, `grep` and `find` from pi's own

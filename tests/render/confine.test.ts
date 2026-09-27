@@ -302,3 +302,18 @@ describe.runIf(vmSupported())("running the tests", { timeout: VM_TIMEOUT }, () =
     expect(readdirSync(join(root, "plain_modules", ".plainwright", "scripts"))).toEqual([]);
   });
 });
+
+describe("an agent's sandbox, in its system prompt", () => {
+  it("says exactly what its file tools and its shell can reach, that nothing else exists, and not to try to get around it", async () => {
+    const { confinedTools } = await import("../../src/render/confine.ts");
+    const fence = confinedTools({ workdir: tests, read: [tests], write: [tests] });
+    expect(fence.note).toContain("You work inside a sandbox, and only there.");
+    expect(fence.note).toContain(`- Your file tools can read \`${tests}\`, and write \`${tests}\`.`);
+    expect(fence.note).toContain("never try to get around the sandbox");
+    if (vmSupported()) expect(fence.note).toMatch(/Your shell runs in a Linux VM that holds only `[^`]*tests[^`]*`/);
+    // A judge: reads, writes nothing, no shell.
+    const judge = confinedTools({ workdir: tests, read: [code, tests], write: [], noBash: true });
+    expect(judge.note).toContain(`- Your file tools can read \`${code}\`, \`${tests}\`, and write nothing: you only read.`);
+    expect(judge.note).toContain("- You have no shell.");
+  });
+});

@@ -313,3 +313,30 @@ describe("functionalities, by the module they belong to", () => {
     ).toMatch(/^<module name="base" role="current">[\s\S]*<module name="top">/);
   });
 });
+
+describe("the build's identity, and the code's build files", () => {
+  it("is kept by every agent that writes code, and handed whole to the conformance agent", async () => {
+    const { buildRenderPrompt, buildConformancePrompt } = await import("../../src/render/prompt.ts");
+    const { codeFixPrompt } = await import("../../src/render/conformance-agents.ts");
+    const { buildManifests } = await import("../../src/render/conformance.ts");
+    const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- JUnit."], "functional specs": ["- Back it up."] };
+    const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
+    expect(render).toContain("Keep the build's identity as it is: its name, coordinates, version, package and main class.");
+    const fix = codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Back it up." }, run: { command: "c", exitCode: 1, output: "x", timeoutMs: 1 }, reason: "r", first: true });
+    expect(fix).toContain("Keep the build's identity as it is");
+
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "plainwright-manifests-"));
+    writeFileSync(join(dir, "pom.xml"), "<project><groupId>com.codeplain</groupId><artifactId>d365-version-api</artifactId></project>\n");
+    writeFileSync(join(dir, "App.java"), "class App {}\n");
+    const manifests = buildManifests(dir);
+    rmSync(dir, { recursive: true, force: true });
+    // Only the build files - never the code.
+    expect(manifests.map((manifest) => manifest.path)).toEqual(["pom.xml"]);
+    const conformance = buildConformancePrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [], manifest: [], invocation: "java -jar app.jar", manifests });
+    expect(conformance).toContain('<code build file path="pom.xml">\n<project><groupId>com.codeplain</groupId><artifactId>d365-version-api</artifactId></project>\n</code build file>');
+    expect(conformance).toContain("never guess them, and never take them from a folder or module name");
+  });
+});

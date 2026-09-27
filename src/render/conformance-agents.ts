@@ -3,6 +3,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
+import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { INTEGRITY_RULES, specPrimer } from "./prompt.ts";
@@ -26,26 +27,196 @@ export interface SpecContext {
 }
 
 /**
- * How the built software is invoked from outside, as an agent that explored the code writes it:
- * what the conformance tests' author - who never sees the code - works from.
+ * What an explorer hands the author of the conformance tests - who never sees the code, and is given
+ * only this: how the software is built and run, how each functionality is reached from outside,
+ * what it needs around it, and a plan for the tests.
+ */
+export interface Exploration {
+  buildAndRun: string;
+  /**
+   * How the conformance tests, run by the project's conformance testing script, reach it: what the
+   * script builds or installs and where, the coordinates, paths or classes the tests depend on or
+   * start, and whether they start it themselves.
+   */
+  testsReachIt: string;
+  interfaces: Array<{ module: string; frid: string; how: string }>;
+  environment: string;
+  plan: Array<{ module: string; frid: string; tests: string }>;
+  other?: string;
+}
+
+/** An exploration as the test author, and the judge, read it. */
+export function explorationText(exploration: Exploration, replies: string[] = []): string {
+  const sections = [
+    `## How to build and run it\n\n${exploration.buildAndRun.trim()}`,
+    `## How the conformance tests reach it, run by the testing script\n\n${exploration.testsReachIt.trim()}`,
+    `## How each functionality is reached\n\n${exploration.interfaces.map((item) => `### ${item.module} ${item.frid}\n\n${item.how.trim()}`).join("\n\n")}`,
+    `## What it needs around it\n\n${exploration.environment.trim()}`,
+    `## Plan for the conformance tests\n\n${exploration.plan.map((item) => `### ${item.module} ${item.frid}\n\n${item.tests.trim()}`).join("\n\n")}`,
+    ...(exploration.other?.trim() ? [`## Anything else\n\n${exploration.other.trim()}`] : []),
+    // An account it could not complete is passed on with what it wrote, so nothing it found is lost.
+    ...(replies.length > 0 ? [`## What the explorer wrote as it worked\n\n${replies.map((reply) => reply.trim()).join("\n\n")}`] : []),
+  ];
+  return sections.join("\n\n");
+}
+
+/**
+ * What an exploration lacks for the conformance tests to be written from it alone, or nothing when
+ * it is whole: how to build and run it, and - for every functionality the tests are for - how it
+ * is reached and what to test.
+ */
+/** How long an exploration may be: the interface, not the code. Longer is sent back to be cut down. */
+export const MAX_EXPLORATION_CHARS = 12_000;
+
+/** How many times the explorer may hand an exploration over: each ends its turn, and is checked. */
+export const EXPLORATION_SUBMISSIONS = 3;
+
+export function explorationProblems(exploration: Exploration | undefined, scope: ConflictScope, moduleName: string): string[] {
+  if (exploration === undefined) return ["You have not called submit_exploration."];
+  const problems: string[] = [];
+  const size = explorationText(exploration).length;
+  if (size > MAX_EXPLORATION_CHARS) {
+    problems.push(
+      `It is ${size} characters - keep it under ${MAX_EXPLORATION_CHARS}. Hand over the interface, not the code: the routes, ` +
+        "commands, fields and their types, and the setup - no code listings, no files pasted whole.",
+    );
+  }
+  const unknown = [...exploration.interfaces, ...exploration.plan].filter(
+    (item) => item.frid !== "" && !scope.functionalities.some((ref) => ref.module === item.module && ref.frid === item.frid),
+  );
+  if (unknown.length > 0 && scope.tested === undefined) {
+    const names = [...new Set(unknown.map((item) => `${item.module} ${item.frid}`))];
+    problems.push(
+      `${names.join(", ")} ${names.length === 1 ? "is not a functionality" : "are not functionalities"}: give module and id as ` +
+        `the specification numbers them - ${scope.functionalities.filter((ref) => ref.module === moduleName).map(refLabel).join(", ") || "none yet"}.`,
+    );
+  }
+  const short = (text: string | undefined) => (text ?? "").trim().length < 40;
+  if (short(exploration.buildAndRun)) problems.push("build_and_run says too little: what to install and build, the exact command that starts or runs it, where it listens and how to tell it is up.");
+  if (short(exploration.testsReachIt)) {
+    problems.push(
+      "tests_reach_it says too little: read the conformance testing script - what it builds or installs, and where - and say exactly " +
+        "how the tests it runs reach the software: the coordinates, paths or classes they depend on or start (a Maven groupId, " +
+        "artifactId and version, a main class, a jar path, an import), and whether they start it themselves and how.",
+    );
+  }
+  if (short(exploration.environment)) problems.push("environment says too little: every variable, configuration file, service, database and fixture it needs, and how each test gets a fresh one - or say plainly it needs none.");
+  const reached = exploration.interfaces.filter((item) => !short(item.how));
+  const planned = exploration.plan.filter((item) => !short(item.tests));
+  if (scope.tested !== undefined) {
+    // A functionality's run: the one under test, reached and planned for.
+    const tested = scope.tested;
+    const has = (list: Array<{ module: string; frid: string }>) => list.some((item) => item.module === tested.module && item.frid === tested.frid);
+    if (!has(reached)) problems.push(`interfaces does not say how ${refLabel(tested)} is reached: the command and its arguments, or the route, method, headers and the request and response fields.`);
+    if (!has(planned)) problems.push(`plan has no tests for ${refLabel(tested)}: the cases to write, how each is set up and invoked, and what it checks as the specification says.`);
+  } else {
+    // A spec change's: what it touches is for the explorer to say, but some of this module has to be reached and planned.
+    if (!reached.some((item) => item.module === moduleName)) problems.push(`interfaces says nothing of how \`${moduleName}\`'s functionalities the change touches are reached - one entry each.`);
+    if (!planned.some((item) => item.module === moduleName)) problems.push(`plan has no tests for \`${moduleName}\`: the cases the change adds, changes or removes, for each functionality it touches.`);
+  }
+  return problems;
+}
+
+/**
+ * How the built software is invoked from outside, and a plan for its conformance tests, as an agent
+ * that explored the code writes it - everything the tests' author, who never sees the code, works
+ * from. Checked before it is used: it has to cover every functionality the tests are for, and is sent
+ * back until it does. What the explorer wrote in its replies goes with an account it never completed.
  */
 export async function exploreInvocation(options: {
   buildDir: string;
   spec: SpecContext;
+  /** The functionalities of the codebase, and the one under test - none for a spec change. */
+  scope: ConflictScope;
+  /** The project's conformance testing script: how the tests are built and run, and so how they reach the software. */
+  testingScripts?: Array<{ path: string; runs: string; content: string }>;
+  /**
+   * Asked again: the tests written from the last account keep failing the same way, most likely for
+   * something they need of the software that it left out. The failing run, as the harness saw it.
+   */
+  question?: { failure: string; account: string };
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
 }): Promise<string> {
-  let invocation: string | undefined;
+  let exploration: Exploration | undefined;
+  let submissions = 0;
+  const target = options.scope.tested;
+  const ref = {
+    module: Type.Optional(Type.String({ description: "The module the functionality is in" })),
+    id: Type.Optional(
+      Type.String({
+        description:
+          target !== undefined
+            ? `The functionality's id as the specification numbers it, e.g. "${target.frid}" - leave both out for ${refLabel(target)}, the one under test`
+            : 'The functionality\'s id as the specification numbers it, e.g. "3" - never a name of your own',
+      }),
+    ),
+  };
+  /** An entry's functionality: as given when it is one, otherwise - in a functionality's run - the one under test. */
+  const owner = (item: { module?: string; id?: string }): { module: string; frid: string } => {
+    const given = { module: (item.module ?? "").trim() || options.spec.moduleName, frid: (item.id ?? "").trim() };
+    const known = options.scope.functionalities.some((known) => known.module === given.module && known.frid === given.frid);
+    return known || target === undefined ? given : { ...target };
+  };
   const submit = defineTool({
-    name: "submit_invocation",
-    label: "Submit how to invoke it",
-    description: "Hand back how the built software is invoked from outside. Call this exactly once, when you are done.",
+    name: "submit_exploration",
+    label: "Submit the exploration",
+    description:
+      "Hand over everything the author of the conformance tests needs - they see nothing but this, not the code and not your " +
+      "replies. Call it once you are done; call it again to replace what you handed over.",
     parameters: Type.Object({
-      invocation: Type.String({ description: "How to invoke it, for someone who will never see the code" }),
+      build_and_run: Type.String({
+        description: "What to install and build, the exact command that starts or runs it, where it listens and how to tell it is up",
+      }),
+      tests_reach_it: Type.String({
+        description:
+          "How the conformance tests, run by the conformance testing script, reach it: what the script builds or installs and where, the " +
+          "coordinates, paths or classes the tests depend on or start (e.g. a Maven groupId:artifactId:version and the main class), and " +
+          "whether the tests start it themselves and how",
+      }),
+      interfaces: Type.Array(
+        Type.Object({
+          ...ref,
+          how: Type.String({
+            description:
+              "How this functionality is reached from outside: the command and its arguments, or the route, method and headers, and the request and response fields and their types",
+          }),
+        }),
+      ),
+      environment: Type.String({
+        description: "What it needs around it: environment variables, configuration, services, databases, files, fixtures - and how each test gets a fresh one",
+      }),
+      plan: Type.Array(
+        Type.Object({
+          ...ref,
+          tests: Type.String({
+            description:
+              "The conformance tests to write for it, from the specification and its acceptance tests: each case, how it is set up and invoked, what it checks as the specification says, and where its files go as the test reqs say",
+          }),
+        }),
+      ),
+      other: Type.Optional(Type.String({ description: "Anything else a test author who never sees the code needs" })),
     }),
     async execute(_id, params) {
-      invocation = (params as { invocation: string }).invocation;
+      const given = params as {
+        build_and_run: string;
+        tests_reach_it: string;
+        interfaces: Array<{ module?: string; id?: string; how: string }>;
+        environment: string;
+        plan: Array<{ module?: string; id?: string; tests: string }>;
+        other?: string;
+      };
+      submissions += 1;
+      exploration = {
+        buildAndRun: given.build_and_run,
+        testsReachIt: given.tests_reach_it ?? "",
+        interfaces: given.interfaces.map((item) => ({ ...owner(item), how: item.how })),
+        environment: given.environment,
+        plan: given.plan.map((item) => ({ ...owner(item), tests: item.tests })),
+        other: given.other,
+      };
+      // Every hand-over ends the turn and is checked: the harness says what is missing, a few times at most.
       return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;
@@ -54,45 +225,109 @@ export async function exploreInvocation(options: {
   const session = await createExecutor({
     cwd: options.buildDir,
     customTools: [submit, ...fence.tools],
-    tools: [...fence.names, "submit_invocation"],
+    tools: [...fence.names, "submit_exploration"],
     model: options.model,
     label: `${options.label} explorer`,
+    system: fence.note,
   });
+  const replies: string[] = [];
   try {
-    await ask(session, explorePrompt(options.buildDir, options.spec), options.onDelta);
-    if (invocation === undefined) {
-      await ask(session, "You have not called submit_invocation. Call it now with how the software is invoked.", options.onDelta);
+    replies.push(await ask(session, explorePrompt(options.buildDir, options.spec, options.scope, options.testingScripts, options.question), options.onDelta));
+    for (let again = 0; again < EXPLORATION_SUBMISSIONS; again += 1) {
+      const problems = explorationProblems(exploration, options.scope, options.spec.moduleName);
+      if (problems.length === 0 || submissions >= EXPLORATION_SUBMISSIONS) break;
+      reportActivity(`  the exploration is not complete yet: ${problems[0]!.slice(0, 120)}`);
+      replies.push(
+        await ask(
+          session,
+          `What you handed over is not complete - the test author gets nothing else:\n- ${problems.join("\n- ")}\n\nCall submit_exploration with the whole of it: everything you found, not a summary.`,
+          options.onDelta,
+        ),
+      );
     }
   } finally {
     session.dispose();
   }
-  return invocation ?? "The explorer could not say how the software is invoked. Work it out from the files in the build and the test reqs.";
+  const complete = explorationProblems(exploration, options.scope, options.spec.moduleName).length === 0;
+  const found = replies.filter((reply) => reply.trim() !== "");
+  if (exploration === undefined) {
+    return found.length > 0
+      ? `The explorer did not hand over a complete account. What it wrote as it worked:\n\n${found.join("\n\n")}`
+      : "The explorer could not say how the software is invoked. Work it out from the test reqs and the files in the build.";
+  }
+  return explorationText(exploration, complete ? [] : found);
 }
 
-export function explorePrompt(buildDir: string, spec: SpecContext): string {
+export function explorePrompt(
+  buildDir: string,
+  spec: SpecContext,
+  scope: ConflictScope,
+  testingScripts?: Array<{ path: string; runs: string; content: string }>,
+  question?: { failure: string; account: string },
+): string {
+  const target =
+    scope.tested !== undefined
+      ? `functionality ${refLabel(scope.tested)}`
+      : `the spec change - every functionality of \`${spec.moduleName}\` it can reach`;
   return [
     specPrimer({ testReqs: true }),
-    `You are exploring the built code of the \`${spec.moduleName}\` specification, in ${buildDir}.`,
+    `You are exploring the built code of the \`${spec.moduleName}\` specification, in ${buildDir}, for the conformance tests of ${target}.`,
     "",
-    "Someone else will write its conformance tests: black-box tests that invoke the built software from the",
-    "outside and check it does what the specification says. They will never see the code. Tell them how to",
-    "invoke it - everything they need to reach it, and nothing about how it works inside:",
+    "Someone else will write those tests: black-box tests that invoke the built software from the outside and",
+    "check it does what the specification says. They will never see the code, and they will not see your",
+    "replies: what you hand over with submit_exploration is all they get. So hand over everything they need of",
+    `it - in full, but only what they need: the interface to ${target}, not the codebase. Be focused: find its`,
+    "entry point and what it needs around it; do not survey everything else. Describe the routes, commands,",
+    `fields and their types in words - no code listings, no files pasted whole, under ${MAX_EXPLORATION_CHARS} characters in all. In its parts:`,
     "",
-    "- what to install or build before it runs, and the command that starts or runs it;",
-    "- its entry points: the executable and its arguments, the module and function to import, or the server,",
-    "  where it listens and how to tell it is up;",
-    "- how each thing the specification describes is reached: the command, the route and method, the call;",
-    "- what it needs around it: environment variables, configuration, files, a database, and how to give it",
-    "  a fresh one for each test;",
-    "- where the files it reads and writes are, and anything else a test needs to set it up or clean up after it.",
+    "- build_and_run: what to install and build, the exact command that starts or runs it, where it listens",
+    "  and how to tell it is up;",
+    "- tests_reach_it: how the conformance tests reach it, run as the conformance testing script below runs",
+    "  them. Read the script: what it builds or installs, and where, before the tests run; then say exactly what",
+    "  the tests depend on or start - a Maven groupId, artifactId and version, the main class, a jar path, an",
+    "  import - and whether they start the software themselves, and how. Copy names, coordinates and versions",
+    "  from the build file itself (pom.xml, package.json, pyproject.toml, go.mod...), and name the file: never",
+    "  infer them from a folder or module name. A test that cannot reach the software tests nothing, so this is",
+    "  the part that matters most;",
+    `- interfaces: for ${target} - and any other functionality its tests need to set up state - how it is`,
+    "  reached from outside: the command and its arguments, or the route, method and headers, and the fields",
+    "  of its request and response and their types, as the code takes them;",
+    "- environment: environment variables, configuration, services and databases it talks to, files and",
+    "  fixtures - and how each test gets a fresh one;",
+    `- plan: the conformance tests to write for ${target}, from the specification and its acceptance tests:`,
+    "  each case, how it is set up and invoked, what it checks as the specification says, and where the files",
+    "  go as the test reqs say.",
     "",
-    "Describe how to call it, not what it answers: what it returns in each case is for the tests to check",
-    "against the specification, never to copy from the code. Read the code, and run it in your shell to be",
-    "sure. Change nothing. When you are done, call submit_invocation once with the whole account.",
+    "Describe how to call it, never what it answers: what it returns in each case is for the tests to check",
+    "against the specification, not to copy from the code - so the plan's expectations come from the",
+    "specification, and the code only tells you how to reach it. Read the code, and run it in your shell to be",
+    "sure. Change nothing. Then call submit_exploration - once, with the whole of it: it ends your turn, and",
+    `you are told if anything is missing. You can hand it over ${EXPLORATION_SUBMISSIONS} times at most.`,
     "",
     "<specification>",
     spec.text.trim(),
     "</specification>",
+    ...(testingScripts !== undefined && testingScripts.length > 0
+      ? [
+          "",
+          "This is the project's conformance testing script, which the harness runs on this machine to decide whether the",
+          "tests pass - read it for what it builds or installs before the tests run, and so what the tests can depend on:",
+          ...testingScripts.flatMap((script) => ["", `<script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</script>"]),
+        ]
+      : []),
+    ...(question !== undefined
+      ? [
+          "",
+          "You are asked again. The conformance tests were written from your last account, and they keep failing the",
+          "same way - most likely for something they need of the software that the account left out: how they reach",
+          "it, what to depend on or start, what it needs around it. Look at the code again for exactly that, and hand",
+          "over the whole account again, with what was missing.",
+          "",
+          `<your last account>\n${question.account.trim()}\n</your last account>`,
+          "",
+          `<the failure that keeps coming back>\n${question.failure.trimEnd()}\n</the failure that keeps coming back>`,
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -221,6 +456,7 @@ export async function judgeFailure(options: {
     tools: [...fence.names, "submit_verdict"],
     model: options.model,
     label: `${options.label} judge`,
+    system: fence.note,
   });
   try {
     await ask(session, judgePrompt(options), options.onDelta);
@@ -263,6 +499,9 @@ export function judgePrompt(options: {
     "- tests: a test asserts something the specification does not say, misreads it, or reaches the software the",
     "  wrong way - a wrong command, route or setup (see <how to invoke it>).",
     "- code: the code does not do what the specification says, and the test checks exactly that.",
+    "  Only what the specification says counts: anything it leaves open - a name, coordinates, a version, a path,",
+    "  a package, a port, a file layout - is what the code already has. The tests follow it, and it is never",
+    "  code - changing the code to fit a test's guess moves what every other test points at.",
     "- spec: two functionalities of the specification cannot both hold - whatever the code does, one of them fails.",
     "  Only when the code and the tests both follow the specification, and the specification itself cannot be met.",
     "  They can be in different modules: this one's, and those of the modules it requires - each is listed with its",
@@ -320,6 +559,7 @@ export async function createCodeFixer(options: {
     tools: [...fence.names, ...options.toolNames, ...WEB_TOOLS],
     model: options.model,
     label: `${options.label} coding agent`,
+    system: fence.note,
   });
 }
 
@@ -347,6 +587,9 @@ export function codeFixPrompt(options: { buildDir: string; spec: SpecContext; ru
     "Fix the code so it does what the specification says. The tests are not yours: you cannot see or change",
     "them, and they are not the judge - the specification is. Keep the unit tests passing: call",
     "run_unit_tests before you finish.",
+    "Keep the build's identity as it is - its name, coordinates, version, package and main class - unless the",
+    "specification asks for another: the tests and other builds point at them. Leave in your notes what holds about",
+    "the code for the next agent, not an account of this fix: the harness records the attempts itself.",
     ...INTEGRITY_RULES,
   ].join("\n");
 }

@@ -268,6 +268,7 @@ export async function renderFunctionality(
     tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} ${frid} coding agent`,
+    system: fence.note,
   });
 
   try {

@@ -221,6 +221,7 @@ async function repairRegression(input: {
     tools: [...fence.names, ...FIX_TOOLS, ...WEB_TOOLS],
     model: input.model,
     label: `${input.step} repair agent`,
+    system: fence.note,
   });
 
   try {

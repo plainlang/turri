@@ -27,7 +27,17 @@ async function passingAgent(session: StubSession, prompt: string) {
   if (prompt.startsWith("Before you finish: call update_notes")) return agentRunning("", session, prompt);
   // The explorer a conformance run starts with, and the judge of a failing run.
   const own = (name: string) => session.tools.find((tool) => tool.name === name);
-  if (own("submit_invocation")) return (await own("submit_invocation")!.execute("id", { invocation: "python3 app.py" }), "Done.");
+  if (own("submit_exploration")) {
+    const long = "python3 app.py, from the build folder, with nothing else around it at all.";
+    await own("submit_exploration")!.execute("id", {
+      build_and_run: long,
+      tests_reach_it: long,
+      interfaces: [{ module: "app", id: "1", how: long }],
+      environment: long,
+      plan: [{ module: "app", id: "1", tests: long }],
+    });
+    return "Done.";
+  }
   if (own("submit_verdict")) return (await own("submit_verdict")!.execute("id", { culprit: "tests", reason: "stub" }), "Done.");
   await session.tools.find((tool) => tool.name === "write")!.execute("id", {
     path: "test_app.py",

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -63,6 +63,7 @@ import {
   listFiles,
   removalChallengePrompt,
   runCommand,
+  shownOutput,
   truncateOutput,
   type TestRemoval,
   type TestRun,
@@ -139,6 +140,11 @@ export interface RenderConformanceTestsResult {
    * the times it takes to count. The run stopped on it - nothing in the code or the tests can fix it.
    */
   specConflict?: { functionalities: Array<{ module: string; frid: string }>; reason: string };
+  /**
+   * The run failed the same way, judged the same way, round after round - and again after the
+   * explorer was asked what the tests lacked. It stopped rather than spend its attempts on it.
+   */
+  stuck?: { failure: string; rounds: number; error: string; times: number };
 }
 
 
@@ -275,13 +281,47 @@ export async function renderConformanceTests(
   };
   /** How many times each spec conflict has been raised in this run, by the two functionalities it names. */
   const conflicts = new Map<string, string[]>();
+  /**
+   * How many times each failure has come back in this run - in a row or not: a run that swings
+   * between two failures, each side undoing the other, is as stuck as one that repeats one.
+   */
+  const seenFailures = new Map<string, number>();
+  let reExplored = false;
+  let stuck: RenderConformanceTestsResult["stuck"];
   let specConflict: RenderConformanceTestsResult["specConflict"];
-  /** One attempt at the failing run, written into the notes' pitfalls - what the next judge reads first. */
-  const recordAttempt = (attempt: number, what: string, reply: string) =>
-    // Numbered in the line itself: two attempts that went the same way are two lines, not one.
-    recordNote(buildDir, "pitfalls", `attempt ${attempt}: ${what.replace(/\s+/g, " ").slice(0, 300)} - then: ${firstLine(reply)}`, `${label} conformance attempt ${attempt}`);
+  /**
+   * One attempt at the failing run, written into the notes' pitfalls - what the next judge reads
+   * first - as cause and effect: what failed, how it was judged, and what was changed; the next
+   * attempt's line shows what came of it. Numbered in the line itself: two attempts that went the
+   * same way are two lines, not one.
+   */
+  const recordAttempt = (attempt: number, run: ScriptRun, judged: string, change: { who: string; files: string[] }) => {
+    const files = change.files.length === 0 ? "nothing" : `${change.files.slice(0, 6).join(", ")}${change.files.length > 6 ? ` and ${change.files.length - 6} more` : ""}`;
+    recordNote(
+      buildDir,
+      "pitfalls",
+      `attempt ${attempt}: failed with ${failureLine(run)} → judged ${judged.replace(/\s+/g, " ").slice(0, 240)} → the ${change.who} changed ${files}`,
+      `${label} conformance attempt ${attempt}`,
+    );
+  };
+  /** Run a fix, and say which files of the code and the tests it changed. */
+  const changing = async <T>(work: () => Promise<T>): Promise<{ result: T; files: string[] }> => {
+    const code = digestFiles(buildDir);
+    const tests = digestFiles(conformanceDir);
+    const result = await work();
+    const named = (prefix: string, diff: { added: string[]; changed: string[]; removed: string[] }) => [
+      ...diff.added.map((file) => `${prefix}/${file} (added)`),
+      ...diff.changed.map((file) => `${prefix}/${file}`),
+      ...diff.removed.map((file) => `${prefix}/${file} (removed)`),
+    ];
+    return { result, files: [...named("code", diffFiles(code, digestFiles(buildDir))), ...named("tests", diffFiles(tests, digestFiles(conformanceDir)))] };
+  };
   stage(`exploring the code for how it is invoked${options.model ? ` (${options.model})` : ""}`);
-  const invocation = await exploreInvocation({ buildDir, spec: specContext, label, model: options.model, onDelta: options.onDelta });
+  // The explorer reads the conformance testing script too: it is how the tests are built and run, and so how they reach the software.
+  const testingScripts = [
+    { path: relative(root, scripts.conformance!), runs: "<script> <copy of the build> <copy of the whole conformance suite>", content: readFileSync(scripts.conformance!, "utf8") },
+  ];
+  let invocation = await exploreInvocation({ buildDir, spec: specContext, scope, testingScripts, label, model: options.model, onDelta: options.onDelta });
   reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
   const agentPrompt = withTestingScripts(
     buildConformancePrompt({
@@ -294,6 +334,7 @@ export async function renderConformanceTests(
       required,
       diff: options.diff,
       invocation,
+      manifests: buildManifests(buildDir),
     }),
     scripts,
     ["conformance"],
@@ -321,6 +362,7 @@ export async function renderConformanceTests(
     tools: [...fence.names, "run_conformance_tests", "update_notes", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
+    system: fence.note,
   });
 
   // The coding agent, made the first time the code is what is wrong.
@@ -404,12 +446,62 @@ export async function renderConformanceTests(
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
       options.onRun?.(recheck.command, recheck.exitCode);
       if (recheck.exitCode !== 0) {
+        // Nothing changing: the same failure, taken the same way, round after round. Once, the explorer
+        // is asked what the tests lack - most often how they reach the software; after that, it stops.
+        const unmoved = async (): Promise<"asked" | "stuck" | undefined> => {
+          const key = failureSignature(recheck);
+          const seen = (seenFailures.get(key) ?? 0) + 1;
+          seenFailures.set(key, seen);
+          if (seen < STUCK_ROUNDS) return undefined;
+          seenFailures.clear();
+          if (reExplored) {
+            stuck = { failure: truncateOutput(recheck.output, undefined).slice(-4000), rounds, error: failureLine(recheck), times: STUCK_ROUNDS };
+            stage(`the same failure ${STUCK_ROUNDS} times again, after the explorer was asked - stopping`);
+            recordNote(buildDir, "pitfalls", `stuck after ${rounds} attempts: failed with ${failureLine(recheck)} ${STUCK_ROUNDS} times, before and after the explorer was asked again`, `${label} conformance`);
+            return "stuck";
+          }
+          reExplored = true;
+          stage(`the same failure ${STUCK_ROUNDS} times - asking the explorer again what the tests lack`);
+          invocation = await exploreInvocation({
+            buildDir,
+            spec: specContext,
+            scope,
+            testingScripts,
+            question: { failure: shownOutput(buildDir, "conformance-stuck", recheck.output), account: invocation },
+            label,
+            model: options.model,
+            onDelta: options.onDelta,
+          });
+          const asked = await changing(() => ask(
+            executor,
+            [
+              `The conformance tests have failed the same way ${STUCK_ROUNDS} times, so the explorer was asked again what they`,
+              "lack. This is its new account - it replaces the one you had. Read it, and the conformance testing script at",
+              "the top of your prompt, for how the tests reach the software; then fix the tests accordingly.",
+              "",
+              `<how to invoke it>\n${invocation.trim()}\n</how to invoke it>`,
+              "",
+              ...buildManifests(buildDir).map((manifest) => `<code build file path="${manifest.path}">\n${manifest.content.trimEnd()}\n</code build file>\n`),
+              "<failing run>",
+              recheck.output.trimEnd().slice(-6000),
+              "</failing run>",
+            ].join("\n"),
+            options.onDelta,
+          ));
+          response = asked.result;
+          recordAttempt(rounds, recheck, `the same failure ${STUCK_ROUNDS} times - the explorer was asked again what the tests lack`, { who: "conformance agent", files: asked.files });
+          return "asked";
+        };
         // A toolchain missing, or a run out of time, is not a question of test or code: the tests'
         // environment is the conformance agent's.
         if (recheck.exitCode === 69 || recheck.timedOut === true) {
+          const moved = await unmoved();
+          if (moved === "stuck") break;
+          if (moved === "asked") continue;
           stage("the conformance run did not get to the tests - back to the conformance agent");
-          response = await ask(executor, scriptFailure(recheck, "conformance testing"), options.onDelta);
-          recordAttempt(rounds, `the run did not get to the tests (${recheck.timedOut === true ? "time limit" : `exit ${recheck.exitCode}`})`, response);
+          const fixed = await changing(() => ask(executor, scriptFailure(recheck, "conformance testing"), options.onDelta));
+          response = fixed.result;
+          recordAttempt(rounds, recheck, `not a question of code or tests (${recheck.timedOut === true ? "the time limit" : `exit ${recheck.exitCode}`})`, { who: "conformance agent", files: fixed.files });
           continue;
         }
         stage("conformance tests failing - working out whether the code, the tests or the spec are wrong");
@@ -426,6 +518,12 @@ export async function renderConformanceTests(
           onDelta: options.onDelta,
         });
         const reason = verdict.reason.split("\n")[0]!.slice(0, 160);
+        // A spec conflict has counting of its own; code or tests the same way, again and again, is nothing changing.
+        if (verdict.culprit !== "spec") {
+          const moved = await unmoved();
+          if (moved === "stuck") break;
+          if (moved === "asked") continue;
+        }
         if (verdict.culprit === "spec") {
           // Counted per pair of functionalities: it stops the run only when the same two are named often enough.
           const pair = sortedRefs(verdict.functionalities!);
@@ -459,7 +557,7 @@ export async function renderConformanceTests(
           // Recorded, and the round still changes something: the tests are looked at again, so the
           // next judgement is of a new run rather than the same one asked about again.
           stage(`a spec conflict between functionalities ${key} is recorded (${raised} of ${SPEC_CONFLICT_RAISES}) - the conformance agent looks at the tests again`);
-          response = await ask(
+          const fixed = await changing(() => ask(
             executor,
             testsFixPrompt({
               run: recheck,
@@ -469,18 +567,20 @@ export async function renderConformanceTests(
                 "that each asserts only what its functionality says, and sets up what it needs without undoing what the other relies on.",
             }),
             options.onDelta,
-          );
-          recordAttempt(rounds, `judged a spec conflict between functionalities ${key}: ${verdict.reason}`, response);
+          ));
+          response = fixed.result;
+          recordAttempt(rounds, recheck, `a spec conflict between functionalities ${key}: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
         } else if (verdict.culprit === "code") {
           reportActivity(`  the code: ${reason}`);
           stage("the code is wrong - the coding agent fixes it");
-          const reply = await askFixer((first) => codeFixPrompt({ buildDir, spec: specContext, run: recheck, reason: verdict.reason, first }));
-          recordAttempt(rounds, `judged the code wrong: ${verdict.reason}`, reply);
+          const fixed = await changing(() => askFixer((first) => codeFixPrompt({ buildDir, spec: specContext, run: recheck, reason: verdict.reason, first })));
+          recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
         } else {
           reportActivity(`  the tests: ${reason}`);
           stage("the tests are wrong - the conformance agent fixes them");
-          response = await ask(executor, testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta);
-          recordAttempt(rounds, `judged the tests wrong: ${verdict.reason}`, response);
+          const fixed = await changing(() => ask(executor, testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta));
+          response = fixed.result;
+          recordAttempt(rounds, recheck, `the tests wrong: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
         }
         continue;
       }
@@ -528,6 +628,7 @@ export async function renderConformanceTests(
       codeChanged: changed,
       testRemovals,
       ...(specConflict !== undefined ? { specConflict } : {}),
+      ...(stuck !== undefined ? { stuck } : {}),
     };
   } finally {
     executor.dispose();
@@ -544,10 +645,65 @@ function plainFilesOf(plainFile: string, templateDirs: string[]): Map<string, st
   }
 }
 
-/** An agent's reply, in one line for the notes. */
-function firstLine(text: string): string {
-  const line = text.split("\n").map((part) => part.trim()).find((part) => part !== "") ?? "no report";
-  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+/** How many rounds running the same failure, taken the same way, is nothing changing. */
+export const STUCK_ROUNDS = 3;
+
+/**
+ * A failing run, as a fingerprint: the lines that say what went wrong, without what changes from run
+ * to run - numbers, times, paths, ids. Two runs failing the same way have the same one.
+ */
+export function failureSignature(run: ScriptRun): string {
+  if (run.timedOut === true) return "the run did not finish in the time limit";
+  const lines = run.output.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+  const telling = lines.filter((line) => /error|exception|fail|refused|timed out|cannot|unable|not found|denied/i.test(line));
+  const normal = (line: string) =>
+    line
+      .replace(/\/[^\s:'"]+/g, "<path>")
+      .replace(/\b[0-9a-f]{8,}\b/gi, "<id>")
+      .replace(/\d+(\.\d+)?/g, "<n>")
+      .replace(/\s+/g, " ");
+  return [...new Set((telling.length > 0 ? telling : lines.slice(-20)).map(normal))].slice(0, 30).join("\n");
+}
+
+/** The build files a project's name, coordinates and version live in, by ecosystem. */
+const BUILD_MANIFESTS = [
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "package.json",
+  "pyproject.toml",
+  "setup.py",
+  "setup.cfg",
+  "go.mod",
+  "Cargo.toml",
+  "composer.json",
+  "Gemfile",
+  "mix.exs",
+];
+
+/**
+ * The code's own build files, at the top of its folder, as they are - read by the harness, for the
+ * author of the conformance tests, who cannot read the code. They are interface, not implementation:
+ * what a separate test project has to point at - the name, the coordinates, the version.
+ */
+export function buildManifests(buildDir: string): Array<{ path: string; content: string }> {
+  return BUILD_MANIFESTS.filter((name) => existsSync(join(buildDir, name))).map((name) => {
+    const content = readFileSync(join(buildDir, name), "utf8");
+    return { path: name, content: content.length > 20_000 ? `${content.slice(0, 20_000)}\n… [${content.length - 20_000} more characters]` : content };
+  });
+}
+
+/** What a failing run failed with, in one line as it said it: its first line that says what went wrong. */
+export function failureLine(run: ScriptRun): string {
+  if (run.timedOut === true) return "the time limit - the run did not finish";
+  const lines = run.output.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+  // The error itself - `AssertionError: …`, `ConnectException: …` - says more than a summary line: up to two, each once.
+  const errors = [...new Set(lines.filter((line) => /\w(Error|Exception)\b[^\n]*:/.test(line)))];
+  const telling = errors.length > 0 ? errors : lines.filter((line) => /error|exception|fail|refused|cannot|unable|not found|denied/i.test(line));
+  const picked = telling.length > 0 ? telling.slice(0, 2) : [lines.at(-1) ?? `exit ${run.exitCode}`];
+  return picked.map((line) => `"${line.length > 160 ? `${line.slice(0, 159)}…` : line}"`).join(" and ");
 }
 
 /**

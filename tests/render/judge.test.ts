@@ -97,6 +97,9 @@ describe("the judge", () => {
     expect(prompts[0]).toContain("When the code and the tests could both be what is wrong, choose tests.");
     expect(prompts[0]).toContain("One of them must be app 3, the one under test");
     expect(prompts[0]).toContain("They can be in different modules");
+    // What the spec leaves open is what the code has: never the code's to change.
+    expect(prompts[0]).toContain("anything it leaves open - a name, coordinates, a version, a path");
+    expect(prompts[0]).toContain("The tests follow it, and it is never\n  code");
     expect(prompts[0]).toContain("raised 3 times, for the same two functionalities");
   });
 });

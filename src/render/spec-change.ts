@@ -310,6 +310,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
+    system: fence.note,
   });
 
   let response: string;
