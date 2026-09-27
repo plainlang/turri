@@ -7,7 +7,7 @@ import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { listFiles, shownOutput, type TestRun } from "./testing.ts";
+import { keepFullOutput, listFiles, shownOutput, truncateOutput, type TestRun } from "./testing.ts";
 import { COMMAND_TIMEOUT_MS } from "./vm.ts";
 
 /**
@@ -233,6 +233,10 @@ export interface ScriptRun {
   timedOut?: boolean;
   /** The time limit it ran under. */
   timeoutMs: number;
+  /** Where the whole output is, when it was too long to be shown whole. */
+  log?: string;
+  /** What an agent that read the whole of it said failed and why - for the judge and whoever fixes it. */
+  summary?: string;
 }
 
 /**
@@ -351,7 +355,8 @@ async function runOnHost(root: string, script: string, args: string[], logDir: s
       ? `  ✗ ${shown(script)} did not finish in ${Math.round(timeoutMs / 1000)}s - stopped, counted as failed`
       : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
   );
-  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: shownOutput(logDir, basename(script), output), timedOut, timeoutMs };
+  const log = keepFullOutput(logDir, basename(script), output);
+  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: truncateOutput(output, log), timedOut, timeoutMs, ...(log !== undefined ? { log } : {}) };
 }
 
 /**
@@ -431,11 +436,14 @@ export function createScriptTool(options: {
   return defineTool({
     name,
     label: unit ? "Run unit tests" : "Run conformance tests",
-    description:
-      `Final check before you finish: run the project's ${unit ? "unit" : "conformance"} testing script, ${script}, on ` +
-      (unit ? "the code as it is now" : "the code with the whole conformance suite") +
-      " - exactly as the harness runs it to decide whether this is done. It takes no command. To run one test, one " +
-      "file, or the tests any other way while you work, use bash.",
+    description: unit
+      ? `Final check before you finish: run the project's unit testing script, ${script}, on the code as it is now - exactly ` +
+        "as the harness runs it to decide whether this is done. It takes no command. To run one test, one file, or the " +
+        "tests any other way while you work, use bash."
+      : `Run the project's conformance testing script, ${script}, on a fresh copy of the code with the whole conformance ` +
+        "suite - exactly as the harness runs it to decide whether this is done. It takes no command. Your shell holds " +
+        "only the tests, not the code, so this is how you run them against the code: while you work, and as the final " +
+        "check before you finish.",
     promptSnippet: `${name}: the final check - the project's ${unit ? "unit" : "conformance"} testing script, as the harness runs it`,
     parameters: Type.Object({}),
     async execute() {

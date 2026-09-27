@@ -65,7 +65,7 @@ describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeo
     if (verdict.ok) return;
     expect(verdict.prompt).toContain("test_broken");
     expect(verdict.prompt).toContain("AssertionError");
-    const log = /the whole output is in (\S+)\]/.exec(verdict.prompt)![1]!;
+    const log = /the whole output is in (\S+?);/.exec(verdict.prompt)![1]!;
     expect(readFileSync(log, "utf8")).toContain("Downloading dependency 1 of 3000");
   });
 

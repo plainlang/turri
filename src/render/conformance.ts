@@ -34,7 +34,7 @@ import {
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   codeFixPrompt,
   conflictKey,
@@ -42,6 +42,10 @@ import {
   exploreInvocation,
   judgeFailure,
   SPEC_CONFLICT_RAISES,
+  summarizeFailure,
+  reviewTests,
+  reviewFeedbackPrompt,
+  type ReviewProblem,
   testsFixPrompt,
   sortedRefs,
   type ConflictScope,
@@ -69,12 +73,6 @@ import {
   type TestRun,
   verifyUnitSuite,
 } from "./testing.ts";
-
-/**
- * The conformance agent's own tools, beside its file tools and shell: running its tests, and -
- * since it fixes the code when the code is what is wrong - running the code's unit tests.
- */
-const CONFORMANCE_TOOLS = ["run_conformance_tests", "run_unit_tests"];
 
 const DEFAULT_MAX_ROUNDS = ATTEMPTS.conformance;
 
@@ -145,6 +143,8 @@ export interface RenderConformanceTestsResult {
    * explorer was asked what the tests lacked. It stopped rather than spend its attempts on it.
    */
   stuck?: { failure: string; rounds: number; error: string; times: number };
+  /** The suite passed, but the tests never passed review: what the review last found. */
+  review?: Array<{ file: string; test?: string; kind: "missing" | "bad"; what: string }>;
 }
 
 
@@ -272,6 +272,8 @@ export async function renderConformanceTests(
   // invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
   const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.diff) };
+  // For a spec change: the functionalities it touches, whose acceptance tests are labelled, checked and reviewed.
+  const touched = forChange ? touchedFunctionalities(tree, frids, options.diff!) : [];
   // Any functionality of the codebase - this module's, and those of the modules it requires. A
   // functionality's run may raise a spec conflict only with that functionality; a spec diff's, between any two.
   const own = (forChange ? frids : frids.slice(0, frids.indexOf(frid!) + 1)).map((id) => ({ module: moduleName, frid: id }));
@@ -288,6 +290,8 @@ export async function renderConformanceTests(
   const seenFailures = new Map<string, number>();
   let reExplored = false;
   let stuck: RenderConformanceTestsResult["stuck"];
+  /** What the review last found, while it has not passed. */
+  let lastReview: ReviewProblem[] | undefined;
   let specConflict: RenderConformanceTestsResult["specConflict"];
   /**
    * One attempt at the failing run, written into the notes' pitfalls - what the next judge reads
@@ -295,12 +299,12 @@ export async function renderConformanceTests(
    * attempt's line shows what came of it. Numbered in the line itself: two attempts that went the
    * same way are two lines, not one.
    */
-  const recordAttempt = (attempt: number, run: ScriptRun, judged: string, change: { who: string; files: string[] }) => {
+  const recordAttempt = (attempt: number, run: ScriptRun | string, judged: string, change: { who: string; files: string[] }) => {
     const files = change.files.length === 0 ? "nothing" : `${change.files.slice(0, 6).join(", ")}${change.files.length > 6 ? ` and ${change.files.length - 6} more` : ""}`;
     recordNote(
       buildDir,
       "pitfalls",
-      `attempt ${attempt}: failed with ${failureLine(run)} → judged ${judged.replace(/\s+/g, " ").slice(0, 240)} → the ${change.who} changed ${files}`,
+      `attempt ${attempt}: ${typeof run === "string" ? run : `failed with ${failureLine(run)}`} → judged ${judged.replace(/\s+/g, " ").slice(0, 240)} → the ${change.who} changed ${files}`,
       `${label} conformance attempt ${attempt}`,
     );
   };
@@ -335,6 +339,7 @@ export async function renderConformanceTests(
       diff: options.diff,
       invocation,
       manifests: buildManifests(buildDir),
+      touched,
     }),
     scripts,
     ["conformance"],
@@ -342,8 +347,26 @@ export async function renderConformanceTests(
   );
 
   // The conformance agent: its file tools and its shell hold the tests folder, nothing of the code.
-  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir], write: [conformanceDir] });
+  // The full outputs of the test runs, too long to be shown whole: readable by the agents that fix what they show.
+  const logsDir = join(vmScratchDir(buildDir), "logs");
+  mkdirSync(logsDir, { recursive: true });
+  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, logsDir], write: [conformanceDir] });
   const notes = notesForSession(buildDir, `${label} conformance`);
+  // Each agent runs the suite three times a turn at most: the third ends its turn, and the harness runs it and judges.
+  const conformanceRuns = turnLimited(
+    createScriptTool({
+      kind: "conformance",
+      script: scripts.conformance,
+      run: () => runConformanceScript(buildDir, [conformanceDir], scripts),
+      runs,
+      onRun: options.onRun,
+    }),
+    RUNS_PER_TURN,
+  );
+  const fixerConformanceRuns = turnLimited(
+    createScriptTool({ kind: "conformance", script: scripts.conformance, run: () => runConformanceScript(buildDir, [conformanceDir], scripts), runs: [] }),
+    RUNS_PER_TURN,
+  );
   stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
     cwd: conformanceDir,
@@ -351,19 +374,19 @@ export async function renderConformanceTests(
       notes.tool,
       ...createWebTools(),
       ...fence.tools,
-      createScriptTool({
-        kind: "conformance",
-        script: scripts.conformance,
-        run: () => runConformanceScript(buildDir, [conformanceDir], scripts),
-        runs,
-        onRun: options.onRun,
-      }),
+      conformanceRuns.tool,
     ],
     tools: [...fence.names, "run_conformance_tests", "update_notes", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
     system: fence.note,
   });
+
+  /** A turn of the conformance agent: a fresh count of its runs of the suite. */
+  const askConformance = (text: string, onDelta?: (delta: string) => void) => {
+    conformanceRuns.newTurn();
+    return ask(executor, text, onDelta);
+  };
 
   // The coding agent, made the first time the code is what is wrong.
   let fixer: AgentSession | undefined;
@@ -372,16 +395,25 @@ export async function renderConformanceTests(
     const first = fixer === undefined;
     fixer ??= await createCodeFixer({
       buildDir,
+      logsDir,
       label,
       model: options.model,
-      tools: [fixerNotes.tool, createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns })],
-      toolNames: ["run_unit_tests", "update_notes"],
+      // The unit tests, and the conformance suite - to reproduce the failure and check the fix, seeing only its output.
+      tools: [
+        fixerNotes.tool,
+        createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns }),
+        fixerConformanceRuns.tool,
+      ],
+      toolNames: ["run_unit_tests", "run_conformance_tests", "update_notes"],
     });
+    fixerConformanceRuns.newTurn();
     return ask(fixer, withNotes(text(first), buildDir), options.onDelta);
   };
 
   try {
     let inventory = inventoryTests(conformanceDir);
+    // What the tests were when this run began: what it adds or changes is what the review gate reads.
+    const testsAtStart = digestFiles(conformanceDir);
     let unitInventory = inventoryTests(buildDir);
     // Acceptance tests only when the spec has them for this functionality.
     const acceptance = options.diff === undefined ? (specifications[ACCEPTANCE_TESTS] ?? []).length : 0;
@@ -392,7 +424,7 @@ export async function renderConformanceTests(
           ? "plainwright is bringing the conformance tests in line with the spec change"
           : "plainwright is writing conformance tests from the spec",
     );
-    let response = await ask(executor, withNotes(agentPrompt, buildDir), options.onDelta);
+    let response = await askConformance(withNotes(agentPrompt, buildDir), options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
     let verified = false;
@@ -404,7 +436,7 @@ export async function renderConformanceTests(
         stage(`justifying ${removals.length} removed conformance test${removals.length === 1 ? "" : "s"}`);
         testRemovals.push(...removals);
         inventory = current;
-        response = await ask(executor, removalChallengePrompt(removals, "conformance tests"), options.onDelta);
+        response = await askConformance(removalChallengePrompt(removals, "conformance tests"), options.onDelta);
         continue;
       }
       // The coding agent keeps the unit tests it found.
@@ -424,7 +456,17 @@ export async function renderConformanceTests(
         const missing = missingTestLabels(conformanceDir, frid!, specifications[ACCEPTANCE_TESTS] ?? []);
         if (missing.length > 0) {
           stage("labelling the conformance and acceptance tests");
-          response = await ask(executor, labelsPrompt(frid!, missing), options.onDelta);
+          response = await askConformance(labelsPrompt(frid!, missing), options.onDelta);
+          continue;
+        }
+      } else {
+        // A spec change: every functionality it touches, as a functionality's own run would have it.
+        const unlabelled = touched
+          .map((item) => ({ frid: item.frid, missing: missingTestLabels(conformanceDir, item.frid, item.acceptanceTests) }))
+          .find((item) => item.missing.length > 0);
+        if (unlabelled !== undefined) {
+          stage(`labelling the conformance and acceptance tests of functionality ${unlabelled.frid}, which the change touches`);
+          response = await askConformance(labelsPrompt(unlabelled.frid, unlabelled.missing), options.onDelta);
           continue;
         }
       }
@@ -442,9 +484,15 @@ export async function renderConformanceTests(
       // every functionality's tests, in the tests VM - and the code's unit testing script.
       stage(`running the conformance testing script on the whole suite (attempt ${rounds + 1} of ${maxRounds})`);
       rounds += 1;
-      const recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
+      let recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
       options.onRun?.(recheck.command, recheck.exitCode);
+      if (recheck.exitCode !== 0 && recheck.log !== undefined) {
+        // Too long to be shown whole: an agent reads all of it and sums up what failed and why, for the judge and whoever fixes it.
+        stage("the output is too long to show whole - an agent is summing up what failed and why");
+        const summary = await summarizeFailure({ run: recheck, logsDir, buildDir, conformanceDir, label, model: options.model, onDelta: options.onDelta });
+        if (summary !== undefined) recheck = { ...recheck, summary };
+      }
       if (recheck.exitCode !== 0) {
         // Nothing changing: the same failure, taken the same way, round after round. Once, the explorer
         // is asked what the tests lack - most often how they reach the software; after that, it stops.
@@ -499,7 +547,7 @@ export async function renderConformanceTests(
           if (moved === "stuck") break;
           if (moved === "asked") continue;
           stage("the conformance run did not get to the tests - back to the conformance agent");
-          const fixed = await changing(() => ask(executor, scriptFailure(recheck, "conformance testing"), options.onDelta));
+          const fixed = await changing(() => askConformance(scriptFailure(recheck, "conformance testing"), options.onDelta));
           response = fixed.result;
           recordAttempt(rounds, recheck, `not a question of code or tests (${recheck.timedOut === true ? "the time limit" : `exit ${recheck.exitCode}`})`, { who: "conformance agent", files: fixed.files });
           continue;
@@ -578,7 +626,7 @@ export async function renderConformanceTests(
         } else {
           reportActivity(`  the tests: ${reason}`);
           stage("the tests are wrong - the conformance agent fixes them");
-          const fixed = await changing(() => ask(executor, testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta));
+          const fixed = await changing(() => askConformance(testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta));
           response = fixed.result;
           recordAttempt(rounds, recheck, `the tests wrong: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
         }
@@ -595,12 +643,47 @@ export async function renderConformanceTests(
         continue;
       }
       stage("unit tests pass too");
+      // The review gate: passing tests prove nothing when they assert nothing, mock the software, or leave out
+      // what the spec asks for. It has to pass, as the suite and the unit tests do.
+      const testChanges = diffFiles(testsAtStart, digestFiles(conformanceDir));
+      const changedTests = [...testChanges.added, ...testChanges.changed];
+      if (changedTests.length > 0) {
+        stage("reviewing the tests: black box, and the acceptance tests doing what the spec says");
+        const review = await reviewTests({
+          buildDir,
+          conformanceDir,
+          spec: specContext,
+          changed: changedTests,
+          functionalities: forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }],
+          forChange,
+          invocation,
+          label,
+          model: options.model,
+          onDelta: options.onDelta,
+        });
+        if (!review.pass) {
+          lastReview = review.problems;
+          reportActivity(`  the review found ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}: ${review.problems[0]!.what.slice(0, 140)}`);
+          stage(`the tests did not pass review (${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}) - the conformance agent fixes them`);
+          const fixed = await changing(() => askConformance(reviewFeedbackPrompt(review.problems), options.onDelta));
+          response = fixed.result;
+          recordAttempt(
+            rounds,
+            "passed, but the review found " + review.problems.map((problem) => `${problem.kind} ${problem.file}: ${problem.what}`).join("; ").slice(0, 220),
+            "the tests",
+            { who: "conformance agent", files: fixed.files },
+          );
+          continue;
+        }
+        stage("the tests pass review");
+      }
+      lastReview = undefined;
       verified = true;
       break;
     }
 
     stage("checking the working notes were left");
-    await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
+    await notes.ensureWritten((next) => askConformance(next, options.onDelta));
     if (fixer !== undefined) await fixerNotes.ensureWritten((next) => ask(fixer!, next, options.onDelta));
     const changed = codeChanged();
     if (verified) {
@@ -629,6 +712,7 @@ export async function renderConformanceTests(
       testRemovals,
       ...(specConflict !== undefined ? { specConflict } : {}),
       ...(stuck !== undefined ? { stuck } : {}),
+      ...(!verified && lastReview !== undefined ? { review: lastReview } : {}),
     };
   } finally {
     executor.dispose();
@@ -643,6 +727,62 @@ function plainFilesOf(plainFile: string, templateDirs: string[]): Map<string, st
   } catch {
     return new Map();
   }
+}
+
+/**
+ * The functionalities a spec change touches - its functional spec, or one of its acceptance tests,
+ * has a line the change adds or removes - with their acceptance tests: what a spec diff's
+ * conformance run labels, checks and reviews, as a functionality's run does for its one.
+ */
+export function touchedFunctionalities(tree: MarshalledPlainSource, frids: string[], diff: string): Array<{ frid: string; acceptanceTests: string[] }> {
+  const bare = (line: string) => line.trim().replace(/^-\s+/, "").replace(/\s+/g, " ");
+  const changed = new Set(
+    diff
+      .split("\n")
+      .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line))
+      .map((line) => bare(line.slice(1)))
+      .filter((line) => line.length > 12),
+  );
+  return frids.flatMap((frid) => {
+    const specifications = getSpecificationsForFrid(tree, frid)[0];
+    const spec = specifications[FUNCTIONAL_REQUIREMENTS].at(-1) ?? "";
+    const acceptanceTests = specifications[ACCEPTANCE_TESTS] ?? [];
+    const lines = [spec, ...acceptanceTests].flatMap((text) => text.split("\n")).map(bare);
+    return lines.some((line) => changed.has(line)) ? [{ frid, acceptanceTests }] : [];
+  });
+}
+
+/** How many times an agent runs the conformance suite in a turn before its turn ends and the harness takes over. */
+export const RUNS_PER_TURN = 3;
+
+/**
+ * A testing script tool an agent may call so many times a turn. The last allowed call ends its turn
+ * with the result - the harness then runs the suite itself and judges what is wrong - so an agent
+ * cannot spend its turn rerunning a failure it cannot fix. `newTurn` starts the count again.
+ */
+export function turnLimited(tool: ToolDefinition, limit: number): { tool: ToolDefinition; newTurn: () => void } {
+  let calls = 0;
+  const limited = {
+    ...tool,
+    execute: async (...args: Parameters<ToolDefinition["execute"]>) => {
+      calls += 1;
+      if (calls > limit) {
+        return {
+          content: [{ type: "text" as const, text: `Not run: that is ${limit} runs this turn. Your turn ends here - the harness runs the suite itself and works out what is wrong.` }],
+          details: {},
+          terminate: true,
+        };
+      }
+      const result = (await tool.execute(...args)) as { content: Array<{ type: "text"; text: string }>; details?: unknown };
+      if (calls < limit) return result;
+      return {
+        ...result,
+        content: [...result.content, { type: "text" as const, text: `\n\nThat was your ${limit}rd run this turn: your turn ends here. The harness runs the suite itself, works out whether the code or the tests are wrong, and sends it to whichever it is.` }],
+        terminate: true,
+      };
+    },
+  } as ToolDefinition;
+  return { tool: limited, newTurn: () => void (calls = 0) };
 }
 
 /** How many rounds running the same failure, taken the same way, is nothing changing. */

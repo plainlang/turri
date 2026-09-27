@@ -16,6 +16,8 @@ let codeDir = "";
 /** What the stubbed judge says, and which functionality the stubbed conformance agent labels its tests for. */
 let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
 let testedFrid = "1";
+/** What the stubbed test reviewer says. */
+let reviewSays: () => Record<string, unknown> = () => ({ pass: true, problems: [] });
 /** When set, each time the tests are sent back, the stub's test fails the other way: A, B, A, B - as the artifact ping-pong did. */
 let pingPong = 0;
 
@@ -44,6 +46,14 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
           environment: "Nothing around it: no variables, services or files - every run starts from the same state.",
           plan: [{ module: "app", id: testedFrid, tests: "Run the app as a subprocess and check what it prints to stdout, and its exit code, as the spec says." }],
         });
+        return "Done.";
+      }
+      if (session.role === "reviewer") {
+        await tool("submit_review").execute("id", reviewSays());
+        return "Done.";
+      }
+      if (session.role === "summarizer") {
+        await tool("submit_summary").execute("id", { summary: "The app printed goodbye.", failures: [] });
         return "Done.";
       }
       if (session.role === "judge") {
@@ -113,6 +123,7 @@ beforeEach(() => {
   judgeSays = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
   testedFrid = "1";
   pingPong = 0;
+  reviewSays = () => ({ pass: true, problems: [] });
 });
 afterEach(async () => {
   await closeAllVms();
@@ -138,7 +149,13 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
 
     // In order: the explorer, the conformance agent (sent back once for the acceptance test it left
     // out), the judge, who says the code is wrong, and the coding agent, who fixes it.
-    expect(asked.map((turn) => turn.role)).toEqual(["explorer", "conformance agent", "conformance agent", "judge", "coding agent"]);
+    // ...and, once the suite and the unit tests pass, the review gate.
+    expect(asked.map((turn) => turn.role)).toEqual(["explorer", "conformance agent", "conformance agent", "judge", "coding agent", "reviewer"]);
+    const review = asked.at(-1)!.prompt;
+    expect(review).toContain("<tests added or changed>");
+    expect(review).toContain("test_acceptance_hello.py");
+    expect(review).toContain("never mocks, stubs or replaces any part of the software under test");
+    expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
     const [explorer, writer, , judge, coder] = asked;
     expect(explorer!.prompt).toContain("They will never see the code");
     // The test author is given how to invoke it, and nothing of the code's place.
@@ -174,6 +191,8 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     await expect(read.execute("id", { path: join(codeDir, "app.py") })).rejects.toThrow(/outside this agent's read directory/);
     // And it is told so in its system prompt: its sandbox is the tests folder, and nothing else exists.
     const system = (conformanceCall[0] as { system?: string }).system!;
+    // It reads the full logs of the runs too - read only.
+    expect(system).toContain(join(root, "plain_modules", ".plainwright", "logs"));
     expect(system).toContain("You work inside a sandbox, and only there.");
     expect(system).toContain(`- Your file tools can read \`${join(root, "plain_modules", "app", "tests")}\``);
     expect(system).not.toContain(codeDir);
@@ -253,5 +272,41 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     // The next judge read the journal: what failed, how it was judged, and which files were changed.
     const judges = asked.filter((turn) => turn.role === "judge");
     expect(judges.at(-1)!.prompt).toMatch(/attempt \d+: failed with [^→]*artifact (alpha|beta)[^→]* → judged the tests wrong: The test points at the wrong artifact\. → the conformance agent changed tests\/test_conformance_hello\.py/);
+  });
+
+  it("does not finish until the tests pass review - a placeholder acceptance test goes back with exactly what is wrong", async () => {
+    let reviews = 0;
+    reviewSays = () =>
+      (reviews += 1) === 1
+        ? { pass: false, problems: [{ file: "test_acceptance_hello.py", test: "test_prints_hello_and_exits_0", kind: "bad", what: "It asserts nothing: assertTrue(true) is a placeholder, not the acceptance test." }] }
+        : { pass: true, problems: [] };
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(true);
+    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(2);
+    const feedback = asked.find((turn) => turn.role === "conformance agent" && turn.prompt.includes("did not pass review"))!;
+    expect(feedback.prompt).toContain("- BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing: assertTrue(true) is a placeholder");
+  });
+
+  it("for a spec change, labels, shows and reviews the acceptance tests of the functionalities it touches", async () => {
+    const diff = "--- a/app.plain\n+++ b/app.plain\n@@ -1 +1 @@\n-- The app prints hi.\n+- The app prints hello.\n";
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), diff });
+    expect(result.passed).toBe(true);
+    const writer = asked.find((turn) => turn.role === "conformance agent")!;
+    expect(writer.prompt).toContain("<acceptance tests of the functionalities the change touches>");
+    expect(writer.prompt).toContain("Running the app prints hello and exits 0.");
+    // Its first tests leave the acceptance test out: sent back to label it, as a functionality's own run does.
+    expect(asked.some((turn) => turn.role === "conformance agent" && turn.prompt.includes("they are not labelled"))).toBe(true);
+    const review = asked.find((turn) => turn.role === "reviewer")!.prompt;
+    expect(review).toContain("the functionalities the change touches (1)");
+    expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
+  });
+
+  it("stops with what the review last found when the tests never pass it", async () => {
+    reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test's exit code check is missing." }] });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), maxRounds: 3 });
+    expect(result.passed).toBe(false);
+    expect(result.review).toEqual([{ file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test's exit code check is missing." }]);
+    const { describeStop } = await import("../../src/render/stop-report.ts");
+    expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toContain("never passed review");
   });
 });

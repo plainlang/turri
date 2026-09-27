@@ -39,6 +39,8 @@ async function passingAgent(session: StubSession, prompt: string) {
     return "Done.";
   }
   if (own("submit_verdict")) return (await own("submit_verdict")!.execute("id", { culprit: "tests", reason: "stub" }), "Done.");
+  if (own("submit_review")) return (await own("submit_review")!.execute("id", { pass: true, problems: [] }), "Done.");
+  if (own("submit_summary")) return (await own("submit_summary")!.execute("id", { summary: "stub", failures: [] }), "Done.");
   await session.tools.find((tool) => tool.name === "write")!.execute("id", {
     path: "test_app.py",
     content: "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n",

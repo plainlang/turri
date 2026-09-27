@@ -448,6 +448,8 @@ export interface ConformancePromptInput {
   invocation?: string;
   /** The code's build files, read by the harness: the exact name, coordinates and version a test project points at. */
   manifests?: Array<{ path: string; content: string }>;
+  /** For a spec change: the functionalities it touches, with their acceptance tests - each implemented and labelled. */
+  touched?: Array<{ frid: string; acceptanceTests: string[] }>;
   /** Tests already in the conformance directory, from an earlier version of the spec. */
   existingTests?: string[];
   /** Functional specs of the modules this one requires, transitively. */
@@ -540,7 +542,9 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     input.diff !== undefined
       ? `<spec change>\n${input.diff.trim()}\n</spec change>`
       : `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
-    input.diff !== undefined ? null : numberedAcceptanceTests(input.frid!, specifications[ACCEPTANCE_TESTS] ?? []),
+    input.diff !== undefined
+      ? touchedAcceptanceTests(input.touched ?? [])
+      : numberedAcceptanceTests(input.frid!, specifications[ACCEPTANCE_TESTS] ?? []),
     `<files in the build>\n${input.manifest.join("\n")}\n</files in the build>`,
     input.existingTests && input.existingTests.length > 0
       ? [
@@ -594,6 +598,13 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           "- You change tests, never code. When the harness's run fails, another agent works out against the",
           "  specification whether a test or the code is wrong. When it is a test, you are sent back with why:",
           "  correct it to what the specification says. When it is the code, the coding agent fixes that.",
+          "- When a run fails because of the software itself - it does not build or start, or does what the",
+          "  specification says it must not - the tests are not what is wrong: do not work around it in them - no",
+          "  mocking, no skipping, no changing what they expect, no pointing them elsewhere. Stop, and say in your",
+          "  report what the software does; the harness has the code fixed.",
+          "- You can run the suite three times a turn with run_conformance_tests. The third ends your turn: the harness",
+          "  then runs it itself, and works out what is wrong. When a run's output is cut, the cut names the file the",
+          "  whole of it is in - read it with read or grep before you change anything.",
         ]
       : [
           "- Run them however you like while you work - one file, one case, any configuration - with bash.",
@@ -619,6 +630,21 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
   return parts.filter((part): part is string => part !== null).join("\n");
 }
 
+
+/**
+ * For a spec change: the acceptance tests of the functionalities it touches, numbered as their tests
+ * are labelled - each implemented as a test of its own, as a functionality's own run has them.
+ */
+function touchedAcceptanceTests(touched: Array<{ frid: string; acceptanceTests: string[] }>): string | null {
+  const withTests = touched.filter((item) => item.acceptanceTests.length > 0);
+  if (withTests.length === 0) return null;
+  const rendered = withTests.flatMap((item) => item.acceptanceTests.map((test, index) => `${acceptanceLabel(item.frid, index + 1)}: ${acceptanceText(test)}`));
+  return [
+    `<acceptance tests of the functionalities the change touches>\n${rendered.join("\n\n")}\n</acceptance tests of the functionalities the change touches>`,
+    "Each of these is implemented as a test of its own, doing every step it lists and asserting every expectation it",
+    "states, and labelled as it is numbered here - bring the ones already there in line with the change.",
+  ].join("\n");
+}
 
 /** The functionality's acceptance tests, numbered as their tests are labelled. */
 function numberedAcceptanceTests(frid: string, items: string[]): string | null {

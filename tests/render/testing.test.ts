@@ -111,7 +111,7 @@ describe("long output, as an agent is shown it", () => {
     expect(shown.length).toBeLessThan(20_200);
     expect(shown.startsWith("toolchain: python 3.12")).toBe(true);
     expect(shown.endsWith("FAILED test_login - AssertionError: 401 != 200\n")).toBe(true);
-    expect(shown).toMatch(/\[\d+ characters cut from the middle - the whole output is in \/p\/plain_modules\/\.plainwright\/logs\/run\.log\]/);
+    expect(shown).toMatch(/\[\d+ characters cut from the middle - the whole output is in \/p\/plain_modules\/\.plainwright\/logs\/run\.log; read it with read or grep\]/);
     expect(truncateOutput("short")).toBe("short");
   });
 
@@ -126,5 +126,18 @@ describe("long output, as an agent is shown it", () => {
     expect(readFileSync(file, "utf8")).toBe(long);
     expect(keepFullOutput(code, "short", "ok")).toBeUndefined();
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("a cut output's root cause", () => {
+  it("is kept from the middle, each line once - Spring's missing bean is where the start and the end only say it failed", async () => {
+    const { truncateOutput } = await import("../../src/render/testing.ts");
+    const bean = "org.springframework.beans.factory.NoSuchBeanDefinitionException: No qualifying bean of type 'com.codeplain.dynamics365.executor.TimeoutHandler' available";
+    const middle = Array.from({ length: 40 }, (_, n) => `[INFO] building module ${n}\n${"x".repeat(900)}\nCaused by: ${bean}`).join("\n");
+    const output = `toolchain: java 21\n${"x".repeat(2500)}\n${middle}\n${"y".repeat(19_000)}\n[ERROR] Tests run: 4, Failures: 0, Errors: 4\n`;
+    const shown = truncateOutput(output, "/p/log");
+    expect(shown).toContain("what the cut part says went wrong, each line once:");
+    expect(shown.match(/No qualifying bean of type 'com\.codeplain\.dynamics365\.executor\.TimeoutHandler'/g)).toHaveLength(1);
+    expect(shown.endsWith("[ERROR] Tests run: 4, Failures: 0, Errors: 4\n")).toBe(true);
   });
 });

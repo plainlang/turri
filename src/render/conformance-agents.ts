@@ -331,6 +331,258 @@ export function explorePrompt(
   ].join("\n");
 }
 
+/**
+ * A failing run's whole output, read by an agent and summed up for whoever has to fix it - when the
+ * output was too long to be shown whole. The start and the end of a long output say that it failed;
+ * why is often in the middle. The summarizer reads all of it, and hands over what failed, the
+ * errors, the stack traces and logs that matter, and where to look - erring on the side of too much.
+ * It reads the log, and the code and the tests - read only - to find where the failure comes from.
+ * Its summary goes to the conformance agent too, which never sees the code: so it points at the
+ * code by file and line, and never pastes it.
+ */
+export async function summarizeFailure(options: {
+  run: ScriptRun;
+  /** The folder the whole output is in. */
+  logsDir: string;
+  /** The code and the tests, read only, to find where the failure comes from. */
+  buildDir: string;
+  conformanceDir: string;
+  label: string;
+  model?: string;
+  onDelta?: (delta: string) => void;
+}): Promise<string | undefined> {
+  if (options.run.log === undefined) return undefined;
+  let summary: string | undefined;
+  const failure = Type.Object({
+    test: Type.String({ description: "The failing test's name, as the output names it" }),
+    file: Type.Optional(Type.String({ description: "The test's file, when the output says it" })),
+    error: Type.String({ description: "The exact error or assertion message" }),
+    stack_trace: Type.Optional(Type.String({ description: "The part of the stack trace that matters, down to where it started - never cut the lines that say where" })),
+    context: Type.Optional(Type.String({ description: "Everything else needed to fix it: the root cause chain (Caused by:), log lines, requests, what came before" })),
+    hint: Type.Optional(Type.String({ description: "Where to look, and what most likely caused it" })),
+  });
+  const submit = defineTool({
+    name: "submit_summary",
+    label: "Submit the summary",
+    description: "Hand over the summary of the failing run. Call this once, when you are done.",
+    parameters: Type.Object({
+      summary: Type.String({ description: "What failed and why, in full: how many tests failed, which passed, the errors, and the most likely causes" }),
+      failures: Type.Array(failure),
+    }),
+    async execute(_id, params) {
+      const given = params as { summary: string; failures: Array<{ test: string; file?: string; error: string; stack_trace?: string; context?: string; hint?: string }> };
+      summary = [
+        given.summary.trim(),
+        ...given.failures.map((item) =>
+          [
+            `### ${item.test}${item.file ? ` (${item.file})` : ""}`,
+            `error: ${item.error.trim()}`,
+            ...(item.stack_trace?.trim() ? [`stack trace:\n${item.stack_trace.trim()}`] : []),
+            ...(item.context?.trim() ? [`context:\n${item.context.trim()}`] : []),
+            ...(item.hint?.trim() ? [`where to look: ${item.hint.trim()}`] : []),
+          ].join("\n"),
+        ),
+      ].join("\n\n");
+      return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
+    },
+  }) as ToolDefinition;
+  const fence = confinedTools({ workdir: options.logsDir, read: [options.logsDir, options.buildDir, options.conformanceDir], write: [], noBash: true });
+  const session = await createExecutor({
+    cwd: options.logsDir,
+    customTools: [submit, ...fence.tools],
+    tools: [...fence.names, "submit_summary"],
+    model: options.model,
+    label: `${options.label} failure summarizer`,
+    system: fence.note,
+  });
+  try {
+    await ask(session, summarizePrompt(options.run, options.buildDir, options.conformanceDir), options.onDelta);
+    if (summary === undefined) await ask(session, "You have not called submit_summary. Call it now with the summary.", options.onDelta);
+  } catch {
+    // A summary is a help: without one, the output as it is shown still goes to whoever fixes it.
+  } finally {
+    session.dispose();
+  }
+  return summary;
+}
+
+export function summarizePrompt(run: ScriptRun, buildDir: string, conformanceDir: string): string {
+  return [
+    `The project's testing script, \`${run.command}\`, failed (exit ${run.exitCode}). Its output was too long to be shown`,
+    `whole; all of it is in ${run.log}. Read all of it - with grep for the errors, then read around them - and sum up`,
+    "what failed and why, for the agent that has to fix it. That agent sees your summary and a cut of the output",
+    "whose start and end only say that it failed, so everything it needs to fix it has to be in your summary:",
+    "",
+    "- how many tests failed and which passed, or that none ran - and why not, when the build or the start failed;",
+    "- for each failure: the test, its file, the exact error, the part of the stack trace that says where it",
+    "  started, and every line of context it takes to fix it - the whole 'Caused by:' chain, the log lines around",
+    "  it, the requests and responses;",
+    "- the most likely cause, and where to look.",
+    "",
+    "When a massive dump - JSON, HTML, base64 - is in the way, keep the part that matters and say what the rest",
+    "was. Otherwise prefer completeness to brevity: if unsure whether a line matters, include it.",
+    "",
+    `To find where a failure comes from, read the code (${buildDir}) and the tests (${conformanceDir}) as well - read`,
+    "only. Say where it is by file, line and name: the class that has no bean, the test that asserts it. Never paste",
+    "the code's implementation into the summary: it also goes to the author of the tests, who must not see the code -",
+    "the test's own lines you may quote. Then call submit_summary once.",
+  ].join("\n");
+}
+
+/** What the review found wrong with the tests: which file and test, whether something is missing or bad, and exactly what. */
+export interface ReviewProblem {
+  file: string;
+  test?: string;
+  kind: "missing" | "bad";
+  what: string;
+}
+
+/**
+ * The review gate, after the conformance suite and the unit tests pass: do the tests this run added
+ * or changed test the software black box, and do the acceptance tests do what the spec says - every
+ * step, every expectation. Passing tests prove nothing when they assert nothing, mock the software
+ * they test, or skip what the spec asks for. It reads the tests and the code and changes neither.
+ * No verdict is no pass: a gate that cannot say yes stays shut.
+ */
+export async function reviewTests(options: {
+  buildDir: string;
+  conformanceDir: string;
+  spec: SpecContext;
+  /** The test files this run added or changed, relative to the tests folder. */
+  changed: string[];
+  /** The functionality under test - or, for a spec change, those it touches - with their acceptance tests. */
+  functionalities: Array<{ frid: string; acceptanceTests: string[] }>;
+  forChange?: boolean;
+  invocation: string;
+  label: string;
+  model?: string;
+  onDelta?: (delta: string) => void;
+}): Promise<{ pass: boolean; problems: ReviewProblem[] }> {
+  let verdict: { pass: boolean; problems: ReviewProblem[] } | undefined;
+  const submit = defineTool({
+    name: "submit_review",
+    label: "Submit the review",
+    description: "Say whether the tests pass the review, and if not, every problem with them. Call this once, when you are done.",
+    parameters: Type.Object({
+      pass: Type.Boolean({ description: "True only when nothing is missing and nothing is bad" }),
+      problems: Type.Array(
+        Type.Object({
+          file: Type.String({ description: "The test file, relative to the tests folder" }),
+          test: Type.Optional(Type.String({ description: "The test in it, when it is one test" })),
+          kind: Type.Union([Type.Literal("missing"), Type.Literal("bad")]),
+          what: Type.String({ description: "Exactly what is missing or bad, and what the specification says instead" }),
+        }),
+      ),
+    }),
+    async execute(_id, params) {
+      const given = params as { pass: boolean; problems: ReviewProblem[] };
+      // A pass with problems, or a fail with none, is not a verdict.
+      if (given.pass === given.problems.length > 0) {
+        return {
+          content: [{ type: "text" as const, text: given.pass ? "A pass lists no problems - either drop them or fail it." : "A fail has to say what is wrong: list every problem." }],
+          details: {},
+        };
+      }
+      verdict = given;
+      return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
+    },
+  }) as ToolDefinition;
+  const fence = confinedTools({ workdir: options.conformanceDir, read: [options.conformanceDir, options.buildDir], write: [], noBash: true });
+  const session = await createExecutor({
+    cwd: options.conformanceDir,
+    customTools: [submit, ...fence.tools],
+    tools: [...fence.names, "submit_review"],
+    model: options.model,
+    label: `${options.label} test reviewer`,
+    system: fence.note,
+  });
+  try {
+    await ask(session, reviewPrompt(options), options.onDelta);
+    if (verdict === undefined) await ask(session, "You have not called submit_review. Call it now: pass, or every problem.", options.onDelta);
+  } finally {
+    session.dispose();
+  }
+  return (
+    verdict ?? {
+      pass: false,
+      problems: [{ file: "(all)", kind: "bad", what: "The review gave no verdict. Check every test you added or changed against the rules above yourself." }],
+    }
+  );
+}
+
+export function reviewPrompt(options: {
+  buildDir: string;
+  conformanceDir: string;
+  spec: SpecContext;
+  changed: string[];
+  functionalities: Array<{ frid: string; acceptanceTests: string[] }>;
+  forChange?: boolean;
+  invocation: string;
+}): string {
+  const withAcceptance = options.functionalities.filter((item) => item.acceptanceTests.length > 0);
+  const whose = options.forChange
+    ? `the functionalities the change touches (${options.functionalities.map((item) => item.frid).join(", ") || "none"})`
+    : `functionality ${options.functionalities[0]?.frid ?? ""}`;
+  return [
+    specPrimer({ testReqs: true }),
+    `The conformance tests of the \`${options.spec.moduleName}\` specification pass - and the unit tests with them. Before that counts,`,
+    "review the tests this run added or changed. Passing tests prove nothing when they assert nothing, mock the software",
+    "they test, or leave out what the specification asks for.",
+    "",
+    `The tests are in ${options.conformanceDir}; the code is in ${options.buildDir}. Read both; change neither.`,
+    "",
+    "<tests added or changed>",
+    options.changed.join("\n"),
+    "</tests added or changed>",
+    "",
+    "Check every one of them:",
+    "- Black box: it reaches the software only the way the test reqs have it - its API, its command, its public",
+    "  classes where the test reqs say so - and never mocks, stubs or replaces any part of the software under test:",
+    "  no mocked beans, services or clients of its own. A real external service the test reqs say not to mock is",
+    "  not mocked either.",
+    "- It tests something: every test asserts what the specification says, and fails when that does not hold. No",
+    "  placeholder, no `assertTrue(true)`, no empty or skipped test, no failure caught and swallowed, no assertion",
+    "  so loose any answer passes.",
+    ...(withAcceptance.length > 0
+      ? [
+          `- The acceptance tests of ${whose}, each implemented as a test of its own, doing every step it lists, in`,
+          "  order, with what it names, and asserting every expectation it states. A step left out, replaced by a",
+          "  stand-in, or said to be impossible to run is missing, not done:",
+          "",
+          ...withAcceptance.flatMap((item) =>
+            item.acceptanceTests.map((test, index) => `<acceptance test ${index + 1} of functionality ${item.frid}>\n${test.trim()}\n</acceptance test>`),
+          ),
+          "",
+        ]
+      : []),
+    `- The conformance tests cover what the specification says ${options.forChange ? "the change does" : `functionality ${options.functionalities[0]?.frid ?? ""} does`} - its behaviour, its`,
+    "  edge cases, its errors - each checked against the specification, not against what the code happens to do.",
+    "",
+    "Then call submit_review once: pass when nothing is missing and nothing is bad; otherwise every problem - the",
+    "file, the test, missing or bad, and exactly what, with what the specification says instead. Be specific: the",
+    "agent that fixes them gets your list and nothing else.",
+    "",
+    "<specification>",
+    options.spec.text.trim(),
+    "</specification>",
+    "",
+    `<how to invoke it>\n${options.invocation.trim()}\n</how to invoke it>`,
+  ].join("\n");
+}
+
+/** The review's problems, for the conformance agent to fix. */
+export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
+  return [
+    "The conformance suite and the unit tests pass, but the tests did not pass review. Each problem, exactly:",
+    "",
+    ...problems.map((problem) => `- ${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
+    "",
+    "Fix every one: implement what is missing, and make what is bad test the software black box and as the",
+    "specification says. Then run the suite. Never mock the software under test or loosen a test to pass.",
+    ...INTEGRITY_RULES,
+  ].join("\n");
+}
+
 export type Culprit = "code" | "tests" | "spec";
 
 /** A functionality, by the module it is in and its id there: a conflict can cross modules. */
@@ -536,6 +788,9 @@ export function judgePrompt(options: {
     `<failing run exit="${options.run.exitCode}" command="${options.run.command}">`,
     options.run.output.trimEnd(),
     "</failing run>",
+    ...(options.run.summary !== undefined
+      ? ["", "An agent that read the whole of that output summed up what failed and why:", "", `<summary of the failure>\n${options.run.summary.trim()}\n</summary of the failure>`]
+      : []),
   ].join("\n");
 }
 
@@ -546,13 +801,19 @@ export function judgePrompt(options: {
  */
 export async function createCodeFixer(options: {
   buildDir: string;
+  /** Where the full outputs of the test runs are: it reads them, and writes nothing there. */
+  logsDir?: string;
   label: string;
   model?: string;
   /** Its own tools beyond the file tools: running the unit tests, its notes. */
   tools: ToolDefinition[];
   toolNames: string[];
 }): Promise<AgentSession> {
-  const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [options.buildDir] });
+  const fence = confinedTools({
+    workdir: options.buildDir,
+    read: [options.buildDir, ...(options.logsDir !== undefined ? [options.logsDir] : [])],
+    write: [options.buildDir],
+  });
   return createExecutor({
     cwd: options.buildDir,
     customTools: [...options.tools, ...createWebTools(), ...fence.tools],
@@ -583,6 +844,14 @@ export function codeFixPrompt(options: { buildDir: string; spec: SpecContext; ru
     `<failing run command="${options.run.command}">`,
     options.run.output.trimEnd(),
     "</failing run>",
+    ...(options.run.summary !== undefined
+      ? ["", "An agent that read the whole of that output summed up what failed and why:", "", `<summary of the failure>\n${options.run.summary.trim()}\n</summary of the failure>`]
+      : []),
+    "",
+    "Reproduce it first, and check your fix the same way: run_conformance_tests runs the project's conformance testing",
+    "script on the code as it now is with the whole suite - you cannot see the tests, but you get their output. Make",
+    "the failure show in your own unit tests too where you can - for a Spring app that will not start, a unit test that",
+    "starts its application context - so run_unit_tests catches it from now on.",
     "",
     "Fix the code so it does what the specification says. The tests are not yours: you cannot see or change",
     "them, and they are not the judge - the specification is. Keep the unit tests passing: call",
@@ -604,6 +873,9 @@ export function testsFixPrompt(options: { run: ScriptRun; reason: string }): str
     "<failing run>",
     options.run.output.trimEnd(),
     "</failing run>",
+    ...(options.run.summary !== undefined
+      ? ["", "An agent that read the whole of that output summed up what failed and why:", "", `<summary of the failure>\n${options.run.summary.trim()}\n</summary of the failure>`]
+      : []),
     "",
     "Correct the test to what the specification says. Never change a test so it agrees with code that",
     "contradicts the specification, and never delete, skip or weaken a test to get a pass.",

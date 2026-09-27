@@ -321,7 +321,29 @@ This is the same for a functionality's conformance tests and a spec diff's.
 ### When a conformance test fails
 
 The harness runs the project's conformance testing script on the whole suite. When it passes, the
-unit testing script runs too, and both passing is done. When it fails, a judge - an agent that reads
+unit testing script runs too - and then the review gate: a reviewer reads the tests this run added or
+changed, and the code, and checks that they test black box - through the entry points the test reqs
+allow, never mocking or replacing any part of the software under test - that every test asserts what
+the spec says, with no placeholder that cannot fail, and that each acceptance test does every step it
+lists and asserts every expectation it states. It must pass, as the suite and the unit tests must:
+when it does not, the conformance agent gets exactly what is missing and what is bad, file by file, and
+the round goes again. All three passing is done.
+
+A spec diff's conformance run holds its tests to the same bar. The functionalities the change touches -
+a line of their functional spec, or of one of their acceptance tests, added or removed - are worked
+out from the diff. The conformance agent is shown their acceptance tests, numbered as they are labelled;
+the run does not finish until each one is a labelled test of its own; and the review checks each of
+them as it would a functionality's own.
+
+When a failing run's output is too long to be shown whole, an agent reads all of it - and the code and
+the tests, read only - and sums up what failed and why: every failing test, the exact error, the stack
+trace and the whole "Caused by:" chain, and where to look, pointing at the code by file and line
+without pasting it. The judge and whoever fixes it get that summary with the run. The cut output also
+keeps, from the part it cuts, every distinct line that says what went wrong. Both the conformance agent
+and the coding agent can run the conformance suite themselves, to reproduce a failure and check their
+fix - three times a turn: the third ends the turn, and the harness runs it and judges. The conformance
+agent is told that a failure of the software itself - it does not build or start, or does what the
+spec says it must not - is not the tests' to work around. When it fails, a judge - an agent that reads
 the code and the tests, changes neither, and holds both to the spec - decides which is wrong:
 
 - **the code:** the coding agent - in the code's folder and VM, seeing nothing of the tests - fixes it,

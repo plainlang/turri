@@ -138,3 +138,26 @@ describe("renderConformanceTests", () => {
     });
   });
 });
+
+describe("the functionalities a spec change touches", () => {
+  it("are those whose functional spec or acceptance tests have a line the diff adds or removes", async () => {
+    const { touchedFunctionalities } = await import("../../src/render/conformance.ts");
+    const { plainFileParser } = await import("../../src/plain/parser.ts");
+    const dir = mkdtempSync(join(tmpdir(), "forge-touched-"));
+    writeFileSync(
+      join(dir, "app.plain"),
+      "***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n" +
+        "- The app prints hello.\n\n  ***acceptance tests***\n\n  - Running the app prints hello and exits 0.\n\n" +
+        "- The app prints its version with --version.\n\n  ***acceptance tests***\n\n  - Running it with --version prints 1.2 and exits 0.\n\n" +
+        "- The app prints help with --help.\n",
+    );
+    const [, tree] = plainFileParser("app.plain", [dir]);
+    const frids = ["1", "2", "3"];
+    const specDiff = "--- a/app.plain\n+++ b/app.plain\n@@ -1 +1 @@\n-- The app prints hi.\n+- The app prints hello.\n";
+    expect(touchedFunctionalities(tree, frids, specDiff)).toEqual([{ frid: "1", acceptanceTests: [expect.stringContaining("prints hello and exits 0")] }]);
+    const testDiff = "@@ -1 +1 @@\n-  - Running it with --version prints 1.1 and exits 0.\n+  - Running it with --version prints 1.2 and exits 0.\n";
+    expect(touchedFunctionalities(tree, frids, testDiff).map((item) => item.frid)).toEqual(["2"]);
+    expect(touchedFunctionalities(tree, frids, "@@ -1 +1 @@\n-- Python 3.11.\n+- Python.\n")).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

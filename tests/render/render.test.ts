@@ -338,5 +338,10 @@ describe("the build's identity, and the code's build files", () => {
     const conformance = buildConformancePrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [], manifest: [], invocation: "java -jar app.jar", manifests });
     expect(conformance).toContain('<code build file path="pom.xml">\n<project><groupId>com.codeplain</groupId><artifactId>d365-version-api</artifactId></project>\n</code build file>');
     expect(conformance).toContain("never guess them, and never take them from a folder or module name");
+    // A failure of the software itself is not the tests' to work around; and three runs a turn.
+    expect(conformance).toContain("the tests are not what is wrong: do not work around it in them");
+    expect(conformance).toContain("You can run the suite three times a turn with run_conformance_tests. The third ends your turn");
+    // The coding agent can run the suite too, to reproduce the failure and check its fix.
+    expect(fix).toContain("run_conformance_tests runs the project's conformance testing");
   });
 });
