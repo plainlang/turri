@@ -117,3 +117,34 @@ describe("the testing scripts, in an agent's prompt", () => {
     expect(off).not.toContain("conformance-script");
   });
 });
+
+describe("the testing scripts, run", () => {
+  it("run on this machine, from the project, on a fresh copy of the code - never in the VM, and without the provider keys", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { runUnitScript } = await import("../../src/render/test-scripts.ts");
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-host-scripts-")));
+    const code = join(root, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    const script = join(root, "run_unittests.sh");
+    writeFileSync(script, 'echo "cwd=$(pwd)"; echo "build=$1"; ls "$1"; echo "key=${ANTHROPIC_API_KEY:-none}"; echo "host=$(uname -s)"\n');
+    const before = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-secret";
+    try {
+      const run = await runUnitScript(code, script);
+      expect(run.exitCode).toBe(0);
+      expect(run.output).toContain(`cwd=${root}\n`);
+      // A copy named for its module and the run, so two modules testing at once never share /tmp/<lang>_<name>.
+      expect(run.output).toMatch(new RegExp(`build=${join(root, "plain_modules", ".plainwright", "scripts")}/[\\w-]+/app-[\\w-]+\\n`));
+      expect(run.output).toContain("app.py");
+      expect(run.output).toContain("key=none");
+      expect(run.output).toContain(`host=${process.platform === "darwin" ? "Darwin" : "Linux"}`);
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = before;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

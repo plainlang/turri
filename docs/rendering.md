@@ -167,24 +167,33 @@ scripts are not linked from the specs; a link to one is ignored.
 They are required: a build with no unit testing script, or with conformance on and no conformance
 testing script, stops before it starts and says which skill adds it.
 
-**Where they run.** By default in the sandbox VM, from a copy: the script, the build and the
-conformance suite staged in a folder of their own. A project whose tests only need what they are
-given - most - is best off there: the VM has the toolchains, and the tests are sandboxed.
+**Where they run.** On this machine - the host - never in a VM: the project's own script, at its own
+path, from the project's folder, in this machine's environment, with its toolchains. That is the only
+way the two scripts are ever run: the harness's own runs, and the agents' `run_unit_tests` and
+`run_conformance_tests`, which run them exactly as the harness does. Whatever an agent runs with its
+own `bash` stays in its VM; its shell is Alpine Linux, so something that works there can still fail on
+the host, and only the host's run counts - the agents are told so.
 
-An integration embedded in a host codebase is not: its scripts merge the generated code into the host
-and run the tests there, in the host's environment, which the VM does not hold. For it,
-`testing-scripts: host` in the project's `config.yaml` runs them in place on this machine - from the
-project's folder, at their own path, on the real build and tests folders, as codeplain did:
+Each run is given a fresh copy of the code, and of the whole conformance suite, in
+`plain_modules/.plainwright/scripts/`, named for its module and the run: the scripts work in
+`/tmp/<lang>_<basename of the build>`, and every module's build is called `code`, so two modules
+testing at once never share that folder, and nothing a test writes reaches the code.
+
+An integration embedded in a host codebase needs its real folders: its scripts merge the generated
+code into the host and find the host from their own path. For it, `testing-scripts: host` in the
+project's `config.yaml` runs them in place - on the real build and tests folders, as codeplain did:
 
 ```yaml
 # plain/config.yaml
 testing-scripts: host
 ```
 
-The agents are not moved: their file tools and `bash` stay fenced to `plain_modules` and the VM, and
-only the scripts' output reaches them. The time limit and a stopped job still end the script and all
-it started, and the model providers' API keys are kept out of its environment. What the script does
-to the host - copying the package into it - it does, as it is written to.
+Either way the agents are not moved: their file tools and `bash` stay fenced to `plain_modules` and
+the VM, and only the scripts' output reaches them. The time limit and a stopped job end the script
+and all it started, and the model providers' API keys are kept out of its environment. What the
+script does to the host - copying the package into it - it does, as it is written to. A toolchain the
+host lacks (exit 69) cannot be installed by an agent from its sandbox: it says what is missing, for
+you to install.
 
 Turning conformance off (`conformance: false`, `--no-conformance`) sets the conformance testing script
 aside, found or not: no conformance tests are written, the ones already in the codebase are not run,
@@ -192,10 +201,8 @@ and no agent is shown it. That is different from a module with no test reqs, whi
 conformance tests of its own but still keeps the codebase's existing ones passing.
 
 The scripts live in the project, outside `plain_modules`, where no agent can reach them - one
-`config.yaml` names inside `plain_modules` is refused. Each run
-copies the script fresh from the project into the VM, stages the code under a name of its own -
-the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called `code`
-- and runs it with the command time limit: two minutes, or `PLAINWRIGHT_COMMAND_TIMEOUT` seconds.
+`config.yaml` names inside `plain_modules` is refused. Each run has the command time limit: two
+minutes, or `PLAINWRIGHT_COMMAND_TIMEOUT` seconds.
 A run that has not finished by then is stopped - with everything it started - and counts as failed.
 The agent gets what it had printed by then, told that the output ends where the run hung, and what
 most often keeps a test run from ending: a server started in the foreground, a prompt waiting for

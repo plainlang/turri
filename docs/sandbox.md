@@ -28,16 +28,18 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 ## Commands run in a VM
 
 `bash` is the case no argument check can cover - one string, and no way to read where it will
-read or write. So it does not run on the host at all. Every command - the agent's `bash`,
-`run_unit_tests`, conformance runs, the harness's runs of the project's testing scripts, the try-it
-checks - runs in a
+read or write. So it does not run on the host at all. Every command an agent runs - its `bash`, the
+try-it checks - runs in a
 [Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux). A module has two:
 
 - **Its code's**, holding `plain_modules/<module>/code`: where code is rendered - the coding agent's
-  and the explorer's commands - and the unit tests run.
+  and the explorer's commands.
 - **Its tests'**, holding `plain_modules/<module>/tests`: where conformance tests are rendered - the
-  conformance agent's commands - and the conformance suite runs, on a copy of the build staged beside
-  the tests.
+  conformance agent's commands.
+
+The project's testing scripts are the exception, by design: they run on the host, in its environment,
+and only through `run_unit_tests`, `run_conformance_tests` and the harness's own runs - see
+[the testing scripts](rendering.md#the-testing-scripts). The agent gets their output, nothing more.
 
 Each also holds `plain_modules/.plainwright` - the package caches and the copies test runs happen
 in - mounted read-write at the paths they have on the host. Neither holds the other's folder; the
