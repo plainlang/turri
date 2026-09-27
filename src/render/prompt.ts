@@ -31,15 +31,36 @@ export interface PromptInput {
  */
 function alreadyImplemented(moduleName: string, own: string[], required: RequiredSpec[]): string | null {
   if (own.length === 0 && required.length === 0) return null;
-  const entries = [
-    ...required.map(
-      (spec) => `<functionality module="${spec.module}" id="${spec.frid}" status="implemented">\n${spec.spec}\n</functionality>`,
-    ),
-    ...own.map(
-      (spec, index) => `<functionality module="${moduleName}" id="${index + 1}" status="implemented">\n${spec}\n</functionality>`,
-    ),
-  ];
-  return `<already implemented>\n${entries.join("\n\n")}\n</already implemented>`;
+  const entries = [...required, ...own.map((spec, index) => ({ module: moduleName, frid: String(index + 1), spec }))];
+  return `<already implemented>\n${functionalitiesByModule(entries, moduleName, "implemented")}\n</already implemented>`;
+}
+
+/**
+ * Functional specs grouped by the module they belong to - in the order the modules are built on
+ * one another, the current module marked - and each tagged with its module and its id there. A codebase holds the
+ * functionalities of every module it is built on, and each module numbers its own from 1, so
+ * "functionality 1" alone is ambiguous: the first listed may be base's 1 and the next top's 3.
+ * (plain2code's _get_implemented_functional_requirements_prompt_section, as tags.)
+ */
+export function functionalitiesByModule(
+  entries: Array<{ module: string; frid: string; spec: string }>,
+  currentModule: string,
+  status?: string,
+): string {
+  // In the order given: the bottom of the chain first. A regeneration in a later module's
+  // codebase has modules built on the current one after it, so "current" is marked, never assumed last.
+  const modules = [...new Set(entries.map((entry) => entry.module))];
+  return modules
+    .map((module) => {
+      const items = entries
+        .filter((entry) => entry.module === module)
+        .map(
+          (entry) =>
+            `<functionality module="${entry.module}" id="${entry.frid}"${status !== undefined ? ` status="${status}"` : ""}>\n${entry.spec}\n</functionality>`,
+        );
+      return `<module name="${module}"${module === currentModule ? ' role="current"' : ""}>\n${items.join("\n\n")}\n</module>`;
+    })
+    .join("\n\n");
 }
 
 /** "Functionality 1", "Functionalities 1 and 2", "Functionalities 1 to 3", or null for none. */
@@ -49,6 +70,73 @@ function implementedRange(count: number): string | null {
   if (count === 2) return "Functionalities 1 and 2";
   return `Functionalities 1 to ${count}`;
 }
+
+/**
+ * How to read a ***plain specification: what each section is, and what the predefined concepts
+ * mean. At the head of every prompt for an agent that builds, tests or judges from a spec - the
+ * spec-writing agents have it from the authoring rules. Without it an agent reads
+ * "- :Implementation: uses FastAPI." as a term it should have found in the definitions.
+ *
+ * `testReqs`: whether this agent is given the test reqs - the agents that write and judge the
+ * conformance tests are, the ones that write code are not.
+ */
+export function specPrimer(options: { testReqs: boolean }): string {
+  return [
+    "<how to read the specification>",
+    "The specification is written in ***plain. Its sections, as they reach you:",
+    "- Definitions (`***definitions***`; :plainDefinitions:): the concepts the rest of the",
+    "  specification uses, each written :LikeThis:. Wherever such a term appears, it means exactly what its",
+    "  definition says.",
+    "- Implementation reqs (`***implementation reqs***`; :plainImplementationReqs:): how the",
+    "  system is built and the constraints it meets - language, frameworks, storage, conventions, how the unit",
+    "  tests are written. They say how, not what the system does, and they bind the whole codebase: every",
+    "  functionality, not just the one at hand.",
+    options.testReqs
+      ? "- Test reqs (`***test reqs***`; :plainTestReqs:): how the conformance tests are written and run."
+      : "- Test reqs (`***test reqs***`; :plainTestReqs:): how the conformance tests are written and run. They are not given\n" +
+        "  to you: the conformance tests are written apart from the code, from the specification.",
+    "- Functional specs (`***functional specs***`; :plainFunctionality:): what the",
+    "  system does, one functionality at a time, numbered in order, each built on the ones before it. Those listed",
+    "  as already implemented are in the code.",
+    "- Modules: a module can require others, and is built on their code - so its codebase holds their",
+    "  functionalities too. Each module numbers its own from 1, so a functionality is always given with its module",
+    "  and its id there, grouped under the module it belongs to, the modules in the order they are built on one",
+    "  another and the current one marked: functionality 1 of `base` and functionality 1 of `app` are two",
+    "  different functionalities.",
+    "- Acceptance tests (`***acceptance tests***` under a functional spec; :AcceptanceTests:):",
+    "  specific checks that functionality's implementation must pass. They carry the same authority as the",
+    "  functionality itself.",
+    "- Linked resources: files the specification refers to as `[resource]name`. They are part",
+    "  of the specification.",
+    "",
+    "Predefined concepts - used in every specification without being defined in it:",
+    "- :Implementation: - the system that implements :plainFunctionality:.",
+    "- :plainImplementationCode: - the code of :Implementation:.",
+    "- :UnitTests: - the unit tests of individual parts of :plainImplementationCode:, written with the code.",
+    "- :ConformanceTests: - black-box tests that check :plainImplementationCode: conforms to :plainFunctionality:,",
+    "  written apart from it and following :plainTestReqs:.",
+    "- :AcceptanceTest: - one acceptance test: how some aspect of :plainImplementationCode: must be checked against",
+    "  the specification. :AcceptanceTests: are a functionality's collection of them.",
+    "- :plainDefinitions:, :plainImplementationReqs:, :plainFunctionality:, :plainTestReqs: - the sections above.",
+    'So "- :Implementation: uses FastAPI." is an implementation req on the whole system, and "- :UnitTests: use',
+    'pytest." says how the unit tests are written.',
+    "</how to read the specification>",
+    "",
+  ].join("\n");
+}
+
+/**
+ * How a failure is fixed without being hidden - for every agent that fixes code or tests. The
+ * point of a failing test is the failure: a fix that makes it go away without making the software
+ * right leaves the defect in, and the test unable to catch it again.
+ */
+export const INTEGRITY_RULES = [
+  "- Fix the real cause of a failure. Never change test data or an expected value just so a test passes, never",
+  "  mock or stub the system under test to hide a failure, and never skip, suppress or silence a failing test -",
+  "  a known issue included: it keeps failing until the software does what the specification says.",
+  "- A partial fix that makes real progress - a syntax error, a configuration problem, a test that could not run",
+  "  at all - is fine, and so is adding diagnostic logging to find the cause.",
+];
 
 function section(title: string, items: string[]): string | null {
   if (items.length === 0) return null;
@@ -81,6 +169,7 @@ export function buildRenderPrompt(input: PromptInput): string {
         `functional spec${required.length === 1 ? " is" : "s are"} implemented in this codebase too and listed first below.`;
 
   const parts: Array<string | null> = [
+    specPrimer({ testReqs: false }),
     `You are implementing one functionality of the \`${input.moduleName}\` specification.`,
     "",
     done === null
@@ -103,7 +192,7 @@ export function buildRenderPrompt(input: PromptInput): string {
   parts.push(linkedResourcesSection(input.linkedResources));
 
   parts.push(
-    `<functionality id="${input.frid}">\n${target}\n</functionality>`,
+    `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
     section("acceptance tests", specifications[ACCEPTANCE_TESTS] ?? []),
     "",
     `Implement functionality ${input.frid} and its unit tests - only functionality ${input.frid}.`,
@@ -156,7 +245,8 @@ function workingRules(hasCodebase: boolean): string[] {
     "  written after you, from the spec, in the module's tests folder.",
     "- Honour every implementation req: they constrain the whole codebase, not just this step.",
     "- The implementation reqs say how the code and its unit tests must be built. Follow them.",
-    "- Terms in `:ColonWrapped:` form are defined in the definitions; use them as written.",
+    "- Terms in `:ColonWrapped:` form are concepts: defined in the definitions, or predefined (see how to read the",
+    "  specification, above). Use them as written.",
     "- A `` `[resource]name` `` reference points at one of the linked resources above.",
     "- Run the tests however you like while you work - one file, one case, any configuration - with bash.",
     "  Before you finish, call run_unit_tests: it runs the project's unit testing script exactly as the",
@@ -164,6 +254,7 @@ function workingRules(hasCodebase: boolean): string[] {
     "- Fix the cause of a failure. Never delete, skip or weaken a test to get a pass - that includes",
     "  tests already in the working directory from earlier functionalities. A test may be removed",
     "  only when it asserts nothing meaningful, and you must say which test and why.",
+    ...INTEGRITY_RULES,
   ];
 }
 
@@ -199,6 +290,7 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
     })),
   ];
   const parts: Array<string | null> = [
+    specPrimer({ testReqs: false }),
     `You are changing the \`${input.moduleName}\` codebase to match a change in its specification.`,
     "",
     input.empty
@@ -211,9 +303,7 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
     section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
     all.length === 0
       ? null
-      : `<functional specs as they now stand>\n${all
-          .map((spec) => `<functionality module="${spec.module}" id="${spec.frid}">\n${spec.spec}\n</functionality>`)
-          .join("\n\n")}\n</functional specs as they now stand>`,
+      : `<functional specs as they now stand>\n${functionalitiesByModule(all, input.moduleName)}\n</functional specs as they now stand>`,
     input.codebase ? `<codebase>\n${input.codebase}\n</codebase>` : null,
     linkedResourcesSection(input.linkedResources),
     `<spec change>\n${input.diff.trim()}\n</spec change>`,
@@ -291,6 +381,7 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
   }[mode];
 
   const parts: Array<string | null> = [
+    specPrimer({ testReqs: false }),
     opening,
     "",
     task,
@@ -301,11 +392,11 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
     input.codebase ? `<codebase>\n${input.codebase}\n</codebase>` : null,
     linkedResourcesSection(input.linkedResources),
     input.previous !== undefined && mode === "changed"
-      ? `<functionality id="${input.frid}" version="as built">\n${input.previous}\n</functionality>`
+      ? `<functionality module="${input.moduleName}" id="${input.frid}" version="as built">\n${input.previous}\n</functionality>`
       : null,
     mode === "changed"
-      ? `<functionality id="${input.frid}" version="now">\n${target}\n</functionality>`
-      : `<functionality id="${input.frid}">\n${target}\n</functionality>`,
+      ? `<functionality module="${input.moduleName}" id="${input.frid}" version="now">\n${target}\n</functionality>`
+      : `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
     section("acceptance tests", specifications[ACCEPTANCE_TESTS] ?? []),
     "",
     {
@@ -380,6 +471,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
   if (target === undefined && !forChange) throw new Error(`Functionality ${input.frid} has no specification text.`);
 
   const parts: Array<string | null> = [
+    specPrimer({ testReqs: true }),
     `You are writing conformance tests for the \`${input.moduleName}\` specification.`,
     "",
     "Conformance tests are black box. They invoke the built functionality from the outside -",
@@ -425,7 +517,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
   parts.push(
     input.diff !== undefined
       ? `<spec change>\n${input.diff.trim()}\n</spec change>`
-      : `<functionality id="${input.frid}">\n${target}\n</functionality>`,
+      : `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
     input.diff !== undefined ? null : numberedAcceptanceTests(input.frid!, specifications[ACCEPTANCE_TESTS] ?? []),
     `<files in the build>\n${input.manifest.join("\n")}\n</files in the build>`,
     input.existingTests && input.existingTests.length > 0
@@ -496,6 +588,10 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "  the specification requires, and the code is what has to meet it.",
     "- Never delete, skip or weaken a test to get a pass. A test may be removed only when it asserts",
     "  nothing meaningful, and you must say which test and why.",
+    ...INTEGRITY_RULES,
+    "- Every test fails explicitly - through an assertion or a raised error - when what it checks does not hold,",
+    "  and its failure message says what was expected, what came back, and enough of the context to debug it",
+    "  from: the failure output is all the next agent, and whoever judges it, gets.",
   );
 
   return parts.filter((part): part is string => part !== null).join("\n");
@@ -572,6 +668,7 @@ export interface RegressionFixPromptInput {
 export function buildRegressionFixPrompt(input: RegressionFixPromptInput): string {
   const { specifications } = input;
   const parts: Array<string | null> = [
+    specPrimer({ testReqs: false }),
     `The conformance suite for \`${input.moduleName}\` is failing.`,
     "",
     `It covers functionalities ${input.frids.join(", ")} together. A functionality that passed`,
@@ -592,6 +689,7 @@ export function buildRegressionFixPrompt(input: RegressionFixPromptInput): strin
     "- Keep the existing unit tests passing. Run any tests you like with bash; before you finish, call",
     "  run_conformance_tests and run_unit_tests - the project's scripts, run as the harness runs them.",
     "- Never delete or weaken an existing test to get a pass.",
+    ...INTEGRITY_RULES,
     "- Report what you changed and why.",
   ];
 

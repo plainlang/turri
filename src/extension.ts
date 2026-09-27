@@ -34,7 +34,8 @@ import { createJobPanel } from "./render/job-panel.ts";
 import { createTranscriptView } from "./render/transcript-view.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
 import { defaultBuildDir } from "./render/paths.ts";
-import { describeUsage } from "./render/activity.ts";
+import { describeUsage, type SpecConflict } from "./render/activity.ts";
+import { describeSpecConflict } from "./render/stop-report.ts";
 import { inheritThinkingLevel } from "./pi.ts";
 import { moduleLanes } from "./render/lanes.ts";
 import { findCodebaseTip } from "./render/requires.ts";
@@ -168,6 +169,14 @@ export default function (pi: ExtensionAPI) {
     onFinish: (job) => {
       panel.refresh();
       announceJob(pi, job);
+      // A spec that contradicts itself is the person's to settle, now: the agent is started on it.
+      if (job.specConflict !== undefined) {
+        void pi.sendMessage(
+          { customType: "forge_spec_conflict", content: specConflictTask(job.specConflict), display: false, details: { jobId: job.id } },
+          { triggerTurn: true },
+        );
+        return;
+      }
       void pi.sendMessage(
         {
           customType: "forge_job",
@@ -2016,7 +2025,9 @@ function announceJob(pi: ExtensionAPI, job: Job): void {
     duration: formatDuration(job),
     spent: describeUsage(job.usage) || undefined,
     text:
-      job.status === "succeeded"
+      job.specConflict !== undefined
+        ? describeSpecConflict(job.specConflict)
+        : job.status === "succeeded"
         ? (job.announce ?? job.report ?? "")
         : job.status === "stopped"
           ? "Stopped on request. Whatever it changed before it stopped is still on disk; the functionality it was on counts as not built."
@@ -2027,6 +2038,30 @@ function announceJob(pi: ExtensionAPI, job: Job): void {
   } catch {
     // The agent still gets the report; losing the entry must not lose the result.
   }
+}
+
+/**
+ * What the conversation's agent is asked to do about a spec that contradicts itself: confirm it
+ * with analyze-2-func-specs, work out the ways out with resolve-spec-conflict, and put the choice
+ * to the person - who decides. Nothing in the spec is changed before they have.
+ */
+function specConflictTask(conflict: SpecConflict): string {
+  const [one, two] = conflict.specs;
+  return [
+    describeSpecConflict(conflict),
+    "",
+    `The render stopped on it: the conformance run's judge found them conflicting, ${conflict.reasons.length} times -`,
+    `functional spec ${one!.frid} of ${one!.module} (${one!.plainFile}) and functional spec ${two!.frid} of ${two!.module} (${two!.plainFile}). Now:`,
+    "1. Run the analyze-2-func-specs skill (run_skill) on these two functional specs, to confirm they conflict.",
+    "2. If they do, run the resolve-spec-conflict skill on the pair, to work out what could be changed - but change nothing yet.",
+    "3. Tell the user exactly what the conflict is - both specs as they read, and the behaviour that cannot satisfy both -",
+    "   and put the decision to them with ask_user: the ways out resolve-spec-conflict found, and Something else. Suggest they",
+    "   simply decide which is meant; it is their call, not yours.",
+    "4. Only once they have decided, make the change they chose to the .plain file it belongs in - either module's -",
+    "   and render it with render_spec_diff (the git diff of that change) - its conformance tests follow it.",
+    "If analyze-2-func-specs finds the two compatible, tell the user so, and that the conformance tests of these two are what",
+    "kept failing - offer to render their conformance again.",
+  ].join("\n");
 }
 
 /** A durable note in the transcript when something actually completes. */

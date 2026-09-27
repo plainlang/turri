@@ -174,8 +174,8 @@ describe("the regeneration prompt", () => {
     });
     expect(prompt).toContain("has changed since it was built");
     expect(prompt).toContain("the codebase of `top` - built on top of `base`");
-    expect(prompt).toContain('<functionality id="2" version="as built">\n- Base two.\n</functionality>');
-    expect(prompt).toContain('<functionality id="2" version="now">\n- Base two, changed.\n</functionality>');
+    expect(prompt).toContain('<functionality module="base" id="2" version="as built">\n- Base two.\n</functionality>');
+    expect(prompt).toContain('<functionality module="base" id="2" version="now">\n- Base two, changed.\n</functionality>');
     expect(prompt).toContain('<functionality module="top" id="1" status="implemented">');
     expect(prompt).toContain("including what was built\n  after this functionality");
   });

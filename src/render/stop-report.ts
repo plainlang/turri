@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+import type { SpecConflict } from "./activity.ts";
 import type { RenderConformanceTestsResult } from "./conformance.ts";
 import type { TestRun } from "./testing.ts";
 
@@ -26,7 +28,7 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
   /** How many times the harness judged it before it stopped - the unit tests' attempts. */
@@ -55,6 +57,15 @@ export function describeStop(facts: StopFacts): string {
       "If it needs something the stack does not name - a library, a tool, a service - add it to the implementation reqs.",
       "If its unit tests have to be run in a particular way, say how in the implementation reqs.",
     ];
+  } else if (facts.at === "conformance" && facts.conformance?.specConflict !== undefined) {
+    const { functionalities, reason } = facts.conformance.specConflict;
+    const [one, two] = functionalities.map((ref) => `${ref.module} ${ref.frid}`);
+    why = `its spec contradicts itself: functionalities ${one} and ${two} cannot both hold. ${reason.trim()}`;
+    todo = [
+      `Compare functional specs ${one} and ${two} (\`analyze-2-func-specs\`, \`resolve-spec-conflict\`) and change whichever is wrong - ` +
+        "or both, so they say the same thing about where they meet.",
+      "If one is meant to change what the other does, say so in the one that changes it, and update its acceptance tests to match.",
+    ];
   } else if (facts.at === "conformance") {
     why = `after ${tries} round${tries === 1 ? "" : "s"}, its conformance tests and its code still disagree about what the spec means.`;
     todo = [
@@ -82,5 +93,30 @@ export function describeStop(facts: StopFacts): string {
     ...todo.map((line) => `- ${line}`),
     "",
     "Then build again: it picks up here, and what is built stays built.",
+  ].join("\n");
+}
+
+/**
+ * A spec that contradicts itself, for the person: exactly which two functional specs, as they
+ * read, and what cannot hold - then that the decision is theirs. Nothing about code or tests: the
+ * spec is all they work on, and the fix is theirs to choose.
+ */
+export function describeSpecConflict(conflict: SpecConflict): string {
+  const name = (spec: SpecConflict["specs"][number]) => `functional spec ${spec.frid} of ${spec.module}`;
+  const [one, two] = conflict.specs;
+  return [
+    `The spec contradicts itself: ${name(one!)} and ${name(two!)} cannot both hold.`,
+    "",
+    ...conflict.specs.flatMap((spec) => [
+      `Functional spec ${spec.frid} of ${spec.module} (${basename(spec.plainFile)}):`,
+      ...spec.text.trim().split("\n").map((line) => `  ${line}`),
+      "",
+    ]),
+    "What cannot hold:",
+    ...[...new Set(conflict.reasons)].map((reason) => `- ${reason.replace(/\s+/g, " ")}`),
+    "",
+    `This was found ${conflict.reasons.length} times running the conformance tests, and nothing in the code or the tests can`,
+    "settle it: only you can say what is meant. Decide which spec is right - or how the two should read together -",
+    "and the spec is changed to say it.",
   ].join("\n");
 }

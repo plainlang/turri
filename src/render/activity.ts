@@ -29,6 +29,8 @@ export interface ActivitySink {
   signal?: AbortSignal;
   /** Which job this is, for what records it - a debug log's header. */
   job?: { id: string; kind: string; summary: string };
+  /** The spec was found to contradict itself - for the person to decide. */
+  specConflict?(conflict: SpecConflict): void;
   /** The functional spec being built now, or nothing when none is. */
   spec?(spec: BuildingSpec | undefined): void;
 }
@@ -43,6 +45,28 @@ export interface BuildingSpec {
 /** Say which functional spec is being built now - shown with the job, and in its transcript. */
 export function reportSpec(spec: BuildingSpec | undefined): void {
   store.getStore()?.spec?.(spec);
+}
+
+/**
+ * Two functional specs that cannot both hold, as a conformance run's judge found them - the times
+ * it takes to count. Nothing in the code or the tests can fix it: the person decides which is meant.
+ */
+export interface SpecConflict {
+  /** The module whose conformance run found it, and its .plain file. */
+  moduleName: string;
+  plainFile: string;
+  /**
+   * The two functionalities - in that module, or in one it requires - each with its module, its
+   * id there, the .plain file it is in, and its functional spec as that file has it.
+   */
+  specs: Array<{ module: string; frid: string; plainFile: string; text: string }>;
+  /** What the judge said each time it raised it, oldest first. */
+  reasons: string[];
+}
+
+/** Say the spec contradicts itself, to the job this runs for. */
+export function reportSpecConflict(conflict: SpecConflict): void {
+  store.getStore()?.specConflict?.(conflict);
 }
 
 /** Raised inside a job that was asked to stop, so the work unwinds instead of carrying on. */

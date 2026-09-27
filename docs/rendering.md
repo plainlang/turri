@@ -35,7 +35,13 @@ plainwright render <file.plain> 1 --dry-run     # print the prompt, start nothin
 
 ### What the agent is given
 
-The prompt, and nothing else - the agent cannot read the `.plain` files. It holds the definitions
+The prompt, and nothing else - the agent cannot read the `.plain` files. Every prompt for an agent
+that builds, tests or judges from the spec starts with how to read it: what each section is for
+(the implementation reqs bind the whole codebase; acceptance tests carry the same authority as
+their functionality) and what the predefined concepts mean - `:Implementation:`, `:UnitTests:`,
+`:ConformanceTests:` and the rest, used in every spec and defined in none. It also says how a
+failure is fixed without hiding it: no changing test data to get a pass, no mocking the system
+under test, no skipping or silencing a failing test. It holds the definitions
 and implementation and test reqs in scope, every functionality already built (the required
 modules' too) marked as implemented, a map of the codebase as it stands, the contents of any
 linked resources, and the one functionality to build now with its acceptance tests:
@@ -298,7 +304,25 @@ the code and the tests, changes neither, and holds both to the spec - decides wh
 
 - **the code:** the coding agent - in the code's folder and VM, seeing nothing of the tests - fixes it,
   and keeps its unit tests passing;
-- **the tests:** the conformance agent corrects them to what the spec says.
+- **the tests:** the conformance agent corrects them to what the spec says;
+- **the spec:** two functional specs cannot both hold, whatever the code does.
+
+When the code and the tests could both be wrong, the judge is told to choose the tests. A spec
+conflict has to name the two functionalities, each by its module and id - they can be in different
+modules, since a module's codebase and its conformance suite hold the functionalities of the modules
+it requires too (functionality 1 of `accounts` and functionality 4 of `cognio`). In a functionality's
+conformance run one of them must be the functionality under test - a conflict between two earlier ones would have
+come up when the later of them was tested (a spec diff's run may name any two). One that breaks
+these rules is sent back to the judge. A valid one is recorded, and the tests go back to the
+conformance agent, so the next judgement is of a new run. It counts only once the same two
+functionalities have been named three times. Then the run stops, and the person gets the conflict
+whole: both functional specs as they read, and each time what could not hold. The conversation's
+agent runs `analyze-2-func-specs` on the pair, then `resolve-spec-conflict` for the ways out, and
+puts the decision to the person - it changes nothing in the spec before they have decided.
+
+Every attempt is written into the working notes' pitfalls by the harness - what was judged wrong,
+and what the agent sent to fix it did - and each judge reads them first, so it does not send a
+failure the way that already failed. A run that does not pass is undone whole, its notes with it.
 
 Then the suite runs again. A run that never got to the tests - a toolchain missing, a time limit - goes
 back to the conformance agent without a judge: the tests' environment is its. Unit tests failing after

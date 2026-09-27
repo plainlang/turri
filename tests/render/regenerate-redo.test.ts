@@ -39,7 +39,7 @@ describe("regenerating a functionality whose spec has not changed", () => {
     writeFileSync(join(dir, "app.plain"), plain("Two, changed."));
     const text = await prompt();
     expect(text).toContain("has changed since it was built");
-    expect(text).toContain('<functionality id="2" version="as built">\n- Two.\n</functionality>');
+    expect(text).toContain('<functionality module="app" id="2" version="as built">\n- Two.\n</functionality>');
   });
 });
 

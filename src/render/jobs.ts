@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { withVmLease } from "./vm.ts";
-import { JobStoppedError, withActivity, type BuildingSpec, type TranscriptEntry, type UsageReport } from "./activity.ts";
+import { JobStoppedError, withActivity, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
 import { startJobLog, type JobLog } from "./job-log.ts";
 
 /**
@@ -48,6 +48,8 @@ export interface Job {
   transcript: TranscriptEntry[];
   /** What to tell the agent when it asks how the job went. */
   report?: string;
+  /** The spec contradicts itself, as its conformance run found: for the person to decide. */
+  specConflict?: SpecConflict;
   /** What to tell the person when it lands, if shorter than the report. */
   announce?: string;
   error?: string;
@@ -171,6 +173,11 @@ export function createJobRegistry(options?: {
       const sink = {
         signal: controller.signal,
         job: { id, kind: input.kind, summary: input.summary },
+        specConflict(conflict: SpecConflict) {
+          job.specConflict = conflict;
+          this.transcript({ kind: "stage", text: `the spec contradicts itself: functionalities ${conflict.specs.map((spec) => `${spec.module} ${spec.frid}`).join(" and ")} cannot both hold` });
+          changed();
+        },
         stage(label: string) {
           job.stage = label;
           this.transcript({ kind: "stage", text: label });

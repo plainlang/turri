@@ -35,11 +35,25 @@ import {
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { codeFixPrompt, createCodeFixer, exploreInvocation, judgeFailure, testsFixPrompt, type SpecContext } from "./conformance-agents.ts";
+import {
+  codeFixPrompt,
+  conflictKey,
+  createCodeFixer,
+  exploreInvocation,
+  judgeFailure,
+  SPEC_CONFLICT_RAISES,
+  testsFixPrompt,
+  sortedRefs,
+  type ConflictScope,
+  type SpecContext,
+} from "./conformance-agents.ts";
+import { resolveRequiresChain } from "./requires.ts";
+import { notesToRead, recordNote } from "./notes.ts";
+import { reportSpecConflict } from "./activity.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
-import { buildConformancePrompt } from "./prompt.ts";
+import { buildConformancePrompt, functionalitiesByModule } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { buildingSpec, resolveTemplateDirs } from "./render.ts";
@@ -120,6 +134,11 @@ export interface RenderConformanceTestsResult {
   codeChanged: boolean;
   /** Conformance tests that went missing mid-run and had to be justified. */
   testRemovals: TestRemoval[];
+  /**
+   * The spec contradicts itself: two functionalities that cannot both hold, raised by the judge
+   * the times it takes to count. The run stopped on it - nothing in the code or the tests can fix it.
+   */
+  specConflict?: { functionalities: Array<{ module: string; frid: string }>; reason: string };
 }
 
 
@@ -246,7 +265,21 @@ export async function renderConformanceTests(
   // that never sees the code. An explorer reads the code first and writes down how the software is
   // invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
-  const specContext: SpecContext = { moduleName, text: specText(specifications, options.diff) };
+  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.diff) };
+  // Any functionality of the codebase - this module's, and those of the modules it requires. A
+  // functionality's run may raise a spec conflict only with that functionality; a spec diff's, between any two.
+  const own = (forChange ? frids : frids.slice(0, frids.indexOf(frid!) + 1)).map((id) => ({ module: moduleName, frid: id }));
+  const scope: ConflictScope = {
+    functionalities: [...required.map((spec) => ({ module: spec.module, frid: spec.frid })), ...own],
+    ...(forChange ? {} : { tested: { module: moduleName, frid: frid! } }),
+  };
+  /** How many times each spec conflict has been raised in this run, by the two functionalities it names. */
+  const conflicts = new Map<string, string[]>();
+  let specConflict: RenderConformanceTestsResult["specConflict"];
+  /** One attempt at the failing run, written into the notes' pitfalls - what the next judge reads first. */
+  const recordAttempt = (attempt: number, what: string, reply: string) =>
+    // Numbered in the line itself: two attempts that went the same way are two lines, not one.
+    recordNote(buildDir, "pitfalls", `attempt ${attempt}: ${what.replace(/\s+/g, " ").slice(0, 300)} - then: ${firstLine(reply)}`, `${label} conformance attempt ${attempt}`);
   stage(`exploring the code for how it is invoked${options.model ? ` (${options.model})` : ""}`);
   const invocation = await exploreInvocation({ buildDir, spec: specContext, label, model: options.model, onDelta: options.onDelta });
   reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
@@ -376,17 +409,78 @@ export async function renderConformanceTests(
         if (recheck.exitCode === 69 || recheck.timedOut === true) {
           stage("the conformance run did not get to the tests - back to the conformance agent");
           response = await ask(executor, scriptFailure(recheck, "conformance testing"), options.onDelta);
+          recordAttempt(rounds, `the run did not get to the tests (${recheck.timedOut === true ? "time limit" : `exit ${recheck.exitCode}`})`, response);
           continue;
         }
-        stage("conformance tests failing - working out whether the code or the tests are wrong");
-        const verdict = await judgeFailure({ buildDir, conformanceDir, spec: specContext, run: recheck, invocation, label, model: options.model, onDelta: options.onDelta });
-        reportActivity(`  ${verdict.culprit === "code" ? "the code" : "the tests"}: ${verdict.reason.split("\n")[0]!.slice(0, 160)}`);
-        if (verdict.culprit === "code") {
+        stage("conformance tests failing - working out whether the code, the tests or the spec are wrong");
+        const verdict = await judgeFailure({
+          buildDir,
+          conformanceDir,
+          spec: specContext,
+          run: recheck,
+          invocation,
+          scope,
+          notes: notesToRead(buildDir),
+          label,
+          model: options.model,
+          onDelta: options.onDelta,
+        });
+        const reason = verdict.reason.split("\n")[0]!.slice(0, 160);
+        if (verdict.culprit === "spec") {
+          // Counted per pair of functionalities: it stops the run only when the same two are named often enough.
+          const pair = sortedRefs(verdict.functionalities!);
+          const key = conflictKey(pair);
+          const said = [...(conflicts.get(key) ?? []), verdict.reason.trim()];
+          conflicts.set(key, said);
+          const raised = said.length;
+          reportActivity(`  the spec, functionalities ${key} (raised ${raised} of ${SPEC_CONFLICT_RAISES}): ${reason}`);
+          if (raised >= SPEC_CONFLICT_RAISES) {
+            stage(`the spec contradicts itself: functionalities ${key} cannot both hold - stopping`);
+            specConflict = { functionalities: pair, reason: verdict.reason };
+            // For the person, whole: both functional specs as their modules have them, and every time it was raised.
+            const ownSpecs = specifications[FUNCTIONAL_REQUIREMENTS];
+            const files = plainFilesOf(options.plainFile, templateDirs);
+            reportSpecConflict({
+              moduleName,
+              plainFile: options.plainFile,
+              specs: pair.map((ref) => ({
+                ...ref,
+                plainFile: files.get(ref.module) ?? options.plainFile,
+                text:
+                  ref.module === moduleName
+                    ? (ownSpecs[frids.indexOf(ref.frid)] ?? "")
+                    : (required.find((spec) => spec.module === ref.module && spec.frid === ref.frid)?.spec ?? ""),
+              })),
+              reasons: said,
+            });
+            recordNote(buildDir, "pitfalls", `functionalities ${key} of the spec conflict: ${verdict.reason.replace(/\s+/g, " ").slice(0, 300)}`, `${label} conformance`);
+            break;
+          }
+          // Recorded, and the round still changes something: the tests are looked at again, so the
+          // next judgement is of a new run rather than the same one asked about again.
+          stage(`a spec conflict between functionalities ${key} is recorded (${raised} of ${SPEC_CONFLICT_RAISES}) - the conformance agent looks at the tests again`);
+          response = await ask(
+            executor,
+            testsFixPrompt({
+              run: recheck,
+              reason:
+                `Functionalities ${key} of the specification may conflict: ${verdict.reason}\n\n` +
+                "Before that is taken as the answer, check the tests of both against the specification once more: " +
+                "that each asserts only what its functionality says, and sets up what it needs without undoing what the other relies on.",
+            }),
+            options.onDelta,
+          );
+          recordAttempt(rounds, `judged a spec conflict between functionalities ${key}: ${verdict.reason}`, response);
+        } else if (verdict.culprit === "code") {
+          reportActivity(`  the code: ${reason}`);
           stage("the code is wrong - the coding agent fixes it");
-          await askFixer((first) => codeFixPrompt({ buildDir, spec: specContext, run: recheck, reason: verdict.reason, first }));
+          const reply = await askFixer((first) => codeFixPrompt({ buildDir, spec: specContext, run: recheck, reason: verdict.reason, first }));
+          recordAttempt(rounds, `judged the code wrong: ${verdict.reason}`, reply);
         } else {
+          reportActivity(`  the tests: ${reason}`);
           stage("the tests are wrong - the conformance agent fixes them");
           response = await ask(executor, testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta);
+          recordAttempt(rounds, `judged the tests wrong: ${verdict.reason}`, response);
         }
         continue;
       }
@@ -433,6 +527,7 @@ export async function renderConformanceTests(
       rounds,
       codeChanged: changed,
       testRemovals,
+      ...(specConflict !== undefined ? { specConflict } : {}),
     };
   } finally {
     executor.dispose();
@@ -440,12 +535,40 @@ export async function renderConformanceTests(
   }
 }
 
-/** The spec as the explorer, the judge and the coding agent are shown it. */
-function specText(specifications: Specifications, diff?: string): string {
+/** Each module of the chain, by name, and its .plain file - for a conflict that crosses modules. */
+function plainFilesOf(plainFile: string, templateDirs: string[]): Map<string, string> {
+  try {
+    return new Map(resolveRequiresChain(plainFile, templateDirs).map((entry) => [entry.moduleName, entry.plainFile]));
+  } catch {
+    return new Map();
+  }
+}
+
+/** An agent's reply, in one line for the notes. */
+function firstLine(text: string): string {
+  const line = text.split("\n").map((part) => part.trim()).find((part) => part !== "") ?? "no report";
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+}
+
+/**
+ * The spec as the explorer, the judge and the coding agent are shown it - its functional specs
+ * numbered with their ids, so a spec conflict can name them.
+ */
+function specText(specifications: Specifications, moduleName: string, frids: string[], required: RequiredSpec[], diff?: string): string {
+  // Every functionality in the codebase, each with its module: the required modules' first, then this one's.
+  const numbered = (key: string, items: string[]) =>
+    key === FUNCTIONAL_REQUIREMENTS
+      ? [
+          functionalitiesByModule(
+            [...required, ...items.map((item, index) => ({ module: moduleName, frid: frids[index] ?? String(index + 1), spec: item }))],
+            moduleName,
+          ),
+        ]
+      : items;
   const sections = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, FUNCTIONAL_REQUIREMENTS, ACCEPTANCE_TESTS]
     .map((key) => [key, (specifications as unknown as Record<string, string[] | undefined>)[key] ?? []] as const)
     .filter(([, items]) => items.length > 0)
-    .map(([key, items]) => `***${key}***\n\n${items.join("\n\n")}`);
+    .map(([key, items]) => `***${key}***\n\n${numbered(key, items).join("\n\n")}`);
   if (diff !== undefined) sections.push(`<spec change>\n${diff.trim()}\n</spec change>`);
   return sections.join("\n\n");
 }

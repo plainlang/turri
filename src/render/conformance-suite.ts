@@ -239,6 +239,9 @@ function conformanceReport(result: RenderConformanceTestsResult): string {
       ? `Conformance tests pass for ${result.moduleName} functionality ${result.frid}.`
       : `Conformance tests are NOT passing for ${result.moduleName} functionality ${result.frid}.`,
     `Tests in ${result.conformanceDir}, run against ${result.buildDir}.`,
+    result.specConflict !== undefined
+      ? `The spec contradicts itself: functionalities ${result.specConflict.functionalities.map((ref) => `${ref.module} ${ref.frid}`).join(" and ")} cannot both hold. ${result.specConflict.reason.trim()}`
+      : "",
     result.codeChanged
       ? "The implementation was changed to make the conformance tests pass."
       : "",

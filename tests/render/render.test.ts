@@ -54,10 +54,10 @@ describe("buildRenderPrompt", () => {
       linkedResources: [],
     });
 
-    expect(prompt).toContain('<functionality id="3">\n- Build this one.\n</functionality>');
+    expect(prompt).toContain('<functionality module="demo" id="3">\n- Build this one.\n</functionality>');
     expect(prompt).toContain(
-      '<already implemented>\n<functionality module="demo" id="1" status="implemented">\n- Already built one.\n</functionality>\n\n' +
-        '<functionality module="demo" id="2" status="implemented">\n- Already built two.\n</functionality>\n</already implemented>',
+      '<already implemented>\n<module name="demo" role="current">\n<functionality module="demo" id="1" status="implemented">\n- Already built one.\n</functionality>\n\n' +
+        '<functionality module="demo" id="2" status="implemented">\n- Already built two.\n</functionality>\n</module>\n</already implemented>',
     );
     // The target must not also appear as context.
     expect(prompt.split("- Build this one.")).toHaveLength(2);
@@ -187,7 +187,7 @@ describe("renderFunctionality", () => {
     expect(result.frid).toBe("1");
     expect(result.response).toBe("");
     expect(result.buildDir.endsWith("plain_modules/simple/code")).toBe(true);
-    expect(result.prompt).toContain('<functionality id="1">\n- Simple functionality\n</functionality>');
+    expect(result.prompt).toContain('<functionality module="simple" id="1">\n- Simple functionality\n</functionality>');
     expect(result.prompt).toContain("- Simple implementation requirement");
   });
 
@@ -244,7 +244,7 @@ describe("what the other agents are told is already implemented", () => {
       moduleName: "demo", frid: "2", specifications, linkedResources: [], manifest: ["app.py"], required,
     });
     expect(inOrder(prompt)).toBe(true);
-    expect(prompt).toContain('<functionality id="2">\n- Mine two.\n</functionality>');
+    expect(prompt).toContain('<functionality module="demo" id="2">\n- Mine two.\n</functionality>');
     expect(prompt).not.toContain('module="demo" id="2" status="implemented"');
     expect(prompt).toContain("Test functionality 2 only.");
   });
@@ -255,5 +255,61 @@ describe("what the other agents are told is already implemented", () => {
     });
     expect(inOrder(prompt)).toBe(true);
     expect(prompt).toContain('<functionality module="demo" id="2" status="implemented">\n- Mine two.');
+  });
+});
+
+describe("how to read the specification", () => {
+  it("leads every coding prompt: the sections, and the predefined concepts that are never in the definitions", async () => {
+    const { buildRenderPrompt, specPrimer } = await import("../../src/render/prompt.ts");
+    const prompt = buildRenderPrompt({
+      moduleName: "app",
+      frid: "1",
+      specifications: { definitions: [], "implementation reqs": ["- :Implementation: uses FastAPI."], "test reqs": [], "functional specs": ["- Say hello."] },
+      linkedResources: [],
+    });
+    expect(prompt.startsWith("<how to read the specification>")).toBe(true);
+    expect(prompt).toContain(":Implementation: - the system that implements :plainFunctionality:.");
+    expect(prompt).toContain("They carry the same authority as the");
+    expect(prompt).toContain("defined in the definitions, or predefined");
+    expect(prompt).toContain("mock or stub the system under test to hide a failure");
+    // The coding agent is told the test reqs exist, and that they are not its.
+    expect(specPrimer({ testReqs: false })).toContain("They are not given\n  to you");
+    expect(specPrimer({ testReqs: true })).not.toContain("They are not given");
+  });
+});
+
+describe("functionalities, by the module they belong to", () => {
+  it("are grouped under their module, in the order the modules are built on each other, the current one marked", async () => {
+    const { buildRenderPrompt, functionalitiesByModule } = await import("../../src/render/prompt.ts");
+    const prompt = buildRenderPrompt({
+      moduleName: "top",
+      frid: "2",
+      specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": ["- Top one.", "- Top two."] },
+      linkedResources: [],
+      required: [
+        { module: "base", frid: "1", spec: "- Base one." },
+        { module: "base", frid: "3", spec: "- Base three." },
+      ],
+    });
+    // The first listed is base's 1, then base's 3, then top's 1 - each with its module, never a bare number.
+    expect(prompt).toContain(
+      '<already implemented>\n<module name="base">\n<functionality module="base" id="1" status="implemented">\n- Base one.\n</functionality>\n\n' +
+        '<functionality module="base" id="3" status="implemented">\n- Base three.\n</functionality>\n</module>\n\n' +
+        '<module name="top" role="current">\n<functionality module="top" id="1" status="implemented">\n- Top one.\n</functionality>\n</module>\n</already implemented>',
+    );
+    // The one to build, with its module too.
+    expect(prompt).toContain('<functionality module="top" id="2">\n- Top two.\n</functionality>');
+    expect(prompt).toContain("functionality 1 of `base` and functionality 1 of `app` are two");
+
+    // Regenerating base in top's codebase: top is built on base, so it comes after, and base is the current one.
+    expect(
+      functionalitiesByModule(
+        [
+          { module: "base", frid: "1", spec: "- Base one." },
+          { module: "top", frid: "1", spec: "- Top one." },
+        ],
+        "base",
+      ),
+    ).toMatch(/^<module name="base" role="current">[\s\S]*<module name="top">/);
   });
 });

@@ -285,6 +285,29 @@ function current(buildDir: string): string | undefined {
 }
 
 /**
+ * A line the harness itself writes into the notes - an attempt at a failing conformance run, what
+ * was judged wrong and what was done about it - stamped like an agent's, and kept as update_notes
+ * would keep it, so no session takes it for a direct write. Never fails the work it records.
+ */
+export function recordNote(buildDir: string, section: Section, text: string, source: string): void {
+  try {
+    const { notes, problems } = applyNotesChanges(readNotes(buildDir), [{ section, action: "add", text }], `${now()} · ${source}`);
+    if (problems.length > 0) return;
+    const formatted = formatNotes(notes);
+    writeFileSync(notesPath(buildDir), formatted);
+    knownNotes.set(notesPath(buildDir), formatted);
+  } catch {
+    // The notes are a help, not the work.
+  }
+}
+
+/** The notes, for an agent that reads them but leaves none - a judge. Empty when there are none. */
+export function notesToRead(buildDir: string): string {
+  const notes = readNotes(buildDir);
+  return isEmpty(notes) ? "" : `<notes from earlier agents>\n${formatNotes(notes).trimEnd()}\n</notes from earlier agents>`;
+}
+
+/**
  * The notes tool for one agent's session, and the check that it was used. The notes as they
  * were when the agent started, or as update_notes last left them, are the only notes: a change
  * made to the file any other way is undone. An agent that finishes without calling update_notes

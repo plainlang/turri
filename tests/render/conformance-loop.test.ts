@@ -13,6 +13,9 @@ type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) 
 /** What each agent was asked, by who it is. */
 const asked: Array<{ role: string; prompt: string }> = [];
 let codeDir = "";
+/** What the stubbed judge says, and which functionality the stubbed conformance agent labels its tests for. */
+let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
+let testedFrid = "1";
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -36,7 +39,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         return "Done.";
       }
       if (session.role === "judge") {
-        await tool("submit_verdict").execute("id", { culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
+        await tool("submit_verdict").execute("id", judgeSays());
         return "Done.";
       }
       if (session.role === "coding agent") {
@@ -61,7 +64,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         await tool("write").execute("id", {
           path: "test_conformance_hello.py",
           content:
-            "# conformance tests of functionality 1\nimport subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n" +
+            `# conformance tests of functionality ${testedFrid}\nimport subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
             "    def test_prints_hello(self):\n" +
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
             "        self.assertEqual(out.strip(), 'hello')\n",
@@ -91,6 +94,8 @@ beforeEach(() => {
       "***functional specs***\n\n- The app prints hello.\n\n  ***acceptance tests***\n\n  - Running the app prints hello and exits 0.\n",
   );
   asked.length = 0;
+  judgeSays = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
+  testedFrid = "1";
 });
 afterEach(async () => {
   await closeAllVms();
@@ -124,7 +129,8 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(writer!.prompt).toContain("You cannot see the implementation");
     expect(writer!.prompt).not.toContain(codeDir);
     expect(writer!.prompt).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
-    expect(judge!.prompt).toContain("Decide what is wrong: the code or the tests");
+    expect(judge!.prompt).toContain("Decide what is wrong: the code, the tests, or the specification itself");
+    expect(judge!.prompt).toContain("<how to read the specification>");
     expect(judge!.prompt).toMatch(/<failing run exit="1"/);
     expect(coder!.prompt).toContain("The spec says the app prints hello; the code prints goodbye.");
     expect(stages).toContain("app 1: the code is wrong - the coding agent fixes it");
@@ -147,5 +153,48 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const conformanceCall = spy.mock.calls.find(([opts]) => (opts as { label?: string }).label?.endsWith("conformance agent"))!;
     const read = (conformanceCall[0] as { customTools: StubSession["tools"] }).customTools.find((tool) => tool.name === "read")!;
     await expect(read.execute("id", { path: join(codeDir, "app.py") })).rejects.toThrow(/outside this agent's read directory/);
+  });
+
+  it("raises a spec conflict only after the same two functionalities are named three times, sending the tests back in between", async () => {
+    writeFileSync(
+      join(root, "app.plain"),
+      "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest and run the app as a subprocess.\n\n" +
+        "***functional specs***\n\n- The app prints goodbye.\n\n- The app prints hello.\n",
+    );
+    testedFrid = "2";
+    judgeSays = () => ({ culprit: "spec", functionalities: [{ module: "app", id: "2" }, { module: "app", id: "1" }], reason: "One says it prints goodbye, the other hello." });
+    const conflicts: unknown[] = [];
+    const sink = { stage() {}, activity() {}, now() {}, usage() {}, transcript() {}, spec() {}, specConflict: (conflict: unknown) => conflicts.push(conflict) };
+
+    const result = await withActivity(sink, () =>
+      renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "2", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") }),
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.specConflict).toEqual({
+      functionalities: [{ module: "app", frid: "1" }, { module: "app", frid: "2" }],
+      reason: "One says it prints goodbye, the other hello.",
+    });
+    // Judged three times; the first two recorded and the tests sent back - never the code.
+    expect(asked.filter((turn) => turn.role === "judge")).toHaveLength(3);
+    expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+    expect(asked.filter((turn) => turn.prompt.includes("Functionalities app 1 & app 2 of the specification may conflict"))).toHaveLength(2);
+    // The person gets both functional specs as they read, and every time it was raised.
+    expect(conflicts).toEqual([
+      {
+        moduleName: "app",
+        plainFile: join(root, "app.plain"),
+        specs: [
+          { module: "app", frid: "1", plainFile: join(root, "app.plain"), text: "- The app prints goodbye." },
+          { module: "app", frid: "2", plainFile: join(root, "app.plain"), text: "- The app prints hello." },
+        ],
+        reasons: ["One says it prints goodbye, the other hello.", "One says it prints goodbye, the other hello.", "One says it prints goodbye, the other hello."],
+      },
+    ]);
+    // Each attempt went into the notes, and the next judge read them. (A run that does not pass is
+    // undone whole, and its notes with it.)
+    const lastJudge = asked.filter((turn) => turn.role === "judge")[2]!.prompt;
+    expect(lastJudge).toMatch(/app 2 conformance attempt 1\] attempt 1: judged a spec conflict between functionalities app 1 & app 2/);
+    expect(lastJudge).toMatch(/app 2 conformance attempt 2\] attempt 2: judged a spec conflict between functionalities app 1 & app 2/);
   });
 });
