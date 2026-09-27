@@ -40,6 +40,11 @@ export interface BuildingSpec {
   /** E.g. "rt_tuples functionality 2 of 5". */
   label: string;
   text: string;
+  /**
+   * When work on it began - set by the job, and kept while the same one goes on to its next stage
+   * (its conformance tests, the whole suite), so its time is the whole of it.
+   */
+  since?: number;
 }
 
 /** Say which functional spec is being built now - shown with the job, and in its transcript. */

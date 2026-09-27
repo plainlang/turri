@@ -63,6 +63,11 @@ inherits its definitions, implementation reqs and test reqs.
 Template search order: the plain file's own directory, then a sibling `template/`, then
 `--template-dir`, then `PLAIN_TEMPLATE_DIRS`.
 
+An agent that goes round in a circle - the same tool called with the same arguments again and again,
+nothing in between, so the same answer comes back - is let through three times; the next such call is
+refused with what is happening, and past six its turn is stopped, and the harness goes on from there as
+after any turn.
+
 ### The tests must actually pass
 
 While it works, the agent runs tests however it likes with `bash` - one file, one case, any

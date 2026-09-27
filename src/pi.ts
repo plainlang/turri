@@ -242,6 +242,49 @@ export async function ask(
   return out.trim();
 }
 
+/** How many times running the very same tool call is let through before it is refused, and before the turn is stopped. */
+export const REPEATS_ALLOWED = 3;
+export const REPEATS_BEFORE_STOP = 6;
+
+/**
+ * Tools that notice an agent going round in a circle: the same tool called with the same arguments,
+ * again and again with nothing in between - so nothing can have changed, and the same answer comes
+ * back. The first few go through; after that the call is refused with what is happening, and if the
+ * agent carries on regardless its turn is stopped - the harness goes on from there, as after any turn.
+ */
+export function guardRepeats(tools: ToolDefinition[], session: () => AgentSession | undefined): ToolDefinition[] {
+  let last: string | undefined;
+  let times = 0;
+  return tools.map((tool) => ({
+    ...tool,
+    execute: async (...args: Parameters<ToolDefinition["execute"]>) => {
+      const [, params] = args;
+      let key: string;
+      try {
+        key = `${tool.name} ${JSON.stringify(params ?? {})}`;
+      } catch {
+        key = `${tool.name} ${String(Math.random())}`;
+      }
+      times = key === last ? times + 1 : 1;
+      last = key;
+      if (times > REPEATS_BEFORE_STOP) {
+        reportActivity(`  stopped the agent's turn: it made the same ${tool.name} call ${times} times running`);
+        void session()?.abort();
+        throw new Error(`Stopped: the same ${tool.name} call ${times} times running.`);
+      }
+      if (times > REPEATS_ALLOWED) {
+        reportActivity(`  refused a repeated ${tool.name} call (${times} times running)`);
+        throw new Error(
+          `Not run: you have made this exact ${tool.name} call ${times} times in a row, with nothing in between - so nothing has ` +
+            "changed, and it would give the same result again. Stop repeating it: use what it already told you, do something " +
+            `different, or finish. After ${REPEATS_BEFORE_STOP} your turn is stopped.`,
+        );
+      }
+      return tool.execute(...args);
+    },
+  })) as ToolDefinition[];
+}
+
 /**
  * The executor. One session for the whole skill run, so a retry after a failed
  * gate arrives as a follow-up turn with the critique in it rather than as a cold
@@ -274,7 +317,7 @@ export async function createExecutor(opts: {
   const { session } = await createAgentSession({
     cwd: opts.cwd,
     tools: opts.tools,
-    customTools: opts.customTools,
+    customTools: guardRepeats(opts.customTools, () => session),
     sessionManager,
     resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, opts.system),
   });

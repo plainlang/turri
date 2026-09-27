@@ -12,7 +12,7 @@ import {
   renderConformanceTests,
   type RenderConformanceTestsResult,
 } from "./conformance.ts";
-import { reportActivity, reportStage, reportTranscript } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, reportTranscript } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot, projectRootOf, projectDirOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
@@ -638,6 +638,8 @@ async function renderAsSpecDiffs(
   const outcomes: SpecStepOutcome[] = [];
   for (const [index, step] of plan.steps.entries()) {
     reportStage(`${module.moduleName}: spec diff ${index + 1} of ${plan.steps.length} - ${step.title}`);
+    // What it is on now - and so, in the job panel, for how long.
+    reportSpec({ label: `${module.moduleName} spec diff ${index + 1} of ${plan.steps.length}`, text: step.title });
     // What it renders, as a render spec diff job shows its diff: with the progress, and in /watch.
     reportTranscript({ kind: "diff", text: step.textDiff });
     options.onEvent?.({ type: "spec_diff_start", index: index + 1, total: plan.steps.length, title: step.title, diff: step.textDiff });

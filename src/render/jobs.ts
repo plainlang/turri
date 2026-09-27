@@ -184,7 +184,9 @@ export function createJobRegistry(options?: {
           changed();
         },
         spec(spec: BuildingSpec | undefined) {
-          job.building = spec;
+          // The same functionality going on to its next stage keeps its clock; another starts a new one.
+          const since = spec !== undefined && job.building?.label === spec.label ? job.building.since : Date.now();
+          job.building = spec === undefined ? undefined : { ...spec, since };
           if (spec !== undefined) this.transcript({ kind: "spec", text: `${spec.label}\n${spec.text}` });
           changed();
         },
@@ -324,9 +326,15 @@ export function createJobRegistry(options?: {
 }
 
 export function formatDuration(job: Job): string {
-  const seconds = Math.round(((job.finishedAt ?? Date.now()) - job.startedAt) / 1000);
+  return formatElapsed((job.finishedAt ?? Date.now()) - job.startedAt);
+}
+
+/** "42s", "3m 12s", "1h 5m": how long something has run. */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
 /** What the agent is told when it checks on a job. */

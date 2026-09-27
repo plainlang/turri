@@ -1,6 +1,6 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { describeUsage } from "./activity.ts";
-import { formatDuration, type Job } from "./jobs.ts";
+import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
 
 /**
  * The live panel above the editor while background work runs.
@@ -128,14 +128,19 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
         if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - /watch ${job.id} shows it all`);
       }
     }
-    if (job.building !== undefined && !SPEC_SHOWN_BY_WIDGET.has(job.kind)) {
+    // What it is on now, and for how long - beside the job's own time, which is the whole of it.
+    const onIt = job.building?.since !== undefined ? ` · ${formatElapsed(now - job.building.since)}` : "";
+    if (job.building !== undefined && SPEC_SHOWN_BY_WIDGET.has(job.kind)) {
+      // The module widget shows its text; the panel, how long it has taken so far.
+      lines.push(`    ${job.building.label}${onIt}`);
+    } else if (job.building !== undefined) {
       const text = job.building.text.split("\n").filter((line) => line.trim() !== "");
       if (!expanded) {
         const more = text.length > 1 ? `  (+${text.length - 1} line${text.length === 2 ? "" : "s"} · ctrl+o)` : "";
-        lines.push(`    ${job.building.label}: ${(text[0] ?? "").trim()}${more}`);
+        lines.push(`    ${job.building.label}${onIt}: ${(text[0] ?? "").trim()}${more}`);
         if (text.length > 1) hidden = true;
       } else {
-        lines.push(`    ${job.building.label}:`);
+        lines.push(`    ${job.building.label}${onIt}:`);
         for (const line of text.slice(0, EXPANDED_SPEC_LINES)) lines.push(`      │ ${line}`);
         if (text.length > EXPANDED_SPEC_LINES) lines.push(`      │ … ${text.length - EXPANDED_SPEC_LINES} more lines - /watch ${job.id} shows it all`);
       }
