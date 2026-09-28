@@ -104,6 +104,25 @@ describe("the project's config.yaml", () => {
   });
 });
 
+describe("parallel-jobs", () => {
+  it("is how many jobs the chat runs at once - the environment first, then config.yaml, then what the machine holds", async () => {
+    const { parallelJobs } = await import("../src/extension.ts");
+    const { defaultParallelJobs } = await import("../src/render/vm.ts");
+    expect(parallelJobs(root)).toBe(defaultParallelJobs());
+    writeFileSync(join(root, "config.yaml"), "parallel-jobs: 6\n");
+    expect(readProjectConfig(root).parallelJobs).toBe(6);
+    expect(parallelJobs(root)).toBe(6);
+    process.env.PLAINWRIGHT_PARALLEL_JOBS = "2";
+    try {
+      expect(parallelJobs(root)).toBe(2);
+    } finally {
+      delete process.env.PLAINWRIGHT_PARALLEL_JOBS;
+    }
+    writeFileSync(join(root, "config.yaml"), "parallel-jobs: 0\n");
+    expect(readProjectConfig(root).parallelJobs).toBeUndefined();
+  });
+});
+
 describe("a module's own config file", () => {
   /** cognio: a Python backend and a React frontend side by side, importing one common module. */
   beforeEach(() => {

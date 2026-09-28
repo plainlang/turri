@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { basename } from "node:path";
 import { plainFileParser } from "../plain/parser.ts";
 import { pendingFrids, staleFrids } from "./state.ts";
@@ -23,7 +23,6 @@ import { describeSpecDiffConformance, renderSpecDiffConformance } from "./spec-c
 import { describeConformanceSuite, renderConformanceSuite, type ConformanceSuiteOptions } from "./conformance-suite.ts";
 import { sectionsOf } from "./state.ts";
 import { TEST_REQUIREMENTS } from "../plain/spec.ts";
-import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
@@ -222,11 +221,14 @@ export function createRenderQueue(options: {
   const shown: Array<Omit<QueueEntry, "position" | "status">> = [];
   const jobs = new Map<string, Job>();
 
-  // Ordering is the registry's: every entry claims this queue's own lane, so they run one
-  // at a time in the order they were asked for, and the module lanes, so none of them runs
-  // alongside a render of the same module that was started some other way.
-  const queueLane = `render-queue:${randomUUID()}`;
-  let last: string | undefined;
+  // Ordering is the registry's, by the module lanes: jobs on the same codebase - or on modules of one
+  // requires chain - run one at a time in the order they were asked for, whether queued here or started
+  // some other way; jobs on modules that share nothing run side by side. Every order the queue needs is
+  // one of those: functionality N after N-1, a conformance job after its render, the upper part of a
+  // split spec diff after the lower one - each on lanes the other claims too.
+  /** The lanes each functionality render claims: what the queue master waits for on a codebase. */
+  const renderLanes = new Map<string, string[]>();
+  const renderLanesOf = (plainFile: string) => [...moduleLanes(plainFile, options.buildDir)];
 
   /**
    * Why a conformance job that follows a render does not run, or nothing when it should: the
@@ -267,7 +269,7 @@ export function createRenderQueue(options: {
       summary: `${basename(work.plainFile)} render spec diff`,
       diff: work.diff,
       model: work.model,
-      lanes: [queueLane, ...moduleLanes(codebaseOf(work.plainFile), options.buildDir)],
+      lanes: [...moduleLanes(codebaseOf(work.plainFile), options.buildDir)],
       run: async (onDelta) => {
         // The queue master may still be reworking the queue: it decides what this job renders, or whether it runs at all.
         await gateOf(work.codebase);
@@ -304,7 +306,6 @@ export function createRenderQueue(options: {
     jobs.set(job.id, job);
     works.set(job.id, work);
     work.jobId = job.id;
-    last = job.id;
     shown.push({ jobId: job.id, what: `spec diff: ${work.title}` });
     const position = shown.length;
     const conformanceJobId = work.conformanceLater
@@ -384,8 +385,10 @@ export function createRenderQueue(options: {
     // The spec diff rendering now: the master may stop it, so one waiting job beside it is a queue to rework.
     const running = mine.find((work) => work.started && work.superseded === undefined && options.registry.get(work.jobId!)?.status === "running");
     if ((instruction === undefined && waiting.length + (running !== undefined ? 1 : 0) < 2) || previousSpec === undefined) return { why: "only one spec diff is waiting" };
+    // A functionality render of this codebase - one on its lanes - changes what its code is built from; one of another module does not.
+    const codebaseLanes = new Set(moduleLanes(codebaseOf(latest.plainFile), options.buildDir));
     const otherWork =
-      queued.some((entry) => isPending(options.registry.get(entry.jobId)?.status)) ||
+      queued.some((entry) => isPending(options.registry.get(entry.jobId)?.status) && (renderLanes.get(entry.jobId) ?? []).some((lane) => codebaseLanes.has(lane))) ||
       rebuilds.some((rebuild) => rebuild.codebase === codebase && isPending(options.registry.get(rebuild.jobId)?.status));
     if (otherWork) return { why: "functionality renders or a rebuild are queued for this codebase too - they change what the code is built from, so the spec diffs are left as they are" };
     const built = readBuiltTree(codebase);
@@ -719,7 +722,7 @@ export function createRenderQueue(options: {
       kind: "render_module",
       summary: `${basename(tip.plainFile)} from scratch - it now requires ${fresh.modules.join(", ")}`,
       model,
-      lanes: [queueLane, ...moduleLanes(tip.plainFile, options.buildDir)],
+      lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
       run: (onDelta) => rebuildRunner({ plainFile: tip.plainFile, model, ...(off ? { conformance: false as const } : {}) }, onDelta),
     });
     job.note = [
@@ -727,7 +730,6 @@ export function createRenderQueue(options: {
       `Not a spec diff: ${tip.moduleName} now requires ${fresh.modules.join(", ")}, which its code was not built on. ${fresh.modules.join(", ")} is built first, then ${again} again from scratch on it.`,
     ].join(" ");
     jobs.set(job.id, job);
-    last = job.id;
     shown.push({ jobId: job.id, what: `${tip.moduleName} from scratch, on ${fresh.modules.join(", ")}` });
     const queuedPart: QueuedSpecDiffPart = { jobId: job.id, what: "rebuild", module: tip.moduleName, files: part.files, fromNothing: false, newlyRequired: fresh.modules };
     rebuilds.push({ jobId: job.id, codebase: tip.buildDir, part: queuedPart });
@@ -759,7 +761,7 @@ export function createRenderQueue(options: {
         diff: request.diff,
         model,
         follows: request.after,
-        lanes: [queueLane, ...moduleLanes(codebaseOf(plainFile), options.buildDir)],
+        lanes: [...moduleLanes(codebaseOf(plainFile), options.buildDir)],
         run: async (onDelta) => {
           if (follows !== undefined) await gateOf(follows.codebase);
           if (follows?.superseded !== undefined) return { report: follows.superseded, details: { passed: false, skipped: true } };
@@ -781,7 +783,6 @@ export function createRenderQueue(options: {
       });
       jobs.set(job.id, job);
       conformanceJobs.set(job.id, plainFile);
-      last = job.id;
       if (follows !== undefined) follows.conformanceJobId = job.id;
       shown.push({ jobId: job.id, what: `spec diff conformance: ${summarizeDiff(request.diff)}` });
       return { jobId: job.id, position: shown.length };
@@ -796,7 +797,7 @@ export function createRenderQueue(options: {
         summary: `${basename(plainFile)} conformance, ${scope}`,
         model,
         follows: after,
-        lanes: [queueLane, ...moduleLanes(suite.buildDir === undefined ? codebaseOf(plainFile) : plainFile, suite.buildDir ?? options.buildDir)],
+        lanes: [...moduleLanes(suite.buildDir === undefined ? codebaseOf(plainFile) : plainFile, suite.buildDir ?? options.buildDir)],
         run: async (onDelta) => {
           const skipped = notFollowing(after);
           if (skipped !== undefined) return { report: skipped, details: { passed: false, skipped: true } };
@@ -807,7 +808,6 @@ export function createRenderQueue(options: {
       });
       jobs.set(job.id, job);
       conformanceJobs.set(job.id, plainFile);
-      last = job.id;
       shown.push({ jobId: job.id, what: `conformance: ${scope}` });
       return { jobId: job.id, position: shown.length };
     },
@@ -821,12 +821,12 @@ export function createRenderQueue(options: {
         model,
         // Short enough to read in a one-line queue: the file's name, not its path.
         summary: `${basename(plainFile)} fs ${request.frid}${request.regenerate ? " (rebuild)" : ""}`,
-        lanes: [queueLane, ...moduleLanes(request.regenerate ? codebaseOf(plainFile) : plainFile, options.buildDir)],
+        lanes: renderLanesOf(request.regenerate ? codebaseOf(plainFile) : plainFile),
         run: (onDelta) => runner({ ...request, plainFile, model }, onDelta),
       });
+      renderLanes.set(job.id, renderLanesOf(request.regenerate ? codebaseOf(plainFile) : plainFile));
 
       jobs.set(job.id, job);
-      last = job.id;
 
       // Stored resolved, so the same file named two ways is recognised as one.
       shown.push({ jobId: job.id, what: `functionality ${request.frid}${request.regenerate ? " (rebuild)" : ""}`, frid: request.frid });
@@ -908,7 +908,12 @@ export function createRenderQueue(options: {
     },
 
     async drain() {
-      if (last !== undefined) await options.registry.wait(last);
+      // Every job queued so far - side by side, the last queued is not the last to finish - and any the queue master added while they ran.
+      for (let seen = 0; seen < jobs.size; ) {
+        const ids = [...jobs.keys()];
+        seen = ids.length;
+        await Promise.all(ids.map((id) => options.registry.wait(id)));
+      }
     },
 
     refresh() {

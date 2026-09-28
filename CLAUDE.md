@@ -95,7 +95,8 @@ loading for every agent it starts (`noContextFiles` in `src/pi.ts`).
 
 **Jobs and progress.** In the TUI, render tools start background jobs (`queue.ts`, `jobs.ts`).
 `lanes.ts` gives each job its spec's whole `requires` chain as lanes, so jobs whose chains overlap
-wait for each other and the rest run side by side. In pi's
+wait for each other and the rest run side by side - the render queue included, which claims no lane of
+its own - up to `parallel-jobs` at once (the registry's `maxRunning`). In pi's
 print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and transcripts flow
 through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportStage`, ...) to
 `job-panel.ts` and `transcript-view.ts` (`/watch`).

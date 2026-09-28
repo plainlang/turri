@@ -54,8 +54,12 @@ command line ("run it headless", "use the CLI", or the command itself). pi confi
 ## Background jobs
 
 A render takes minutes, so in the TUI every render tool starts the work as a background job and
-returns straight away. The conversation carries on; jobs on the same module queue behind each
-other, jobs on different modules run side by side.
+returns straight away. The conversation carries on; jobs on the same module - or on modules of one
+`requires` chain - queue behind each other, in the order they were asked for, and jobs on modules
+that share nothing run side by side, each module in its own VM, with its own progress panel - two
+modules or ten. How many run at once is capped by what the machine has room for: past
+`parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a job whose turn has
+come waits for a free slot, and says so.
 
 - **The panel** above the input shows each running job - its stage, what its agents are doing,
   its model, time and cost - and the queue. `ctrl+o` expands it.
@@ -89,7 +93,8 @@ other, jobs on different modules run side by side.
   takes it out of the queued jobs; to reorder or merge them, ask, and the chat uses `rework_queue`.
   Stopping a queued spec diff leaves its change in the spec: the next one renders it.
 - **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
-  stops, and so does every job queued behind it, without running. The harness then works out why: an
+  stops, and so does every job queued behind it on the same module, without running - the other
+  modules' jobs go on. The harness then works out why: an
   agent that can read the project's specs, code, tests, testing scripts and logs, and plainwright's
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
   environment, the code or plainwright itself, and exactly what to do.

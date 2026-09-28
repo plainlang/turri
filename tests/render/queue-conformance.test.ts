@@ -65,6 +65,8 @@ beforeEach(() => {
   ran.length = 0;
   conformanceLaterSeen.length = 0;
   conformanceSeen.length = 0;
+  holdNext = false;
+  releaseSlow = undefined;
   renderedDiffs.length = 0;
   renderPasses = true;
 });
@@ -372,5 +374,26 @@ describe("the queue master", () => {
     expect(renderedDiffs).toHaveLength(1);
     expect(renderedDiffs[0]).toContain("The feed shows");
     expect(renderedDiffs[0]).not.toContain("profile page");
+  });
+
+  it("renders two modules that share nothing side by side - the frontend does not wait for the backend - and drains both", async () => {
+    const snapshot = (module: string) => ({ moduleName: module, plainFile: join(dir, `${module}.plain`), tree: {}, chain: [{ moduleName: module, plainFile: join(dir, `${module}.plain`), buildDir: join(dir, "plain_modules", module, "code") }] }) as unknown as SpecSnapshot;
+    writeFileSync(join(dir, "backend.plain"), "***functional specs***\n\n- Serve.\n");
+    writeFileSync(join(dir, "frontend.plain"), "***functional specs***\n\n- Show.\n");
+    const { registry, queue: q } = queue();
+    holdNext = true;
+    const backend = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Serve.", applied: "already applied", spec: snapshot("backend") });
+    while (releaseSlow === undefined) await new Promise((resolve) => setTimeout(resolve, 5));
+    const frontend = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: "+- Show.", applied: "already applied", spec: snapshot("frontend") });
+    // The backend is held rendering; the frontend renders all the same.
+    expect((await registry.wait(frontend.jobId)).status).toBe("succeeded");
+    expect(registry.get(backend.jobId)!.status).toBe("running");
+    let drained = false;
+    const draining = q.drain().then(() => (drained = true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(drained).toBe(false);
+    releaseSlow!();
+    await draining;
+    expect(registry.get(backend.jobId)!.status).not.toBe("running");
   });
 });

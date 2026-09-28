@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Stats } from "node:fs";
+import { totalmem } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
@@ -225,6 +226,23 @@ export function vmImage(): { tag: string; path: string } | undefined {
 const VM_DISK = process.env.PLAINWRIGHT_VM_DISK ?? "8G";
 const VM_MEMORY = process.env.PLAINWRIGHT_VM_MEMORY ?? "2G";
 const VM_CPUS = Number(process.env.PLAINWRIGHT_VM_CPUS ?? 2);
+
+/** A size as the VM takes it - "2G", "512M" - in bytes. */
+function bytesOf(size: string): number {
+  const match = /^(\d+(?:\.\d+)?)\s*([KMGT]?)i?B?$/i.exec(size.trim());
+  if (match === null) return 2 * 1024 ** 3;
+  const power = { "": 0, K: 1, M: 2, G: 3, T: 4 }[match[2]!.toUpperCase() as "" | "K" | "M" | "G" | "T"];
+  return Number(match[1]) * 1024 ** power;
+}
+
+/**
+ * How many jobs this machine runs at once, by default: each job's module may have two VMs - its
+ * code's and its tests' - of VM_MEMORY each, and three quarters of the memory is theirs to take.
+ * At least one.
+ */
+export function defaultParallelJobs(): number {
+  return Math.max(1, Math.floor((totalmem() * 0.75) / (2 * bytesOf(VM_MEMORY))));
+}
 
 const REGULAR_FILE = 0o100000;
 const FILE_TYPE = 0o170000;

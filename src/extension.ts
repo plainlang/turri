@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
 import { skillRunDir } from "./render/paths.ts";
+import { defaultParallelJobs } from "./render/vm.ts";
 import { findTestScripts } from "./render/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { createWebTools } from "./render/web.ts";
@@ -171,6 +173,8 @@ export default function (pi: ExtensionAPI) {
     // harness - which can read the skills, the rules, the code, the tests and plainwright itself -
     // works out why, and what has to be done.
     retries: 1,
+    // Modules that share nothing build side by side - as many at once as the machine has room for.
+    maxRunning: parallelJobs(cwd),
     diagnose: async (job, failures, jobLog) => {
       const diagnosis = await diagnoseFailure({
         job,
@@ -765,6 +769,8 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
           // ctrl+o has tool output expanded - so it never loses the end of the chain.
           let tui: { requestRender(): void } | undefined;
           let mounted = false;
+          // Its own: two modules building side by side each keep their progress, and one ending clears only its own.
+          const widgetKey = `plainwright-render:${randomUUID().slice(0, 8)}`;
           const show = () => {
             if (!ctx.hasUI) return;
             try {
@@ -787,11 +793,11 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
                     invalidate() {},
                   };
                 };
-                ui.setWidget("plainwright-render", widget, { placement: "aboveEditor" });
+                ui.setWidget(widgetKey, widget, { placement: "aboveEditor" });
               } else {
                 tui?.requestRender();
               }
-              ctx.ui.setStatus("plainwright-render", progress.summary());
+              ctx.ui.setStatus(widgetKey, progress.summary());
             } catch {
               // The widget is a convenience; losing it must not fail the render.
             }
@@ -850,8 +856,8 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
           } finally {
             if (ctx.hasUI) {
               try {
-                ctx.ui.setWidget("plainwright-render", undefined);
-                ctx.ui.setStatus("plainwright-render", undefined);
+                ctx.ui.setWidget(widgetKey, undefined);
+                ctx.ui.setStatus(widgetKey, undefined);
               } catch {
                 /* nothing to clean up */
               }
@@ -1305,6 +1311,16 @@ export function conformanceStatus(root: string): string | undefined {
   } catch {
     return "conformance on where there are test reqs";
   }
+}
+
+/**
+ * How many jobs the chat runs at once: PLAINWRIGHT_PARALLEL_JOBS, else `parallel-jobs:` in the session
+ * folder's config.yaml, else what this machine's memory holds VMs for.
+ */
+export function parallelJobs(cwd: string): number {
+  const fromEnv = Number(process.env.PLAINWRIGHT_PARALLEL_JOBS);
+  if (Number.isInteger(fromEnv) && fromEnv >= 1) return fromEnv;
+  return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs();
 }
 
 /** Whether a folder holds a project's config: config.yaml, or a module's own config.<module>.yaml. */

@@ -129,8 +129,29 @@ export function createJobRegistry(options?: {
   retries?: number;
   /** Why a job failed for good, and what to do: for the person, with both failures. */
   diagnose?: (job: Job, failures: string[], jobLog?: string) => Promise<string | undefined>;
+  /**
+   * How many jobs may run at once. Jobs whose lanes are free still wait for a slot past it - each
+   * module's jobs start VMs, and ten modules at once would ask for more than the machine has. Not
+   * given: no limit.
+   */
+  maxRunning?: number;
 }): JobRegistry {
   const jobs = new Map<string, Job>();
+  // The slots: how many jobs run, and the ones whose lanes are free waiting for one, in the order they got there.
+  const limit = options?.maxRunning !== undefined && options.maxRunning >= 1 ? Math.floor(options.maxRunning) : undefined;
+  let active = 0;
+  const waiters: Array<() => void> = [];
+  const takeSlot = () =>
+    new Promise<void>((resolve) => {
+      if (limit === undefined || active < limit) {
+        active += 1;
+        resolve();
+      } else waiters.push(() => ((active += 1), resolve()));
+    });
+  const giveSlot = () => {
+    active -= 1;
+    waiters.shift()?.();
+  };
   const settled = new Map<string, Promise<Job>>();
   const tailChars = options?.tailChars ?? DEFAULT_TAIL_CHARS;
   /** The last job to claim each lane. A new job waits for it and becomes the new tail. */
@@ -165,7 +186,7 @@ export function createJobRegistry(options?: {
         diff: input.diff,
         model: input.model,
         ...(input.follows !== undefined ? { follows: input.follows } : {}),
-        status: blockers.length > 0 ? "queued" : "running",
+        status: blockers.length > 0 || (limit !== undefined && active >= limit) ? "queued" : "running",
         sequence: (sequence += 1),
         queuedAt: now,
         startedAt: now,
@@ -312,8 +333,10 @@ export function createJobRegistry(options?: {
         }
       };
 
+      /** It holds one of the run slots, to give back when it ends. */
+      let holding = false;
       const promise = turn
-        .then(() => {
+        .then(async () => {
           // Stopped while it waited: it never starts.
           if (controller.signal.aborted) throw new JobStoppedError();
           // A job ahead of it failed for good: it does not start, and fails for good too - so does what waits on it.
@@ -325,10 +348,21 @@ export function createJobRegistry(options?: {
                 (failedAhead.diagnosis !== undefined ? `\n\n${failedAhead.diagnosis}` : ""),
             );
           }
+          // Its lanes are free; it still needs one of the run slots.
+          if (limit !== undefined && active >= limit) {
+            job.status = "queued";
+            job.waitingOn = [];
+            job.stage = `waiting for a free slot - ${active} of ${limit} jobs running at once (parallel-jobs)`;
+            changed();
+          }
+          await takeSlot();
+          holding = true;
+          if (controller.signal.aborted) throw new JobStoppedError();
           if (job.status === "queued") {
             job.status = "running";
             job.startedAt = Date.now();
             job.waitingOn = [];
+            job.stage = undefined;
             changed();
           }
           log = startJobLog(job, claimed);
@@ -354,6 +388,10 @@ export function createJobRegistry(options?: {
           },
         )
         .then((finished) => {
+          if (holding) {
+            holding = false;
+            giveSlot();
+          }
           finished.finishedAt = Date.now();
           log?.end(finished.status === "succeeded" ? "finished" : finished.status === "stopped" ? "stopped" : "finished - failed", finished.announce ?? finished.report ?? finished.error);
           // A failing listener must not take the job down with it; the result is

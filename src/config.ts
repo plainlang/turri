@@ -153,6 +153,8 @@ export interface ProjectConfig {
    * this machine - for an integration embedded in a host codebase the VM does not hold.
    */
   testingScripts?: "vm" | "host";
+  /** How many jobs run at once in the chat - modules that share nothing build side by side up to it. Unset: from the machine's memory. */
+  parallelJobs?: number;
 }
 
 /** The config keys, as written in the file. */
@@ -165,6 +167,7 @@ export const CONFIG_KEYS = {
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
   testingScripts: "testing-scripts",
+  parallelJobs: "parallel-jobs",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function text(value: unknown): string | undefined {
@@ -182,7 +185,7 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
   // The project's alone: one conversation, one module built when none is named.
   const merged: ProjectConfig = { ...project };
   for (const key of Object.keys(CONFIG_KEYS) as Array<keyof ProjectConfig>) {
-    if (key === "module" || key === "harnessModel" || own[key] === undefined) continue;
+    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || own[key] === undefined) continue;
     (merged as Record<string, unknown>)[key] = own[key];
   }
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
@@ -267,5 +270,9 @@ function readConfigFile(path: string): ProjectConfig {
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     testingScripts: raw[CONFIG_KEYS.testingScripts] === "host" ? "host" : raw[CONFIG_KEYS.testingScripts] === "vm" ? "vm" : undefined,
+    parallelJobs:
+      typeof raw[CONFIG_KEYS.parallelJobs] === "number" && Number.isInteger(raw[CONFIG_KEYS.parallelJobs]) && (raw[CONFIG_KEYS.parallelJobs] as number) >= 1
+        ? (raw[CONFIG_KEYS.parallelJobs] as number)
+        : undefined,
   };
 }

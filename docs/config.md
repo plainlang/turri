@@ -51,12 +51,27 @@ testing-scripts: host                # run the testing scripts in place (default
 | `conformance-tests` | `false`: no conformance tests written, and none of the existing ones run. `true`: on for every module with test reqs | on for every module with test reqs |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
+| `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the machine's memory holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
 | `testing-scripts` | `host`: the testing scripts run in place, on the real build and tests folders - for an integration embedded in a host codebase. `vm`: the default, said outright | each run on a fresh copy of the code |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key plainwright
 does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the
 wrong type, as if it were not there. `model:`, from before there were separate models, is read as
 `coding-model`.
+
+## How many jobs at once
+
+Jobs on the same module, or on modules of one `requires` chain, always run one after another.
+Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, and
+each module's jobs start VMs of their own: its code's and its tests', `PLAINWRIGHT_VM_MEMORY` (2 GB)
+each. So the chat runs at most `parallel-jobs` jobs at once; a job whose turn has come waits for a
+free slot past that, and its line says so. Unset, it is three quarters of the machine's memory over
+two VMs' worth - three on a 16 GB machine. `PLAINWRIGHT_PARALLEL_JOBS` wins over the config. It is
+the project's alone, never read from a module's file.
+
+The testing scripts all run on this machine, each on a copy of its module's code, so they never
+share files - but they do share its network: two modules whose conformance scripts start a server
+on the same port collide when they run at once. Give each its own.
 
 ## Models
 
@@ -147,8 +162,8 @@ How a module's config is made:
 - **By the codebase it runs in.** What runs in a codebase follows that codebase's module - a
   required module's spec rebuilt up the chain is tested with the scripts of the module it is rebuilt
   in.
-- **The project's alone.** `module:` and `harness-model:` are read only from `config.yaml` - there is
-  one conversation, and one module built when none is named. An import module is never built and has
+- **The project's alone.** `module:`, `harness-model:` and `parallel-jobs:` are read only from
+  `config.yaml` - there is one conversation, one module built when none is named, and one machine. An import module is never built and has
   no config.
 
 With module files and no `module:`, building without naming a file lists the modules and asks for
