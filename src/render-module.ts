@@ -82,7 +82,9 @@ async function main() {
     skipRequires: options.only !== undefined,
     tryIt: options["try-it"] !== undefined,
     conformance:
-      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : project.conformanceTests,
+      // config.yaml turns them off, or leaves them to the test reqs - `true` included, as in the chat: a module
+      // without test reqs has none to write, and is not stopped for it.
+      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : project.conformanceTests === false ? false : undefined,
     onChainEvent: (event) => {
       if (event.type === "chain") {
         console.log(`\n${c.bold("build chain")}\n${describeChain(event.chain)}`);

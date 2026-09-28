@@ -156,6 +156,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | --- | --- |
 | [Installation](docs/installation.md) | setup and doctor, the VM image, **plainwright** in every `pi`, environment variables |
 | [Using **plainwright**](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
+| [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
 | [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, what the code is built from |

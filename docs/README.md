@@ -23,7 +23,9 @@ pages go into each part.
 | what my machine needs, and why a check failed | [installation](installation.md) |
 | how to build the full VM image, and what the stock one cannot do | [installation](installation.md#building-the-vm-image) |
 | how to start a project, or add a feature, in a conversation | [using](using.md#in-a-conversation) |
-| which model renders, and how to change it | [using](using.md#choosing-a-model) |
+| which model renders, and how to change it | [using](using.md#choosing-a-model), [the project config](config.md#models) |
+| what `config.yaml` can set, and what happens without it | [the project config](config.md) |
+| how a backend and a frontend on different stacks share one project | [the project config](config.md#modules-on-different-stacks) |
 | everything an agent was sent and did, to debug it | [using](using.md#agent-logs) |
 | how to render a spec overnight, and resume it | [running unattended](headless.md) |
 | how to rebuild one functionality | [running unattended](headless.md#rebuilding-one-functionality) |
@@ -42,6 +44,7 @@ pages go into each part.
 | --- | --- |
 | [Installation](installation.md) | setup and doctor, building the VM image, the stock image's limits, plainwright in every `pi`, environment variables |
 | [Using plainwright](using.md) | the conversation, the tools, background jobs, choosing a model, module history, the command line |
+| [The project config](config.md) | `config.yaml` and `config.<module>.yaml`: where they are read from, every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |
 | [Rendering](rendering.md) | where things go, one functionality, a whole module, spec diffs, conformance tests, what the code is built from |

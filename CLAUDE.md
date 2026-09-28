@@ -98,9 +98,12 @@ print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and 
 through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportStage`, ...) to
 `job-panel.ts` and `transcript-view.ts` (`/watch`).
 
-**Projects.** A spec is built in its project: the nearest folder upwards holding `config.yaml` or
-`plain_modules/` (`projectDirOf` in `paths.ts`). `config.yaml` (`src/config.ts`) holds `module`,
-`harness-model`, `coding-model`, `conformance-tests`, `testing-scripts` and the script paths.
+**Projects.** A spec is built in its project: the nearest folder upwards holding `config.yaml`, a
+`config.<module>.yaml` or `plain_modules/` (`projectDirOf` in `paths.ts`). `config.yaml`
+(`src/config.ts`) holds `module`, `harness-model`, `coding-model`, `judge-model`,
+`conformance-tests`, `testing-scripts` and the script paths; a module on a stack of its own lays
+`config.<module>.yaml` over it, found down its `requires` chain (`configForSpec`). `docs/config.md`
+documents every key.
 
 ## Testing patterns
 

@@ -109,11 +109,12 @@ it sets, and the render tools default to it - `module` when you ask to build wit
 `conformance-tests: false` to render without conformance tests (none written, none of the existing
 ones run) unless you ask for them, `coding-model` for what renders run on, and the testing scripts.
 `harness-model` is what `plainwright chat` starts on. What you ask for in the conversation wins.
+Every key, what happens without it, and how the models inherit: [the project config](config.md).
 
 A project whose modules are on different stacks gives each its own `config.<module>.yaml` beside
 `config.yaml` - `config.backend.yaml`, `config.frontend.yaml` - with its testing scripts, models and
 conformance over the project's; the chat is told both, and each render follows its module's. See
-[modules on different stacks](rendering.md#modules-on-different-stacks).
+[modules on different stacks](config.md#modules-on-different-stacks).
 
 ## Choosing a model
 

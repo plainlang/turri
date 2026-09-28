@@ -66,7 +66,8 @@ async function main() {
       plainFile,
       diff,
       inModule: args.inModule,
-      conformance: args.conformance,
+      // Off when asked, or when the spec's config turns it off.
+      conformance: args.conformance ?? (configForSpec(plainFile).conformanceTests === false ? false : undefined),
       tryIt: false,
       model: args.model ?? modelSpec(projectModels(configForSpec(plainFile)).coding),
     }),

@@ -17,27 +17,9 @@ the folder above. Links in a spec are relative to the spec.
 ### Modules on different stacks
 
 One project can hold modules that share nothing but a common module - a Python backend and a React
-frontend side by side, each importing `base` from `template/`, neither requiring the other. Each
-gets its settings in a file of its own beside `config.yaml`, named for the module:
-
-```
-config.yaml            # the project's: harness-model, coding-model, conformance-tests
-config.backend.yaml    # unittests-script: test_scripts/run_unittests_python.sh ...
-config.frontend.yaml   # unittests-script: test_scripts/run_unittests_typescript.sh, its own coding-model
-backend.plain          # import: [base, python_fastapi_template]
-frontend.plain         # import: [base, react_vite_template]
-template/              # base.plain, python_fastapi_template.plain, react_vite_template.plain
-test_scripts/          # both stacks' scripts
-```
-
-A module is built with `config.yaml` and its own file over it, key by key; a model its file names
-takes what it leaves out from the project's (`coding-model: {thinking: high}` keeps the project's
-model). A module without a file of its own - `backend_admin`, which requires `backend` - takes the
-one of the first module down its `requires` chain that has one: a chain is one codebase, on one
-stack. What runs in a codebase follows that codebase's file, even for a required module's spec
-rebuilt there. An import module is not built, and has none. `module:` and `harness-model:` are the
-project's alone - there is one conversation - and are not read from a module's file; with several
-modules and no `module:`, building a module needs its `.plain` file named.
+frontend side by side, each importing `base`, neither requiring the other. Each gets its testing
+scripts, models and conformance in its own `config.<module>.yaml`, laid over `config.yaml`: see
+[the project config](config.md#modules-on-different-stacks).
 
 | | |
 | --- | --- |

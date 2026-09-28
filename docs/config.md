@@ -1,0 +1,157 @@
+# The project config
+
+A project says how its specs are built in `config.yaml`, at the project root. Everything in it is
+optional: with no file at all, plainwright finds the testing scripts on its own, turns conformance
+tests on wherever a module has test reqs, and runs on pi's configured model. A project whose
+modules are on different stacks adds a file per module, `config.<module>.yaml`, beside it.
+
+## Where it is read from
+
+A spec belongs to its **project**: the nearest folder, from the spec's own folder up, that holds a
+`config.yaml`, a module's `config.<module>.yaml` or a `plain_modules/`. Without any of them, the
+spec's own folder is the project. That folder's config is the one read, and its `plain_modules/` is
+where the code is built, wherever plainwright was started. So a project that keeps its specs in
+`plain/`, with `plain/config.yaml`, builds `plain/app.plain` by `plain/config.yaml` even when
+`plainwright chat` runs in the folder above.
+
+When it is read:
+
+- **In the chat**, afresh: the chat's agent is told what it says on every turn, and each render
+  reads it when it is queued. An edit to the file holds from the next turn and the next render, with
+  no restart. The agent is told the config of the session's folder and of the projects one folder
+  down.
+- **On the command line**, once, when the command starts. `plainwright module` takes `module:` from
+  the folder it is run in, and the rest from the spec's own project.
+
+## The keys
+
+```yaml
+module: app.plain                    # what to build when no .plain file is named
+harness-model:                       # the model you chat with
+  model: anthropic/claude-opus-5-5
+  thinking: high
+coding-model:                        # every render (default: harness-model)
+  model: amazon-bedrock/eu.anthropic.claude-sonnet-5
+  thinking: low
+judge-model:                         # the verdicts of a conformance run (default: coding-model)
+  model: amazon-bedrock/eu.anthropic.claude-sonnet-5
+  thinking: medium
+conformance-tests: true              # write and run conformance tests (default: where there are test reqs)
+unittests-script: test_scripts/run_unittests_python.sh
+conformance-tests-script: test_scripts/run_conformance_tests_python.sh
+testing-scripts: host                # run the testing scripts in place (default: on a fresh copy)
+```
+
+| key | what it sets | unset |
+| --- | --- | --- |
+| `module` | the `.plain` file `plainwright module` and `render_module` build when none is named, from the project root | a file has to be named |
+| `harness-model` | the model `plainwright chat` starts on - the one you talk to - and the one that diagnoses a job that failed for good | pi's configured model |
+| `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
+| `judge-model` | the judge and the test review of a conformance run, and the queue master | `coding-model` |
+| `conformance-tests` | `false`: no conformance tests written, and none of the existing ones run. `true`: on for every module with test reqs | on for every module with test reqs |
+| `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
+| `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
+| `testing-scripts` | `host`: the testing scripts run in place, on the real build and tests folders - for an integration embedded in a host codebase. `vm`: the default, said outright | each run on a fresh copy of the code |
+
+Keys are written with dashes; underscores are read the same (`conformance_tests`). A key plainwright
+does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the
+wrong type, as if it were not there. `model:`, from before there were separate models, is read as
+`coding-model`.
+
+## Models
+
+Each model is a model reference and a thinking level - `off`, `minimal`, `low`, `medium`, `high`,
+`xhigh` or `max` - and either may be left out:
+
+```yaml
+coding-model:
+  model: google/gemini-3.1-flash      # the provider and the model id, as pi names them
+  thinking: medium
+judge-model: google/gemini-3.1-pro:high   # the same, as one string
+harness-model: anthropic/claude-opus-5-5  # a model alone
+```
+
+What a model leaves out it takes from the one it inherits: `judge-model` from `coding-model`,
+`coding-model` from `harness-model`. So with only a harness model, everything runs on it;
+`coding-model: {thinking: low}` renders on the harness model, thinking less.
+
+They are defaults. What is asked for wins over them:
+
+| model | wins over the config |
+| --- | --- |
+| harness | `plainwright chat --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
+| coding | `plainwright chat --coding-model <m>`, `set_render_model` in the conversation, and `--model` / `--coding-model` on `plainwright module`, `render`, `regenerate`, `conformance` and `spec-diff` |
+| judge | `--judge-model` on `plainwright conformance` |
+
+A job keeps the model it was queued with: choosing another holds for what is queued after.
+
+## Conformance tests
+
+`conformance-tests:` is the one switch, and the chat, every render and `forge-plain`'s testing phase
+follow it. `false` turns them off entirely: no conformance tests are written, the ones already in a
+codebase are not run, and no agent is shown the conformance testing script. `true`, or no key, means
+on wherever a module has `***test reqs***` - a module without them has nothing to write conformance
+tests from, so it writes none, but still keeps the codebase's existing ones passing. Asked in the
+conversation, or with `--conformance` / `--no-conformance` on the command line, a render does
+otherwise.
+
+`spark-plain` writes `conformance-tests: false` into a new project unless you ask for tests;
+`forge-plain` asks.
+
+## The testing scripts
+
+A build needs a unit testing script - and, with conformance on, a conformance testing script - to
+decide when it is done. They are looked for at the project root, in this order:
+
+1. named in the config - the module's own file first, then `config.yaml` - by path from the root;
+2. the one `run_unittests*.sh` / `run_conformance_tests*.sh` in the project root;
+3. the one of each in `test_scripts/`.
+
+A folder holding two of a kind is not guessed between: name the one to use. A script named inside
+`plain_modules/` is refused - agents write there, so it could be changed by the work it judges. The
+scripts are never linked from the specs. What they are and how they run is in
+[rendering](rendering.md#the-testing-scripts).
+
+## Modules on different stacks
+
+One project can hold modules that share nothing but a common module - a Python backend and a React
+frontend side by side, each importing `base` from `template/`, neither requiring the other. Each
+gets a file of its own beside `config.yaml`, named for the module:
+
+```
+config.yaml            # the project's: harness-model, coding-model, conformance-tests
+config.backend.yaml    # the backend's testing scripts
+config.frontend.yaml   # the frontend's testing scripts, and a coding model of its own
+backend.plain          # import: [base, python_fastapi_template]
+frontend.plain         # import: [base, react_vite_template]
+template/              # base.plain, python_fastapi_template.plain, react_vite_template.plain
+test_scripts/          # both stacks' scripts
+```
+
+```yaml
+# config.frontend.yaml
+unittests-script: test_scripts/run_unittests_typescript.sh
+conformance-tests-script: test_scripts/run_conformance_tests_typescript.sh
+coding-model:
+  thinking: high
+```
+
+How a module's config is made:
+
+- **Laid over `config.yaml`, key by key.** What the module's file gives wins; what it leaves out
+  is the project's. A model it names takes what it leaves out from the project's same model - above,
+  the frontend renders on the project's coding model, thinking `high`.
+- **Down the `requires` chain.** A module without a file of its own takes the file of the first
+  module down its `requires` chain that has one: `backend_admin`, which requires `backend`, is built
+  with `config.backend.yaml`. A chain is one codebase, so it is one stack.
+- **By the codebase it runs in.** What runs in a codebase follows that codebase's module - a
+  required module's spec rebuilt up the chain is tested with the scripts of the module it is rebuilt
+  in.
+- **The project's alone.** `module:` and `harness-model:` are read only from `config.yaml` - there is
+  one conversation, and one module built when none is named. An import module is never built and has
+  no config.
+
+With module files and no `module:`, building without naming a file lists the modules and asks for
+one: `plainwright module backend.plain`. The chat is told each module's config as it holds, and the
+status bar shows conformance per module when they differ. The skills that write testing scripts put
+each module's in its own file once a project has two stacks.
