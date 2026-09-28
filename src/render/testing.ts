@@ -16,56 +16,24 @@ export interface TestRun {
   exitCode: number;
 }
 
-const MAX_OUTPUT_CHARS = 20000;
+/** Up to this much of a run's output is shown: all of it when it fits, otherwise its end. */
+const MAX_OUTPUT_CHARS = 60_000;
 /** A test run has the same time limit as any command: see COMMAND_TIMEOUT_MS. */
 export const RUN_TIMEOUT_MS = COMMAND_TIMEOUT_MS;
 
-/** How much of a long output is kept from its start - what ran, with which toolchain. The rest is its end. */
-const HEAD_CHARS = 2000;
 /** Full outputs kept per project, newest first; older ones are removed. */
 const MAX_LOGS = 100;
 
 /**
- * Output as an agent is shown it: whole, or - when it is too long - its start and its end.
- *
- * A test run says what failed and why at the end: the failures, the stack traces, the summary.
- * The start says what ran, with which toolchain. The middle - dependency installs, build logs -
- * is what goes. With `log` the whole output is kept in that file too, and the cut says where.
+ * Output as an agent is shown it: whole when it fits, otherwise its last MAX_OUTPUT_CHARS - where a
+ * test run says what failed and why. With `log` the whole output is kept in that file too, and the
+ * cut says where.
  */
 export function truncateOutput(text: string, log?: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;
-  const tail = MAX_OUTPUT_CHARS - HEAD_CHARS;
   const cut = text.length - MAX_OUTPUT_CHARS;
   const where = log !== undefined ? ` - the whole output is in ${log}; read it with read or grep` : "";
-  // What the cut part said went wrong: the root cause of a failure is often in the middle - Spring's
-  // "No qualifying bean", a "Caused by:" chain - where the start and the end only say that it failed.
-  const said = causeLines(text.slice(HEAD_CHARS, text.length - tail));
-  const causes = said.length > 0 ? `\n\n... what the cut part says went wrong, each line once:\n${said.join("\n")}\n` : "";
-  return `${text.slice(0, HEAD_CHARS)}\n\n... [${cut} characters cut from the middle${where}] ...${causes}\n\n${text.slice(-tail)}`;
-}
-
-/** Lines that say what went wrong - causes, exceptions, errors - each once, however often the output repeats them. */
-const CAUSE = /Caused by:|No qualifying bean|required a bean|Exception\b[^\n]*:|Error\b[^\n]*:|Traceback|panic:|FAILED|AssertionError|\bERROR\b/;
-const MAX_CAUSE_LINES = 60;
-const MAX_CAUSE_CHARS = 8000;
-
-export function causeLines(text: string): string[] {
-  const seen = new Set<string>();
-  const kept: string[] = [];
-  let size = 0;
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (line === "" || !CAUSE.test(line)) continue;
-    // The same cause with another id, time or number is the same cause.
-    const key = line.replace(/\b[0-9a-f]{6,}\b/gi, "").replace(/\d+/g, "");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const shown = line.length > 400 ? `${line.slice(0, 399)}…` : line;
-    if (kept.length >= MAX_CAUSE_LINES || size + shown.length > MAX_CAUSE_CHARS) break;
-    kept.push(shown);
-    size += shown.length;
-  }
-  return kept;
+  return `... [${cut} characters cut from the start${where}] ...\n\n${text.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
 /**

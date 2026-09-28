@@ -44,16 +44,12 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
           tests_reach_it: "The script runs the tests from a copy of the build: app.py is in the current directory when they run.",
           interfaces: [{ module: "app", id: testedFrid, how: "Run `python3 app.py` from the build folder; it writes to stdout and exits." }],
           environment: "Nothing around it: no variables, services or files - every run starts from the same state.",
-          plan: [{ module: "app", id: testedFrid, tests: "Run the app as a subprocess and check what it prints to stdout, and its exit code, as the spec says." }],
+          plan: [{ module: "app", id: testedFrid, tests: "Run the app as a subprocess and check what it prints to stdout, and its exit code, as the spec says. Acceptance test 1: run it, assert it prints hello and exits 0." }],
         });
         return "Done.";
       }
       if (session.role === "reviewer") {
         await tool("submit_review").execute("id", reviewSays());
-        return "Done.";
-      }
-      if (session.role === "summarizer") {
-        await tool("submit_summary").execute("id", { summary: "The app printed goodbye.", failures: [] });
         return "Done.";
       }
       if (session.role === "judge") {
@@ -157,18 +153,20 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(review).toContain("never mocks, stubs or replaces any part of the software under test");
     expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
     const [explorer, writer, , judge, coder] = asked;
-    expect(explorer!.prompt).toContain("They will never see the code");
-    // The test author is given how to invoke it, and nothing of the code's place.
+    expect(explorer!.prompt).toContain("They will not see your replies");
+    // The test author is given how to invoke it, and may read the code - never write it.
     // The whole exploration: how to run it, how the functionality is reached, what it needs, and a plan.
     expect(writer!.prompt).toContain("## How each functionality is reached\n\n### app 1\n\nRun `python3 app.py` from the build folder; it writes to stdout and exits.");
     expect(writer!.prompt).toContain("## Plan for the conformance tests\n\n### app 1\n\nRun the app as a subprocess");
-    expect(writer!.prompt).toContain("You cannot read or view the code. It is not in your sandbox");
-    expect(writer!.prompt).not.toContain(codeDir);
+    expect(writer!.prompt).toContain(`You have read access to the code, in ${codeDir}, with your file tools - read, grep, find, ls - but`);
+    expect(writer!.prompt).toContain("not write access: you write tests, never code.");
     expect(writer!.prompt).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
     expect(judge!.prompt).toContain("Decide what is wrong: the code, the tests, or the specification itself");
     expect(judge!.prompt).toContain("<how to read the specification>");
     expect(judge!.prompt).toMatch(/<failing run exit="1"/);
     expect(coder!.prompt).toContain("The spec says the app prints hello; the code prints goodbye.");
+    expect(coder!.prompt).toContain(`You have read access to the conformance tests, in ${join(root, "plain_modules", "app", "tests")}, with your file tools`);
+    expect(coder!.prompt).toContain("but not write access: read them to see what a failing test does and expects; never change them.");
     expect(stages).toContain("app 1: the code is wrong - the coding agent fixes it");
 
     // The harness's own runs decide: failing until the code is fixed, then the suite and the unit tests pass.
@@ -177,7 +175,7 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_acceptance_hello.py"), "utf8")).toContain("# acceptance test 1 of functionality 1:");
   });
 
-  it("gives the conformance agent file tools that cannot reach the code", async () => {
+  it("lets the conformance agent read the code but write only tests, and the coding agent read the tests but write only code", async () => {
     const { createExecutor } = await import("../../src/pi.ts");
     const spy = vi.mocked(createExecutor);
     await renderConformanceTests({
@@ -187,15 +185,23 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
       conformanceDir: join(root, "plain_modules", "app", "tests"),
     });
     const conformanceCall = spy.mock.calls.find(([opts]) => (opts as { label?: string }).label?.endsWith("conformance agent"))!;
-    const read = (conformanceCall[0] as { customTools: StubSession["tools"] }).customTools.find((tool) => tool.name === "read")!;
-    await expect(read.execute("id", { path: join(codeDir, "app.py") })).rejects.toThrow(/outside this agent's read directory/);
-    // And it is told so in its system prompt: its sandbox is the tests folder, and nothing else exists.
+    const tools = (conformanceCall[0] as { customTools: StubSession["tools"] }).customTools;
+    const tool = (name: string) => tools.find((candidate) => candidate.name === name)!;
+    await expect(tool("read").execute("id", { path: join(codeDir, "app.py") })).resolves.toBeDefined();
+    await expect(tool("write").execute("id", { path: join(codeDir, "app.py"), content: "x" })).rejects.toThrow(/outside/);
+    expect(readFileSync(join(codeDir, "app.py"), "utf8")).not.toBe("x");
+    // Its system prompt says so: it reads the tests, the code and the full logs of the runs, and writes only the tests.
     const system = (conformanceCall[0] as { system?: string }).system!;
-    // It reads the full logs of the runs too - read only.
     expect(system).toContain(join(root, "plain_modules", ".plainwright", "logs"));
     expect(system).toContain("You work inside a sandbox, and only there.");
-    expect(system).toContain(`- Your file tools can read \`${join(root, "plain_modules", "app", "tests")}\``);
-    expect(system).not.toContain(codeDir);
+    expect(system).toContain(codeDir);
+
+    const coderCall = spy.mock.calls.find(([opts]) => (opts as { label?: string }).label?.endsWith("coding agent"))!;
+    const coderTools = (coderCall[0] as { customTools: StubSession["tools"] }).customTools;
+    const coderTool = (name: string) => coderTools.find((candidate) => candidate.name === name)!;
+    const testFile = join(root, "plain_modules", "app", "tests", "test_conformance_hello.py");
+    await expect(coderTool("read").execute("id", { path: testFile })).resolves.toBeDefined();
+    await expect(coderTool("write").execute("id", { path: testFile, content: "x" })).rejects.toThrow(/outside/);
   });
 
   it("raises a spec conflict only after the same two functionalities are named three times, sending the tests back in between", async () => {

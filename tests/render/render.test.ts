@@ -315,28 +315,43 @@ describe("functionalities, by the module they belong to", () => {
 });
 
 describe("the build's identity, and the code's build files", () => {
+  it("never loses why something failed: every coding agent keeps the cause, the judge blames code that hides it, and the fixer makes it show first", async () => {
+    const { buildRenderPrompt } = await import("../../src/render/prompt.ts");
+    const { codeFixPrompt, judgePrompt } = await import("../../src/render/conformance-agents.ts");
+    const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- pytest."], "functional specs": ["- Take an order."] };
+    const run = { command: "c", exitCode: 1, output: '{"error": "failed"}', timeoutMs: 1 };
+    const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
+    expect(render).toContain("Never lose why something failed");
+    expect(render).toContain("Never make the code behave differently when a test runs it");
+    const fix = codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." }, run, reason: "r", first: true });
+    expect(fix).toContain("Never lose why something failed");
+    expect(fix).toContain("make it show first");
+    const judge = judgePrompt({ buildDir: "/b", conformanceDir: "/t", spec: { moduleName: "app", text: "- Take an order." }, run, invocation: "i", scope: { functionalities: [] }, notes: "" });
+    expect(judge).toContain("the code is what is wrong first: it hides the cause");
+  });
+
   it("is kept by every agent that writes code, and handed whole to the conformance agent", async () => {
     const { buildRenderPrompt, buildConformancePrompt } = await import("../../src/render/prompt.ts");
     const { codeFixPrompt } = await import("../../src/render/conformance-agents.ts");
     const { buildManifests } = await import("../../src/render/conformance.ts");
-    const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- JUnit."], "functional specs": ["- Back it up."] };
+    const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- pytest."], "functional specs": ["- Take an order."] };
     const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
     expect(render).toContain("Keep the build's identity as it is: its name, coordinates, version, package and main class.");
-    const fix = codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Back it up." }, run: { command: "c", exitCode: 1, output: "x", timeoutMs: 1 }, reason: "r", first: true });
+    const fix = codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." }, run: { command: "c", exitCode: 1, output: "x", timeoutMs: 1 }, reason: "r", first: true });
     expect(fix).toContain("Keep the build's identity as it is");
 
     const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const dir = mkdtempSync(join(tmpdir(), "plainwright-manifests-"));
-    writeFileSync(join(dir, "pom.xml"), "<project><groupId>com.codeplain</groupId><artifactId>d365-version-api</artifactId></project>\n");
+    writeFileSync(join(dir, "pyproject.toml"), "[project]\nname = \"orders-app\"\nversion = \"1.0.0\"\n");
     writeFileSync(join(dir, "App.java"), "class App {}\n");
     const manifests = buildManifests(dir);
     rmSync(dir, { recursive: true, force: true });
     // Only the build files - never the code.
-    expect(manifests.map((manifest) => manifest.path)).toEqual(["pom.xml"]);
+    expect(manifests.map((manifest) => manifest.path)).toEqual(["pyproject.toml"]);
     const conformance = buildConformancePrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [], manifest: [], invocation: "java -jar app.jar", manifests });
-    expect(conformance).toContain('<code build file path="pom.xml">\n<project><groupId>com.codeplain</groupId><artifactId>d365-version-api</artifactId></project>\n</code build file>');
+    expect(conformance).toContain('<code build file path="pyproject.toml">\n[project]\nname = "orders-app"\nversion = "1.0.0"\n</code build file>');
     expect(conformance).toContain("never guess them, and never take them from a folder or module name");
     // A failure of the software itself is not the tests' to work around; and three runs a turn.
     expect(conformance).toContain("the tests are not what is wrong: do not work around it in them");

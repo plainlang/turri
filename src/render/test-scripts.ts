@@ -236,7 +236,6 @@ export interface ScriptRun {
   /** Where the whole output is, when it was too long to be shown whole. */
   log?: string;
   /** What an agent that read the whole of it said failed and why - for the judge and whoever fixes it. */
-  summary?: string;
 }
 
 /**

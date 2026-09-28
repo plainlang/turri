@@ -83,7 +83,7 @@ export function describeStop(facts: StopFacts): string {
       `what they lacked, in ${rounds} attempts - so nothing more would have come of the rest of them.`;
     todo = [
       "The tests most likely cannot reach the software the way the test reqs have them do it. Say exactly how in the test reqs: " +
-        "what the tests depend on or start (for Maven, the app artifact the conformance testing script installs, and its main class), " +
+        "what the tests depend on or start - the package or entry point the conformance testing script builds or installs, by its exact name - " +
         "and how they start it.",
       "If the tests need longer than the time limit for a run - a long-running request - raise PLAINWRIGHT_COMMAND_TIMEOUT, or say in " +
         "the test reqs how they keep it short.",

@@ -558,8 +558,8 @@ function deliveryReport(result: RenderModuleResult): string | undefined {
  * Write black-box conformance tests for a functionality that has already been rendered.
  *
  * Separate from render_functionality on purpose: the agent that wrote the code is the
- * wrong one to decide whether the code matches the specification. This one never sees
- * the implementation - its tool surface cannot open it.
+ * wrong one to decide whether the code matches the specification. This one may read the
+ * implementation, but writes only tests, and takes what they expect from the specification.
  */
 function registerRenderFunctionalityConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool(renderFunctionalityConformanceTool(cwd, jobs));
@@ -579,7 +579,7 @@ function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conv
       "The tests are written and run in the chain's current codebase - the furthest-built module that requires " +
       "the one named - since that is where the code now lives; they are carried up to every module built on it " +
       "later. Rendering and conformance are separate jobs: name one functionality, several, a range, the whole " +
-      "module (the default) or the whole requires chain. The test author never sees the implementation - " +
+      "module (the default) or the whole requires chain. The test author may read the code but only writes tests - " +
       "it works from the specification and the acceptance tests, invoking the built functionality from " +
       "the outside. Needs test reqs, which is what conformance tests are written from.",
     promptSnippet: "render_functionality_conformance: black-box tests for a rendered functionality",

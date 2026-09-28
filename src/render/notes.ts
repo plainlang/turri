@@ -244,8 +244,9 @@ export function createNotesTool(
     parameters: Type.Object({
       changes: Type.Array(
         Type.Object({
-          section: Type.Union(ORDER.map((key) => Type.Literal(key)), {
-            description: `${ORDER.map((key) => `${key} = ${SECTIONS[key]}`).join("; ")}`,
+          // Any wording of a section is taken - "where", "Where things are" - rather than failing the whole call.
+          section: Type.String({
+            description: `One of: ${ORDER.map((key) => `${key} (${SECTIONS[key]})`).join(", ")}`,
           }),
           action: Type.Union([Type.Literal("add"), Type.Literal("change"), Type.Literal("remove")]),
           text: Type.String({
@@ -260,9 +261,17 @@ export function createNotesTool(
     }),
     async execute(_id, params) {
       before();
+      const unknown = params.changes.filter((change) => sectionNamed(change.section) === undefined);
+      if (unknown.length > 0) {
+        throw new Error(
+          `Nothing saved - ${unknown.map((change) => `"${change.section}"`).join(", ")} is not a section. ` +
+            `The sections are: ${ORDER.map((key) => `${key} (${SECTIONS[key]})`).join(", ")}.`,
+        );
+      }
+      const changes = params.changes.map((change) => ({ ...change, section: sectionNamed(change.section)! }));
       const { notes, problems } = applyNotesChanges(
         readNotes(buildDir),
-        params.changes as NotesChange[],
+        changes as NotesChange[],
         source === undefined ? undefined : `${now()} · ${source}`,
       );
       if (problems.length > 0) {
@@ -274,6 +283,16 @@ export function createNotesTool(
       return { content: [{ type: "text" as const, text: "Notes updated." }], details: { characters: text.length } };
     },
   });
+}
+
+/** The section a name means - its key or its heading, in any case, or the heading's first words. */
+export function sectionNamed(name: string): Section | undefined {
+  const wanted = name.trim().toLowerCase().replace(/[^a-z, ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (wanted === "") return undefined;
+  return (
+    ORDER.find((key) => key === wanted || SECTIONS[key].toLowerCase() === wanted) ??
+    ORDER.find((key) => SECTIONS[key].toLowerCase().startsWith(wanted) || wanted.startsWith(key))
+  );
 }
 
 /** How many times an agent that finishes without update_notes is asked to call it. */

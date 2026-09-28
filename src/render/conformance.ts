@@ -42,7 +42,6 @@ import {
   exploreInvocation,
   judgeFailure,
   SPEC_CONFLICT_RAISES,
-  summarizeFailure,
   reviewTests,
   reviewFeedbackPrompt,
   type ReviewProblem,
@@ -84,8 +83,6 @@ const DEFAULT_MAX_ROUNDS = ATTEMPTS.conformance;
 export function conformanceDirFor(moduleName: string, root?: string): string {
   return testsDirUnder(root ?? modulesRoot(), moduleName);
 }
-
-const MAX_OUTPUT_CHARS = 20000;
 
 export interface RenderConformanceTestsOptions {
   plainFile: string;
@@ -267,9 +264,9 @@ export async function renderConformanceTests(
     return diff.added.length + diff.changed.length + diff.removed.length > 0;
   };
 
-  // The code and its tests are rendered apart: the tests in their own folder and VM, by an agent
-  // that never sees the code. An explorer reads the code first and writes down how the software is
-  // invoked, which is what the tests are written against.
+  // The code and its tests are rendered apart: the tests in their own folder and VM, by an agent that
+  // may read the code but writes only tests. An explorer reads the code first and writes down how the
+  // software is invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
   const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.diff) };
   // For a spec change: the functionalities it touches, whose acceptance tests are labelled, checked and reviewed.
@@ -325,7 +322,11 @@ export async function renderConformanceTests(
   const testingScripts = [
     { path: relative(root, scripts.conformance!), runs: "<script> <copy of the build> <copy of the whole conformance suite>", content: readFileSync(scripts.conformance!, "utf8") },
   ];
-  let invocation = await exploreInvocation({ buildDir, spec: specContext, scope, testingScripts, label, model: options.model, onDelta: options.onDelta });
+  // The acceptance tests the explorer's plan has to carry out, step by step.
+  const toCarryOut = (forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }])
+    .map((item) => ({ module: moduleName, frid: item.frid, count: item.acceptanceTests.length }))
+    .filter((item) => item.count > 0);
+  let invocation = await exploreInvocation({ buildDir, spec: specContext, scope, testingScripts, acceptance: toCarryOut, label, model: options.model, onDelta: options.onDelta });
   reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
   const agentPrompt = withTestingScripts(
     buildConformancePrompt({
@@ -338,6 +339,7 @@ export async function renderConformanceTests(
       required,
       diff: options.diff,
       invocation,
+      readCode: buildDir,
       manifests: buildManifests(buildDir),
       touched,
     }),
@@ -346,11 +348,12 @@ export async function renderConformanceTests(
     root,
   );
 
-  // The conformance agent: its file tools and its shell hold the tests folder, nothing of the code.
+  // The conformance agent: its file tools write the tests folder and read the code too; its shell holds only the tests.
   // The full outputs of the test runs, too long to be shown whole: readable by the agents that fix what they show.
   const logsDir = join(vmScratchDir(buildDir), "logs");
   mkdirSync(logsDir, { recursive: true });
-  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, logsDir], write: [conformanceDir] });
+  // It reads the code too - how it is reached, what it is called - and writes only tests.
+  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, buildDir, logsDir], write: [conformanceDir] });
   const notes = notesForSession(buildDir, `${label} conformance`);
   // Each agent runs the suite three times a turn at most: the third ends its turn, and the harness runs it and judges.
   const conformanceRuns = turnLimited(
@@ -395,6 +398,7 @@ export async function renderConformanceTests(
     const first = fixer === undefined;
     fixer ??= await createCodeFixer({
       buildDir,
+      conformanceDir,
       logsDir,
       label,
       model: options.model,
@@ -487,12 +491,6 @@ export async function renderConformanceTests(
       let recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
       options.onRun?.(recheck.command, recheck.exitCode);
-      if (recheck.exitCode !== 0 && recheck.log !== undefined) {
-        // Too long to be shown whole: an agent reads all of it and sums up what failed and why, for the judge and whoever fixes it.
-        stage("the output is too long to show whole - an agent is summing up what failed and why");
-        const summary = await summarizeFailure({ run: recheck, logsDir, buildDir, conformanceDir, label, model: options.model, onDelta: options.onDelta });
-        if (summary !== undefined) recheck = { ...recheck, summary };
-      }
       if (recheck.exitCode !== 0) {
         // Nothing changing: the same failure, taken the same way, round after round. Once, the explorer
         // is asked what the tests lack - most often how they reach the software; after that, it stops.
@@ -516,6 +514,7 @@ export async function renderConformanceTests(
             scope,
             testingScripts,
             question: { failure: shownOutput(buildDir, "conformance-stuck", recheck.output), account: invocation },
+            acceptance: toCarryOut,
             label,
             model: options.model,
             onDelta: options.onDelta,
@@ -621,7 +620,7 @@ export async function renderConformanceTests(
         } else if (verdict.culprit === "code") {
           reportActivity(`  the code: ${reason}`);
           stage("the code is wrong - the coding agent fixes it");
-          const fixed = await changing(() => askFixer((first) => codeFixPrompt({ buildDir, spec: specContext, run: recheck, reason: verdict.reason, first })));
+          const fixed = await changing(() => askFixer((first) => codeFixPrompt({ buildDir, conformanceDir, spec: specContext, run: recheck, reason: verdict.reason, first })));
           recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
         } else {
           reportActivity(`  the tests: ${reason}`);

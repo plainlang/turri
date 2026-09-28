@@ -66,7 +66,10 @@ Template search order: the plain file's own directory, then a sibling `template/
 An agent that goes round in a circle - the same tool called with the same arguments again and again,
 nothing in between, so the same answer comes back - is let through three times; the next such call is
 refused with what is happening, and past six its turn is stopped, and the harness goes on from there as
-after any turn.
+after any turn. So is an agent whose calls to one tool fail ten times in a row with nothing going through
+in between - arguments the tool refuses never reach it, so however they are reworded, no call-by-call
+check sees them. A note's section is taken in any wording (`where`, "Where things are"), and one that is
+no section is refused with the four that are.
 
 ### The tests must actually pass
 
@@ -223,9 +226,9 @@ testing script always; the conformance testing script to the conformance and rep
 the coding agent only when conformance tests are written for its build. It gets the script's
 output when a run fails.
 
-Output an agent is shown - a script's, or a command's it ran itself - is at most 20,000 characters.
-A longer one keeps its start (what ran, with which toolchain) and its end (the failures, the stack
-traces, the summary), and says how much was cut from the middle; the whole of it is kept in
+Output an agent is shown - a script's, or a command's it ran itself - is shown whole up to 60,000
+characters. A longer one keeps its last 60,000 (the failures, the stack traces, the summary), and says
+how much was cut from the start; the whole of it is kept in
 `plain_modules/.plainwright/logs/`, where the agent can read it, and the cut names the file. The
 last 100 are kept.
 
@@ -297,22 +300,27 @@ which is which, and which acceptance test a test implements.
 ### Rendered apart from the code
 
 The code and its conformance tests are rendered apart, each in its own folder and its own VM (see
-[the sandbox](sandbox.md#commands-run-in-a-vm)). The test author never sees the code: its file tools
-and its shell hold the tests folder and nothing else. So before it starts, an explorer - an agent in
+[the sandbox](sandbox.md#commands-run-in-a-vm)). The test author writes only the tests folder; its file
+tools can read the code too, and it is told so - read access, never write access - and to take how the
+software is reached from the code, never what it should do. Its shell holds the tests folder only. The
+coding agent that fixes the code is told the same of the tests: it can read them, never change them.
+Before the test author starts, an explorer - an agent in
 the code's folder and VM, which reads the code and runs it but changes nothing - hands over everything
 the author needs, in parts: how to build and run it; how the conformance tests reach it as the project's
 conformance testing script runs them - the explorer is given the script, and says what it builds or
-installs and what the tests depend on or start (a Maven artifact and its main class, a jar, an import);
+installs and what the tests depend on or start (a package, a module, an entry point, by its exact name);
 how each functionality is reached from outside
 (the command, or the route, method and the request and response fields); what it needs around it; and
 a plan for the conformance tests, its expectations taken from the spec. The account is checked before
 it is used: it has to say how the functionality under test is reached and what to test for it (for a
-spec diff, some of the module the change touches), and one that does not is sent back saying what is
-missing. It is kept focused: the interface to what is under test, not a survey of the codebase, in
+spec diff, some of the module the change touches), and the plan has to carry out every acceptance test
+of it (for a spec diff, of every functionality the change touches), each named "acceptance test N", with
+how each of its steps is done from outside and what it asserts. One that does not is sent back saying
+what is missing. It is kept focused: the interface to what is under test, not a survey of the codebase, in
 words rather than code, under 12,000 characters. Each hand-over ends its turn, and it hands over three
 times at most. If it never completes it, what it wrote as it worked goes along with it, so nothing it
-found is lost. That account and the tests folder, not the code, are what the tests are written from, and every
-assertion comes from the spec. `run_conformance_tests` puts
+found is lost. The tests are written from that account and the spec, and every assertion comes from the
+spec. `run_conformance_tests` puts
 the whole suite together with a copy of the build in a throwaway directory, in the tests' VM, so
 tests cannot accumulate state between attempts and nothing they write reaches the code.
 
@@ -335,11 +343,16 @@ out from the diff. The conformance agent is shown their acceptance tests, number
 the run does not finish until each one is a labelled test of its own; and the review checks each of
 them as it would a functionality's own.
 
-When a failing run's output is too long to be shown whole, an agent reads all of it - and the code and
-the tests, read only - and sums up what failed and why: every failing test, the exact error, the stack
-trace and the whole "Caused by:" chain, and where to look, pointing at the code by file and line
-without pasting it. The judge and whoever fixes it get that summary with the run. The cut output also
-keeps, from the part it cuts, every distinct line that says what went wrong. Both the conformance agent
+A failing run's output goes to the judge and whoever fixes it whole when it is up to 60,000 characters,
+and otherwise its last 60,000 - where a test run says what failed and why - with the file the whole of
+it is kept in.
+
+Why something failed is never lost. Every agent that writes or fixes code is told that where the code
+catches an error and turns it into a response, a status, a result or a retry, it logs the error with its
+whole trace, and what it hands on names the cause - never a bare "failed". When the output does not show
+why the software failed, the judge says the code is what is wrong, for hiding it, and the coding agent
+makes the cause show first, then fixes it. No agent may make the code behave differently when a test runs
+it. Both the conformance agent
 and the coding agent can run the conformance suite themselves, to reproduce a failure and check their
 fix - three times a turn: the third ends the turn, and the harness runs it and judges. The conformance
 agent is told that a failure of the software itself - it does not build or start, or does what the
@@ -364,7 +377,7 @@ whole: both functional specs as they read, and each time what could not hold. Th
 agent runs `analyze-2-func-specs` on the pair, then `resolve-spec-conflict` for the ways out, and
 puts the decision to the person - it changes nothing in the spec before they have decided.
 
-The judge holds only what the spec says against the code: anything it leaves open - a name, Maven
+The judge holds only what the spec says against the code: anything it leaves open - a name,
 coordinates, a version, a path, a package - is what the code already has, and the tests follow it.
 The coding agents keep the build's identity - name, coordinates, version, package, main class - as it
 is unless the spec asks for another. And the conformance agent is given the code's build files
@@ -440,8 +453,8 @@ Every line says when and where it came from, stamped by the harness rather than 
 ```
 ## Assumptions
 
-- [2026-09-24 16:39 · d365_version_api 1] VersionResponseObject capabilities follow the JSON in the spec
-- [2026-09-24 16:52 · d365_auth 1] Token responses carry `access_token` and `expires_in`
+- [2026-09-24 16:39 · version_api 1] The version response's capabilities follow the JSON in the spec
+- [2026-09-24 16:52 · auth 1] Token responses carry `access_token` and `expires_in`
 ```
 
 A line that is changed is stamped again, so an assumption one agent revised shows as newer than the

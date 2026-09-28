@@ -6,17 +6,17 @@ import { confinedTools } from "./confine.ts";
 import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
-import { INTEGRITY_RULES, specPrimer } from "./prompt.ts";
+import { ERROR_CAUSE_RULES, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
 
 /**
  * The agents a conformance run needs beside the one that writes the tests.
  *
  * The conformance tests are rendered apart from the code, in their own folder and VM, by an agent
- * that never sees the code. So before it starts, an explorer reads the code and writes down how
- * the built software is invoked from outside - what the test author works from. When the harness's
- * run of the suite fails, a judge reads both, against the spec, and says which is wrong: the code
- * goes to a coding agent, which works in the code folder and its VM, the tests go back to their
- * author.
+ * that may read the code but writes only tests. Before it starts, an explorer reads the code and
+ * writes down how the built software is invoked from outside. When the harness's run of the suite
+ * fails, a judge reads both, against the spec, and says which is wrong: the code goes to a coding
+ * agent, which works in the code folder and its VM and may read the tests, the tests go back to
+ * their author.
  */
 
 /** What the explorer, the judge and the coding agent are told the spec says. */
@@ -27,8 +27,7 @@ export interface SpecContext {
 }
 
 /**
- * What an explorer hands the author of the conformance tests - who never sees the code, and is given
- * only this: how the software is built and run, how each functionality is reached from outside,
+ * What an explorer hands the author of the conformance tests: how the software is built and run, how each functionality is reached from outside,
  * what it needs around it, and a plan for the tests.
  */
 export interface Exploration {
@@ -71,7 +70,13 @@ export const MAX_EXPLORATION_CHARS = 12_000;
 /** How many times the explorer may hand an exploration over: each ends its turn, and is checked. */
 export const EXPLORATION_SUBMISSIONS = 3;
 
-export function explorationProblems(exploration: Exploration | undefined, scope: ConflictScope, moduleName: string): string[] {
+export function explorationProblems(
+  exploration: Exploration | undefined,
+  scope: ConflictScope,
+  moduleName: string,
+  /** The functionalities whose acceptance tests the plan has to carry out, and how many each has. */
+  acceptance: Array<{ module: string; frid: string; count: number }> = [],
+): string[] {
   if (exploration === undefined) return ["You have not called submit_exploration."];
   const problems: string[] = [];
   const size = explorationText(exploration).length;
@@ -96,8 +101,8 @@ export function explorationProblems(exploration: Exploration | undefined, scope:
   if (short(exploration.testsReachIt)) {
     problems.push(
       "tests_reach_it says too little: read the conformance testing script - what it builds or installs, and where - and say exactly " +
-        "how the tests it runs reach the software: the coordinates, paths or classes they depend on or start (a Maven groupId, " +
-        "artifactId and version, a main class, a jar path, an import), and whether they start it themselves and how.",
+        "how the tests it runs reach the software: the package, module, entry point, path or address they depend on or start, " +
+        "with its exact name and version, and whether they start it themselves and how.",
     );
   }
   if (short(exploration.environment)) problems.push("environment says too little: every variable, configuration file, service, database and fixture it needs, and how each test gets a fresh one - or say plainly it needs none.");
@@ -114,12 +119,30 @@ export function explorationProblems(exploration: Exploration | undefined, scope:
     if (!reached.some((item) => item.module === moduleName)) problems.push(`interfaces says nothing of how \`${moduleName}\`'s functionalities the change touches are reached - one entry each.`);
     if (!planned.some((item) => item.module === moduleName)) problems.push(`plan has no tests for \`${moduleName}\`: the cases the change adds, changes or removes, for each functionality it touches.`);
   }
+  // Every acceptance test is carried out, step by step, from outside: a plan that leaves one out
+  // leaves its author to write a placeholder.
+  for (const item of acceptance) {
+    const text = exploration.plan
+      .filter((entry) => entry.module === item.module && entry.frid === item.frid)
+      .map((entry) => entry.tests)
+      .join("\n");
+    const named = new Set([...text.matchAll(/acceptance test\s*(\d+)/gi)].map((match) => Number(match[1])));
+    const missing = Array.from({ length: item.count }, (_, index) => index + 1).filter((n) => !named.has(n));
+    if (missing.length > 0) {
+      problems.push(
+        `plan does not carry out ${missing.map((n) => `acceptance test ${n}`).join(", ")} of ${item.module} ${item.frid}: name each ` +
+          '"acceptance test N" as the specification numbers them, and say how each of its steps is done from outside - through ' +
+          "which endpoint, or which class and method where the test reqs let the tests call a component directly - with what, " +
+          "and what it asserts. A long acceptance test is planned whole, never cut down.",
+      );
+    }
+  }
   return problems;
 }
 
 /**
  * How the built software is invoked from outside, and a plan for its conformance tests, as an agent
- * that explored the code writes it - everything the tests' author, who never sees the code, works
+ * that explored the code writes it - everything the tests' author works
  * from. Checked before it is used: it has to cover every functionality the tests are for, and is sent
  * back until it does. What the explorer wrote in its replies goes with an account it never completed.
  */
@@ -135,6 +158,8 @@ export async function exploreInvocation(options: {
    * something they need of the software that it left out. The failing run, as the harness saw it.
    */
   question?: { failure: string; account: string };
+  /** The functionalities whose acceptance tests the plan has to carry out, and how many each has. */
+  acceptance?: Array<{ module: string; frid: string; count: number }>;
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
@@ -163,8 +188,7 @@ export async function exploreInvocation(options: {
     name: "submit_exploration",
     label: "Submit the exploration",
     description:
-      "Hand over everything the author of the conformance tests needs - they see nothing but this, not the code and not your " +
-      "replies. Call it once you are done; call it again to replace what you handed over.",
+      "Hand over everything the author of the conformance tests needs - they do not see your replies, only this. Call it once you are done; call it again to replace what you handed over.",
     parameters: Type.Object({
       build_and_run: Type.String({
         description: "What to install and build, the exact command that starts or runs it, where it listens and how to tell it is up",
@@ -172,7 +196,7 @@ export async function exploreInvocation(options: {
       tests_reach_it: Type.String({
         description:
           "How the conformance tests, run by the conformance testing script, reach it: what the script builds or installs and where, the " +
-          "coordinates, paths or classes the tests depend on or start (e.g. a Maven groupId:artifactId:version and the main class), and " +
+          "package, module, entry point, path or address the tests depend on or start, with its exact name and version, and " +
           "whether the tests start it themselves and how",
       }),
       interfaces: Type.Array(
@@ -192,11 +216,11 @@ export async function exploreInvocation(options: {
           ...ref,
           tests: Type.String({
             description:
-              "The conformance tests to write for it, from the specification and its acceptance tests: each case, how it is set up and invoked, what it checks as the specification says, and where its files go as the test reqs say",
+              "The conformance tests to write for it, from the specification and its acceptance tests: each case, how it is set up and invoked, what it checks as the specification says, and where its files go as the test reqs say - and every acceptance test, named \"acceptance test N\", with how each of its steps is done from outside and what it asserts",
           }),
         }),
       ),
-      other: Type.Optional(Type.String({ description: "Anything else a test author who never sees the code needs" })),
+      other: Type.Optional(Type.String({ description: "Anything else the test author needs" })),
     }),
     async execute(_id, params) {
       const given = params as {
@@ -234,7 +258,7 @@ export async function exploreInvocation(options: {
   try {
     replies.push(await ask(session, explorePrompt(options.buildDir, options.spec, options.scope, options.testingScripts, options.question), options.onDelta));
     for (let again = 0; again < EXPLORATION_SUBMISSIONS; again += 1) {
-      const problems = explorationProblems(exploration, options.scope, options.spec.moduleName);
+      const problems = explorationProblems(exploration, options.scope, options.spec.moduleName, options.acceptance);
       if (problems.length === 0 || submissions >= EXPLORATION_SUBMISSIONS) break;
       reportActivity(`  the exploration is not complete yet: ${problems[0]!.slice(0, 120)}`);
       replies.push(
@@ -248,7 +272,7 @@ export async function exploreInvocation(options: {
   } finally {
     session.dispose();
   }
-  const complete = explorationProblems(exploration, options.scope, options.spec.moduleName).length === 0;
+  const complete = explorationProblems(exploration, options.scope, options.spec.moduleName, options.acceptance).length === 0;
   const found = replies.filter((reply) => reply.trim() !== "");
   if (exploration === undefined) {
     return found.length > 0
@@ -274,8 +298,8 @@ export function explorePrompt(
     `You are exploring the built code of the \`${spec.moduleName}\` specification, in ${buildDir}, for the conformance tests of ${target}.`,
     "",
     "Someone else will write those tests: black-box tests that invoke the built software from the outside and",
-    "check it does what the specification says. They will never see the code, and they will not see your",
-    "replies: what you hand over with submit_exploration is all they get. So hand over everything they need of",
+    "check it does what the specification says. They will not see your replies: what you hand over with",
+    "submit_exploration is what they start from. So hand over everything they need of",
     `it - in full, but only what they need: the interface to ${target}, not the codebase. Be focused: find its`,
     "entry point and what it needs around it; do not survey everything else. Describe the routes, commands,",
     `fields and their types in words - no code listings, no files pasted whole, under ${MAX_EXPLORATION_CHARS} characters in all. In its parts:`,
@@ -284,9 +308,9 @@ export function explorePrompt(
     "  and how to tell it is up;",
     "- tests_reach_it: how the conformance tests reach it, run as the conformance testing script below runs",
     "  them. Read the script: what it builds or installs, and where, before the tests run; then say exactly what",
-    "  the tests depend on or start - a Maven groupId, artifactId and version, the main class, a jar path, an",
-    "  import - and whether they start the software themselves, and how. Copy names, coordinates and versions",
-    "  from the build file itself (pom.xml, package.json, pyproject.toml, go.mod...), and name the file: never",
+    "  the tests depend on or start - a package, module, entry point, path or address, with its exact name and",
+    "  version - and whether they start the software themselves, and how. Copy names and versions from the",
+    "  code's build file itself, and name the file: never",
     "  infer them from a folder or module name. A test that cannot reach the software tests nothing, so this is",
     "  the part that matters most;",
     `- interfaces: for ${target} - and any other functionality its tests need to set up state - how it is`,
@@ -296,7 +320,10 @@ export function explorePrompt(
     "  fixtures - and how each test gets a fresh one;",
     `- plan: the conformance tests to write for ${target}, from the specification and its acceptance tests:`,
     "  each case, how it is set up and invoked, what it checks as the specification says, and where the files",
-    "  go as the test reqs say.",
+    "  go as the test reqs say. Every acceptance test, named \"acceptance test N\" as the specification numbers",
+    "  them, with how each of its steps is done from outside - through which endpoint, or which class and",
+    "  method where the test reqs let the tests call a component directly - and what it asserts. A long one is",
+    "  planned whole, never cut down;",
     "",
     "Describe how to call it, never what it answers: what it returns in each case is for the tests to check",
     "against the specification, not to copy from the code - so the plan's expectations come from the",
@@ -328,104 +355,6 @@ export function explorePrompt(
           `<the failure that keeps coming back>\n${question.failure.trimEnd()}\n</the failure that keeps coming back>`,
         ]
       : []),
-  ].join("\n");
-}
-
-/**
- * A failing run's whole output, read by an agent and summed up for whoever has to fix it - when the
- * output was too long to be shown whole. The start and the end of a long output say that it failed;
- * why is often in the middle. The summarizer reads all of it, and hands over what failed, the
- * errors, the stack traces and logs that matter, and where to look - erring on the side of too much.
- * It reads the log, and the code and the tests - read only - to find where the failure comes from.
- * Its summary goes to the conformance agent too, which never sees the code: so it points at the
- * code by file and line, and never pastes it.
- */
-export async function summarizeFailure(options: {
-  run: ScriptRun;
-  /** The folder the whole output is in. */
-  logsDir: string;
-  /** The code and the tests, read only, to find where the failure comes from. */
-  buildDir: string;
-  conformanceDir: string;
-  label: string;
-  model?: string;
-  onDelta?: (delta: string) => void;
-}): Promise<string | undefined> {
-  if (options.run.log === undefined) return undefined;
-  let summary: string | undefined;
-  const failure = Type.Object({
-    test: Type.String({ description: "The failing test's name, as the output names it" }),
-    file: Type.Optional(Type.String({ description: "The test's file, when the output says it" })),
-    error: Type.String({ description: "The exact error or assertion message" }),
-    stack_trace: Type.Optional(Type.String({ description: "The part of the stack trace that matters, down to where it started - never cut the lines that say where" })),
-    context: Type.Optional(Type.String({ description: "Everything else needed to fix it: the root cause chain (Caused by:), log lines, requests, what came before" })),
-    hint: Type.Optional(Type.String({ description: "Where to look, and what most likely caused it" })),
-  });
-  const submit = defineTool({
-    name: "submit_summary",
-    label: "Submit the summary",
-    description: "Hand over the summary of the failing run. Call this once, when you are done.",
-    parameters: Type.Object({
-      summary: Type.String({ description: "What failed and why, in full: how many tests failed, which passed, the errors, and the most likely causes" }),
-      failures: Type.Array(failure),
-    }),
-    async execute(_id, params) {
-      const given = params as { summary: string; failures: Array<{ test: string; file?: string; error: string; stack_trace?: string; context?: string; hint?: string }> };
-      summary = [
-        given.summary.trim(),
-        ...given.failures.map((item) =>
-          [
-            `### ${item.test}${item.file ? ` (${item.file})` : ""}`,
-            `error: ${item.error.trim()}`,
-            ...(item.stack_trace?.trim() ? [`stack trace:\n${item.stack_trace.trim()}`] : []),
-            ...(item.context?.trim() ? [`context:\n${item.context.trim()}`] : []),
-            ...(item.hint?.trim() ? [`where to look: ${item.hint.trim()}`] : []),
-          ].join("\n"),
-        ),
-      ].join("\n\n");
-      return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
-    },
-  }) as ToolDefinition;
-  const fence = confinedTools({ workdir: options.logsDir, read: [options.logsDir, options.buildDir, options.conformanceDir], write: [], noBash: true });
-  const session = await createExecutor({
-    cwd: options.logsDir,
-    customTools: [submit, ...fence.tools],
-    tools: [...fence.names, "submit_summary"],
-    model: options.model,
-    label: `${options.label} failure summarizer`,
-    system: fence.note,
-  });
-  try {
-    await ask(session, summarizePrompt(options.run, options.buildDir, options.conformanceDir), options.onDelta);
-    if (summary === undefined) await ask(session, "You have not called submit_summary. Call it now with the summary.", options.onDelta);
-  } catch {
-    // A summary is a help: without one, the output as it is shown still goes to whoever fixes it.
-  } finally {
-    session.dispose();
-  }
-  return summary;
-}
-
-export function summarizePrompt(run: ScriptRun, buildDir: string, conformanceDir: string): string {
-  return [
-    `The project's testing script, \`${run.command}\`, failed (exit ${run.exitCode}). Its output was too long to be shown`,
-    `whole; all of it is in ${run.log}. Read all of it - with grep for the errors, then read around them - and sum up`,
-    "what failed and why, for the agent that has to fix it. That agent sees your summary and a cut of the output",
-    "whose start and end only say that it failed, so everything it needs to fix it has to be in your summary:",
-    "",
-    "- how many tests failed and which passed, or that none ran - and why not, when the build or the start failed;",
-    "- for each failure: the test, its file, the exact error, the part of the stack trace that says where it",
-    "  started, and every line of context it takes to fix it - the whole 'Caused by:' chain, the log lines around",
-    "  it, the requests and responses;",
-    "- the most likely cause, and where to look.",
-    "",
-    "When a massive dump - JSON, HTML, base64 - is in the way, keep the part that matters and say what the rest",
-    "was. Otherwise prefer completeness to brevity: if unsure whether a line matters, include it.",
-    "",
-    `To find where a failure comes from, read the code (${buildDir}) and the tests (${conformanceDir}) as well - read`,
-    "only. Say where it is by file, line and name: the class that has no bean, the test that asserts it. Never paste",
-    "the code's implementation into the summary: it also goes to the author of the tests, who must not see the code -",
-    "the test's own lines you may quote. Then call submit_summary once.",
   ].join("\n");
 }
 
@@ -765,6 +694,10 @@ export function judgePrompt(options: {
     `  A spec conflict counts only once it has been raised ${SPEC_CONFLICT_RAISES} times, for the same two functionalities;`,
     "  until then it is recorded, and the tests are checked against the specification again.",
     "",
+    "When the output does not show why the software failed - it answered with an error that names no cause, and",
+    "logged nothing about it - the code is what is wrong first: it hides the cause, and nobody can fix what they",
+    "cannot see. Judge code, say that the cause has to be made to show, and name where the error is caught.",
+    "",
     "When the code and the tests could both be what is wrong, choose tests. When both are wrong, say which to fix",
     "first: the one that makes the failure you see. Then call submit_verdict once, with which and why - name the",
     "failing test, what it expected, what the specification says, and what the code does.",
@@ -788,19 +721,19 @@ export function judgePrompt(options: {
     `<failing run exit="${options.run.exitCode}" command="${options.run.command}">`,
     options.run.output.trimEnd(),
     "</failing run>",
-    ...(options.run.summary !== undefined
-      ? ["", "An agent that read the whole of that output summed up what failed and why:", "", `<summary of the failure>\n${options.run.summary.trim()}\n</summary of the failure>`]
-      : []),
   ].join("\n");
 }
 
 /**
  * The coding agent a conformance run sends the code to, when the judge says the code is wrong: it
- * works in the code folder and its VM, sees nothing of the tests, and keeps the unit tests passing.
+ * works in the code folder and its VM, may read the tests but never changes them, and keeps the unit
+ * tests passing.
  * Made the first time it is needed, and kept for the rest of the run.
  */
 export async function createCodeFixer(options: {
   buildDir: string;
+  /** The conformance tests: it reads them, and never changes them. */
+  conformanceDir?: string;
   /** Where the full outputs of the test runs are: it reads them, and writes nothing there. */
   logsDir?: string;
   label: string;
@@ -811,7 +744,7 @@ export async function createCodeFixer(options: {
 }): Promise<AgentSession> {
   const fence = confinedTools({
     workdir: options.buildDir,
-    read: [options.buildDir, ...(options.logsDir !== undefined ? [options.logsDir] : [])],
+    read: [options.buildDir, ...(options.conformanceDir !== undefined ? [options.conformanceDir] : []), ...(options.logsDir !== undefined ? [options.logsDir] : [])],
     write: [options.buildDir],
   });
   return createExecutor({
@@ -824,7 +757,7 @@ export async function createCodeFixer(options: {
   });
 }
 
-export function codeFixPrompt(options: { buildDir: string; spec: SpecContext; run: ScriptRun; reason: string; first: boolean }): string {
+export function codeFixPrompt(options: { buildDir: string; conformanceDir?: string; spec: SpecContext; run: ScriptRun; reason: string; first: boolean }): string {
   return [
     ...(options.first
       ? [
@@ -844,22 +777,31 @@ export function codeFixPrompt(options: { buildDir: string; spec: SpecContext; ru
     `<failing run command="${options.run.command}">`,
     options.run.output.trimEnd(),
     "</failing run>",
-    ...(options.run.summary !== undefined
-      ? ["", "An agent that read the whole of that output summed up what failed and why:", "", `<summary of the failure>\n${options.run.summary.trim()}\n</summary of the failure>`]
-      : []),
     "",
     "Reproduce it first, and check your fix the same way: run_conformance_tests runs the project's conformance testing",
-    "script on the code as it now is with the whole suite - you cannot see the tests, but you get their output. Make",
-    "the failure show in your own unit tests too where you can - for a Spring app that will not start, a unit test that",
-    "starts its application context - so run_unit_tests catches it from now on.",
+    "script on the code as it now is with the whole suite, and you get its output. Make",
+    "the failure show in your own unit tests too where you can - for software that will not start, a unit test that",
+    "starts it - so run_unit_tests catches it from now on.",
     "",
-    "Fix the code so it does what the specification says. The tests are not yours: you cannot see or change",
-    "them, and they are not the judge - the specification is. Keep the unit tests passing: call",
-    "run_unit_tests before you finish.",
+    "If the output does not show why the software failed - an error answered with a bare \"failed\", nothing logged",
+    "about it - make it show first: where the code catches the error, log it with its whole trace and keep its",
+    "cause in what it hands on; run run_conformance_tests and read the cause; then fix that. Keep the logging.",
+    "",
+    ...(options.conformanceDir !== undefined
+      ? [
+          `You have read access to the conformance tests, in ${options.conformanceDir}, with your file tools - read, grep,`,
+          "find, ls - but not write access: read them to see what a failing test does and expects; never change them.",
+          "",
+        ]
+      : []),
+    "Fix the code so it does what the specification says. The tests are not yours: you never change them, and",
+    "they are not the judge - the specification is. Keep the unit tests passing: call run_unit_tests before",
+    "you finish.",
     "Keep the build's identity as it is - its name, coordinates, version, package and main class - unless the",
     "specification asks for another: the tests and other builds point at them. Leave in your notes what holds about",
     "the code for the next agent, not an account of this fix: the harness records the attempts itself.",
     ...INTEGRITY_RULES,
+    ...ERROR_CAUSE_RULES,
   ].join("\n");
 }
 
@@ -873,9 +815,6 @@ export function testsFixPrompt(options: { run: ScriptRun; reason: string }): str
     "<failing run>",
     options.run.output.trimEnd(),
     "</failing run>",
-    ...(options.run.summary !== undefined
-      ? ["", "An agent that read the whole of that output summed up what failed and why:", "", `<summary of the failure>\n${options.run.summary.trim()}\n</summary of the failure>`]
-      : []),
     "",
     "Correct the test to what the specification says. Never change a test so it agrees with code that",
     "contradicts the specification, and never delete, skip or weaken a test to get a pass.",

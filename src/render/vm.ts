@@ -245,9 +245,8 @@ function executable(stats: Stats): Stats {
  * VM holds nothing but this folder, so marking its files executable gives nothing away.
  *
  * And they would show the host user's uid, while everything in the VM runs as root. Tools that
- * check who owns a file then refuse it: a JVM ignores an attach request whose trigger file,
- * written to its working directory, is not its own - which breaks Mockito's inline mocks and
- * anything else that attaches an agent - and git calls such a repository dubious.
+ * check who owns a file then refuse it: a runtime attaching to itself ignores a trigger file in
+ * its working directory that is not its own, and git calls such a repository dubious.
  */
 class ExecutableFSProvider extends RealFSProvider {
   override async stat(path: string, options?: object): Promise<Stats> {

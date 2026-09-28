@@ -138,6 +138,10 @@ export async function ask(
   let stepStarted = Date.now();
   let callChars = 0;
   let lastCallReport = 0;
+  // Calls to one tool failing one after another - arguments it refuses, or errors - with nothing going through.
+  let failing = 0;
+  let failingTool: string | undefined;
+  let stoppedFailing = false;
   reportNow("waiting for the model");
   reportTranscript({ kind: "prompt", text });
 
@@ -177,6 +181,17 @@ export async function ask(
       reportNow(`running ${event.toolName}`);
     }
     if (event.type === "tool_execution_end") {
+      failing = event.isError ? (event.toolName === failingTool ? failing + 1 : 1) : 0;
+      failingTool = event.isError ? event.toolName : undefined;
+      if (failing >= FAILURES_BEFORE_STOP && !stoppedFailing) {
+        // A call its tool refuses never reaches the tool, so no guard on the tools sees it: an agent can
+        // make the same bad call, worded a little differently, thousands of times. Its turn ends here, and
+        // the harness goes on from there, as after any turn.
+        stoppedFailing = true;
+        reportActivity(`  stopped the agent's turn: ${failing} ${event.toolName} calls failed in a row`);
+        debugLogOf(session)?.note(`turn stopped: ${failing} ${event.toolName} calls failed in a row`);
+        void session.abort();
+      }
       const output = resultText(event.result);
       reportTranscript({ kind: "result", text: clipText(output, MAX_TOOL_RESULT), error: event.isError, full: output });
       const line = describeToolResult(event.toolName, event.result, event.isError);
@@ -241,6 +256,9 @@ export async function ask(
   debug?.note(`turn finished after ${seconds(Date.now() - turnStarted)}`);
   return out.trim();
 }
+
+/** How many calls to one tool may fail in a row, nothing going through, before the agent's turn is stopped. */
+export const FAILURES_BEFORE_STOP = 10;
 
 /** How many times running the very same tool call is let through before it is refused, and before the turn is stopped. */
 export const REPEATS_ALLOWED = 3;

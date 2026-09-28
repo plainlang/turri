@@ -104,14 +104,16 @@ describe("the challenge the harness sends", () => {
 });
 
 describe("long output, as an agent is shown it", () => {
-  it("keeps the start and the end - where a test run says what failed - and cuts the middle", async () => {
+  it("is shown whole up to 60,000 characters - every failing test's whole trace - and past that, its last 60,000", async () => {
     const { truncateOutput } = await import("../../src/render/testing.ts");
-    const output = `toolchain: python 3.12\n${"installing a dependency\n".repeat(2000)}FAILED test_login - AssertionError: 401 != 200\n`;
+    const traces = Array.from({ length: 30 }, (_, n) => `FAILED test_${n}\nTraceback (most recent call last):\n${"  frame\n".repeat(150)}AssertionError: ${n}`).join("\n");
+    expect(traces.length).toBeGreaterThan(20_000);
+    expect(truncateOutput(traces, "/p/log")).toBe(traces);
+    const output = `toolchain: python 3.12\n${"installing a dependency\n".repeat(4000)}FAILED test_login - AssertionError: 401 != 200\n`;
     const shown = truncateOutput(output, "/p/plain_modules/.plainwright/logs/run.log");
-    expect(shown.length).toBeLessThan(20_200);
-    expect(shown.startsWith("toolchain: python 3.12")).toBe(true);
-    expect(shown.endsWith("FAILED test_login - AssertionError: 401 != 200\n")).toBe(true);
-    expect(shown).toMatch(/\[\d+ characters cut from the middle - the whole output is in \/p\/plain_modules\/\.plainwright\/logs\/run\.log; read it with read or grep\]/);
+    expect(shown).toMatch(/^\.\.\. \[\d+ characters cut from the start - the whole output is in \/p\/plain_modules\/\.plainwright\/logs\/run\.log; read it with read or grep\] \.\.\.\n\n/);
+    expect(shown.endsWith(output.slice(-60_000))).toBe(true);
+    expect(shown).not.toContain("toolchain: python 3.12");
     expect(truncateOutput("short")).toBe("short");
   });
 
@@ -120,24 +122,11 @@ describe("long output, as an agent is shown it", () => {
     const root = mkdtempSync(join(tmpdir(), "plainwright-logs-"));
     const code = join(root, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
-    const long = "x".repeat(30_000);
+    const long = "x".repeat(70_000);
     const file = keepFullOutput(code, "run_unittests_python.sh", long)!;
     expect(file.startsWith(join(root, "plain_modules", ".plainwright", "logs"))).toBe(true);
     expect(readFileSync(file, "utf8")).toBe(long);
     expect(keepFullOutput(code, "short", "ok")).toBeUndefined();
     rmSync(root, { recursive: true, force: true });
-  });
-});
-
-describe("a cut output's root cause", () => {
-  it("is kept from the middle, each line once - Spring's missing bean is where the start and the end only say it failed", async () => {
-    const { truncateOutput } = await import("../../src/render/testing.ts");
-    const bean = "org.springframework.beans.factory.NoSuchBeanDefinitionException: No qualifying bean of type 'com.codeplain.dynamics365.executor.TimeoutHandler' available";
-    const middle = Array.from({ length: 40 }, (_, n) => `[INFO] building module ${n}\n${"x".repeat(900)}\nCaused by: ${bean}`).join("\n");
-    const output = `toolchain: java 21\n${"x".repeat(2500)}\n${middle}\n${"y".repeat(19_000)}\n[ERROR] Tests run: 4, Failures: 0, Errors: 4\n`;
-    const shown = truncateOutput(output, "/p/log");
-    expect(shown).toContain("what the cut part says went wrong, each line once:");
-    expect(shown.match(/No qualifying bean of type 'com\.codeplain\.dynamics365\.executor\.TimeoutHandler'/g)).toHaveLength(1);
-    expect(shown.endsWith("[ERROR] Tests run: 4, Failures: 0, Errors: 4\n")).toBe(true);
   });
 });

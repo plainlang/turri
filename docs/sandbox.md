@@ -23,8 +23,10 @@ Each agent's system prompt says where its sandbox is: which folders its file too
 write, what the VM its shell runs in holds, that nothing else exists for it - not the rest of the
 machine, not the specs, not the project's other folders - that everything it needs is in its prompt,
 and not to look outside or try to get around it. The words come from its fence itself, so they say
-exactly what is enforced. The conformance agent is told as well that the code is not in its sandbox:
-it writes the tests from its prompt and its tests folder.
+exactly what is enforced. In a conformance run, the conformance agent is told it has read access to
+the code but not write access - it writes only tests - and the coding agent that fixes the code is
+told it has read access to the conformance tests but not write access. Each one's shell holds only its
+own folder.
 
 ## File tools
 
@@ -63,8 +65,8 @@ other modules, the specs, the home directory and every other project do not exis
   Gondolin proxies it - so a raw TCP connection to a remote host, a database elsewhere, does not.
 - Files on the mount are executable inside the VM: Gondolin's mounts drop mode changes, and a
   built binary, a `./gradlew` or a test script has to run. And they are owned by root, who runs
-  everything in there: a JVM ignores an attach request whose trigger file is not its own, which
-  would break Mockito's inline mocks, and git calls a repository owned by someone else dubious.
+  everything in there: a tool that checks who owns a file refuses one that is not its own - a
+  runtime attaching to itself, git calling a repository owned by someone else dubious.
 
 No command can hang a build. Every one has a time limit - 2 minutes, or
 `PLAINWRIGHT_COMMAND_TIMEOUT` seconds: the agent's own `bash` unless it gives a timeout (at most 30

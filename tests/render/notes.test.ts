@@ -10,6 +10,7 @@ import {
   notesForSession,
   parseNotes,
   readNotes,
+  sectionNamed,
   withNotes,
 } from "../../src/render/notes.ts";
 import { confinedTools } from "../../src/render/confine.ts";
@@ -64,18 +65,18 @@ describe("updating the notes", () => {
   });
 
   it("stamps every line it adds or changes with the step that wrote it, and matches lines without it", () => {
-    const first = applyNotesChanges(start, [{ section: "pitfalls", action: "add", text: "httpclient5 is not transitive" }], "http_client 1");
-    expect(first.notes.pitfalls).toEqual(["[http_client 1] httpclient5 is not transitive"]);
+    const first = applyNotesChanges(start, [{ section: "pitfalls", action: "add", text: "requests is not transitive" }], "http_client 1");
+    expect(first.notes.pitfalls).toEqual(["[http_client 1] requests is not transitive"]);
     const { notes, problems } = applyNotesChanges(
       first.notes,
       [
-        { section: "pitfalls", action: "change", replaces: "httpclient5 is not", text: "httpclient5 has to be declared in pom.xml" },
-        { section: "pitfalls", action: "add", text: "[http_client 1] httpclient5 has to be declared in pom.xml" },
+        { section: "pitfalls", action: "change", replaces: "requests is not", text: "requests has to be declared in pyproject.toml" },
+        { section: "pitfalls", action: "add", text: "[http_client 1] requests has to be declared in pyproject.toml" },
       ],
       "auth 2",
     );
     expect(problems).toEqual([]);
-    expect(notes.pitfalls).toEqual(["[auth 2] httpclient5 has to be declared in pom.xml"]);
+    expect(notes.pitfalls).toEqual(["[auth 2] requests has to be declared in pyproject.toml"]);
   });
 
   it("refuses a line that says there is nothing to say, and keeps one that says something", () => {
@@ -96,6 +97,21 @@ describe("updating the notes", () => {
 
   it("reads back what it writes", () => {
     expect(parseNotes(formatNotes(start))).toEqual(start);
+  });
+});
+
+describe("naming a section", () => {
+  it("takes its key or its heading in any wording - in any wording an agent writes it - and refuses the rest", async () => {
+    expect(["where", "where things are", "Where things are", "Where Things Are:"].map(sectionNamed)).toEqual(["where", "where", "where", "where"]);
+    expect(["run", "How to build, run and test", "how to build", "assumption", "Pitfalls"].map(sectionNamed)).toEqual(["run", "run", "run", "assumptions", "pitfalls"]);
+    expect(sectionNamed("requirements")).toBeUndefined();
+
+    const tool = createNotesTool(code, () => {});
+    const run = (section: string) =>
+      (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { changes: [{ section, action: "add", text: "Conformance tests live in src/test/java/com/codeplain/restore" }] });
+    await run("where things are");
+    expect(readNotes(code).where).toEqual([expect.stringContaining("Conformance tests live in src/test/java/com/codeplain/restore")]);
+    await expect(run("requirements")).rejects.toThrow(/"requirements" is not a section\. The sections are: where \(Where things are\), run/);
   });
 });
 
@@ -157,24 +173,24 @@ describe("the update_notes tool", () => {
     writeFileSync(join(code, NOTES_FILE), "# my notes\n\n- everything is fine\n");
     await session.ensureWritten(async (prompt) => {
       asked.push(prompt);
-      await call(session.tool, [{ section: "pitfalls", action: "add", text: "mvn needs -q" }]);
+      await call(session.tool, [{ section: "pitfalls", action: "add", text: "pytest needs -q" }]);
     });
     expect(asked[0]).toContain(`You changed ${NOTES_FILE} directly, and that was undone`);
-    expect(readNotes(code)).toEqual({ ...start, pitfalls: ["mvn needs -q"] });
+    expect(readNotes(code)).toEqual({ ...start, pitfalls: ["pytest needs -q"] });
   });
 
   it("stamps the lines with when they were written and the step the agent is", async () => {
-    const session = notesForSession(code, "d365_auth 3 conformance");
-    await call(session.tool, [{ section: "run", action: "add", text: "mvn -q test" }]);
-    expect(readNotes(code).run).toEqual([expect.stringMatching(/^\[\d{4}-\d\d-\d\d \d\d:\d\d · d365_auth 3 conformance\] mvn -q test$/)]);
+    const session = notesForSession(code, "auth 3 conformance");
+    await call(session.tool, [{ section: "run", action: "add", text: "pytest -q" }]);
+    expect(readNotes(code).run).toEqual([expect.stringMatching(/^\[\d{4}-\d\d-\d\d \d\d:\d\d · auth 3 conformance\] pytest -q$/)]);
   });
 
   it("builds on the notes update_notes left, not on a file written in between", async () => {
     const session = notesForSession(code);
-    await call(session.tool, [{ section: "where", action: "add", text: "Entry: Main.java" }]);
+    await call(session.tool, [{ section: "where", action: "add", text: "Entry: main.py" }]);
     writeFileSync(join(code, NOTES_FILE), "- rewritten\n");
-    await call(session.tool, [{ section: "run", action: "add", text: "mvn test" }]);
-    expect(readNotes(code)).toEqual({ where: ["Entry: Main.java"], run: ["mvn test"], assumptions: [], pitfalls: [] });
+    await call(session.tool, [{ section: "run", action: "add", text: "pytest" }]);
+    expect(readNotes(code)).toEqual({ where: ["Entry: main.py"], run: ["pytest"], assumptions: [], pitfalls: [] });
   });
 
   it("cannot be bypassed with the file tools", async () => {

@@ -234,7 +234,7 @@ describe.runIf(vmSupported() && vmImage() !== undefined)("the plainwright image"
     }
   });
 
-  it("lets a JVM in the code attach an agent to itself, as Mockito's inline mocks do", async () => {
+  it("lets a process in the code attach to itself, as tools that check who owns a file need", async () => {
     // The JVM only answers an attach whose trigger file, written to its working directory, is
     // its own - so the host folder's files have to be root's, as the VM's commands are.
     writeFileSync(

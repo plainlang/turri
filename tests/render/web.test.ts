@@ -13,25 +13,25 @@ import {
 // Two rows as DuckDuckGo Lite serves them, and an ad pointing at its own redirect.
 const LITE = `
 <tr><td valign="top">1.&nbsp;</td><td>
-  <a rel="nofollow" href="https://stackoverflow.com/questions/79278490/mockito-self-attaching" class='result-link'>Mockito is currently <b>self-attaching</b> ...</a>
+  <a rel="nofollow" href="https://stackoverflow.com/questions/79278490/fixture-not-found" class='result-link'>Fixture <b>not found</b> ...</a>
 </td></tr>
 <tr><td>&nbsp;</td><td class='result-snippet'>
-  Please add <b>Mockito</b> as an agent &amp; don&#x27;t self-attach.
+  Please add the <b>fixture</b> to conftest &amp; don&#x27;t import it.
 </td></tr>
 <tr><td><a rel="nofollow" href="https://duckduckgo.com/y.js?ad_domain=ads.example" class='result-link'>Buy tests</a></td></tr>
 <tr><td>2.&nbsp;</td><td>
-  <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fjavadoc.io%2Fdoc%2Forg.mockito%2Fmockito-core&amp;rut=x" class='result-link'>Mockito javadoc</a>
+  <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.example.org%2Ffixtures&amp;rut=x" class='result-link'>Fixtures reference</a>
 </td></tr>`;
 
 describe("web_search", () => {
   it("reads the results off DuckDuckGo Lite, and leaves the ads out", () => {
     expect(parseSearchResults(LITE)).toEqual([
       {
-        title: "Mockito is currently self-attaching ...",
-        url: "https://stackoverflow.com/questions/79278490/mockito-self-attaching",
-        snippet: "Please add Mockito as an agent & don't self-attach.",
+        title: "Fixture not found ...",
+        url: "https://stackoverflow.com/questions/79278490/fixture-not-found",
+        snippet: "Please add the fixture to conftest & don't import it.",
       },
-      { title: "Mockito javadoc", url: "https://javadoc.io/doc/org.mockito/mockito-core", snippet: "" },
+      { title: "Fixtures reference", url: "https://docs.example.org/fixtures", snippet: "" },
     ]);
   });
 
@@ -70,13 +70,13 @@ describe("what web_fetch returns", () => {
 
   it("a page as text: headings, lists and code kept, scripts and markup gone", async () => {
     const html =
-      "<html><head><title>Mockito &amp; agents</title><script>track()</script></head><body><nav>Home | Docs</nav>" +
-      "<h2>Setup</h2><p>Add the <code>-javaagent</code> flag:</p><pre><code>&lt;argLine&gt;\n  -javaagent:mockito.jar\n&lt;/argLine&gt;</code></pre>" +
-      "<ul><li>Maven</li><li>Gradle</li></ul><style>p{}</style></body></html>";
+      "<html><head><title>Fixtures &amp; plugins</title><script>track()</script></head><body><nav>Home | Docs</nav>" +
+      "<h2>Setup</h2><p>Add the <code>-p</code> flag:</p><pre><code>&lt;addopts&gt;\n  -p fixtures\n&lt;/addopts&gt;</code></pre>" +
+      "<ul><li>pip</li><li>uv</li></ul><style>p{}</style></body></html>";
     const fetchImpl = (async () => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } })) as typeof fetch;
     const page = await webFetch("https://site.example/docs", { resolve, fetchImpl });
     expect(page.text).toBe(
-      "# Mockito & agents\n\n## Setup\nAdd the `-javaagent` flag:\n\n```\n<argLine>\n  -javaagent:mockito.jar\n</argLine>\n```\n\n- Maven\n- Gradle",
+      "# Fixtures & plugins\n\n## Setup\nAdd the `-p` flag:\n\n```\n<addopts>\n  -p fixtures\n</addopts>\n```\n\n- pip\n- uv",
     );
   });
 

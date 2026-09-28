@@ -68,10 +68,10 @@ describe("tool calls as one line", () => {
   });
 
   it("gives paths as they are inside plain_modules, wherever they appear", () => {
-    const root = "/Users/someone/Work/hycu/hycu-dynamics-365-modules/plain_modules";
-    expect(describeToolCall("write", { path: `${root}/d365_version/code/src/Version.java` })).toBe("✎ write d365_version/code/src/Version.java");
-    expect(describeToolCall("bash", { command: `cd ${root}/d365_version/code && mvn -q test` })).toBe("$ cd d365_version/code && mvn -q test");
-    expect(describeToolCall("read", { path: `${root}/d365_version/tests/VersionTest.java` })).toBe("  read d365_version/tests/VersionTest.java");
+    const root = "/Users/someone/Work/shop/plain_modules";
+    expect(describeToolCall("write", { path: `${root}/version/code/src/version.py` })).toBe("✎ write version/code/src/version.py");
+    expect(describeToolCall("bash", { command: `cd ${root}/version/code && pytest -q` })).toBe("$ cd version/code && pytest -q");
+    expect(describeToolCall("read", { path: `${root}/version/tests/test_version.py` })).toBe("  read version/tests/test_version.py");
     expect(describeToolCall("edit", { path: "plain_modules/app/code/main.py" })).toBe("✎ edit app/code/main.py");
     // Anything else is left as it is.
     expect(describeToolCall("bash", { command: "ls /tmp/other && cat my_plain_modules/x" })).toBe("$ ls /tmp/other && cat my_plain_modules/x");

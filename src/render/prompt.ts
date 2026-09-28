@@ -136,6 +136,18 @@ export const INTEGRITY_RULES = [
   "  a known issue included: it keeps failing until the software does what the specification says.",
   "- A partial fix that makes real progress - a syntax error, a configuration problem, a test that could not run",
   "  at all - is fine, and so is adding diagnostic logging to find the cause.",
+  "- Never make the code behave differently when a test runs it - for a test's input, name, id or environment -",
+  "  than it would for anyone else.",
+];
+
+/**
+ * Why something failed is never lost - for every agent that writes or fixes code. A failure answered
+ * with a bare "failed" and logged nowhere leaves whoever has to fix it guessing, round after round.
+ */
+export const ERROR_CAUSE_RULES = [
+  "- Never lose why something failed. Where the code catches an error and turns it into a response, a status, a",
+  "  result or a retry, it logs the error with its whole trace, and what it hands on names the cause - never a bare",
+  "  \"failed\" or \"error\" in its place, unless the specification says what it answers.",
 ];
 
 function section(title: string, items: string[]): string | null {
@@ -257,6 +269,7 @@ function workingRules(hasCodebase: boolean): string[] {
     "  tests already in the working directory from earlier functionalities. A test may be removed",
     "  only when it asserts nothing meaningful, and you must say which test and why.",
     ...INTEGRITY_RULES,
+    ...ERROR_CAUSE_RULES,
   ];
 }
 
@@ -442,10 +455,12 @@ export interface ConformancePromptInput {
   codeDir?: string;
   /**
    * How to invoke the built software from outside, as an agent that explored the code wrote it.
-   * Given, the author works from this and never sees the code: it cannot read it, and it fixes
-   * only tests - when a run fails, another agent decides whether the test or the code is wrong.
+   * Given, the author works from this and fixes only tests - when a run fails, another agent decides
+   * whether the test or the code is wrong.
    */
   invocation?: string;
+  /** The code, which the author may read but never change. */
+  readCode?: string;
   /** The code's build files, read by the harness: the exact name, coordinates and version a test project points at. */
   manifests?: Array<{ path: string; content: string }>;
   /** For a spec change: the functionalities it touches, with their acceptance tests - each implemented and labelled. */
@@ -486,9 +501,18 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "",
     ...(input.invocation !== undefined
       ? [
-          "You cannot read or view the code. It is not in your sandbox - your file tools and your shell hold your",
-          "tests folder and nothing else - so do not look for it: no searching parent folders, absolute paths or /tmp.",
-          "An agent that explored the code wrote down everything you need of it, in <how to invoke it>: how it is",
+          ...(input.readCode !== undefined
+            ? [
+                `You have read access to the code, in ${input.readCode}, with your file tools - read, grep, find, ls - but`,
+                "not write access: you write tests, never code. Read it to see how the software is reached - its routes,",
+                "commands, names, how it starts - never for what it should do: that comes from the specification. Your",
+                "shell holds your tests folder only.",
+              ]
+            : [
+                "You cannot read or view the code. It is not in your sandbox - your file tools and your shell hold your",
+                "tests folder and nothing else - so do not look for it: no searching parent folders, absolute paths or /tmp.",
+              ]),
+          "An agent that explored the code wrote down what you need of it, in <how to invoke it>: how it is",
           "built and run, how each functionality is reached from outside, what it needs around it, and a plan for",
           "these tests. Write the conformance tests from this prompt - the specification, that account and its",
           "plan - and what is in your tests folder: the tests already there show how the suite is built and run.",
@@ -738,6 +762,9 @@ export function buildRegressionFixPrompt(input: RegressionFixPromptInput): strin
     "  run_conformance_tests and run_unit_tests - the project's scripts, run as the harness runs them.",
     "- Never delete or weaken an existing test to get a pass.",
     ...INTEGRITY_RULES,
+    ...ERROR_CAUSE_RULES,
+    "- If the failure does not show why the software failed, make it show first - log the error where the code",
+    "  catches it, with its whole trace - run the conformance tests to see it, then fix the cause.",
     "- Keep the build's identity as it is: its name, coordinates, version, package and main class. Change one only",
     "  when the specification asks you to - other builds and the conformance tests point at them.",
     "- Report what you changed and why.",
