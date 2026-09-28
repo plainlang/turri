@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { TryIt } from "./try-it.ts";
 
 /**
  * What a background job is doing right now.
@@ -33,6 +34,8 @@ export interface ActivitySink {
   specConflict?(conflict: SpecConflict): void;
   /** The functional spec being built now, or nothing when none is. */
   spec?(spec: BuildingSpec | undefined): void;
+  /** How the person can try what was built, as the harness checked it - once the tests pass. */
+  tryIt?(steps: { tryIt: TryIt; buildDir: string }): void;
 }
 
 /** A functional spec as it is being built: where it sits, and its text as the spec has it. */
@@ -105,6 +108,8 @@ export interface TranscriptEntry {
   error?: boolean;
   /** The whole of it, where `text` is clipped for the screen - a tool call's arguments, its result. */
   full?: string;
+  /** Which agent it is from, e.g. "app 1 judge", and what it runs on - for a prompt, a reply, a thought, a tool call, a result. */
+  agent?: { label: string; model?: string };
 }
 
 export function reportTranscript(entry: TranscriptEntry): void {
@@ -118,6 +123,11 @@ export interface UsageReport {
   cacheRead: number;
   cacheWrite: number;
   cost: number;
+}
+
+/** How the person can try what was just built, as the harness checked it. */
+export function reportTryIt(steps: { tryIt: TryIt; buildDir: string }): void {
+  store.getStore()?.tryIt?.(steps);
 }
 
 export function reportUsage(usage: UsageReport): void {

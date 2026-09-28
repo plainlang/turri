@@ -39,7 +39,8 @@ describe.runIf(vmSupported())("a module's VMs", { timeout: 180_000 }, () => {
     // The tests have a VM of their own, holding the tests and nothing of the code - and a job in
     // the module keeps both.
     await withVmLease(async () => {
-      expect(await run(`ls ${p.aCode} 2>&1 || true`, p.aTests)).toContain("No such file or directory");
+      // The tests' VM holds the code too, read only: it can be run, never changed.
+      expect(await run(`touch ${p.aCode}/x 2>&1 || echo refused`, p.aTests)).toContain("refused");
       await run("true", p.aCode);
       expect(runningVms().sort()).toEqual([p.aCode, p.aTests].sort());
     });

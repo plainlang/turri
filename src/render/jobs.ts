@@ -1,3 +1,4 @@
+import type { TryIt } from "./try-it.ts";
 import { randomUUID } from "node:crypto";
 import { withVmLease } from "./vm.ts";
 import { JobStoppedError, withActivity, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
@@ -46,6 +47,12 @@ export interface Job {
   usage: UsageReport;
   /** The whole conversation of its agents, oldest dropped first past a size limit. */
   transcript: TranscriptEntry[];
+  /** How the person can try what it built, as the harness checked it - once its tests passed. */
+  tryIt?: { tryIt: TryIt; buildDir: string };
+  /** It failed, and failed again when retried - or a job ahead of it did: the queue behind it fails too. */
+  failedForGood?: boolean;
+  /** Why it failed for good, and what to do, as the diagnosis found. */
+  diagnosis?: string;
   /** What to tell the agent when it asks how the job went. */
   report?: string;
   /** The spec contradicts itself, as its conformance run found: for the person to decide. */
@@ -108,6 +115,14 @@ export function createJobRegistry(options?: {
   /** A job started, moved to another stage, or did something. */
   onChange?: (job: Job) => void;
   tailChars?: number;
+  /**
+   * How many times a job that fails - its work throws, or reports it did not pass - is run again.
+   * Given, a job that fails that many times more fails for good: it is diagnosed, and every job
+   * queued behind it fails without running. Not given, a failure is reported and the queue goes on.
+   */
+  retries?: number;
+  /** Why a job failed for good, and what to do: for the person, with both failures. */
+  diagnose?: (job: Job, failures: string[], jobLog?: string) => Promise<string | undefined>;
 }): JobRegistry {
   const jobs = new Map<string, Job>();
   const settled = new Map<string, Promise<Job>>();
@@ -196,8 +211,8 @@ export function createJobRegistry(options?: {
           const { full: _full, ...shown } = entry;
           entry = shown;
           const last = job.transcript.at(-1);
-          // Deltas of a running reply join the entry they continue.
-          if ((entry.kind === "text" || entry.kind === "thinking") && last?.kind === entry.kind) {
+          // Deltas of a running reply join the entry they continue - the same agent's.
+          if ((entry.kind === "text" || entry.kind === "thinking") && last?.kind === entry.kind && last.agent?.label === entry.agent?.label) {
             last.text += entry.text;
           } else {
             job.transcript.push({ ...entry });
@@ -206,6 +221,10 @@ export function createJobRegistry(options?: {
           while (transcriptChars > MAX_TRANSCRIPT_CHARS && job.transcript.length > 1) {
             transcriptChars -= job.transcript.shift()!.text.length;
           }
+        },
+        tryIt(steps: { tryIt: TryIt; buildDir: string }) {
+          job.tryIt = steps;
+          changed();
         },
         activity(line: string) {
           job.activity = [...job.activity, line].slice(-ACTIVITY_LINES);
@@ -230,14 +249,75 @@ export function createJobRegistry(options?: {
         },
       };
 
-      // Whether the job ahead succeeded or failed, this one gets its turn: each reports on
-      // its own, and a failure upstream is not a reason to skip what was asked for.
+      // Whether the job ahead succeeded or failed, this one gets its turn: each reports on its own -
+      // unless the registry retries, and one ahead of it failed for good: then nothing behind it runs.
       const turn = Promise.allSettled(blockers.map((other) => settled.get(other)));
+      const guarded = options?.retries !== undefined;
+      const retries = options?.retries ?? 0;
+      /** A job's work ran, and did not do what it was asked: it threw, or said it did not pass. */
+      const didNotPass = (outcome: JobOutcome) => {
+        const details = outcome.details as { passed?: boolean; skipped?: boolean } | undefined;
+        return details?.passed === false && details.skipped !== true;
+      };
+      const runOnce = () =>
+        withVmLease(() =>
+          withActivity(sink, () =>
+            input.run((delta) => {
+              job.tail = (job.tail + delta).slice(-tailChars);
+            }),
+          ),
+        );
+      const runGuarded = async (): Promise<JobOutcome> => {
+        const failures: string[] = [];
+        for (let attempt = 0; ; attempt += 1) {
+          let outcome: JobOutcome | undefined;
+          let error: unknown;
+          try {
+            outcome = await runOnce();
+          } catch (thrown) {
+            error = thrown;
+          }
+          // Asked to stop is not a failure: no retry, and nothing behind it fails for it.
+          if (controller.signal.aborted) {
+            if (error !== undefined) throw error;
+            return outcome!;
+          }
+          if (error === undefined && !didNotPass(outcome!)) return outcome!;
+          failures.push(error !== undefined ? (error instanceof Error ? error.message : String(error)) : outcome!.report);
+          if (attempt < retries) {
+            sink.stage(`the job failed - trying it once more (${attempt + 1} of ${retries})`);
+            continue;
+          }
+          job.failedForGood = true;
+          if (options?.diagnose !== undefined) {
+            sink.stage("the job failed again - working out why, and what has to be done");
+            job.diagnosis = await withActivity(sink, () => options.diagnose!(job, failures, log?.file)).catch(() => undefined);
+          }
+          throw new Error(
+            [
+              `Failed ${failures.length} time${failures.length === 1 ? "" : "s"}, so it and every job queued behind it have stopped.`,
+              ...(job.diagnosis !== undefined ? ["", job.diagnosis] : []),
+              "",
+              "The last attempt ended with:",
+              failures.at(-1)!.trim().slice(-4000),
+            ].join("\n"),
+          );
+        }
+      };
 
       const promise = turn
         .then(() => {
           // Stopped while it waited: it never starts.
           if (controller.signal.aborted) throw new JobStoppedError();
+          // A job ahead of it failed for good: it does not start, and fails for good too - so does what waits on it.
+          const failedAhead = guarded ? blockers.map((other) => jobs.get(other)).find((other) => other?.failedForGood === true) : undefined;
+          if (failedAhead !== undefined) {
+            job.failedForGood = true;
+            throw new Error(
+              `Not run: job ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) failed twice, so nothing queued behind it runs.` +
+                (failedAhead.diagnosis !== undefined ? `\n\n${failedAhead.diagnosis}` : ""),
+            );
+          }
           if (job.status === "queued") {
             job.status = "running";
             job.startedAt = Date.now();
@@ -247,13 +327,7 @@ export function createJobRegistry(options?: {
           log = startJobLog(job, claimed);
           if (log !== undefined) sink.activity(`job log: ${log.file}`);
           // The job holds the VMs it uses until it ends, and no longer.
-          return withVmLease(() =>
-            withActivity(sink, () =>
-              input.run((delta) => {
-                job.tail = (job.tail + delta).slice(-tailChars);
-              }),
-            ),
-          );
+          return guarded ? runGuarded() : runOnce();
         })
         .then(
           (outcome) => {

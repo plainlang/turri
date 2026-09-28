@@ -1,3 +1,4 @@
+import { vmScratchDir } from "./paths.ts";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
@@ -508,7 +509,8 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
                 `You have read access to the code, in ${input.readCode}, with your file tools - read, grep, find, ls - but`,
                 "not write access: you write tests, never code. Read it to see how the software is reached - its routes,",
                 "commands, names, how it starts - never for what it should do: that comes from the specification. Your",
-                "shell holds your tests folder only.",
+                "shell holds your tests folder and the code, the code read only: to build or run the software yourself,",
+                `copy the code into a folder of your own under ${vmScratchDir(input.readCode)}, and build and run it there.`,
               ]
             : [
                 "You cannot read or view the code. It is not in your sandbox - your file tools and your shell hold your",
@@ -617,7 +619,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     "- The test reqs say how conformance tests must be written and run. Follow them.",
     ...(input.invocation !== undefined
       ? [
-          "- Your shell holds the tests folder and nothing of the code. Run the tests with run_conformance_tests:",
+          "- Your shell holds the tests folder, and the code read only. Run the tests with run_conformance_tests:",
           "  it puts the whole suite together with a copy of the build and runs the project's conformance",
           "  testing script exactly as the harness does to decide whether this is done, and that run is the only",
           "  one that counts. Call it before you finish.",

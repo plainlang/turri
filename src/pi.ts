@@ -177,7 +177,10 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   let failingTool: string | undefined;
   let stoppedFailing = false;
   reportNow("waiting for the model");
-  reportTranscript({ kind: "prompt", text });
+  // Every entry says which agent it is from, and what it runs on - for reading one agent at a time.
+  const agent = agentOf(session);
+  const transcript = (entry: Parameters<typeof reportTranscript>[0]) => reportTranscript(agent !== undefined ? { ...entry, agent } : entry);
+  transcript({ kind: "prompt", text });
 
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "message_update") {
@@ -185,9 +188,9 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
       if (update.type === "text_delta") {
         out += update.delta;
         onDelta?.(update.delta);
-        reportTranscript({ kind: "text", text: update.delta });
+        transcript({ kind: "text", text: update.delta });
       } else if (update.type === "thinking_delta") {
-        reportTranscript({ kind: "thinking", text: update.delta });
+        transcript({ kind: "thinking", text: update.delta });
       } else if (update.type === "thinking_start") {
         reportNow("thinking");
       } else if (update.type === "text_start") {
@@ -208,7 +211,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
     }
     if (event.type === "tool_execution_start") {
       const args = JSON.stringify(event.args ?? {});
-      reportTranscript({ kind: "tool", text: `${event.toolName} ${clipText(args, MAX_TOOL_ARGS)}`, full: `${event.toolName} ${args}` });
+      transcript({ kind: "tool", text: `${event.toolName} ${clipText(args, MAX_TOOL_ARGS)}`, full: `${event.toolName} ${args}` });
       const took = Date.now() - stepStarted;
       const line = describeToolCall(event.toolName, event.args);
       reportActivity(took >= 1000 ? `${line}   (model ${seconds(took)})` : line);
@@ -227,7 +230,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
         void session.abort();
       }
       const output = resultText(event.result);
-      reportTranscript({ kind: "result", text: clipText(output, MAX_TOOL_RESULT), error: event.isError, full: output });
+      transcript({ kind: "result", text: clipText(output, MAX_TOOL_RESULT), error: event.isError, full: output });
       const line = describeToolResult(event.toolName, event.result, event.isError);
       if (line !== undefined) reportActivity(line);
       stepStarted = Date.now();
@@ -318,6 +321,13 @@ export const TURN_LIMIT_MS = Number(process.env.PLAINWRIGHT_TURN_LIMIT ?? 120) *
 
 /** The sessions whose turns are timed: the agents a render starts, not the conversation or a skill's. */
 const timedSessions = new WeakSet<object>();
+
+/** Which agent a session is, and what it runs on - for its transcript entries. */
+const agentLabels = new WeakMap<object, { label: string; model?: string }>();
+
+function agentOf(session: object): { label: string; model?: string } | undefined {
+  return agentLabels.get(session);
+}
 
 /** Have this session's turns timed, as an agent a render starts has. */
 export function timeTurns(session: object): void {
@@ -486,6 +496,10 @@ export async function createExecutor(opts: {
   if (opts.label !== undefined) startDebugLog(session, { cwd: opts.cwd, label: opts.label, tools: opts.tools });
   // An agent a render starts - it has a label - has its turns timed.
   if (opts.label !== undefined) timeTurns(session);
+  if (opts.label !== undefined) {
+    const thinking = session.thinkingLevel;
+    agentLabels.set(session, { label: opts.label, model: session.model !== undefined ? `${session.model.provider}/${session.model.id}${thinking ? `:${thinking}` : ""}` : undefined });
+  }
 
   return session;
 }

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-import { createHttpHooks, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
+import { createHttpHooks, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, MODULES_DIR, modulesRootOf, vmScratchDir } from "./paths.ts";
@@ -371,21 +371,30 @@ const MODULE_PARTS = new Set(["code", "tests"]);
  * runs in whichever VM the project has, the job's own first. Outside any `plain_modules`, the
  * folder is a VM of its own, holding just that.
  */
-function vmFor(dir: string, forDir?: string): { project: string; module: string; key: string; mounts: string[] } {
+function vmFor(dir: string, forDir?: string): { project: string; module: string; key: string; mounts: string[]; readOnly: string[] } {
   const project = modulesRootOf(dir);
-  if (basename(project) !== MODULES_DIR) return { project, module: project, key: project, mounts: [project] };
+  if (basename(project) !== MODULES_DIR) return { project, module: project, key: project, mounts: [project], readOnly: [] };
   const scratch = vmScratchDir(project);
   const [inside, part] = relative(project, resolve(forDir ?? dir)).split(sep);
   if (inside && inside !== ".." && inside !== basename(scratch)) {
     const module = join(project, inside);
     const folder = part !== undefined && MODULE_PARTS.has(part) ? join(module, part) : module;
-    return { project, module, key: folder, mounts: [folder, scratch] };
+    // The tests' VM holds the code too, read only: whoever writes or judges the tests can build and run
+    // the software they test - from a copy, since the code itself cannot be written - and never change it.
+    const code = join(module, "code");
+    const withCode = part === "tests" && existsSync(code) ? [code] : [];
+    return { project, module, key: folder, mounts: [folder, ...withCode, scratch], readOnly: withCode };
   }
   const own = lease.getStore()?.get(project);
   const mine = own !== undefined ? [...own.keys].find((key) => pool.has(key)) : undefined;
   const existing = mine ?? [...pool.keys()].find((key) => pool.get(key)!.project === project);
-  if (existing !== undefined) return { project, module: pool.get(existing)!.module, key: existing, mounts: [] };
-  return { project, module: scratch, key: scratch, mounts: [scratch] };
+  if (existing !== undefined) return { project, module: pool.get(existing)!.module, key: existing, mounts: [], readOnly: [] };
+  return { project, module: scratch, key: scratch, mounts: [scratch], readOnly: [] };
+}
+
+/** The folders a command run from `dir` can see but not change. */
+export function vmReadOnly(dir: string): string[] {
+  return vmFor(dir).readOnly;
 }
 
 /** What a command run from `dir` can see: the folders its VM holds. */
@@ -393,7 +402,7 @@ export function vmHolds(dir: string): string[] {
   return vmFor(dir).mounts;
 }
 
-async function start(project: string, mounts: string[]): Promise<VM> {
+async function start(project: string, mounts: string[], readOnly: string[] = []): Promise<VM> {
   const cache = packageCacheDir(project);
   ensureInVmScratch(project, join(cache, "apk"));
   const image = vmImage();
@@ -403,7 +412,11 @@ async function start(project: string, mounts: string[]): Promise<VM> {
   // Every host, internal ones included: the network is open (see HOST_ALIAS).
   const { httpHooks } = createHttpHooks({ blockInternalRanges: false });
   const vm = await VM.create({
-    vfs: { mounts: Object.fromEntries(mounts.map((mount) => [mount, new ExecutableFSProvider(mount)])) },
+    vfs: {
+      mounts: Object.fromEntries(
+        mounts.map((mount) => [mount, readOnly.includes(mount) ? new ReadonlyProvider(new ExecutableFSProvider(mount)) : new ExecutableFSProvider(mount)]),
+      ),
+    },
     httpHooks,
     // This machine's localhost, on any port: TCP mapping needs a name per host, so DNS is synthetic.
     dns: { mode: "synthetic", syntheticHostMapping: "per-host" },
@@ -437,10 +450,10 @@ async function start(project: string, mounts: string[]): Promise<VM> {
  * it from now on; the project's other idle VMs are shut down - it has moved on.
  */
 async function acquire(dir: string, forDir?: string): Promise<{ vm: VM; project: string; done: () => void }> {
-  const { project, module, key, mounts } = vmFor(dir, forDir);
+  const { project, module, key, mounts, readOnly } = vmFor(dir, forDir);
   let entry = pool.get(key);
   if (entry === undefined) {
-    const created: PoolEntry = { project, module, vm: start(project, mounts), holders: 0, running: 0 };
+    const created: PoolEntry = { project, module, vm: start(project, mounts, readOnly), holders: 0, running: 0 };
     entry = created;
     pool.set(key, created);
     // A VM that failed to start is not kept: the next command tries again.

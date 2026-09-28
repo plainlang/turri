@@ -58,10 +58,27 @@ other, jobs on different modules run side by side.
 
 - **The panel** above the input shows each running job - its stage, what its agents are doing,
   its model, time and cost - and the queue. `ctrl+o` expands it.
-- **`/watch`** opens a job's full transcript - every prompt, reply, thought and tool call - on a
-  screen of its own. `q` goes back to the chat and keeps your place; `alt+w` or `/watch` switches
-  back. `g`/`G` jump to the top and bottom, `x` closes it.
+- **The side panel** (`ctrl+j`, which in plainwright replaces pi's own new-line key - `shift+enter` still
+  inserts one) opens on the right, beside the chat, with three views - `tab`
+  switches between them:
+  - **Jobs** - the whole queue: what runs, what waits and on what, what finished, with time and cost;
+  - **Try it** - how to try what a job built, as the harness checked it, once its tests pass;
+  - **Trace** - a job's agents at work: every prompt, reply, thought and tool call, each agent's
+    turn headed by who it is and the model it runs on. `a` follows one agent at a time, `j` switches
+    job.
+
+  It scrolls with the arrows, PgUp/PgDn and the wheel, and follows the newest line at the bottom
+  (`g`/`G` top and bottom). `esc` goes back to the chat and leaves it open and live; `ctrl+j` takes
+  the keys back to it, and closes it from there. **`/watch [job]`** opens it on a job's trace.
+- `plainwright chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
+  the jobs redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
+  scrollback.
 - **`/jobs`** lists every job, **`/stop <id>`** stops one - a queued one never starts.
+- **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
+  stops, and so does every job queued behind it, without running. The harness then works out why: an
+  agent that can read the project's specs, code, tests, testing scripts and logs, and plainwright's
+  own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
+  environment, the code or plainwright itself, and exactly what to do.
 - **When a job finishes** it says what was built and how to try it, in a few numbered steps: what
   to run or do, and what you should see. Every command was run first, in a fresh copy - servers
   included - and carries a ✓ when it worked.

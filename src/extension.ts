@@ -31,7 +31,8 @@ import { describeChoices, describeResolution, type ModelChoices, modelFor, type 
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createRenderQueue, type RenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
-import { createTranscriptView } from "./render/transcript-view.ts";
+import { createSidePanel, type PanelView } from "./render/side-panel.ts";
+import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
 import { defaultBuildDir } from "./render/paths.ts";
 import { describeUsage, type SpecConflict } from "./render/activity.ts";
@@ -165,6 +166,21 @@ export default function (pi: ExtensionAPI) {
   // entry, now, and the agent gets the full report as a hidden message, whenever its turn
   // allows. Neither starts a turn, so nothing talks over the person.
   const jobs: JobRegistry = createJobRegistry({
+    // A job that fails is run once more; failing again, it and every job behind it fail, and the
+    // harness - which can read the skills, the rules, the code, the tests and plainwright itself -
+    // works out why, and what has to be done.
+    retries: 1,
+    diagnose: async (job, failures, jobLog) => {
+      const diagnosis = await diagnoseFailure({
+        job,
+        failures,
+        projectDir: cwd,
+        harnessDir: PACKAGE_ROOT,
+        jobLog,
+        model: modelSpec(projectModels(readProjectConfig(cwd)).harness),
+      });
+      return diagnosis !== undefined ? describeDiagnosis(diagnosis) : undefined;
+    },
     onChange: () => panel.refresh(),
     onFinish: (job) => {
       panel.refresh();
@@ -1782,26 +1798,26 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // Read a job's agents at work: its whole transcript, live, in an overlay.
-  // The transcript is a screen of its own, over the whole terminal. Leaving it (q) goes back to
-  // the conversation and keeps it - its job and its place - so alt+w or /watch switch back.
-  let watching: { jobId: string; handle?: OverlayHandle; close: () => void } | undefined;
+  // The side panel: the job queue, how to try what was built, and the agents' traces - on the right,
+  // beside the conversation. Alt+O opens it with the keyboard in it; esc goes back to the chat and
+  // leaves it open and live; alt+O again takes the keyboard back to it, and closes it from there.
+  let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
 
-  const showWatch = () => {
-    watching?.handle?.setHidden(false);
-    watching?.handle?.focus();
-  };
-
-  const openWatch = (ctx: ExtensionContext, job: Job) => {
-    watching?.close();
-    const entry: NonNullable<typeof watching> = { jobId: job.id, close: () => {} };
-    watching = entry;
-    // Not awaited: the screen lives on while the person is back in the conversation.
+  const openPanel = (ctx: ExtensionContext, show?: { jobId?: string; view?: PanelView }) => {
+    if (panel !== undefined) {
+      if (show !== undefined) panel.view.show(show);
+      panel.handle?.setHidden(false);
+      panel.handle?.focus();
+      return;
+    }
+    // Not awaited: the panel lives on while the person types in the conversation.
     void ctx.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
-        const view = createTranscriptView({
-          job: () => jobs.get(job.id),
+        const view = createSidePanel({
+          jobs: () => jobs.list(),
+          jobId: show?.jobId,
           rows: () => tui.terminal.rows,
+          key: PANEL_KEY,
           style: {
             heading: (text) => theme.bold(theme.fg("accent", text)),
             muted: (text) => theme.fg("muted", text),
@@ -1812,13 +1828,14 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           },
           back: () => {
             entry.handle?.unfocus();
-            entry.handle?.setHidden(true);
             tui.requestRender();
           },
           close: () => done(undefined),
         });
-        entry.close = () => done(undefined);
-        // A running job keeps writing; redraw so the screen follows it - while it is showing.
+        if (show?.view !== undefined) view.show(show);
+        const entry: NonNullable<typeof panel> = { view, close: () => done(undefined) };
+        panel = entry;
+        // Jobs keep writing; redraw so the panel follows them while it shows.
         const timer = setInterval(() => {
           if (entry.handle?.isHidden() !== true) tui.requestRender();
         }, WATCH_REDRAW_MS);
@@ -1826,46 +1843,43 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         return {
           render: (width: number) => view.render(width),
           handleInput: (data: string) => {
-            // The screen has the keys while it shows, so the switch back is handled here too.
-            if (matchesKey(data, WATCH_KEY)) view.handleInput("q");
+            // The panel has the keys while focused, so its own key closes it from here.
+            if (matchesKey(data, PANEL_KEY)) done(undefined);
             else view.handleInput(data);
             tui.requestRender();
           },
+          handleMouse: (event: Parameters<NonNullable<ReturnType<typeof createSidePanel>["handleMouse"]>>[0]) => view.handleMouse(event),
           invalidate: () => view.invalidate(),
           dispose: () => {
             clearInterval(timer);
-            if (watching === entry) watching = undefined;
+            if (panel === entry) panel = undefined;
           },
         };
       },
       {
         overlay: true,
-        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+        overlayOptions: { width: "50%", minWidth: 40, maxHeight: "100%", anchor: "top-right", margin: 0 },
         onHandle: (handle) => {
-          entry.handle = handle;
+          if (panel !== undefined) panel.handle = handle;
         },
       },
     );
   };
 
   pi.registerCommand("watch", {
-    description: "Read a background job's full transcript as it happens, on a screen of its own: /watch [job id]. q goes back to the chat; alt+w or /watch returns.",
+    description: "Read a background job's agents at work, in the side panel: /watch [job id]. Alt+O opens the panel; esc goes back to the chat.",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
-      const named = args.trim();
-      if (watching !== undefined && (named === "" || watching.jobId.startsWith(named))) return showWatch();
-      const job = await chooseJob(jobs, named, ctx.ui);
-      if (job !== undefined) openWatch(ctx, job);
+      const job = await chooseJob(jobs, args.trim(), ctx.ui);
+      if (job !== undefined) openPanel(ctx, { jobId: job.id, view: "trace" });
     },
   });
 
-  pi.registerShortcut(WATCH_KEY, {
-    description: "Switch to the job transcript (/watch) and back",
+  pi.registerShortcut(PANEL_KEY, {
+    description: "Open the side panel - the job queue, try it, the agents' traces - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
-      if (watching !== undefined) return showWatch();
-      const job = await chooseJob(jobs, "", ctx.ui);
-      if (job !== undefined) openWatch(ctx, job);
+      openPanel(ctx);
     },
   });
 
@@ -1880,8 +1894,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 }
 
 const WATCH_REDRAW_MS = 500;
-/** Switches between the conversation and the transcript screen. */
-const WATCH_KEY = "alt+w";
+/** Opens the side panel, and goes back to it from the conversation. */
+const PANEL_KEY = "ctrl+j";
 
 /** The modules in this project that have a history, by name. */
 function modulesWithHistory(cwd: string): string[] {

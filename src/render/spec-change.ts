@@ -13,7 +13,7 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, createExecutor } from "../pi.ts";
-import { reportActivity, reportStage } from "./activity.ts";
+import { reportActivity, reportStage, reportTryIt } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
@@ -381,6 +381,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       });
       // Working out how to try it may have touched the code: the harness checks again, and a run
       // that fails goes back to the agent like any other - it does not end the change.
+      if (tryIt !== undefined) reportTryIt({ tryIt, buildDir });
       if (tryIt !== undefined) verified = await untilPassing();
     }
     stage("checking the working notes were left");

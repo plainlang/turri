@@ -23,6 +23,7 @@ import {
   vmBashOperations,
   vmEnvironmentNote,
   vmHolds,
+  vmReadOnly,
   vmSupported,
 } from "./vm.ts";
 
@@ -201,7 +202,7 @@ export interface ConfinedTools {
  * what is enforced. An agent that does not know where its walls are spends its turns walking into
  * them: searching parent folders, absolute paths and /tmp for what it was never given.
  */
-export function sandboxNote(fence: { read: string[]; write: string[]; shell?: string[] }): string {
+export function sandboxNote(fence: { read: string[]; write: string[]; shell?: string[]; shellReadOnly?: string[] }): string {
   const list = (dirs: string[]) => dirs.map((dir) => `\`${dir}\``).join(", ");
   return [
     "<sandbox>",
@@ -209,7 +210,8 @@ export function sandboxNote(fence: { read: string[]; write: string[]; shell?: st
     `- Your file tools can read ${list(fence.read)}${fence.write.length === 0 ? ", and write nothing: you only read." : `, and write ${list(fence.write)}.`}`,
     fence.shell === undefined
       ? "- You have no shell."
-      : `- Your shell runs in a Linux VM that holds only ${list(fence.shell)}${fence.shell.length > 1 ? " - the last is the package caches and the copies test runs use" : ""}.`,
+      : `- Your shell runs in a Linux VM that holds only ${list(fence.shell)}${fence.shell.length > 1 ? " - the last is the package caches and the copies test runs use" : ""}.` +
+        (fence.shellReadOnly !== undefined && fence.shellReadOnly.length > 0 ? ` In it, ${list(fence.shellReadOnly)} ${fence.shellReadOnly.length === 1 ? "is" : "are"} read only.` : ""),
     "Nothing else exists for you: not the rest of the machine, not the specification files, not the other folders of the",
     "project. Everything you need that is not in your sandbox is in your prompt. Do not look for anything outside it - no",
     "searching parent folders, absolute paths, /tmp or the home folder - and never try to get around the sandbox. It is",
@@ -298,7 +300,8 @@ export function confinedTools(c: Confinement): ConfinedTools {
   }
 
   const shell = tools.some((tool) => tool.name === "bash") ? vmHolds(workdir) : undefined;
-  return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell }) };
+  const shellReadOnly = shell !== undefined ? vmReadOnly(workdir) : undefined;
+  return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell, shellReadOnly }) };
 }
 
 /** What the agent is told about how long its commands may run. */

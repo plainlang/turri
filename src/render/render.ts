@@ -13,7 +13,7 @@ import {
   type MarshalledPlainSource,
   type SpecificationItem,
 } from "../plain/spec.ts";
-import { reportActivity, reportSpec, reportStage, type BuildingSpec } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, reportTryIt, type BuildingSpec } from "./activity.ts";
 import { codebaseMap } from "./codebase.ts";
 import { abandonWork, recordHistory, startFromLastCommit, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -341,6 +341,7 @@ export async function renderFunctionality(
       });
       // Working out how to try it may have touched the code: the harness checks again, and a run
       // that fails goes back to the agent like any other - it does not end the build.
+      if (tryIt !== undefined) reportTryIt({ tryIt, buildDir });
       if (tryIt !== undefined) verified = await untilPassing();
     }
     stage("checking the working notes were left");

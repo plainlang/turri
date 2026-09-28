@@ -135,3 +135,56 @@ describe("the job registry", () => {
     expect(describeJob(await registry.wait(job.id))).toContain("all done");
   });
 });
+
+describe("a job that fails", () => {
+  it("is run once more; failing again, it is diagnosed and every job queued behind it fails without running", async () => {
+    let runs = 0;
+    let laterRan = false;
+    const diagnose = vi.fn(async (_job: unknown, failures: string[]) => `What happened: failed ${failures.length} times.\nTo fix - in the spec:\n  1. Say where the auth data comes from.`);
+    const registry = createJobRegistry({ retries: 1, diagnose });
+    const first = registry.start({
+      kind: "render_spec_diff_conformance",
+      summary: "backend.plain spec diff conformance",
+      lanes: ["queue"],
+      run: async () => ((runs += 1), { report: `attempt ${runs}: the tests do not pass`, details: { passed: false } }),
+    });
+    const second = registry.start({ kind: "render", summary: "backend.plain fs 2", lanes: ["queue"], run: async () => ((laterRan = true), { report: "built" }) });
+    const third = registry.start({ kind: "render", summary: "backend.plain fs 3", lanes: ["queue"], run: async () => ((laterRan = true), { report: "built" }) });
+
+    const done = await registry.wait(first.id);
+    expect(runs).toBe(2);
+    expect(done.status).toBe("failed");
+    expect(done.failedForGood).toBe(true);
+    expect(diagnose).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }), ["attempt 1: the tests do not pass", "attempt 2: the tests do not pass"], undefined);
+    expect(done.error).toContain("Failed 2 times, so it and every job queued behind it have stopped.");
+    expect(done.error).toContain("Say where the auth data comes from.");
+
+    // Everything behind it fails without running - pointing at it, with its diagnosis.
+    for (const later of [second, third]) {
+      const settled = await registry.wait(later.id);
+      expect(settled.status).toBe("failed");
+      expect(settled.error).toMatch(/^Not run: job \S+ ahead of it in the queue \(.+\) failed twice/);
+    }
+    expect(laterRan).toBe(false);
+  });
+
+  it("that passes on its second try goes on as if it had passed the first time - and one that throws is retried the same way", async () => {
+    let runs = 0;
+    const registry = createJobRegistry({ retries: 1 });
+    const flaky = registry.start({ kind: "render", summary: "app fs 1", run: async () => { runs += 1; if (runs === 1) throw new Error("provider down"); return { report: "built", details: { passed: true } }; } });
+    const done = await registry.wait(flaky.id);
+    expect(done.status).toBe("succeeded");
+    expect(runs).toBe(2);
+    expect(done.transcript.some((entry) => entry.kind === "stage" && entry.text.includes("trying it once more"))).toBe(true);
+  });
+
+  it("without retries - a registry that does not ask for them - is reported and the queue goes on", async () => {
+    const plain = createJobRegistry();
+    let ran = false;
+    const failing = plain.start({ kind: "render", summary: "a", lanes: ["q"], run: async () => ({ report: "no", details: { passed: false } }) });
+    const next = plain.start({ kind: "render", summary: "b", lanes: ["q"], run: async () => ((ran = true), { report: "yes" }) });
+    expect((await plain.wait(failing.id)).status).toBe("succeeded");
+    expect((await plain.wait(next.id)).status).toBe("succeeded");
+    expect(ran).toBe(true);
+  });
+});

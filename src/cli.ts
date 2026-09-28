@@ -45,7 +45,11 @@ function chat(args: string[]): never {
   // The model the person talks to, and the one every render runs on - see chat-models.ts.
   const { piArgs, codingModel } = chatModels(args, readProjectConfig(process.cwd()));
 
-  const result = spawnSync(process.execPath, [launcher, ...extension, ...themes, ...useTheme, ...piArgs], {
+  // Fullscreen: pi owns the viewport, so the conversation stays where it is scrolled to while the
+  // jobs redraw - in the terminal's own scrollback, every redraw pulls it back to the bottom.
+  const tuiMode = args.some((arg) => arg === "--tui-mode" || arg.startsWith("--tui-mode=")) ? [] : ["--tui-mode", "fullscreen"];
+
+  const result = spawnSync(process.execPath, [launcher, ...extension, ...themes, ...useTheme, ...tuiMode, ...piArgs], {
     stdio: "inherit",
     cwd: process.cwd(),
     env: codingModel ? { ...process.env, [CODING_MODEL_ENV]: codingModel } : process.env,
@@ -58,6 +62,7 @@ const COMMANDS: Record<string, { module: string; blurb: string }> = {
   conformance: { module: "./conformance-frid.ts", blurb: "black-box tests for one functionality" },
   module: { module: "./render-module.ts", blurb: "build every functionality, with the regression gate" },
   regenerate: { module: "./regenerate-frid.ts", blurb: "rebuild a functionality after its spec changed" },
+  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "render a change to the specs, given as a git diff" },
   check: { module: "./check-cli.ts", blurb: "validate a ***plain spec without rendering" },
   skill: { module: "./run.ts", blurb: "run a gated skill" },
 };

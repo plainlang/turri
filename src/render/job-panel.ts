@@ -169,8 +169,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     }
   }
 
-  if (expanded) lines.push("  ctrl+o to collapse · /watch reads a job's transcript · /jobs lists everything");
-  else if (hidden) lines.push("  ctrl+o for the full queue and activity · /watch reads a job's transcript");
+  if (expanded) lines.push("  ctrl+o to collapse · ctrl+j opens the side panel: the queue, try it, the agents' traces");
+  else if (hidden) lines.push("  ctrl+o for the full queue and activity · ctrl+j opens the side panel: the queue, try it, the agents' traces");
   return lines;
 }
 

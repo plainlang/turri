@@ -127,16 +127,19 @@ const VM_TIMEOUT = 120_000;
 describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () => {
   const sh = (command: string, cwd = code) => runInVm(command, { cwd });
 
-  it("lets the agent write its own folder - the code's shell has the code, the tests' shell the tests, neither the other", async () => {
+  it("lets the agent write its own folder - the code's shell has the code only, the tests' shell the tests and the code read only", async () => {
     const result = await sh(`echo built > out.txt && cat out.txt; ls ${tests} 2>&1 || true`);
     expect(result.output).toContain("built");
     expect(result.output).toContain("No such file or directory");
     expect(existsSync(join(code, "out.txt"))).toBe(true);
 
-    const inTests = await sh(`echo t > t.txt && cat t.txt; ls ${code} 2>&1 || true`, tests);
+    // The tests' shell writes the tests, and reads and runs the code - but never changes it.
+    const inTests = await sh(`echo t > t.txt && cat t.txt; python3 ${code}/app.py; echo x > ${code}/hack.txt 2>&1 || echo refused`, tests);
     expect(inTests.output).toContain("t\n");
-    expect(inTests.output).toContain("No such file or directory");
+    expect(inTests.output).toContain("hi");
+    expect(inTests.output).toContain("refused");
     expect(existsSync(join(tests, "t.txt"))).toBe(true);
+    expect(existsSync(join(code, "hack.txt"))).toBe(false);
   });
 
   it("does not hold the project above plain_modules at all", async () => {

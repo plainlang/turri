@@ -45,8 +45,9 @@ try-it checks - runs in a
 
 - **Its code's**, holding `plain_modules/<module>/code`: where code is rendered - the coding agent's
   and the explorer's commands.
-- **Its tests'**, holding `plain_modules/<module>/tests`: where conformance tests are rendered - the
-  conformance agent's commands.
+- **Its tests'**, holding `plain_modules/<module>/tests`, and the module's `code` read only: where
+  conformance tests are rendered - the conformance agent's and the judge's commands. They can read and
+  run the code, and build it from a copy in the scratch folder, but never change it.
 
 The project's testing scripts are the exception, by design: they run on the host, in its environment,
 and only through `run_unit_tests`, `run_conformance_tests` and the harness's own runs - see

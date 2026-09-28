@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { describeUsage, reportSpec, reportStage, reportTranscript, reportUsage } from "../../src/render/activity.ts";
 import { createJobRegistry, describeJob } from "../../src/render/jobs.ts";
 import { jobPanelLines } from "../../src/render/job-panel.ts";
-import { createTranscriptView, transcriptLines } from "../../src/render/transcript-view.ts";
+import { transcriptLines } from "../../src/render/transcript-view.ts";
 
 async function jobWith(run: () => void) {
   const jobs = createJobRegistry();
@@ -103,51 +103,67 @@ describe("the transcript viewer", () => {
     expect(lines.join(" ").replace(/\s+/g, " ")).toContain("already exists returns 409 Conflict");
   });
 
-  it("follows the newest line, and scrolls back when asked", async () => {
+});
+
+describe("the side panel", () => {
+  const PLAIN = { heading: (t: string) => t, muted: (t: string) => t, accent: (t: string) => t, error: (t: string) => t, added: (t: string) => t, removed: (t: string) => t };
+  const judge = { label: "app 1 judge", model: "bedrock/sonnet-5:medium" };
+  const coder = { label: "app 1 coding agent", model: "bedrock/sonnet-5:low" };
+
+  it("shows the queue, how to try it, and the agents' traces - each agent's turn headed by who it is, one agent at a time when asked", async () => {
+    const { createSidePanel } = await import("../../src/render/side-panel.ts");
+    const { reportTryIt } = await import("../../src/render/activity.ts");
     const job = await jobWith(() => {
-      for (let i = 0; i < 50; i += 1) reportTranscript({ kind: "result", text: `line ${i}` });
+      reportStage("conformance tests failing - working out whether the code, the tests or the spec are wrong");
+      reportTranscript({ kind: "prompt", text: "Decide what is wrong.", agent: judge });
+      reportTranscript({ kind: "text", text: "The code drops the /api/v2 prefix.", agent: judge });
+      reportTranscript({ kind: "prompt", text: "Fix the code.", agent: coder });
+      reportTranscript({ kind: "tool", text: "edit StorageServiceClient.java", agent: coder });
+      reportTryIt({ tryIt: { setup: [], steps: [{ do: "curl localhost:8080/api/version", expect: "the version JSON", kind: "command", exitCode: 0 }] }, buildDir: "/b" });
     });
     let back = 0;
     let closed = false;
-    const view = createTranscriptView({ job: () => job, rows: () => 10, back: () => (back += 1), close: () => (closed = true) });
+    const panel = createSidePanel({ jobs: () => [job], rows: () => 40, style: PLAIN, key: "alt+o", back: () => (back += 1), close: () => (closed = true) });
+    const text = () => panel.render(100).join("\n");
 
-    const following = view.render(60);
-    expect(following).toHaveLength(10);
-    // The newest line, then how the job ended.
-    expect(following.at(-4)).toContain("line 49");
-    expect(following.at(-2)).toBe("── finished");
-    expect(following.at(-1)).toContain("following");
+    // Jobs first: the queue, with what finished.
+    expect(text()).toContain("[Jobs]");
+    expect(text()).toContain("── finished");
+    expect(text()).toContain("app.plain fs 1");
 
-    view.handleInput("g");
-    expect(view.render(60)[2]).toContain("line 0");
+    panel.handleInput("\t");
+    expect(text()).toContain("[Try it]");
+    expect(text()).toContain("curl localhost:8080/api/version");
 
-    view.handleInput("G");
-    expect(view.render(60).at(-4)).toContain("line 49");
+    panel.handleInput("\t");
+    expect(text()).toContain("[Trace]");
+    expect(text()).toContain("── app 1 judge · bedrock/sonnet-5:medium");
+    expect(text()).toContain("judge ▸");
+    expect(text()).toContain("── app 1 coding agent · bedrock/sonnet-5:low");
 
-    // Paging without PgUp/PgDn, as in less: b/f a page, u/d half a page, ctrl as well.
-    const where = () => view.render(60).at(-1)!;
-    view.handleInput("b");
-    expect(where()).toContain("6 lines up");
-    view.handleInput("f");
-    expect(where()).toContain("following");
-    view.handleInput("u");
-    expect(where()).toContain("3 lines up");
-    view.handleInput("d");
-    expect(where()).toContain("following");
-    view.handleInput("\x02");
-    expect(where()).toContain("6 lines up");
-    view.handleInput(" ");
-    expect(where()).toContain("following");
+    // One agent at a time: every agent, then each in the order they spoke, then every agent again.
+    panel.handleInput("a");
+    expect(text()).toContain("The code drops the /api/v2 prefix.");
+    expect(text()).not.toContain("edit StorageServiceClient.java");
+    panel.handleInput("a");
+    expect(text()).toContain("edit StorageServiceClient.java");
+    expect(text()).not.toContain("The code drops the /api/v2 prefix.");
+    panel.handleInput("a");
+    expect(text()).toContain("every agent");
 
-    // q goes back to the conversation and keeps the place; x closes it for good.
-    view.handleInput("g");
-    view.handleInput("q");
+    // Scrolled by keys and by the wheel, following the newest line at the bottom.
+    expect(text()).toContain("following");
+    panel.handleMouse({ type: "wheel", button: "none", x: 0, y: 0, screenX: 0, screenY: 0, width: 100, height: 40, shift: false, alt: false, ctrl: false, wheelDelta: -1 });
+
+    panel.handleInput("\x1b");
     expect(back).toBe(1);
     expect(closed).toBe(false);
-    expect(view.render(60)[2]).toContain("line 0");
+  });
 
-    view.handleInput("x");
-    expect(closed).toBe(true);
+  it("says why there are no try-it steps yet", async () => {
+    const { tryItLines } = await import("../../src/render/side-panel.ts");
+    const job = await jobWith(() => {});
+    expect(tryItLines(job, 80, PLAIN).join("\n")).toContain("no try-it steps: this job worked out none");
   });
 });
 

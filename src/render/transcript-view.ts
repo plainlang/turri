@@ -1,7 +1,7 @@
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { describeUsage, type TranscriptEntry } from "./activity.ts";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { TranscriptEntry } from "./activity.ts";
 import { styleDiffLine, type DiffStyle } from "./job-panel.ts";
-import { formatDuration, type Job } from "./jobs.ts";
+import type { Job } from "./jobs.ts";
 
 /**
  * Reading a job's agents at work, as it happens.
@@ -56,6 +56,12 @@ function diffLines(diff: string, width: number, style: TranscriptStyle): string[
     });
 }
 
+/** "judge" of "app 1 judge", "coding agent" of "app spec change coding agent" - the role, without the unit of work. */
+export function roleOf(label: string): string {
+  const roles = ["conformance agent", "coding agent", "test reviewer", "failure summarizer", "explorer", "judge", "repair agent"];
+  return roles.find((role) => label.endsWith(role)) ?? label.split(" ").at(-1) ?? label;
+}
+
 function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyle): string[] {
   switch (entry.kind) {
     case "stage":
@@ -70,7 +76,7 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
     case "prompt":
       return ["", style.muted("harness ▸"), ...wrap(entry.text, width, "  ").map(style.muted)];
     case "text":
-      return ["", style.accent("agent ▸"), ...wrap(entry.text, width, "  ")];
+      return ["", style.accent(`${entry.agent !== undefined ? roleOf(entry.agent.label) : "agent"} ▸`), ...wrap(entry.text, width, "  ")];
     case "thinking":
       return ["", style.muted("thinking ▸"), ...wrap(entry.text, width, "  ").map(style.muted)];
     case "tool":
@@ -84,12 +90,31 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
  * Every line of the job's transcript at this width, oldest first - led, for a render spec diff
  * job, by the change it renders, which is readable before the job has even started.
  */
-export function transcriptLines(job: Job, width: number, style: TranscriptStyle = PLAIN): string[] {
+export function transcriptLines(job: Job, width: number, style: TranscriptStyle = PLAIN, agent?: string): string[] {
   const change = job.diff === undefined ? [] : [style.heading("── the spec change"), ...diffLines(job.diff, width, style)];
   if (job.transcript.length === 0) {
     return [...change, ...(change.length > 0 ? [""] : []), style.muted(job.status === "queued" ? "(queued - not started yet)" : "(nothing yet)")];
   }
-  return [...change, ...job.transcript.flatMap((entry) => entryLines(entry, width, style)), ...ending(job, width, style)];
+  // One agent's turns only, when following one - the harness's stages stay, so it is clear where it is.
+  const entries = agent === undefined ? job.transcript : job.transcript.filter((entry) => entry.agent === undefined || entry.agent.label === agent);
+  // Each agent's turn opens with who it is and what it runs on, whenever the speaker changes.
+  let speaking: string | undefined;
+  const lines = entries.flatMap((entry) => {
+    const header: string[] = [];
+    if (entry.agent !== undefined && entry.agent.label !== speaking) {
+      speaking = entry.agent.label;
+      header.push("", style.heading(`── ${entry.agent.label}${entry.agent.model ? ` · ${entry.agent.model}` : ""}`));
+    } else if (entry.agent === undefined && entry.kind === "stage") {
+      speaking = undefined;
+    }
+    return [...header, ...entryLines(entry, width, style)];
+  });
+  return [...change, ...lines, ...ending(job, width, style)];
+}
+
+/** The agents a job has had, in the order they first spoke. */
+export function agentsOf(job: Job): string[] {
+  return [...new Set(job.transcript.flatMap((entry) => (entry.agent !== undefined ? [entry.agent.label] : [])))];
 }
 
 const FINISHED: Partial<Record<Job["status"], string>> = { succeeded: "finished", failed: "finished - failed", stopped: "stopped" };
@@ -109,76 +134,3 @@ function ending(job: Job, width: number, style: TranscriptStyle): string[] {
   ];
 }
 
-function header(job: Job): string {
-  const spent = describeUsage(job.usage);
-  return `${job.summary} · ${job.status}${job.model ? ` · ${job.model}` : ""} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`;
-}
-
-export interface TranscriptViewOptions {
-  job: () => Job | undefined;
-  /** Rows the overlay may use. */
-  rows: () => number;
-  style?: TranscriptStyle;
-  /** Back to the conversation, keeping the place. */
-  back: () => void;
-  /** Close it for good. */
-  close: () => void;
-}
-
-/** The overlay component. Scrolled by keys; follows the newest line while at the bottom. */
-export function createTranscriptView(options: TranscriptViewOptions) {
-  const style = options.style ?? PLAIN;
-  /** Lines scrolled up from the bottom. Zero: following. */
-  let fromBottom = 0;
-  let lastBodyHeight = 10;
-
-  return {
-    render(width: number): string[] {
-      const job = options.job();
-      const rows = Math.max(6, options.rows());
-      const bodyHeight = rows - 3;
-      lastBodyHeight = bodyHeight;
-      if (job === undefined) return [style.error("That job is gone."), "", style.muted("x to close")];
-
-      const body = transcriptLines(job, width, style);
-      const maxScroll = Math.max(0, body.length - bodyHeight);
-      fromBottom = Math.min(fromBottom, maxScroll);
-      const end = body.length - fromBottom;
-      const visible = body.slice(Math.max(0, end - bodyHeight), end);
-      while (visible.length < bodyHeight) visible.push("");
-
-      const where = fromBottom === 0 ? "following" : `${fromBottom} lines up`;
-      return [
-        style.heading(truncateToWidth(header(job), width)),
-        style.muted("─".repeat(Math.max(1, width))),
-        ...visible.map((line) => truncateToWidth(line, width)),
-        // Where you are first: the keys are the part a narrow terminal can afford to lose.
-        style.muted(
-          truncateToWidth(
-            `${where}  —  q back to chat (alt+w returns) · b/f page up/down · u/d half page · ↑↓ line · g top · G bottom · x close`,
-            width,
-          ),
-        ),
-      ];
-    },
-
-    // Keys a laptop has: b/f and u/d as in less and vim, beside PgUp/PgDn, space and the arrows.
-    handleInput(data: string): void {
-      const page = Math.max(1, lastBodyHeight - 1);
-      const half = Math.max(1, Math.floor(lastBodyHeight / 2));
-      if (matchesKey(data, Key.escape) || data === "q") options.back();
-      else if (data === "x") options.close();
-      else if (matchesKey(data, Key.up) || data === "k") fromBottom += 1;
-      else if (matchesKey(data, Key.down) || data === "j") fromBottom = Math.max(0, fromBottom - 1);
-      else if (matchesKey(data, Key.pageUp) || data === "b" || matchesKey(data, Key.ctrl("b"))) fromBottom += page;
-      else if (matchesKey(data, Key.pageDown) || data === " " || data === "f" || matchesKey(data, Key.ctrl("f"))) {
-        fromBottom = Math.max(0, fromBottom - page);
-      } else if (data === "u" || matchesKey(data, Key.ctrl("u"))) fromBottom += half;
-      else if (data === "d" || matchesKey(data, Key.ctrl("d"))) fromBottom = Math.max(0, fromBottom - half);
-      else if (matchesKey(data, Key.home) || data === "g") fromBottom = Number.MAX_SAFE_INTEGER;
-      else if (matchesKey(data, Key.end) || data === "G") fromBottom = 0;
-    },
-
-    invalidate(): void {},
-  };
-}

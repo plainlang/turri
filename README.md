@@ -119,8 +119,8 @@ specs, and builds each one as it is written. While it works:
 
 - the **panel** above the input shows every build - its stage, what its agents are doing, its
   model and cost - and the queue behind it;
-- **`/watch`** shows a build's full transcript on a screen of its own (`q` back to the chat,
-  `alt+w` to return);
+- the **side panel** (`ctrl+j`), on the right, shows the whole queue, how to try what was built,
+  and each build's agents at work, one agent at a time if you like (`/watch` opens it on a build);
 - **`/jobs`** lists every build, **`/stop`** stops one, **`/history`** shows what a module's
   builds changed.
 
