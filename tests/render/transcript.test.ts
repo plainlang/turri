@@ -202,6 +202,26 @@ describe("the side panel", () => {
     expect(lines).toContain("+++ b/backend.plain");
     expect(lines).toContain(`the conformance of backend.plain render spec diff (job ${job.id}, succeeded)`);
   });
+
+  it("says what a module's render planned - the spec diffs it queued - and, under each, which job planned it", async () => {
+    const { createSidePanel } = await import("../../src/render/side-panel.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const registry = createJobRegistry();
+    const diff = "--- a/backend.plain\n+++ b/backend.plain\n@@ -1 +1,2 @@\n+- Comments on study sessions.\n";
+    const step = registry.start({ kind: "render_spec_diff", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
+    const planner = registry.start({
+      kind: "render_module",
+      summary: "backend.plain module",
+      run: async () => ({ report: "", details: { passed: true, planned: [{ title: "Implement comments on study sessions", jobId: step.id }] } }),
+    });
+    await registry.wait(planner.id);
+    await registry.wait(step.id);
+    const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 40, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
+    const lines = panel.render(140).join("\n");
+    expect(lines).toContain("planned 1 spec diff:");
+    expect(lines).toContain(`1. Implement comments on study sessions → backend.plain render spec diff (job ${step.id}, succeeded)`);
+    expect(lines).toContain(`planned by backend.plain module (job ${planner.id}, succeeded)`);
+  });
 });
 
 describe("a job that is over, in /watch", () => {

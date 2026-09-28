@@ -828,7 +828,12 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
             return {
               report: chainReport(result),
               announce: chainAnnouncement(result),
-              details: { passed: result.passed, modules: result.outcomes.map((o) => o.module) },
+              details: {
+                passed: result.passed,
+                modules: result.outcomes.map((o) => o.module),
+                // The spec diffs it planned and queued, when the spec had moved on in more than new functional specs.
+                ...(result.outcomes.at(-1)?.result?.queuedSpecDiffs !== undefined ? { planned: result.outcomes.at(-1)!.result!.queuedSpecDiffs } : {}),
+              },
             };
           } finally {
             if (ctx.hasUI) {

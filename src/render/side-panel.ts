@@ -45,6 +45,17 @@ function followed(jobs: Job[], id: string): string {
   return render !== undefined ? `${render.summary} (job ${id}, ${render.status})` : `job ${id}`;
 }
 
+/** The spec diffs a module's render planned and queued, from its details. */
+function plannedOf(job: Job): Array<{ title: string; jobId: string }> {
+  const planned = (job.details as { planned?: Array<{ title: string; jobId: string }> } | undefined)?.planned;
+  return Array.isArray(planned) ? planned : [];
+}
+
+/** The job that planned this spec diff, when one did. */
+function plannerOf(jobs: Job[], id: string): Job | undefined {
+  return jobs.find((job) => plannedOf(job).some((step) => step.jobId === id));
+}
+
 /** Newest first, whatever order they come in. */
 function newestFirst(jobs: Job[]): Job[] {
   return [...jobs].sort((a, b) => b.sequence - a.sequence);
@@ -102,6 +113,13 @@ export function createSidePanel(options: SidePanelOptions) {
           `  ${item.status.padEnd(9)} ${item.summary} · ${formatDuration(item)}${describeUsage(item.usage) ? ` · ${describeUsage(item.usage)}` : ""}  (job ${item.id})`,
           // The render it is the conformance of, for a conformance job.
           ...(item.follows !== undefined ? [style.muted(`            the conformance of ${followed(jobs, item.follows)}`)] : []),
+          // The job that planned it, for a spec diff a module's render queued.
+          ...(plannerOf(jobs, item.id) !== undefined ? [style.muted(`            planned by ${followed(jobs, plannerOf(jobs, item.id)!.id)}`)] : []),
+          // What a planning job planned: the spec diffs it queued, in order.
+          ...plannedOf(item).flatMap((step, index, all) => [
+            ...(index === 0 ? [style.muted(`            planned ${all.length} spec diff${all.length === 1 ? "" : "s"}:`)] : []),
+            style.muted(`              ${index + 1}. ${step.title} → ${followed(jobs, step.jobId)}`),
+          ]),
           // What it was about, whole: the spec change it rendered, or the functional spec it built.
           ...(item.diff !== undefined
             ? diffLines(item.diff, Math.max(10, width - 12), style).map((line) => `            ${line}`)

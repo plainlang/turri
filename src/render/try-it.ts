@@ -45,8 +45,12 @@ export interface TryIt {
   failedSetup?: string[];
 }
 
-/** How much a person is asked to read. Beyond this, the answer goes back to be made plainer. */
-const LIMITS = { setup: 3, steps: 5, do: 160, expect: 120 };
+/**
+ * How much a person is asked to read. Beyond this, the answer goes back to be made plainer. A manual
+ * step is read, so it is kept short; a command is pasted, not read - a curl with a JSON body and a
+ * token is as long as it is, and cutting it breaks it - so only a script dumped into one is refused.
+ */
+const LIMITS = { setup: 3, steps: 5, manual: 160, command: 1000, expect: 200 };
 
 /** Commands that work in the sandbox's Linux and not in the person's terminal. */
 const NOT_PORTABLE = /(^|[\s;&|(])(sudo|apk|apt|apt-get|yum|dnf|pacman|zypper)\s/;
@@ -63,7 +67,12 @@ export function tryItProblems(tryIt: TryIt): string[] {
   tryIt.steps.forEach((step, index) => {
     const n = index + 1;
     if (step.do.includes("\n")) problems.push(`step ${n} spans lines - one action per step.`);
-    if (step.do.length > LIMITS.do) problems.push(`step ${n} is ${step.do.length} characters - at most ${LIMITS.do}.`);
+    if (step.kind === "manual" && step.do.length > LIMITS.manual) {
+      problems.push(`step ${n} is ${step.do.length} characters - a step done by hand is read, at most ${LIMITS.manual}: say it more plainly.`);
+    }
+    if (step.kind !== "manual" && step.do.length > LIMITS.command) {
+      problems.push(`step ${n} is a ${step.do.length}-character command - at most ${LIMITS.command}: put a script's setup in setup, or split it into steps.`);
+    }
     if (step.expect.includes("\n") || step.expect.length > LIMITS.expect) {
       problems.push(`step ${n}'s "you should see" is too long - one short sentence, at most ${LIMITS.expect} characters.`);
     }

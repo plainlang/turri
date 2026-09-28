@@ -99,8 +99,17 @@ describe("what the agent may hand the person", () => {
     expect(problems).toContain("4 setup commands - at most 3");
     expect(problems).toContain("6 steps - at most 5");
     expect(problems).toContain("Linux-only package manager or sudo");
-    const wordy: TryIt = { setup: [], steps: [{ do: "curl x", expect: "x".repeat(200), kind: "command" }] };
+    const wordy: TryIt = { setup: [], steps: [{ do: "curl x", expect: "x".repeat(201), kind: "command" }] };
     expect(tryItProblems(wordy).join("\n")).toContain('"you should see" is too long');
+  });
+
+  it("takes a command as long as it is - a curl with a JSON body and a token - and keeps a step done by hand short", () => {
+    const curl = `curl -s -X POST http://localhost:8080/api/sessions -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -d '{"title":"Morning run","durationMinutes":45,"notes":"felt good"}'`;
+    expect(curl.length).toBeGreaterThan(160);
+    expect(tryItProblems({ setup: [], steps: [{ do: curl, expect: "It prints the new session with its id.", kind: "command" }] })).toEqual([]);
+    const manual = { do: `Open http://localhost:5173, ${"then click through every menu and ".repeat(5)}sign in`, expect: "You are signed in.", kind: "manual" as const };
+    expect(tryItProblems({ setup: [], steps: [manual] }).join("\n")).toContain("a step done by hand is read, at most 160");
+    expect(tryItProblems({ setup: [], steps: [{ do: "x".repeat(1001), expect: "ok", kind: "command" }] }).join("\n")).toContain("1001-character command");
   });
 });
 
