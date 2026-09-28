@@ -91,6 +91,30 @@ function sameChange(a: SpecChange, b: SpecChange): boolean {
   return a.section === b.section && a.kind === b.kind && (a.before ?? "") === (b.before ?? "") && (a.after ?? "") === (b.after ?? "");
 }
 
+/**
+ * Whether the new change leaves every queued job as it is: each job's own changes still all part of
+ * the work, as they were queued, and the new job's are all that is left. So there is nothing to
+ * rework - a new feature added on top of the queue - and no agent is asked.
+ */
+export function untouched(input: MasterInput): boolean {
+  const net = netChanges(input.base, input.current);
+  let before = serializeTree(input.base);
+  let count = 0;
+  const taken = new Set<string>();
+  for (const job of input.queued) {
+    const after = serializeTree(job.tree);
+    const own = changesBetween(before, after);
+    before = after;
+    for (const mine of own) {
+      const match = net.find((change) => !taken.has(change.id) && sameChange(mine, change));
+      if (match === undefined) return false;
+      taken.add(match.id);
+      count += 1;
+    }
+  }
+  return count === net.length;
+}
+
 /** Alike enough to be one item, edited since: a queued job's own change that a later one rewrote. */
 const EDITED = 0.5;
 
@@ -214,13 +238,21 @@ export interface MasterTools {
 /** The master itself: works on the tools until it commits. Injectable, so the queue can be tested without a model. */
 export type QueueMasterAgent = (input: MasterInput, tools: MasterTools, prompt: string) => Promise<void>;
 
-/** A job named by the master: its id, or its place in the draft from 1, or its title. */
-function findJob(draft: DraftJob[], name: string): number {
-  const trimmed = name.trim();
-  const byId = draft.findIndex((job) => job.jobId !== undefined && job.jobId.startsWith(trimmed));
-  if (byId !== -1) return byId;
+/**
+ * A job named by the master: its id, its place in the draft from 1, the start of its id, or its
+ * title - in that order. Ids are hex, so "2" could begin one: a number is a place before it is the
+ * start of an id, and a start of an id is at least four characters.
+ */
+export function findJob(draft: DraftJob[], name: string): number {
+  const trimmed = name.trim().replace(/^job\s+/i, "");
+  const exact = draft.findIndex((job) => job.jobId === trimmed);
+  if (exact !== -1) return exact;
   const position = Number(trimmed.replace(/^#/, ""));
-  if (Number.isInteger(position) && position >= 1 && position <= draft.length) return position - 1;
+  if (/^#?\d+$/.test(trimmed) && position >= 1 && position <= draft.length) return position - 1;
+  if (trimmed.length >= 4) {
+    const byId = draft.findIndex((job) => job.jobId !== undefined && job.jobId.startsWith(trimmed));
+    if (byId !== -1) return byId;
+  }
   return draft.findIndex((job) => job.title === trimmed);
 }
 

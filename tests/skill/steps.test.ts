@@ -121,6 +121,27 @@ describe("forge-plain's phases", () => {
   });
 });
 
+describe("spark-plain, forge-plain's quick twin", () => {
+  it("asks only about intent, then sets up and writes the product on its own - unpaced, and ungated", () => {
+    const skill = loadSkill("skills/spark-plain");
+    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "groundwork", "product"]);
+    expect(skill.steps.every((step) => step.gate === undefined)).toBe(true);
+    expect(skill.paced).toBe(false);
+    expect(skill.allowedTools).toContain("write_spec_diff");
+    // forge-plain's interview stays paced: one answer, one change.
+    expect(loadSkill("skills/forge-plain").paced).toBe(true);
+  });
+});
+
+describe("add-feature", () => {
+  it("builds a feature as forge-plain builds a product: product questions, one spec diff per answer, paced", () => {
+    const skill = loadSkill("skills/add-feature");
+    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "scope", "product", "review"]);
+    expect(skill.allowedTools).toContain("write_spec_diff");
+    expect(skill.paced).toBe(true);
+  });
+});
+
 describe("the status line while a skill runs", () => {
   const skill = {
     name: "forge-plain",

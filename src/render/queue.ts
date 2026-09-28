@@ -28,7 +28,7 @@ import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { markWork } from "./history.ts";
-import { llmQueueMaster, reworkQueue, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
+import { llmQueueMaster, reworkQueue, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
 import { readBuiltTree } from "./state.ts";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 
@@ -379,6 +379,8 @@ export function createRenderQueue(options: {
       specText,
       ...(instruction !== undefined ? { instruction } : {}),
     };
+    // Only added on top - nothing queued is undone, edited or needed elsewhere: nothing to rework, and no agent to ask.
+    if (instruction === undefined && untouched(input)) return { why: "the new change touches nothing queued" };
     const plan = await reworkQueue({
       input,
       agent: (options.queueMaster === false ? undefined : options.queueMaster) ?? llmQueueMaster({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue master` }),

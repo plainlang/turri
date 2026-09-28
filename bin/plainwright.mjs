@@ -9,4 +9,15 @@ if (major < 22 || (major === 22 && minor < 18)) {
   );
   process.exit(1);
 }
+// A terminal still sitting in a folder that was removed - or removed and made again under the same
+// path - has no working directory, and everything after this needs one.
+try {
+  process.cwd();
+} catch {
+  console.error(
+    "The folder this terminal is in no longer exists - it was removed, or removed and made again, while the terminal was in it.\n" +
+      `Go into it again - cd "${process.env.PWD ?? "<your project>"}" - or into your project, and run plainwright again.`,
+  );
+  process.exit(1);
+}
 await import("../src/cli.ts");

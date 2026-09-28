@@ -342,6 +342,10 @@ to end: every change in exactly one job, no job without a change, the spec consi
 now. A queue that does not check is refused with why; when the agent never commits one that does,
 the harness takes its own proposal, and failing that the whole net change as one job.
 
+A change that only adds on top - every queued job's changes still there as queued, the new job's
+all that is left, as when `spark-plain` writes feature after feature - has nothing to rework, and
+no agent is asked.
+
 The harness's proposal keeps each queued job's own changes with it - as they were queued, or
 edited since: when a later change takes the `My profile` link out of the nav bar a queued job adds,
 the nav bar as it is now is still that job's, and a job only adding the profile page is left with

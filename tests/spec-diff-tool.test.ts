@@ -104,6 +104,20 @@ describe("write_spec_diff", () => {
     await expect(call({ plain_file: "app.plain", diff: diffOf(fixed, three.replace("log in.", "log in with email.")) })).resolves.toBeDefined();
   });
 
+  it("writes one change after another without an answer between them for a skill that writes the specs on its own", async () => {
+    const one = plain(["- A :User: can register."]);
+    const two = plain(["- A :User: can register.", "- A :User: can log in."]);
+    const three = plain(["- A :User: can register.", "- A :User: can log in.", "- A :User: can log out."]);
+    writeFileSync(join(dir, "app.plain"), one);
+    const queue = createRenderQueue({ registry: createJobRegistry(), cwd: dir, queueMaster: false });
+    const { tools } = createSpecDiffTools({ queue, cwd: dir, paced: false });
+    const call = (params: object) => tools[0]!.execute("id", params as never, undefined, undefined, {} as never);
+    await call({ plain_file: "app.plain", diff: diffOf(one, two) });
+    await expect(call({ plain_file: "app.plain", diff: diffOf(two, three) })).resolves.toBeDefined();
+    await queue.drain();
+    expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
+  });
+
   it("undoes a change that stops the spec parsing, and builds nothing", async () => {
     const one = plain(["- A :User: can register."]);
     writeFileSync(join(dir, "app.plain"), one);

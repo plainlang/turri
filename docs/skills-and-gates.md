@@ -46,6 +46,13 @@ headings elsewhere in the body - prose skills are full of those. Each gate becom
 edge after its step; a single-step skill is gated by naming the skill itself. `forge-plain`
 declares gates today.
 
+`paced: false` under `metadata:` lets a skill write spec changes one after another on its own:
+`write_spec_diff` otherwise refuses a new change until the user has answered a question since the
+last one - one answer, one change, as an interview writes them. `spark-plain` is unpaced.
+
+Each step is told where its skill's files are, so a path it names - `references/intent.md` - and a
+skill it says to follow - `implement-unit-testing-script` - are found without searching.
+
 ## What the harness enforces, not the model
 
 - **Whether review happens.** The gate is an edge. There is no prompt the executor can write that
@@ -77,9 +84,9 @@ change the step makes and puts its findings on the executor's next tool result.
   from the CLI the options are numbered. Offering choices is required, not optional - a call with
   neither `options` nor `free_form: true` is refused - and every list carries "Something else…".
   `multi_select: true` keeps offering what is left until they are done.
-- **Build while it interviews.** `write_spec_diff` (forge-plain) writes a change to the spec and
-  queues its render in one call; the interview carries on while the builds run in the background,
-  one after another. `render_status` shows the queue.
+- **Build while it interviews.** `write_spec_diff` (forge-plain, spark-plain) writes a change to the
+  spec and queues its render in one call; the interview carries on while the builds run in the
+  background, one after another. `render_status` shows the queue.
 - **Choose the render model**, when the user says so - `set_render_model`, the same tool the
   conversation has.
 

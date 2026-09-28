@@ -271,7 +271,8 @@ describe("the queue master", () => {
     release();
     await registry.wait(feedJob.jobId);
 
-    expect(asked).toEqual([undefined, "run the feed before the nav bar"]);
+    // The feed only added on top of the nav bar: no agent was asked then. Only the person's request is a turn.
+    expect(asked).toEqual(["run the feed before the nav bar"]);
     expect(said).toContain("Put the feed first, as asked.");
     expect(said).toMatch(/in the order they run:\n- job .* · .*\n- job /);
     // The jobs keep their places; what each renders is the plan's.

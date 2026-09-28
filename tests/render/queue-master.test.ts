@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
-import { checkDraft, netChanges, propose, reworkQueue, type MasterInput, type QueueMasterAgent } from "../../src/render/queue-master.ts";
+import { checkDraft, findJob, netChanges, propose, reworkQueue, untouched, type MasterInput, type QueueMasterAgent } from "../../src/render/queue-master.ts";
 import { serializeTree } from "../../src/render/spec-steps.ts";
 
 const item = (markdown: string) => ({ markdown });
@@ -39,6 +39,31 @@ describe("the queue master's proposal", () => {
     ]);
     // It does not check as it is: the jobs left with nothing have to go.
     expect(checkDraft(story(), draft).join("\n")).toContain('"profiles" makes no change');
+  });
+});
+
+describe("a job the master names", () => {
+  it("is its place before it is the start of an id - ids are hex, and one can begin with 2", () => {
+    const draft = [
+      { jobId: "2f9c41aa", title: "comments", reason: "", changes: [] },
+      { jobId: "b07e3d12", title: "profiles", reason: "", changes: [] },
+    ];
+    expect(findJob(draft, "2")).toBe(1);
+    expect(findJob(draft, "#1")).toBe(0);
+    expect(findJob(draft, "job 2")).toBe(1);
+    expect(findJob(draft, "2f9c41aa")).toBe(0);
+    expect(findJob(draft, "b07e")).toBe(1);
+    expect(findJob(draft, "profiles")).toBe(1);
+    expect(findJob(draft, "3")).toBe(-1);
+  });
+});
+
+describe("a new change that touches nothing queued", () => {
+  it("is only added on top - nothing to rework, so no agent is asked - while one that undoes a queued job is not", () => {
+    const extra = tree(["- Users sign up.", "- Users comment on sessions.", "- Users have a profile page.", "- Users give kudos."]);
+    const onTop: MasterInput = { ...story(), previous: afterJob2, current: extra, queued: [...story().queued.slice(0, 2), { jobId: "job3", title: "kudos", tree: extra, textDiff: "" }] };
+    expect(untouched(onTop)).toBe(true);
+    expect(untouched(story())).toBe(false);
   });
 });
 

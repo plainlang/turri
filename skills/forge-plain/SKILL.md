@@ -7,7 +7,8 @@ description: >-
   phase comes first, so each change is conformance tested as it is built: it decides on
   conformance tests and writes the test reqs and the conformance testing script. Gated review of
   the product phase. Use when the user starts a new project or wants to build
-  something new from scratch. Not for adding a
+  something new from scratch and settle it with you step by step; when they want it built fast from
+  what they want alone, use its quick twin, spark-plain. Not for adding a
   feature to an existing project (use add-feature) or for editing generated code (the .plain
   specs are the source of truth).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]

@@ -1,37 +1,44 @@
-# Add Feature Workflow Checklist
+# Add Feature Checklist
 
-Use this to verify the workflow was followed — never as a substitute for it. Run the loop block on each iteration, and run the whole list once more during Phase 3 before declaring the feature done. A box only counts as met when the spec is on disk, not merely discussed. If a box is unmet, go back and complete the step.
+Use this to verify the workflow was followed - never as a substitute for it. Walk it once in the
+review step, before the handover. A box counts only when the change is in the `.plain` files, not
+merely discussed; an unmet box is completed with a spec diff before finishing.
 
-## Phase 0 — Feature intent
+## Intent
 
-- [ ] Read `references/phase-0-intent.md` and asked its five core questions one at a time.
-- [ ] Asked no more than one focused clarification for an answer too vague to summarize.
-- [ ] Wrote no project or specification files during Phase 0.
-- [ ] Kept concepts, spec wording, implementation technology, and tests for later phases.
+- [ ] Asked the five core questions of `references/intent.md` one at a time - or confirmed in one
+  line what the user had already said - with at most one clarification for a vague answer.
+- [ ] Wrote nothing to disk before the brief was confirmed.
 - [ ] Summarized motivation, affected user, desired outcome, observable success criterion, and
   boundary with explicit exclusions; got explicit confirmation.
 
-## Phase 1 — Scope
+## Scope
 
-- [ ] Carried the confirmed feature-intent brief into scope and identified the likely target
-  `.plain` file(s) without restarting intent discovery.
-- [ ] Read the target `.plain` file(s) and followed their `import`/`requires` chain before authoring.
-- [ ] Picked the target module with a question only when genuinely ambiguous — otherwise started authoring immediately (no framing/scope/multi-part design questions here).
+- [ ] Read the target `.plain` file(s) whole, with their `import` and `requires` chains, and the
+  config that says whether conformance tests are on.
+- [ ] Asked which module only when it was genuinely ambiguous.
 
-## Every loop iteration (Phase 2)
+## Every product question
 
-- [ ] Asked exactly one focused question via `ask_user` — not two bundled together — targeting one writable snippet (behavior, one concept/attribute, one edge case, one constraint, implementation guidance, or verification).
-- [ ] Wrote the snippet to disk immediately after the answer via the dedicated edit skill — never hand-authored a `***plain` section.
-- [ ] Every functional spec was authored via `add-functional-spec` (never hand-written); if it reported "too complex", split it via a follow-up question rather than alone.
-- [ ] New concepts defined before they are referenced, with no circular references.
-- [ ] Any answer that contradicted an earlier snippet was fixed in place before the next question — no stale intent left on disk.
-- [ ] Every conflict / break / augment surfaced by the analyzers was put to the user as the *next* question (keep / augment / replace) and resolved before continuing.
-- [ ] `***test reqs***` / `***acceptance tests***` authored only when the Conformance gate holds (test reqs, and a conformance testing script plainwright finds via `config.yaml`, the project root, or `test_scripts/`).
-- [ ] Asked the user whether the feature is fully covered before leaving the loop.
+- [ ] Asked exactly one question via `ask_user`, about the product - a trigger and outcome, an edge
+  case, a rule, a permission, a step of a flow - never about a spec section.
+- [ ] Turned the answer into exactly one spec change, across every section it needed, and wrote it
+  with `write_spec_diff` - never with `write` or `edit`.
+- [ ] Concepts defined in the same change as, or before, what first uses them; no cycles.
+- [ ] Every functional spec follows `add-functional-spec`'s rules, passed its complexity and
+  conflict checks, and sits in build order; one too big was split with the user.
+- [ ] Every change to something already specified - built or still queued - was put to the user
+  first (keep / augment / replace) and written as a diff with `fixes_earlier`.
+- [ ] Every correction of this feature's own changes was a diff with `fixes_earlier`, before the
+  next question.
+- [ ] `***test reqs***` and `***acceptance tests***` only with conformance tests on.
+- [ ] Asked whether the feature is fully covered before leaving the loop.
 
-## Phase 3 — Final review
+## Review
 
-- [ ] Read the modified `.plain` file(s) in full.
-- [ ] Verified: concepts defined before use, no cycles, chronological ordering correct end-to-end, functional specs language-agnostic, every external interface explicit (endpoints, methods, CLI args, formats), acceptance tests consistent with their parent specs.
-- [ ] Presented the final diff once, at the end (change requests dropped back into the one-question loop, not a restart). Individual writes were narrated during the loop, not submitted for approval.
-- [ ] Ran `check_plain` on every top module and fixed what it reported (in `.plain` files only — never generated code) before declaring the feature ready and offering to render it with `render_module`.
+- [ ] Read the modified `.plain` file(s) whole and checked: concepts defined before use, no cycles,
+  build order right end to end, functional specs language-agnostic, every external interface
+  explicit, acceptance tests consistent with their functional specs.
+- [ ] Ran `check_plain` on every module touched, and fixed what it reported with spec diffs.
+- [ ] Handed over: the spec changes in order, the builds they queued and how they stand, and that
+  further changes are asked for in the conversation as spec diffs.

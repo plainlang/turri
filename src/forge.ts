@@ -100,7 +100,7 @@ export async function runSkill(opts: {
   // and its build queued in one step.
   const diffs =
     opts.renderQueue !== undefined && skill.allowedTools.includes(WRITE_SPEC_DIFF)
-      ? createSpecDiffTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy })
+      ? createSpecDiffTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy, paced: skill.paced })
       : undefined;
 
   if (opts.askUser !== undefined) {

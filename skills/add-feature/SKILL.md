@@ -1,146 +1,139 @@
 ---
 name: add-feature
 description: >-
-  End-to-end feature addition on an existing ***plain project: runs a short feature-intent
-  interview, then takes the confirmed request and, one question at a time, incrementally writes
-  ***plain specs (concepts, implementation reqs, functional specs, test reqs,
-  acceptance tests) to disk — asking and authoring per functionality, without
-  stopping for approval of each write — then closes with a check_plain gate. Use when the user
-  wants to add a feature to an existing project. Not for bootstrapping a new
-  project from scratch (use forge-plain) or for editing generated code (the
-  .plain specs are the source of truth).
+  Add a feature to an existing ***plain project the way forge-plain builds one: a short
+  feature-intent interview, then product questions one at a time - a trigger and its outcome, an
+  edge case, a rule - where every answer becomes one spec change, written as a git diff of the
+  .plain files and built the moment it is written, so the feature appears while the interview is
+  still going. A change that touches what is already specified or queued is a spec diff too, and
+  the queue master works it into the builds still queued. Use when the user wants to add a
+  feature to an existing project. Not for starting a new project (use forge-plain, or spark-plain
+  to start fast) or for editing generated code (the .plain specs are the source of truth).
+allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 ---
 
 # Add Feature
 
-`add-feature` is the continuous-loop counterpart of `forge-plain`. Where `forge-plain` bootstraps an entire project from scratch, `add-feature` adds a single feature to an **existing** set of `.plain` specs. It begins with a short intent phase, then runs the authoring loop scoped to one feature.
+Load the `***plain` syntax rules before writing anything - they are in the system prompt under
+`<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need to follow
+closely.
 
-## Core loop: one question → one answer → write to disk
+## Role
 
-This loop starts after Phase 0. Each iteration is a single question followed by an immediate write:
+Act as a `***plain` spec writer adding one feature to specs that already exist - and, usually, to
+code already built from them, or being built. The only output is changes to `.plain` files, and
+every one of them is a **spec diff**: a git diff of the `.plain` files, written with
+`write_spec_diff`, which applies it and queues its render spec diff job. Never write code, and never
+change a `.plain` file by any other means. Frame every message in terms of specs: "I'll add this to
+the spec."
 
-1. **Ask** one focused question via `ask_user` — never bundle two. Shape it so any plausible answer maps directly to one writable snippet: a single behavior, concept, attribute, edge case, or constraint — not an open-ended design question. Bad shape: "How should the feature behave?" Good shape: "When the user submits an empty title, should the request be rejected with HTTP 400, accepted with a default title, or something else?" Offer concrete options plus a free-form catch-all whenever the answer space is predictable.
-2. **Author immediately** — the moment the user answers, write the snippet to disk (see *2b* for which skill to route to). Do not wait for "enough" context; eager writes are the point. A snippet that is wrong on the first try is expected — the next question corrects it, and the user can read exactly where things stand after every step.
-3. **Refine on the next question**, which often extends or corrects what was just written.
-
-**One question per call, but drill as deep as the topic needs.** "One question" governs the `ask_user` call, not the topic. If an answer is vague or leaves real choices open, the *next* question drills into the same topic — another iteration of the loop — until it is concrete enough to write. Stopping early and writing on top of a vague answer is worse than one more focused follow-up.
-
-**Fix contradictions in place.** If a later answer refines or contradicts a snippet already on disk, edit that snippet right now. Never leave stale intent on disk; surface a non-trivial change in the next question.
-
-## Input
-
-A feature request from the user — anything from a one-liner ("add dark mode") to a detailed
-description. Phase 0 turns it into a confirmed feature-intent brief; Phase 2 sharpens the behavior
-as it is authored.
-
-## Phase 0 — Feature intent
-
-Read `references/phase-0-intent.md`. Ask its five core questions one at a time, write nothing to
-disk, summarize the answers as a feature-intent brief, and get explicit confirmation. Ask no more
-than one focused clarification when an answer is too vague to summarize.
-
-Carry the confirmed brief into every later phase. Before advancing, check the Phase 0 block in
-`references/checklist.md` inline.
-
-## Phase 1 — Scope
-
-Keep this short. The goal is to know enough to ask the **very first** writable question — not to design the whole feature on paper.
-
-1. **Read the confirmed feature-intent brief.** Identify which existing `.plain` file(s) the feature most likely belongs to.
-2. **Read the target `.plain` file(s)**, following their `import` and `requires` chains, so the existing definitions, implementation reqs, functional specs, test reqs, and acceptance tests are in context. This is what lets Phase 2 recognize impact when it surfaces.
-3. **Pick the target module with one question — only if it is genuinely ambiguous** which file to modify. Otherwise skip it and start authoring immediately.
-
-End Phase 1 the moment the target file and a single concrete starter question are clear. Do **not** ask framing, scope, or multi-part design questions here.
-
-## Phase 2 — One-question loop
-
-A single repeating cycle: exactly one question, then an immediate write. The loop ends when the user says the feature is fully covered.
-
-### 2a. Ask one question
-
-Ask one writable question per `ask_user` call, targeting exactly one of:
-
-- **Behavior** — a single trigger and its outcome.
-- **A concept** — a new concept, or one single attribute of an existing one.
-- **A single edge case** — one invalid input, empty state, or boundary value.
-- **A single constraint** — one business rule, permission, ordering, or size limit.
-- **Implementation guidance** — a policy that shapes how the functionality is built (retry, error handling, data format), or technology / a library / a pattern not already in the file or its imports.
-- **Verification** — only when the *Conformance gate* below is satisfied: one concrete outcome that proves this functionality works.
-
-Never bundle a second question into the prompt; never ask a question whose answer doesn't translate into a writable snippet on its own.
-
-### 2b. Write immediately
-
-Route each answer to the right edit skill — never hand-author a `***plain` section:
-
-- **New concept** → `add-concept` (into `***definitions***`; define before any reference).
-- **New functional spec** → `add-functional-spec`. It runs `analyze-if-func-spec-too-complex` and `analyze-func-specs` for you — let it. **Never hand-author functional specs.** If it reports the spec is too complex, ask the user a follow-up question to split it (the next loop iteration) — do not break it down alone.
-- **New implementation req** → `add-implementation-requirement`. When the answer states HOW the functionality is built — a retry or error-handling policy, a data format, a library, an architectural pattern — and it is not already in the file or its imports.
-- **New acceptance test** → `add-acceptance-test`, under the relevant functional spec. Only when the *Conformance gate* is satisfied and the answer describes a concrete verification.
-- **New test req** → `add-test-requirement`. Only when conformance testing is configured and the answer changes how conformance tests are run.
-
-If the answer contradicts or refines an earlier snippet, fix that snippet in place now (per *Fix contradictions in place* above).
-
-### 2c. Handle conflicts just-in-time
-
-If `add-functional-spec` (via its analyzers) reports a conflict, or the snippet just written would **break** (contradict, invalidate) or **augment** (change the meaning of, add behavior to) an existing concept / functional spec / implementation req / test req / acceptance test, the **next question** must be about that conflict. Show the exact existing snippet in the question and offer:
-
-- **(a) keep** the existing spec — back out or narrow what was just written,
-- **(b) augment** the existing spec — embed the proposed new wording in the question,
-- **(c) replace** the existing spec.
-
-Apply the choice the instant the user answers. If they augmented a concept, walk every spec that references it and update each in place, limited to the approved scope. Never silently rewrite prior intent.
-
-### 2c'. Narrate, do not ask for approval
-
-Do not ask the user to approve each snippet. Say in one line what went to disk — "added
-`:Note:` to definitions", "functional spec 3 written" — and move to the next question. The
-only things worth interrupting for are a decision the answer does not settle: a conflict
-(2c above), an ambiguity you cannot resolve, or a choice that changes the shape of the
-module. The final review in Phase 3 is where the work is looked at as a whole.
-
-### 2d. Decide what's next
-
-Ask the user whether the feature is fully covered. Yes → Phase 3. No → return to 2a with the next single question.
-
-### Conformance gate
-
-Author `***test reqs***` and `***acceptance tests***` **only** when the module has conformance testing set up: `***test reqs***` of its own or from an `import`ed module, and a conformance testing script plainwright finds for the project (named in `config.yaml`, or the one in the project root or `test_scripts/`). If conformance testing is not configured, skip those two authoring paths entirely — concepts, functional specs, and implementation reqs are still authored normally.
-
-## Phase 3 — Final review
-
-Most checks already happened in the loop; this is a slim consistency pass whose final automated step is always `check_plain`.
-
-1. Read the modified `.plain` file(s) in full.
-2. Verify:
-   - Every new concept is defined before use, with no circular references.
-   - Chronological ordering is correct end-to-end — no spec depends on something that comes after it.
-   - Functional specs are language-agnostic.
-   - Every external interface is explicit (endpoint paths, methods, CLI args, formats).
-   - Acceptance tests (if any) are consistent with their parent specs.
-3. Present the final diff for the modified file(s) and get the user's approval.
-4. If the user requests changes, drop **straight back into the one-question loop** — one question, one write, one fix at a time. Do not restart the loop from scratch.
-5. **Run `check_plain`** on every top module — the last thing this skill does, so a feature is never finished while a spec would fail to parse. If it reports errors, fix them (in `.plain` files only — never generated code) by dropping back into the loop, then run it again. Repeat until every top module is valid. Only then tell the user the feature is ready, and offer to render it with `render_module`.
-
-## Next feature
-
-After one feature is done, the user may describe the next. Start again from Phase 0 — a continuous
-loop: **intent → scope → one-question loop → final review → intent → …**
-
-## Error handling
-
-- **A user answer contradicts prior specs** → edit the affected snippet in place immediately; surface a non-trivial change in the next question.
-- **`add-functional-spec` reports "too complex"** → ask the user a follow-up question to split the spec (next loop iteration); never split it alone.
-- **A conflict / break / augment surfaces** → make it the next question (2c) and resolve it before continuing.
-- **`check_plain` reports errors** → do not declare the feature done; fix them via the loop and run it again until every top module is valid.
-
-## Validation checklist
-
-Run the loop block in `references/checklist.md` on each iteration, and walk the whole list during Phase 3 before declaring the feature done. It is a self-audit of this workflow — never a substitute for it. A box only counts as met when the spec is on disk; complete any unmet step before finishing.
+This is `forge-plain`'s product phase, scoped to one feature, on top of what is there: the stack,
+the testing setup and every earlier feature are settled - read them, build on them, restart none.
 
 ## Question style
 
-- Prefer short, direct sentences over compound or nested clauses.
-- Use plain words over jargon when both convey the same meaning.
-- One idea per sentence; split a comma-chained list of clauses into separate sentences.
-- Never drop detail to simplify — keep every constraint, edge case, and option the user needs, splitting into more sentences instead.
+- Ask with `ask_user`, one question per call, and pass `options` so the user picks rather than
+  types - concrete choices, plus the free-form catch-all the tool adds. Reserve `free_form: true`
+  for a genuinely open question.
+- Ask about the product - a trigger and its outcome, an edge case, a rule, a permission, a step of
+  a flow - never about a spec section ("which concepts?", "what reqs?"). Let the answer decide which
+  sections change.
+- Shape each question so any plausible answer maps to one spec change. Bad: "How should it work?"
+  Good: "When the title is empty, should saving be refused with `Title is required`, or saved as
+  `Untitled`?"
+- Short, direct sentences and plain words; never drop a detail the user needs to answer - split into
+  more sentences instead.
+
+## Steps
+
+### intent
+
+Read `references/intent.md` and ask its five core questions one at a time with `ask_user`. Ask at
+most one focused follow-up when an answer is too vague to summarize. If what the user has already
+said answers a question, confirm it in one line instead of asking.
+
+Write nothing to disk. Summarize the feature-intent brief - motivation, affected user, desired
+outcome, observable success criterion, boundary and explicit exclusions - and get explicit
+confirmation. Carry the brief into every later step.
+
+### scope
+
+Keep this short: enough to ask the first product question, not a design on paper.
+
+1. Find the `.plain` file(s) the feature belongs to, and read them whole, following their `import`
+   and `requires` chains: every definition, implementation and test req, functional spec and
+   acceptance test the feature will sit beside. Read `config.yaml` (and a module's own
+   `config.<module>.yaml`) for whether conformance tests are on.
+2. Ask which module only if it is genuinely ambiguous; otherwise do not.
+3. Look at what is built and queued (`render_status`), so you know which specs already have code and
+   which builds are still waiting - a change to either is still just a spec diff.
+
+Say in one line where the feature goes, and move on. Write nothing to disk.
+
+### product
+
+The feature, walked question by question. Run this loop until the user says the feature is fully
+covered:
+
+1. **Ask** one product question with `ask_user`.
+2. The user **answers**.
+3. **Make the spec change** the answer calls for, as one git diff of the `.plain` file(s) - across
+   every section it needs:
+   - a concept it introduces, into `***definitions***` - written the way `add-concept` says, and
+     defined in the same change as the functional spec that first uses it;
+   - a policy it states - error handling, a retry, a data format, a library not already in the
+     module or its imports - into `***implementation reqs***`, the way
+     `add-implementation-requirement` says;
+   - the functional spec it adds, or the change to one already written, the way
+     `add-functional-spec` says: its wording rules, its complexity check
+     (`analyze-if-func-spec-too-complex` - at most 200 lines of code; a spec too big is split *with
+     the user*, as the next question) and its conflict check (`analyze-func-specs`, over the new
+     spec and every existing one in the chain). Follow those skills for what the text is; the diff
+     is the only thing that writes it.
+   - with conformance tests on - test reqs of the module's own or imported, and a conformance
+     testing script plainwright finds - an acceptance test under its functional spec when the
+     answer states one concrete verification (`add-acceptance-test`), and a test req only when the
+     answer changes how conformance tests run (`add-test-requirement`). With conformance off, none.
+   Write it as a git diff: `diff --git a/<file> b/<file>`, `--- a/<file>`, `+++ b/<file>`, then the
+   hunks with a few lines of unchanged context, paths from the project root. A new functional spec
+   goes where it belongs in build order - after what it builds on, usually at the end.
+4. **Write it with `write_spec_diff`.** It applies the diff and queues a render spec diff job for
+   it; with conformance on, its conformance tests follow it. Say in one line what went into the
+   spec - "added `:Note:` and functional spec 7" - and what became of the build, as the tool says,
+   then ask the next question. Never wait for a build, and never ask the user to approve a change.
+
+**One answer, one change.** A follow-up about the same behavior - an edge case, a validation rule -
+is its own answer and its own change. An answer that describes two behaviors is two: write the
+first, then ask about the second. A change never carries anything the user was not asked about.
+
+**What already exists.** When an answer - or the conflict check - means changing something already
+specified: a definition, a req, a functional spec, built or still queued, the next question is
+about exactly that. Quote the existing text and offer: keep it (narrow what was just written),
+augment it (with the new wording in the question), or replace it. The answer is a spec diff like
+any other, written with `fixes_earlier`; when a concept changes, the same diff updates every spec
+that uses it, within what the user approved. Never rewrite earlier intent without asking. The queue
+master reworks the builds still queued around every such change - a queued build the change undoes
+is taken out, one it touches renders the spec as it now is.
+
+**Fix your own mistakes in place.** When a later answer refines or contradicts a change you wrote in
+this feature, write the correction as its own diff with `fixes_earlier`, before the next question.
+
+When the loop reaches the end of what the brief covers, ask whether the feature is fully covered.
+Yes: go to the review. No: the next question.
+
+### review
+
+A short consistency pass over what the feature changed, then the handover.
+
+1. Read the modified `.plain` file(s) whole, and check: every new concept defined before use, with
+   no cycles; build order right end to end - no spec depends on one after it; functional specs
+   language-agnostic; every external interface explicit (paths, methods, arguments, formats);
+   acceptance tests consistent with their functional specs.
+2. Run `check_plain` on every module the feature touched.
+3. Fix what either finds with a spec diff and `fixes_earlier` - never by editing the file. Ask the
+   user only when a fix is a decision the brief and the answers do not settle.
+
+Walk `references/checklist.md` once, as a self-audit. Then hand over in a few lines: the feature's
+spec changes in order, the builds they queued and how they stand (`render_status`), and that any
+further change is asked for in the conversation - each one a spec diff the queue master works into
+the builds still queued. The next feature starts again from the intent.

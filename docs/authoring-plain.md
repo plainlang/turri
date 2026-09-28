@@ -88,16 +88,23 @@ The ones that shape a spec most:
 
 ## Writing specs with plainwright
 
-In a conversation (`plainwright chat`), say what you want and the matching skill runs. The two
-that build a project from scratch interview you one question at a time, write the specs as you
-answer, and build each one in the background while the interview goes on:
+In a conversation (`plainwright chat`), say what you want and the matching skill runs. Two build a
+project from scratch, and write each spec change as a git diff that is built in the background the
+moment it is written. `forge-plain` interviews you one question at a time and writes the specs as
+you answer; `spark-plain`, its quick twin, asks only what you want to build and writes the rest on
+its own:
 
 | skill | phases | how a spec change is written |
 | --- | --- | --- |
 | `forge-plain` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
+| `spark-plain` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs the queue master reworks the queue around |
 
-For an existing project, `add-feature` runs a short feature interview and then writes the
-concepts, reqs and functional specs the feature needs, one question at a time.
+For an existing project, `add-feature` works the same way, scoped to one feature: intent → scope →
+product → review. After a short feature-intent interview it asks product questions one at a time -
+a trigger and its outcome, an edge case, a rule - and every answer is one spec change, a git diff
+written with `write_spec_diff` and built the moment it is written. A change to something already
+specified, built or still queued, is put to the user first and is a spec diff too; the queue master
+works it into the builds still queued.
 
 What keeps the interview honest is the harness, not the interviewer:
 
@@ -114,7 +121,7 @@ Every skill in `skills/` can be run from a conversation; most are also used by t
 
 | to… | skills |
 | --- | --- |
-| start a project | `forge-plain`, `init-plain-project` |
+| start a project | `forge-plain`, `spark-plain`, `init-plain-project` |
 | add to a spec | `add-feature`, `add-functional-spec`, `add-functional-specs`, `add-concept`, `add-implementation-requirement`, `add-test-requirement`, `add-acceptance-test`, `add-resource`, `add-template` |
 | check what is written | `analyze-if-func-spec-too-complex`, `analyze-2-func-specs`, `analyze-func-specs`, `resolve-section-ownership` |
 | fix what is written | `break-down-func-spec`, `resolve-spec-conflict`, `debug-specs` |

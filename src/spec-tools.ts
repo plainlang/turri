@@ -45,8 +45,11 @@ export function createSpecDiffTools(options: {
   queue: RenderQueue;
   cwd: string;
   liveReview?: LiveReviewer;
+  /** One new change per answer (the default); false, for a skill that writes the specs on its own. */
+  paced?: boolean;
 }): { tools: AnyTool[]; pace: SpecPace } {
   const { queue, cwd, liveReview } = options;
+  const paced = options.paced !== false;
   let answeredSinceLastDiff = true;
 
   const writeDiff = defineTool({
@@ -71,7 +74,7 @@ export function createSpecDiffTools(options: {
       ),
     }),
     async execute(_id, params) {
-      if (params.fixes_earlier !== true && !answeredSinceLastDiff) {
+      if (paced && params.fixes_earlier !== true && !answeredSinceLastDiff) {
         throw new Error(
           "No question has been answered since the last spec change. Each change comes from its own answer: ask " +
             "the user with ask_user first. To correct something already written, set fixes_earlier.",

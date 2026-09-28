@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { Annotation, END, START, StateGraph, interrupt } from "@langchain/langgraph";
 import { runGate, type GateOutcome } from "./judge.ts";
@@ -86,6 +86,10 @@ function stepPrompt(skill: Skill, step: StepSpec, critique: string, context?: st
       ? `<what the user has already said>\n${context}\n</what the user has already said>\n\nTake this as given. Do not ask again for anything it already answers; confirm it in one line and move to what is still unknown.\n`
       : "",
     step.instructions,
+    "",
+    // What the step names by path - its references, another skill to follow - is found from here.
+    `This skill's own files are in ${skill.dir}: a path its steps name, such as references/<file>.md, is there. ` +
+      `A skill it says to follow is beside it, in ${dirname(skill.dir)}/<skill name>/SKILL.md - read it and follow it.`,
     "",
     // The artifact exists for the gate's judges to read. Without a gate nothing reads it,
     // and asking for one is a tool call spent on a file no one opens.

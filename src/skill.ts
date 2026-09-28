@@ -76,6 +76,12 @@ export interface Skill {
   dir: string;
   allowedTools: string[];
   steps: StepSpec[];
+  /**
+   * Whether `write_spec_diff` needs an answer from the user between two new changes - one answer,
+   * one change, as an interview writes them. `metadata.paced: false` turns it off, for a skill that
+   * writes the specs on its own.
+   */
+  paced: boolean;
 }
 
 interface RawContinuous {
@@ -195,6 +201,7 @@ export function loadSkill(skillDir: string): Skill {
     dir,
     allowedTools: (data["allowed-tools"] as string[]) ?? [],
     steps,
+    paced: (data.metadata as { paced?: unknown } | undefined)?.paced !== false,
   };
 }
 
