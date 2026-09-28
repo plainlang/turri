@@ -17,7 +17,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import { reportActivity, reportSpec, reportStage } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { abandonWork, moduleDirOf, recordHistory, startWork, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -186,7 +186,7 @@ export async function renderConformanceTests(
     options.judgeModel ?? modelSpec(inheritModel(readProjectConfig(projectDirOf(options.plainFile)).judgeModel, splitModelSpec(options.model)));
   const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName, modulesRoot(projectDirOf(options.plainFile))));
   const stage = (label: string) => {
-    if (!options.dryRun) reportStage(`${forChange ? moduleName : `${moduleName} ${frid}`}: ${label}`);
+    if (!options.dryRun) reportStage(`${forChange ? unitOf(moduleName) : unitOf(moduleName, frid)}: ${label}`);
   };
   stage(options.diff !== undefined ? "conformance tests for the spec change" : `conformance tests for functionality ${frid}`);
   if (!options.dryRun && !forChange) reportSpec(buildingSpec(moduleName, frid!, frids.length, getSpecificationsForFrid(tree, frid!)[0], true));

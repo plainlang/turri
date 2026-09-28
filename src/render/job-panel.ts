@@ -18,6 +18,10 @@ import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
  */
 
 export const JOB_PANEL_KEY = "plainwright-jobs";
+
+/** How the side panel is found your way around, as the job panel says it. */
+export const PANEL_HELP =
+  "in the side panel: tab switches jobs · try it · trace · a follows one agent · j the next job · ↑↓ pgup pgdn or the wheel scroll · esc back to the chat · ctrl+j closes it";
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -101,6 +105,8 @@ export interface PanelOptions {
   now?: number;
   /** Colours for the diffs of render spec diff jobs. */
   diffStyle?: DiffStyle;
+  /** The lines of help about ctrl+o and the side panel - left out where they do not apply, as in the side panel itself. */
+  hints?: boolean;
 }
 
 export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[] {
@@ -169,8 +175,15 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     }
   }
 
-  if (expanded) lines.push("  ctrl+o to collapse · ctrl+j opens the side panel: the queue, try it, the agents' traces");
-  else if (hidden) lines.push("  ctrl+o for the full queue and activity · ctrl+j opens the side panel: the queue, try it, the agents' traces");
+  // Always a line of help: how to see more here, and how to inspect the jobs in the side panel.
+  if (options.hints === false) {
+    // The side panel shows it all already, and says its own keys.
+  } else if (expanded) {
+    lines.push("  ctrl+o collapse · ctrl+j inspect the jobs in the side panel: the queue, try it, the agents' traces");
+    lines.push(`  ${PANEL_HELP}`);
+  } else {
+    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ctrl+j inspect the jobs: the queue, try it, the agents' traces`);
+  }
   return lines;
 }
 

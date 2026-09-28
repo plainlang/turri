@@ -13,7 +13,7 @@ import {
   type MarshalledPlainSource,
   type SpecificationItem,
 } from "../plain/spec.ts";
-import { reportActivity, reportSpec, reportStage, reportTryIt, type BuildingSpec } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, reportTryIt, type BuildingSpec, unitOf } from "./activity.ts";
 import { codebaseMap } from "./codebase.ts";
 import { abandonWork, recordHistory, startFromLastCommit, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -175,7 +175,7 @@ export async function renderFunctionality(
     : undefined;
   const buildDir = resolve(host?.buildDir ?? options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
   const stage = (label: string) => {
-    if (!options.dryRun) reportStage(`${moduleName} ${frid}: ${label}`);
+    if (!options.dryRun) reportStage(`${unitOf(moduleName, frid)}: ${label}`);
   };
   stage(`${options.regenerate ? "regenerating" : "building"} functionality ${frid} of ${frids.length}${host ? ` in ${host.moduleName}'s codebase` : ""}`);
   // Whether the code is done is the project's unit testing script: without one, nothing is built.

@@ -130,6 +130,14 @@ export function reportTryIt(steps: { tryIt: TryIt; buildDir: string }): void {
   store.getStore()?.tryIt?.(steps);
 }
 
+/**
+ * What a stage is about, said so the person knows what the name is: "module backend", or "module
+ * backend, functionality 2". A stage leads with it: `${unitOf(moduleName, frid)}: running the tests`.
+ */
+export function unitOf(moduleName: string, frid?: string): string {
+  return frid === undefined ? `module ${moduleName}` : `module ${moduleName}, functionality ${frid}`;
+}
+
 export function reportUsage(usage: UsageReport): void {
   store.getStore()?.usage(usage);
 }

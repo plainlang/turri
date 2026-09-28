@@ -83,7 +83,7 @@ describe("the transcript viewer", () => {
     const style = { heading: (t: string) => t, muted: (t: string) => `~${t}`, accent: (t: string) => t, error: (t: string) => t, added: (t: string) => `+${t}`, removed: (t: string) => `-${t}` };
     const lines = transcriptLines(job, 80, style);
     const at = lines.indexOf("── the spec change");
-    expect(at).toBeGreaterThan(lines.indexOf("── cognio: spec diff 2 of 3 - Reject duplicate registrations"));
+    expect(at).toBeGreaterThan(lines.indexOf("── harness · cognio: spec diff 2 of 3 - Reject duplicate registrations"));
     expect(lines.slice(at + 1, at + 7)).toEqual([
       "~--- a/cognio.plain",
       "~+++ b/cognio.plain",
@@ -130,6 +130,9 @@ describe("the side panel", () => {
     // Jobs first: the queue, with what finished - and what each was about.
     expect(text()).toContain("[Jobs]");
     expect(text()).toContain("── finished");
+    // Everything is shown already: no ctrl+o to expand it, no pointer to the panel it is in.
+    expect(text()).not.toContain("ctrl+o");
+    expect(text()).not.toContain("in the side panel:");
     expect(text()).toContain("app.plain fs 1");
     // The functional spec it built, whole.
     expect(text()).toContain("app 1 of 1:");
@@ -142,9 +145,11 @@ describe("the side panel", () => {
 
     panel.handleInput("\t");
     expect(text()).toContain("[Trace]");
-    expect(text()).toContain("── app 1 judge · bedrock/sonnet-5:medium");
+    // The harness's own steps are labelled as the harness's; each agent's turn as that agent's.
+    expect(text()).toContain("── harness · conformance tests failing - working out whether");
+    expect(text()).toContain("── agent · app 1 judge · bedrock/sonnet-5:medium");
     expect(text()).toContain("judge ▸");
-    expect(text()).toContain("── app 1 coding agent · bedrock/sonnet-5:low");
+    expect(text()).toContain("── agent · app 1 coding agent · bedrock/sonnet-5:low");
 
     // One agent at a time: every agent, then each in the order they spoke, then every agent again.
     panel.handleInput("a");

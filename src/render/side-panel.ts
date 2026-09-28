@@ -106,7 +106,7 @@ export function createSidePanel(options: SidePanelOptions) {
     if (view === "jobs") {
       const jobs = options.jobs();
       if (jobs.length === 0) return [style.muted("(no jobs yet)")];
-      const live = jobPanelLines(jobs, { expanded: true, diffStyle: style });
+      const live = jobPanelLines(jobs, { expanded: true, diffStyle: style, hints: false });
       const finished = newestFirst(jobs)
         .filter((item) => item.status !== "running" && item.status !== "queued")
         .flatMap((item) => [

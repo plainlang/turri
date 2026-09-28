@@ -1,6 +1,6 @@
 import { relative, resolve } from "node:path";
 import { getFrids, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
-import { reportActivity, reportStage } from "./activity.ts";
+import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { abandonWork, startWork } from "./history.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
@@ -70,7 +70,7 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
   const spec = options.spec ?? snapshotSpec(options.plainFile, { cwd, templateDirs, inModule: options.inModule });
   const { moduleName, tree, chain } = spec;
   const tip = chain.at(-1)!;
-  const stage = (label: string) => reportStage(`${moduleName}: ${label}`);
+  const stage = (label: string) => reportStage(`${unitOf(moduleName)}: ${label}`);
   stage(
     `the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - ` +
       `bringing the conformance tests in ${moduleName}'s codebase in line with it`,

@@ -65,7 +65,8 @@ export function roleOf(label: string): string {
 function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyle): string[] {
   switch (entry.kind) {
     case "stage":
-      return ["", style.heading(`── ${entry.text}`)];
+      // The harness's own step - not an agent's: it runs the tests, judges, and hands the work on.
+      return ["", style.muted(`── harness · ${entry.text}`)];
     case "spec": {
       // The functional spec being built, whole: its first line says which, the rest is the text.
       const [label, ...text] = entry.text.split("\n");
@@ -103,7 +104,7 @@ export function transcriptLines(job: Job, width: number, style: TranscriptStyle 
     const header: string[] = [];
     if (entry.agent !== undefined && entry.agent.label !== speaking) {
       speaking = entry.agent.label;
-      header.push("", style.heading(`── ${entry.agent.label}${entry.agent.model ? ` · ${entry.agent.model}` : ""}`));
+      header.push("", style.heading(`── agent · ${entry.agent.label}${entry.agent.model ? ` · ${entry.agent.model}` : ""}`));
     } else if (entry.agent === undefined && entry.kind === "stage") {
       speaking = undefined;
     }

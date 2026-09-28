@@ -126,7 +126,7 @@ describe("the panel", () => {
     });
     await tick();
     const since = job.now!.since;
-    expect(jobPanelLines(jobs.list(), { now: since + 12_400 }).at(-1)).toBe("      … thinking · 12s");
+    expect(jobPanelLines(jobs.list(), { now: since + 12_400, hints: false }).at(-1)).toBe("      … thinking · 12s");
 
     release();
     await jobs.wait(job.id);

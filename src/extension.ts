@@ -263,6 +263,10 @@ export default function (pi: ExtensionAPI) {
     }
   };
   pi.on("session_start", (_event, ctx) => showConformance(ctx));
+  // Where the keys are, from the first moment - before any job shows its panel.
+  pi.on("session_start", (_event, ctx) => {
+    if (ctx.hasUI) ctx.ui.setStatus("plainwright-keys", `${PANEL_KEY} inspect jobs · ctrl+o expand`);
+  });
   pi.on("agent_start", (_event, ctx) => showConformance(ctx));
   pi.on("agent_end", (_event, ctx) => showConformance(ctx));
 

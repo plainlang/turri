@@ -13,7 +13,7 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, createExecutor } from "../pi.ts";
-import { reportActivity, reportStage, reportTryIt } from "./activity.ts";
+import { reportActivity, reportStage, reportTryIt, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
@@ -245,7 +245,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const spec = options.spec ?? snapshotSpec(options.plainFile, { cwd, templateDirs, inModule: options.inModule });
   const { moduleName, tree, chain } = spec;
   const tip = chain.at(-1)!;
-  const stage = (label: string) => reportStage(`${moduleName}: ${label}`);
+  const stage = (label: string) => reportStage(`${unitOf(moduleName)}: ${label}`);
   stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);
   // Whether the change is done is the project's testing scripts: without them, nothing is built.
   stage("finding the project's testing scripts");

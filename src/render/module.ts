@@ -12,7 +12,7 @@ import {
   renderConformanceTests,
   type RenderConformanceTestsResult,
 } from "./conformance.ts";
-import { reportActivity, reportSpec, reportStage, reportTranscript } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, reportTranscript, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot, projectRootOf, projectDirOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
@@ -203,7 +203,7 @@ async function repairRegression(input: {
 
   const fence = confinedTools({ workdir: input.buildDir });
   const notes = notesForSession(input.buildDir, `${input.step} regression repair`);
-  reportStage(`${input.moduleName}: starting the repair agent${input.model ? ` (${input.model})` : ""}`);
+  reportStage(`${unitOf(input.moduleName)}: starting the repair agent${input.model ? ` (${input.model})` : ""}`);
   const session = await createExecutor({
     cwd: input.buildDir,
     customTools: [
@@ -225,7 +225,7 @@ async function repairRegression(input: {
   });
 
   try {
-    reportStage(`${input.moduleName}: plainwright is repairing the code so every functionality's conformance tests pass together`);
+    reportStage(`${unitOf(input.moduleName)}: plainwright is repairing the code so every functionality's conformance tests pass together`);
     const { report, restored } = await keepingTestsUnchanged({
       dirs: input.testsDirs,
       label: input.moduleName,
@@ -252,7 +252,7 @@ async function repairRegression(input: {
       again: (prompt) => ask(session, prompt, input.onDelta),
     });
     if (restored.length > 0) reportActivity(`  put back ${restored.length} conformance test file(s) the repair agent changed`);
-    reportStage(`${input.moduleName}: checking the working notes were left`);
+    reportStage(`${unitOf(input.moduleName)}: checking the working notes were left`);
     await notes.ensureWritten((next) => ask(session, next, input.onDelta));
     return restored.length > 0
       ? `${report}\n\n(The harness put back ${restored.length} conformance test file(s) this repair changed.)`
@@ -313,8 +313,8 @@ export async function ensureRegressionPasses(input: {
   for (let round = 0; round <= maxRounds; round += 1) {
     reportStage(
       round === 0
-        ? `${input.moduleName}: running the codebase's whole conformance suite - every functionality's tests together (${input.frids.join(", ")})`
-        : `${input.moduleName}: repair ${round} done - running the whole conformance suite again`,
+        ? `${unitOf(input.moduleName)}: running the codebase's whole conformance suite - every functionality's tests together (${input.frids.join(", ")})`
+        : `${unitOf(input.moduleName)}: repair ${round} done - running the whole conformance suite again`,
     );
     const result = await runConformanceScript(input.buildDir, dirs, input.scripts);
     command = result.command;
@@ -326,7 +326,7 @@ export async function ensureRegressionPasses(input: {
     let failure = result.output;
     let passing = result.exitCode === 0;
     if (passing && input.scripts.unit !== undefined) {
-      reportStage(`${input.moduleName}: the whole conformance suite passes - running the unit testing script too`);
+      reportStage(`${unitOf(input.moduleName)}: the whole conformance suite passes - running the unit testing script too`);
       const unit = await runUnitScript(input.buildDir, input.scripts.unit);
       runs.push({ command: unit.command, exitCode: unit.exitCode, frids: input.frids });
       input.onEvent?.({ type: "run", command: unit.command, exitCode: unit.exitCode, frids: input.frids });
@@ -338,7 +338,7 @@ export async function ensureRegressionPasses(input: {
     }
 
     if (passing) {
-      reportStage(`${input.moduleName}: the whole conformance suite passes, and the unit tests with it${repairs.length > 0 ? ` after ${repairs.length} repair${repairs.length === 1 ? "" : "s"}` : ""}`);
+      reportStage(`${unitOf(input.moduleName)}: the whole conformance suite passes, and the unit tests with it${repairs.length > 0 ? ` after ${repairs.length} repair${repairs.length === 1 ? "" : "s"}` : ""}`);
       if (repairs.length > 0) {
         recordHistory(input.buildDir, `regression ${input.moduleName} (pass after ${repairs.length} repair(s))`);
       }
@@ -347,7 +347,7 @@ export async function ensureRegressionPasses(input: {
     if (round === maxRounds) break;
 
     input.onEvent?.({ type: "repair", frids: input.frids });
-    reportStage(`${input.moduleName}: an earlier functionality broke - repairing (round ${round + 1} of ${maxRounds})`);
+    reportStage(`${unitOf(input.moduleName)}: an earlier functionality broke - repairing (round ${round + 1} of ${maxRounds})`);
     repairs.push(
       await repairRegression({
         testsDirs: dirs,
@@ -365,7 +365,7 @@ export async function ensureRegressionPasses(input: {
     );
   }
 
-  reportStage(`${input.moduleName}: the whole conformance suite still fails after ${repairs.length} repair${repairs.length === 1 ? "" : "s"} - stopping`);
+  reportStage(`${unitOf(input.moduleName)}: the whole conformance suite still fails after ${repairs.length} repair${repairs.length === 1 ? "" : "s"} - stopping`);
   abandonWork(start, input.moduleName, `the whole conformance suite still fails after ${repairs.length} repair(s)`);
   return { passed: false, runs, repairs, command };
 }
@@ -466,7 +466,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   requireTestScripts(moduleName, scripts, { conformance: conformanceEnabled });
   const inRange = allFrids.slice(fromIndex, toIndex + 1);
   reportStage(
-    `${moduleName}: ${allFrids.length} functionalit${allFrids.length === 1 ? "y" : "ies"} - ` +
+    `${unitOf(moduleName)}: ${allFrids.length} functionalit${allFrids.length === 1 ? "y" : "ies"} - ` +
       (pending.length === 0
         ? "all built from their current specs, nothing to do"
         : `building ${pending.map((entry) => entry.frid).join(", ")}${inRange.length > pending.length ? ` (${inRange.length - pending.length} already built)` : ""}`) +
@@ -538,12 +538,12 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       }
       outcomes.push({ frid, render, regression, stoppedAt: null, conformanceSkipped: true });
       completed.push(frid);
-      reportStage(`${moduleName} ${frid}: done - functionality ${index + 1} of ${allFrids.length} built`);
+      reportStage(`${unitOf(moduleName, frid)}: done - functionality ${index + 1} of ${allFrids.length} built`);
       options.onEvent?.({ type: "functionality_done", frid });
       continue;
     }
 
-    reportStage(`${moduleName} ${frid}: unit tests pass - writing its conformance tests`);
+    reportStage(`${unitOf(moduleName, frid)}: unit tests pass - writing its conformance tests`);
     options.onEvent?.({ type: "phase", frid, phase: "conformance" });
     const conformance = await renderConformanceTests({
       plainFile: options.plainFile,
@@ -587,7 +587,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
 
     outcomes.push({ frid, render, conformance, regression, stoppedAt: null });
     completed.push(frid);
-    reportStage(`${moduleName} ${frid}: done - functionality ${index + 1} of ${allFrids.length} built`);
+    reportStage(`${unitOf(moduleName, frid)}: done - functionality ${index + 1} of ${allFrids.length} built`);
     options.onEvent?.({ type: "functionality_done", frid });
   }
 
@@ -620,13 +620,13 @@ async function renderAsSpecDiffs(
   const tip = snapshot.chain.at(-1)!;
   if (tip.moduleName !== module.moduleName || resolve(tip.buildDir) !== resolve(module.buildDir)) return undefined;
 
-  reportStage(`${module.moduleName}: the spec has moved on from the code in more than new functional specs - planning the change as spec diffs`);
+  reportStage(`${unitOf(module.moduleName)}: the spec has moved on from the code in more than new functional specs - planning the change as spec diffs`);
   const plan = await planSpecSteps(module.built, module.tree, {
     planner: options.planner ?? llmPlanner({ cwd: project, model: options.model, label: `${module.moduleName} spec steps planner` }),
     specFile: relative(project, options.plainFile),
     specText: readFileSync(options.plainFile, "utf8"),
   });
-  reportStage(`${module.moduleName}: ${plan.steps.length} spec diff${plan.steps.length === 1 ? "" : "s"} - ${plan.steps.map((step) => step.title).join("; ")}`);
+  reportStage(`${unitOf(module.moduleName)}: ${plan.steps.length} spec diff${plan.steps.length === 1 ? "" : "s"} - ${plan.steps.map((step) => step.title).join("; ")}`);
 
   if (options.queueSpecDiffs !== undefined) {
     const ids = options.queueSpecDiffs(
@@ -637,7 +637,7 @@ async function renderAsSpecDiffs(
 
   const outcomes: SpecStepOutcome[] = [];
   for (const [index, step] of plan.steps.entries()) {
-    reportStage(`${module.moduleName}: spec diff ${index + 1} of ${plan.steps.length} - ${step.title}`);
+    reportStage(`${unitOf(module.moduleName)}: spec diff ${index + 1} of ${plan.steps.length} - ${step.title}`);
     // What it is on now - and so, in the job panel, for how long.
     reportSpec({ label: `${module.moduleName} spec diff ${index + 1} of ${plan.steps.length}`, text: step.title });
     // What it renders, as a render spec diff job shows its diff: with the progress, and in /watch.
@@ -764,7 +764,7 @@ export async function regenerateFunctionality(
   // No conformance tests of its own to bring in line - conformance is off, or the module has no
   // test reqs to write them from. The codebase's existing ones are still kept passing, unless off.
   if (options.conformance === false || !hasTestReqs) {
-    reportStage(`${moduleName} ${options.frid}: regenerated - ${options.conformance === false ? "conformance is off" : "no test reqs, so no conformance tests of its own"}`);
+    reportStage(`${unitOf(moduleName, options.frid)}: regenerated - ${options.conformance === false ? "conformance is off" : "no test reqs, so no conformance tests of its own"}`);
     const regression = await ensureRegressionPasses({
       start: unit,
       buildDir,
@@ -782,7 +782,7 @@ export async function regenerateFunctionality(
     return { ...base, render, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
   }
 
-  reportStage(`${moduleName} ${options.frid}: regenerated - bringing its conformance tests in line with the new spec`);
+  reportStage(`${unitOf(moduleName, options.frid)}: regenerated - bringing its conformance tests in line with the new spec`);
   options.onEvent?.({ type: "phase", frid: options.frid, phase: "conformance" });
   const conformance = await renderConformanceTests({
     plainFile: options.plainFile,
@@ -930,7 +930,7 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
     let regenerated: RegenerateFunctionalityResult[] | undefined;
     if (covering !== undefined && index === covering.index && covering.stale.length > 0) {
       regenerated = [];
-      reportStage(`${entry.moduleName}: ${covering.stale.length} functionalit${covering.stale.length === 1 ? "y" : "ies"} of the modules below changed - regenerating ${covering.stale.length === 1 ? "it" : "them"} here first`);
+      reportStage(`${unitOf(entry.moduleName)}: ${covering.stale.length} functionalit${covering.stale.length === 1 ? "y" : "ies"} of the modules below changed - regenerating ${covering.stale.length === 1 ? "it" : "them"} here first`);
       for (const stale of covering.stale) {
         const result = await regenerateFunctionality({
           ...options,
@@ -966,12 +966,12 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
       total: chain.length,
     });
 
-    reportStage(`${entry.moduleName}: module ${index + 1} of ${chain.length} in the chain`);
+    reportStage(`${unitOf(entry.moduleName)}: module ${index + 1} of ${chain.length} in the chain`);
     let copied = 0;
     if (entry.requires !== null) {
       const source = byModule.get(entry.requires);
       if (source !== undefined) {
-        reportStage(`${entry.moduleName}: starting from ${entry.requires}'s code and conformance tests`);
+        reportStage(`${unitOf(entry.moduleName)}: starting from ${entry.requires}'s code and conformance tests`);
         copied = copyRequiredCode(source.buildDir, entry.buildDir, entry.moduleName, source.moduleName).length;
         options.onChainEvent?.({
           type: "copied",

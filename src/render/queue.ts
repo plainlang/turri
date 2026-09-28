@@ -21,7 +21,7 @@ import { sectionsOf } from "./state.ts";
 import { TEST_REQUIREMENTS } from "../plain/spec.ts";
 import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
-import { reportStage } from "./activity.ts";
+import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { markWork } from "./history.ts";
 
@@ -437,7 +437,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
     );
     const prerequisites: string[] = [];
     for (const entry of missing) {
-      reportStage(`${moduleName}: building functionality ${entry.frid} first - ${request.frid} is built on it`);
+      reportStage(`${unitOf(moduleName)}: building functionality ${entry.frid} first - ${request.frid} is built on it`);
       const built = await renderFunctionality({ ...common, frid: entry.frid });
       prerequisites.push(`functionality ${entry.frid} was not built yet, so it was built first${built.passed ? "" : " - its unit tests are NOT passing"}.`);
     }

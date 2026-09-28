@@ -174,7 +174,7 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(coder!.prompt).toContain("The spec says the app prints hello; the code prints goodbye.");
     expect(coder!.prompt).toContain(`You have read access to the conformance tests, in ${join(root, "plain_modules", "app", "tests")}, with your file tools`);
     expect(coder!.prompt).toContain("but not write access: read them to see what a failing test does and expects; never change them.");
-    expect(stages).toContain("app 1: the code is wrong - the coding agent fixes it");
+    expect(stages).toContain("module app, functionality 1: the code is wrong - the coding agent fixes it");
 
     // The harness's own runs decide: failing until the code is fixed, then the suite and the unit tests pass.
     expect(result.runs.at(-1)!.exitCode).toBe(0);
