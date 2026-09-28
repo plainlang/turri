@@ -92,6 +92,23 @@ describe("the unit test review", () => {
     expect(result.problems).toEqual([weak]);
   });
 
+  it("takes the reviewer's own words for a problem's kind - one wrong word never throws a valid review away", async () => {
+    verdicts.push(
+      {
+        pass: false,
+        problems: [
+          { file: "test_app.py", kind: "weak_test" as never, what: "only checks something came back", blocking: true },
+          { file: "test_app.py", kind: "missing test coverage" as never, what: "no test for a duplicate email", blocking: true },
+        ],
+      },
+      { pass: true, problems: [] },
+    );
+    const sent: string[] = [];
+    expect((await loop(sent)).passed).toBe(true);
+    expect(sent[0]).toContain("BLOCKING · BAD · test_app.py: only checks something came back");
+    expect(sent[0]).toContain("BLOCKING · MISSING · test_app.py: no test for a duplicate email");
+  });
+
   it("stops when the unit tests no longer pass after the coding agent worked on them", async () => {
     verdicts.push({ pass: false, problems: [weak] });
     const result = await loop([], false);

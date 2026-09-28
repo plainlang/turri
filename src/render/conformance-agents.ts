@@ -370,6 +370,11 @@ export function explorePrompt(
   ].join("\n");
 }
 
+/** A review's word for a problem, as one of the two: "missing" (and anything starting so), else "bad". */
+export function reviewKind(word: string): "missing" | "bad" {
+  return /^\s*missing/i.test(word) ? "missing" : "bad";
+}
+
 /** What the review found wrong with the tests: which file and test, whether something is missing or bad, and exactly what. */
 export interface ReviewProblem {
   file: string;
@@ -418,7 +423,11 @@ export async function reviewTests(options: {
         Type.Object({
           file: Type.String({ description: "The test file, relative to the tests folder" }),
           test: Type.Optional(Type.String({ description: "The test in it, when it is one test" })),
-          kind: Type.Union([Type.Literal("missing"), Type.Literal("bad")]),
+          kind: Type.String({
+            description:
+              '"missing" when a test the specification calls for is not there at all; "bad" when a test is there but weak, wrong or ' +
+              "not black box. Any other word is read as one of the two - one starting with \"missing\" as missing, the rest as bad",
+          }),
           what: Type.String({ description: "Exactly what is missing or bad, and what the specification says instead" }),
           blocking: Type.Boolean({
             description:
@@ -430,7 +439,9 @@ export async function reviewTests(options: {
       ),
     }),
     async execute(_id, params) {
-      const given = params as { pass: boolean; problems: ReviewProblem[] };
+      // "missing_test", "weak", "not black box": the verdict is what counts, not the exact word - one bad word never throws a review away.
+      const given = { ...(params as { pass: boolean; problems: Array<ReviewProblem & { kind: string }> }) };
+      given.problems = given.problems.map((problem) => ({ ...problem, kind: reviewKind(problem.kind) }));
       // A pass with problems, or a fail with none, is not a verdict.
       if (given.pass === given.problems.length > 0) {
         return {
@@ -536,7 +547,8 @@ export function reviewPrompt(options: {
           "",
         ]),
     "Then call submit_review once: pass when nothing is missing and nothing is bad; otherwise every problem - the",
-    "file, the test, missing or bad, and exactly what, with what the specification says instead. Be specific: the",
+    'file, the test, its kind - "missing" for a test that is not there, "bad" for one that is weak, wrong or not black',
+    "box - and exactly what, with what the specification says instead. Be specific: the",
     "agent that fixes them gets your list and nothing else. Mark a problem blocking when because of it the",
     "functionality is not yet tested black box - a test or an acceptance test missing, cut down or skipping what it",
     "checks, the software mocked or not reached from outside, a test that cannot fail. Those are never let go; the",

@@ -27,7 +27,7 @@ import { randomUUID } from "node:crypto";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
-import { markWork } from "./history.ts";
+import { markWork, resetToLastCommit } from "./history.ts";
 import { llmQueueMaster, reworkQueue, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
 import { readBuiltTree } from "./state.ts";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
@@ -381,13 +381,15 @@ export function createRenderQueue(options: {
     // Asked by the person, there is no new change: the spec before is the spec now.
     const previousSpec = instruction !== undefined ? latest.spec.tree : (seenSpec ?? waiting.at(-2)?.spec.tree);
     lastSeen.set(codebase, latest.spec.tree);
-    if ((instruction === undefined && waiting.length < 2) || previousSpec === undefined) return { why: "only one spec diff is waiting" };
+    // The spec diff rendering now: the master may stop it, so one waiting job beside it is a queue to rework.
+    const running = mine.find((work) => work.started && work.superseded === undefined && options.registry.get(work.jobId!)?.status === "running");
+    if ((instruction === undefined && waiting.length + (running !== undefined ? 1 : 0) < 2) || previousSpec === undefined) return { why: "only one spec diff is waiting" };
     const otherWork =
       queued.some((entry) => isPending(options.registry.get(entry.jobId)?.status)) ||
       rebuilds.some((rebuild) => rebuild.codebase === codebase && isPending(options.registry.get(rebuild.jobId)?.status));
     if (otherWork) return { why: "functionality renders or a rebuild are queued for this codebase too - they change what the code is built from, so the spec diffs are left as they are" };
-    const running = mine.find((work) => work.started && options.registry.get(work.jobId!)?.status === "running");
-    const base = running?.spec.tree ?? readBuiltTree(codebase);
+    const built = readBuiltTree(codebase);
+    const base = running?.spec.tree ?? built;
     if (base === null) return { why: "nothing is built in this codebase yet" };
 
     const specFile = relative(options.cwd, latest.plainFile);
@@ -413,6 +415,19 @@ export function createRenderQueue(options: {
       specText,
       conformanceAvailable: !conformanceOff(latest.plainFile) && hasTestReqs(latest.spec),
       ...(instruction !== undefined ? { instruction } : {}),
+      ...(running !== undefined
+        ? {
+            running: {
+              jobId: running.jobId!,
+              title: running.title,
+              tree: running.spec.tree,
+              textDiff: running.diff,
+              conformance: conformanceOf(running) !== "off",
+              ...(conformanceOf(running) === "job" ? { conformanceJobId: running.conformanceJobId } : {}),
+            },
+            ...(built !== null ? { built } : {}),
+          }
+        : {}),
     };
     // Only added on top - nothing queued is undone, edited or needed elsewhere: nothing to rework, and no agent to ask.
     if (instruction === undefined && untouched(input)) return { why: "the new change touches nothing queued" };
@@ -421,8 +436,35 @@ export function createRenderQueue(options: {
       agent: (options.queueMaster === false ? undefined : options.queueMaster) ?? llmQueueMaster({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue master` }),
       askPerson: options.askPerson,
     });
-    applyPlan(waiting, plan, base);
+    // Stopped by the master: it ends, its work so far is rolled back - before any queued job starts, since they wait
+    // for this turn - and its change is in the plan's jobs now.
+    if (plan.stopRunning !== undefined && running !== undefined) await stopRunningWork(running, plan);
+    applyPlan(waiting, plan, plan.base, plan.stopRunning !== undefined ? running : undefined);
     return { plan };
+  };
+
+  /** Stop the running spec diff and its conformance job, wait for it to end, and put its module back at its last commit. */
+  const stopRunningWork = async (running: SpecDiffWork, plan: MasterPlan) => {
+    running.superseded = `Stopped while running, by the queue master: ${plan.stopRunning!.reason}.`;
+    options.registry.stop(running.jobId!);
+    if (running.conformanceJobId !== undefined) {
+      options.registry.stop(running.conformanceJobId);
+      const conformance = options.registry.get(running.conformanceJobId);
+      if (conformance !== undefined) {
+        conformance.note = `Not run: the spec diff it follows, job ${running.jobId}, was stopped by the queue master.`;
+        conformance.error = conformance.note;
+      }
+    }
+    try {
+      await options.registry.wait(running.jobId!);
+    } catch {
+      // Stopped is what it was asked to be.
+    }
+    // Finished just as it was stopped, it landed: the next job starts from what it built, and takes its diff again from there.
+    const details = options.registry.get(running.jobId!)?.details as { landed?: boolean } | undefined;
+    running.landedAnyway = details?.landed === true;
+    // What it wrote and never committed is gone: the code, its tests and the record agree again.
+    resetToLastCommit(running.codebase);
   };
 
   /**
@@ -431,7 +473,7 @@ export function createRenderQueue(options: {
    * left out; what is left over goes on after them, as new jobs. The queued jobs no planned one runs
    * as are stopped, saying where their change went.
    */
-  const applyPlan = (waiting: SpecDiffWork[], plan: MasterPlan, base: MarshalledPlainSource) => {
+  const applyPlan = (waiting: SpecDiffWork[], plan: MasterPlan, base: MarshalledPlainSource, stoppedRunning?: SpecDiffWork) => {
     const by = plan.by === "master" ? "the queue master" : "the harness";
     const claimed = new Map(plan.jobs.map((planned, index) => [planned.jobId, index] as const).filter(([id]) => id !== undefined));
     const slotOf = (id: string | undefined) => waiting.findIndex((work) => work.jobId === id);
@@ -460,7 +502,9 @@ export function createRenderQueue(options: {
     });
 
     const used = new Set(placed.map((entry) => entry.work).filter((work): work is SpecDiffWork => work !== undefined));
-    const taken: string[] = [];
+    const taken: string[] = stoppedRunning !== undefined ? [stoppedRunning.jobId!] : [];
+    // The planned jobs that went on after the queue as new jobs, and their ids.
+    const started = new Map<MasterPlan["jobs"][number], string>();
     const rewritten: string[] = [];
     let before = base;
     for (const { planned, work } of placed) {
@@ -472,6 +516,7 @@ export function createRenderQueue(options: {
         const extra: SpecDiffWork = { ...waiting.at(-1)!, title: planned.title, diff: step.textDiff, applied: "already applied", spec: { ...waiting.at(-1)!.spec, tree: step.tree }, started: false, jobId: undefined, conformanceJobId: undefined, superseded: undefined, before, off: !withTests, conformanceLater: withTests };
         const { jobId } = startSpecDiff(extra);
         rewritten.push(jobId);
+        started.set(planned, jobId);
         const job = options.registry.get(jobId);
         if (job !== undefined) job.note = `${from === "" ? "Inserted" : "Moved here"} by ${by}: ${planned.title}${from}. ${plan.summary}`;
         before = step.tree;
@@ -521,7 +566,7 @@ export function createRenderQueue(options: {
       }
     }
     // The queued jobs no planned job runs as: their change is undone, or runs in another job.
-    const where = new Map(placed.map((entry) => [entry.planned.jobId, entry.work?.jobId]));
+    const where = new Map(placed.map((entry) => [entry.planned.jobId, entry.work?.jobId ?? started.get(entry.planned)]));
     for (const work of waiting) {
       if (used.has(work)) continue;
       const moved = where.get(work.jobId);
@@ -540,6 +585,19 @@ export function createRenderQueue(options: {
           job.note = work.superseded;
           job.error = work.superseded;
         }
+      }
+    }
+    // The running job it stopped: where its change went.
+    if (stoppedRunning !== undefined) {
+      const into = where.get(stoppedRunning.jobId);
+      const note = stoppedRunning.landedAnyway === true
+        ? `Stopped while running, by ${by}: ${plan.stopRunning?.reason ?? ""}. It finished before the stop took, and landed: the next job renders from what it built. ${plan.summary}`
+        : `Stopped while running, by ${by}: ${plan.stopRunning?.reason ?? ""}. What it had done is rolled back; ${into !== undefined ? `its change runs as job ${into}` : "its change is undone by a later one"}. ${plan.summary}`;
+      stoppedRunning.superseded = note;
+      const job = options.registry.get(stoppedRunning.jobId!);
+      if (job !== undefined) {
+        job.note = note;
+        job.error = note;
       }
     }
     // A turn that changed the queue is told: to the tool that queued the change, and to the person.
@@ -967,6 +1025,8 @@ interface SpecDiffWork {
   before?: MarshalledPlainSource | null;
   /** How many turns of the queue master had changed its codebase's queue when it was queued. */
   turnAt?: number;
+  /** Stopped by the queue master while running, it finished before the stop took, and landed. */
+  landedAnyway?: boolean;
 }
 
 /** Build a chain again: the module now required, then the ones above it from scratch - `renderChain` sees to that. */

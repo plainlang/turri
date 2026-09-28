@@ -63,6 +63,55 @@ describe("conformance tests in the queue", () => {
   });
 });
 
+describe("the running job", () => {
+  /** Built: sign up. Running: the profile page. New: the profile page is dropped - the spec now has the feed instead. */
+  const signUp = "- Users sign up.";
+  const profile = "- Users have a profile page with their sessions and counts.";
+  const feed = "- Users see a feed of the sessions of the users they follow.";
+  const running = { jobId: "run1", title: "profile page", tree: tree([signUp, profile]), textDiff: `+${profile}` };
+  const input = (): MasterInput => ({
+    base: tree([signUp, profile]),
+    built: tree([signUp]),
+    running,
+    previous: tree([signUp, profile]),
+    current: tree([signUp, feed]),
+    queued: [{ jobId: "new1", title: "feed instead", tree: tree([signUp, feed]), textDiff: "" }],
+    specFile: "app.plain",
+    specText: "",
+  });
+
+  it("is not added on top when the new change undoes what it builds - the master is asked", () => {
+    expect(untouched(input())).toBe(false);
+    const onTop: MasterInput = { ...input(), current: tree([signUp, profile, feed]), queued: [{ jobId: "new1", title: "feed", tree: tree([signUp, profile, feed]), textDiff: "" }] };
+    expect(untouched(onTop)).toBe(true);
+  });
+
+  it("can be stopped: the work is numbered again from what is built, and it comes back as the first job", async () => {
+    let said = "";
+    const plan = await reworkQueue({
+      input: input(),
+      agent: async (_input, tools) => {
+        said = tools.stopRunning("the new change drops the profile page it builds");
+        const [stopped] = tools.draft();
+        expect(stopped).toMatchObject({ jobId: "run1", changes: [] });
+        tools.deleteJob("run1", "its page is gone");
+        expect(tools.commit("Stopped the profile page: the change dropped it.").ok).toBe(true);
+      },
+    });
+    expect(said).toContain("Job run1 is to be stopped");
+    expect(plan.stopRunning).toEqual({ jobId: "run1", reason: "the new change drops the profile page it builds" });
+    expect(serializeTree(plan.base)).toBe(serializeTree(tree([signUp])));
+    expect(plan.jobs.map((job) => job.jobId)).toEqual(["new1"]);
+    expect(serializeTree(plan.jobs[0]!.step.tree)).toBe(serializeTree(tree([signUp, feed])));
+  });
+
+  it("goes on when the master stops it but commits nothing after - a stop counts only with a queue", async () => {
+    const plan = await reworkQueue({ input: input(), agent: async (_input, tools) => void tools.stopRunning("maybe") });
+    expect(plan.stopRunning).toBeUndefined();
+    expect(serializeTree(plan.base)).toBe(serializeTree(tree([signUp, profile])));
+  });
+});
+
 describe("a job the master names", () => {
   it("is its place before it is the start of an id - ids are hex, and one can begin with 2", () => {
     const draft = [

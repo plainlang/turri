@@ -354,6 +354,17 @@ the nav bar as it is now is still that job's, and a job only adding the profile 
 nothing. So taking something out of queued work is one spec diff that removes it from every spec
 that names it; the queue master takes out the jobs it undoes and rewrites the ones it touches.
 
+The spec diff rendering right now is not in the queue, and the work is measured from the spec it
+will leave - unless the master stops it. It is told what the running job builds, and may stop it
+when the new change undoes or rewrites most of that: stopping throws away what the job has done
+so far, so a job near its end is left to finish. Stopped, the job ends and its module is put back at
+its last commit before any queued job starts; the work is numbered again from what the code is
+built from, and the running job's change comes back as the first job of the draft, to delete,
+merge or rewrite like any other. A stop counts only with the queue committed after it. A job that
+finishes just as it is stopped has landed: the next job renders from what it built, its diff taken
+again from there. A change that undoes what the running job builds is never taken as only added on
+top, so the master is always asked.
+
 A planned job runs as the queued job it came from, keeping its place and id, wherever the order
 allows; one that has to run earlier takes the place of a job the plan left out, and what does not
 fit goes on after them as a new job. A job the rework leaves out never runs: it says where its

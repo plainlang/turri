@@ -338,7 +338,9 @@ export function createJobRegistry(options?: {
         })
         .then(
           (outcome) => {
-            job.status = "succeeded";
+            // Asked to stop, it is stopped - whether its work threw as it unwound or returned what it had.
+            job.status = controller.signal.aborted ? "stopped" : "succeeded";
+            if (controller.signal.aborted) job.error = "Stopped on request.";
             job.report = outcome.report;
             job.announce = outcome.announce;
             job.details = outcome.details;

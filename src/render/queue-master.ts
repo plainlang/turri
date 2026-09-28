@@ -66,6 +66,13 @@ export interface MasterInput {
   /** What the person asked of the queue, when they asked the master themselves - not a new change. */
   instruction?: string;
   /**
+   * The spec diff rendering right now, when there is one: `base` is the spec it leaves. The master may
+   * stop it; then the work is measured from `built`, and it comes back into the draft as the first job.
+   */
+  running?: QueuedDiff;
+  /** What the code is built from now, before the running job lands: the base once it is stopped. */
+  built?: MarshalledPlainSource;
+  /**
    * Whether a job can have conformance tests at all: they are on in the config and the module has
    * test reqs to write them from. Without, none can be turned on.
    */
@@ -90,6 +97,10 @@ export interface MasterPlan {
   summary: string;
   /** How the plan was reached: the master's, the harness's first proposal, or one job for the whole change. */
   by: "master" | "proposal" | "fallback";
+  /** The running job the master stopped, and why: its change is in the plan's jobs now, measured from `base`. */
+  stopRunning?: { jobId: string; reason: string };
+  /** What the plan's first job starts from: the input's base, or what the code is built from once the running job is stopped. */
+  base: MarshalledPlainSource;
 }
 
 /** The work the queue does: every change from the base to the spec as it is now, numbered. */
@@ -108,6 +119,17 @@ function sameChange(a: SpecChange, b: SpecChange): boolean {
  * rework - a new feature added on top of the queue - and no agent is asked.
  */
 export function untouched(input: MasterInput): boolean {
+  // The running job's own changes must still all be part of the work too - a new change that undoes what it builds is not on top.
+  if (input.running !== undefined && input.built !== undefined) {
+    const whole = netChanges(input.built, input.current);
+    const own = changesBetween(serializeTree(input.built), serializeTree(input.running.tree));
+    const taken = new Set<string>();
+    for (const mine of own) {
+      const match = whole.find((change) => !taken.has(change.id) && sameChange(mine, change));
+      if (match === undefined) return false;
+      taken.add(match.id);
+    }
+  }
   const net = netChanges(input.base, input.current);
   let before = serializeTree(input.base);
   let count = 0;
@@ -244,6 +266,12 @@ export interface MasterTools {
   /** Turn the conformance tests of jobs - or of "all" of them - on or off. */
   setConformance(jobs: string[], on: boolean, reason: string): string;
   askPerson(question: string): Promise<string>;
+  /**
+   * Stop the spec diff rendering now: its work so far is rolled back, the changes are numbered again
+   * from what the code is built from, and it comes back as the draft's first job. Says the new changes
+   * and the new draft. Takes effect only with a queue committed after it.
+   */
+  stopRunning(reason: string): string;
   /** Check the draft and take it, or say what is wrong with it. */
   commit(summary: string): { ok: boolean; problems: string[] };
 }
@@ -282,7 +310,10 @@ export async function reworkQueue(options: {
   const { input } = options;
   const proposal = propose(input);
   let draft: DraftJob[] = proposal.map((job) => ({ ...job, changes: [...job.changes] }));
-  let committed: { draft: DraftJob[]; summary: string } | undefined;
+  let committed: { draft: DraftJob[]; summary: string; work: MasterInput } | undefined;
+  // What the draft is measured against: the input, or - once the running job is stopped - from what is built, with it first.
+  let work: MasterInput = input;
+  let stopped: { jobId: string; reason: string } | undefined;
 
   const tools: MasterTools = {
     draft: () => draft.map((job) => ({ ...job, changes: [...job.changes] })),
@@ -326,7 +357,7 @@ export async function reworkQueue(options: {
     insertJob(job) {
       const position = Math.max(1, Math.min(draft.length + 1, Math.round(job.position)));
       // Conformance as the rest of the queue has it, unless it says; never where there can be none.
-      const conformance = input.conformanceAvailable === true && (job.conformance ?? draft.some((other) => other.conformance === true));
+      const conformance = work.conformanceAvailable === true && (job.conformance ?? draft.some((other) => other.conformance === true));
       draft = [...draft.slice(0, position - 1), { title: job.title, reason: job.reason, changes: [...job.changes], conformance }, ...draft.slice(position - 1)];
       return `Inserted "${job.title}" as job ${position}${conformance ? ", with its conformance tests" : ""}.`;
     },
@@ -334,7 +365,7 @@ export async function reworkQueue(options: {
       const all = names.some((name) => name.trim().toLowerCase() === "all");
       const at = all ? draft.map((_, index) => index) : names.map((name) => findJob(draft, name));
       if (at.some((index) => index === -1)) return `Not every one of ${names.join(", ")} is in the draft.`;
-      if (on && input.conformanceAvailable !== true) {
+      if (on && work.conformanceAvailable !== true) {
         return "Conformance tests cannot be turned on here: they are off in the project's config, or the module has no test reqs to write them from. That takes a change to the config or the spec, not to the queue.";
       }
       for (const index of at) draft[index] = { ...draft[index]!, conformance: on };
@@ -347,9 +378,27 @@ export async function reworkQueue(options: {
       const answer = await options.askPerson?.(question);
       return answer === undefined || answer.trim() === "" ? "(no answer - decide yourself, and keep to what the person asked for)" : answer;
     },
+    stopRunning(reason) {
+      if (stopped !== undefined) return `Job ${stopped.jobId} is already stopped.`;
+      if (input.running === undefined) return "Nothing is running: there is no job to stop.";
+      if (input.built === undefined) return "It cannot be stopped: nothing records what the code is built from before it, to start again from.";
+      stopped = { jobId: input.running.jobId, reason };
+      work = { ...input, base: input.built, queued: [input.running, ...input.queued], running: undefined };
+      draft = propose(work);
+      const net = netChanges(work.base, work.current);
+      return [
+        `Job ${input.running.jobId} is to be stopped once you commit a queue: what it did so far is rolled back, and its change is the draft's first job now.`,
+        "The changes are numbered again - from what the code is built from, not from what that job would have left:",
+        "",
+        net.length > 0 ? net.map(describeChange).join("\n\n") : "(none: the code is already built from the spec as it is now - every job can go)",
+        "",
+        "The draft now:",
+        ...draft.map((job, index) => `job ${index + 1}${job.jobId ? ` (${job.jobId})` : " (new)"} · ${job.title}: ${job.changes.join(", ") || "no changes"} · conformance tests: ${job.conformance ? "on" : "off"}`),
+      ].join("\n");
+    },
     commit(summary) {
-      const problems = checkDraft(input, draft);
-      if (problems.length === 0) committed = { draft: tools.draft(), summary };
+      const problems = checkDraft(work, draft);
+      if (problems.length === 0) committed = { draft: tools.draft(), summary, work };
       return { ok: problems.length === 0, problems };
     },
   };
@@ -359,10 +408,14 @@ export async function reworkQueue(options: {
   } catch {
     // The master's failing is not the queue's: the proposal, or the whole change as one job, still is.
   }
-  if (committed !== undefined) return { jobs: stepsOf(input, committed.draft), summary: committed.summary, by: "master" };
-  if (checkDraft(input, proposal).length === 0) return { jobs: stepsOf(input, proposal), summary: "The queue master committed no queue; the queue runs as proposed.", by: "proposal" };
+  // A stop counts only with the queue committed after it: the running job goes on otherwise.
+  if (committed !== undefined) {
+    const stop = committed.work !== input && stopped !== undefined ? { stopRunning: stopped } : {};
+    return { jobs: stepsOf(committed.work, committed.draft), summary: committed.summary, by: "master", base: committed.work.base, ...stop };
+  }
+  if (checkDraft(input, proposal).length === 0) return { jobs: stepsOf(input, proposal), summary: "The queue master committed no queue; the queue runs as proposed.", by: "proposal", base: input.base };
   const whole: DraftJob[] = [{ title: input.queued.at(-1)?.title ?? "The spec change", reason: "the whole of the queued change, in one job", changes: netChanges(input.base, input.current).map((change) => change.id), jobId: input.queued[0]?.jobId, conformance: input.queued.some((job) => job.conformance === true) }];
-  return { jobs: whole[0]!.changes.length === 0 ? [] : stepsOf(input, whole), summary: "The queue master committed no queue that checks; the whole change runs as one job.", by: "fallback" };
+  return { jobs: whole[0]!.changes.length === 0 ? [] : stepsOf(input, whole), summary: "The queue master committed no queue that checks; the whole change runs as one job.", by: "fallback", base: input.base };
 }
 
 export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
@@ -378,10 +431,25 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
     "change goes with it), reorder them (what another relies on goes first), rewrite one (its title, or which changes it",
     "makes), insert one. Ask the person when you are not sure what they meant. Then commit the queue.",
     "",
+    ...(input.running !== undefined
+      ? [
+          "<running now - not in the queue; it lands before the queue's first job>",
+          `job ${input.running.jobId} · ${input.running.title}`,
+          input.running.textDiff.trim(),
+          "</running now>",
+          "",
+          "It is left to finish unless you stop it with stop_running. Stop it only when the new change undoes or rewrites",
+          "most of what it builds: stopping throws away what it has done so far - it is rolled back - and a job near its end",
+          "is usually cheaper to let finish. Stopped, its change comes back as the draft's first job, to delete, merge or",
+          "rewrite like any other, and the changes are numbered again from what the code is built from: after stop_running,",
+          "use the changes and the draft it returns, not the ones below.",
+          "",
+        ]
+      : []),
     "The one rule: the work is the changes below, c1, c2, ... - everything from what the code will be built from to the",
     "spec as the .plain files have it now. Every change is in exactly one job; a job makes at least one; and the jobs, applied",
     "in order, leave a spec that holds together after each, ending exactly on the .plain files as they are. commit_queue checks",
-    "it, and says what is wrong if anything is - fix that and commit again. A job that is running is not in the queue: it stays.",
+    "it, and says what is wrong if anything is - fix that and commit again. A job that is running is not in the queue: it stays, unless you stop it.",
     "",
     "Conformance tests are part of the queue too. A spec diff job with them on is followed by a conformance job of its own,",
     "which writes and runs its conformance tests once it lands. set_conformance turns them off for jobs - or all of them - and",
@@ -508,6 +576,18 @@ export function llmQueueMaster(options: { cwd: string; model?: string; label?: s
         parameters: Type.Object({ jobs: Type.Array(job), on: Type.Boolean(), reason: Type.String() }),
         async execute(_id, params) {
           return say(tools.setConformance(params.jobs, params.on, params.reason));
+        },
+      }),
+      defineTool({
+        name: "stop_running",
+        label: "Stop the running job",
+        description:
+          "Stop the spec diff rendering now, when the new change undoes or rewrites most of what it builds. Its work so far is " +
+          "rolled back; its change comes back as the draft's first job; the changes are numbered again from what the code is " +
+          "built from, and this returns them with the new draft. It takes effect with the queue you commit after it.",
+        parameters: Type.Object({ reason: Type.String({ description: "Why it is worth throwing away what it has done so far" }) }),
+        async execute(_id, params) {
+          return say(tools.stopRunning(params.reason));
         },
       }),
       defineTool({

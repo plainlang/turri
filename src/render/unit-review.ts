@@ -5,7 +5,7 @@ import { ask, createExecutor } from "../pi.ts";
 import { reportActivity } from "./activity.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
-import { REVIEWER_CALLS } from "./conformance-agents.ts";
+import { REVIEWER_CALLS, reviewKind } from "./conformance-agents.ts";
 import { recordNote } from "./notes.ts";
 import { INTEGRITY_RULES } from "./prompt.ts";
 import { TEST_FILE_PATTERN } from "./testing.ts";
@@ -101,7 +101,8 @@ export function unitReviewPrompt(options: {
         ]
       : ["Find every problem now, in this one review: the tests go back once with all of them.", ""]),
     "Then call submit_review once: pass when nothing is missing and nothing is weak; otherwise every problem - the",
-    "file, the test, missing or bad, and exactly what, with what the specification says instead. Be specific: the",
+    'file, the test, its kind - "missing" for a test that is not there, "bad" for one that is weak or wrong - and',
+    "exactly what, with what the specification says instead. Be specific: the",
     "agent that fixes them gets your list and nothing else. Mark a problem blocking when because of it a behaviour",
     "the specification states is not tested - no test for it, or one that cannot fail. Those are never let go; the",
     "rest - ways to make tests that already test it better - are let go after a few reviews.",
@@ -136,7 +137,11 @@ export async function reviewUnitTests(options: {
         Type.Object({
           file: Type.String({ description: "The test file, relative to the code folder - or the file a missing test belongs in" }),
           test: Type.Optional(Type.String({ description: "The test in it, when it is one test" })),
-          kind: Type.Union([Type.Literal("missing"), Type.Literal("bad")]),
+          kind: Type.String({
+            description:
+              '"missing" when a test the specification calls for is not there at all; "bad" when a test is there but weak or wrong.' +
+              " Any other word is read as one of the two - one starting with \"missing\" as missing, the rest as bad",
+          }),
           what: Type.String({ description: "Exactly what is missing or weak, and what the specification says instead" }),
           blocking: Type.Boolean({
             description: "True when because of it a behaviour the specification states is not tested - no test, or one that cannot fail. False for a way to make a test that already tests it better",
@@ -145,7 +150,9 @@ export async function reviewUnitTests(options: {
       ),
     }),
     async execute(_id, params) {
-      const given = params as { pass: boolean; problems: UnitReviewProblem[] };
+      // "missing_test", "weak": the verdict is what counts, not the exact word - one bad word never throws a review away.
+      const given = { ...(params as { pass: boolean; problems: Array<UnitReviewProblem & { kind: string }> }) };
+      given.problems = given.problems.map((problem) => ({ ...problem, kind: reviewKind(problem.kind) }));
       // A pass with problems, or a fail with none, is not a verdict.
       if (given.pass === given.problems.length > 0) {
         return {

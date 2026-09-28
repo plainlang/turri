@@ -11,6 +11,9 @@ const conformanceLaterSeen: Array<boolean | undefined> = [];
 /** What each render was told about conformance: false, off. */
 const conformanceSeen: Array<boolean | undefined> = [];
 const renderedDiffs: string[] = [];
+/** Set, the next render is held until `releaseSlow` - running, for the queue master to find. */
+let holdNext = false;
+let releaseSlow: (() => void) | undefined;
 
 vi.mock("../../src/render/spec-change.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/render/spec-change.ts")>();
@@ -19,6 +22,12 @@ vi.mock("../../src/render/spec-change.ts", async (importOriginal) => {
     renderSpecDiff: async (options: { conformance?: boolean; conformanceLater?: boolean; diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
       ran.push("render spec diff");
       conformanceSeen.push(options.conformance);
+      if (holdNext) {
+        holdNext = false;
+        await new Promise<void>((resolve) => (releaseSlow = resolve));
+        // Stopped, a real render's agent is aborted and it lands nothing.
+        return { passed: false, stoppedAt: "unit tests" };
+      }
       renderedDiffs.push(options.diff ?? "");
       conformanceLaterSeen.push(options.conformanceLater);
       // Landing, it records the spec it was given - as the real one does.
@@ -323,5 +332,45 @@ describe("the queue master", () => {
     // The renders ran, with conformance off - and no conformance job ran after them.
     expect(ran).toEqual(["render spec diff", "render spec diff"]);
     expect(conformanceSeen).toEqual([false, false]);
+  });
+
+  it("stops the spec diff running now when the new change undoes it, rolls it back, and renders only what is left", async () => {
+    const { writeBuiltTree } = await import("../../src/render/state.ts");
+    const buildDir = join(dir, "plain_modules", "frontend", "code");
+    const specs = (items: string[]) => ({ "functional specs": items.map((markdown) => ({ markdown })) });
+    const signUp = "- A visitor signs up.";
+    const profile = "- The profile page shows a user's sessions and counts.";
+    holdNext = true;
+    const feed = "- The feed shows the sessions of the users one follows.";
+    writeBuiltTree(buildDir, specs([signUp]) as never);
+    writeFileSync(join(dir, "frontend.plain"), `***functional specs***\n\n${signUp}\n${feed}\n`);
+    const snapshot = (items: string[]) => ({ moduleName: "frontend", plainFile: join(dir, "frontend.plain"), tree: specs(items), chain: [{ moduleName: "frontend", plainFile: join(dir, "frontend.plain"), buildDir }] }) as unknown as SpecSnapshot;
+    const seen: Array<string | undefined> = [];
+    const master = async (input: { running?: { jobId: string } }, tools: { draft(): Array<{ jobId?: string; changes: string[] }>; stopRunning(reason: string): string; deleteJob(job: string, reason: string): string; commit(summary: string): { ok: boolean; problems: string[] } }) => {
+      seen.push(input.running?.jobId);
+      tools.stopRunning("the new change drops the profile page it builds");
+      for (const job of tools.draft()) if (job.changes.length === 0) tools.deleteJob(job.jobId!, "its page is gone");
+      expect(tools.commit("Stopped the profile page: the change dropped it.").problems).toEqual([]);
+    };
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never });
+    const profileJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: `+${profile}`, applied: "already applied", spec: snapshot([signUp, profile]) });
+    // It starts rendering, and is held there.
+    while (registry.get(profileJob.jobId)?.status !== "running" || releaseSlow === undefined) await new Promise((resolve) => setTimeout(resolve, 5));
+    const feedJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: `+${feed}`, applied: "already applied", spec: snapshot([signUp, feed]) });
+    // Stopped, the held render ends when its agent does.
+    setTimeout(() => releaseSlow?.(), 20);
+    const said = (await q.afterRework(feedJob.jobId))!;
+    await registry.wait(feedJob.jobId);
+
+    expect(seen).toEqual([profileJob.jobId]);
+    expect(registry.get(profileJob.jobId)!.status).toBe("stopped");
+    expect(registry.get(profileJob.jobId)!.note).toMatch(/^Stopped while running, by the queue master: the new change drops the profile page it builds\. What it had done is rolled back/);
+    expect(said).toContain(`Taken out, never to run: job ${profileJob.jobId}`);
+    expect(ran).toEqual(["render spec diff", "render spec diff"]);
+    // The held render never got to its diff; the one that ran after it is the feed's, and the profile page is in no render.
+    expect(renderedDiffs).toHaveLength(1);
+    expect(renderedDiffs[0]).toContain("The feed shows");
+    expect(renderedDiffs[0]).not.toContain("profile page");
   });
 });
