@@ -27,6 +27,9 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         });
         return "Done.";
       }
+      // The unit test review: the tests here are not what these tests are about - it passes them.
+      const review = session.tools.find((candidate) => candidate.name === "submit_review");
+      if (review !== undefined) return (await review.execute("id", { pass: true, problems: [] }), "Reviewed.");
       prompts.push(prompt);
       const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
       if (prompt.includes("describe_how_to_try_it")) {

@@ -67,6 +67,8 @@ is reported as pending, not dropped.
 - `render.ts` renders one functionality. `prompt.ts` builds the only thing the agent sees; it can't
   read `.plain` files. The agent works, then the harness runs the project's unit testing script
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times.
+  Once they pass, `unit-review.ts` has a read-only reviewer check the unit tests it added test what
+  the spec says (blocking problems never waived; the rest after five reviews), as spec changes do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
   labelled and checked by label. `module.ts` covers whole-module builds, the regression gate (a
   repair agent that may not touch tests), and regeneration. `spec-change.ts` and

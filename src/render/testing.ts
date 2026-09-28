@@ -114,7 +114,7 @@ export function listFiles(root: string): string[] {
 }
 
 /** A tool that runs the tests and lets the harness see the result, rather than taking the agent's word. */
-const TEST_FILE_PATTERN = /(^|[._/-])(test|spec)|test[._-]|Test\.|\.test\.|_test\./i;
+export const TEST_FILE_PATTERN = /(^|[._/-])(test|spec)|test[._-]|Test\.|\.test\.|_test\./i;
 const TEST_CASE_PATTERN = /\bdef\s+test\w*|\bit\s*\(|\btest\s*\(|@Test\b|\bfunc\s+Test\w*/g;
 
 /**

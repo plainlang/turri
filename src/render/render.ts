@@ -4,6 +4,9 @@ import { ask, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
+  DEFINITIONS,
+  NON_FUNCTIONAL_REQUIREMENTS,
+  type Specifications,
   FUNCTIONAL_REQUIREMENTS,
   getFrids,
   getInheritedFunctionalSpecs,
@@ -14,7 +17,9 @@ import {
   type SpecificationItem,
 } from "../plain/spec.ts";
 import { reportActivity, reportSpec, reportStage, reportTryIt, type BuildingSpec, unitOf } from "./activity.ts";
-import { codebaseMap } from "./codebase.ts";
+import { codebaseMap, digestFiles } from "./codebase.ts";
+import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
+import { untilUnitTestsReviewed, type UnitReviewProblem } from "./unit-review.ts";
 import { abandonWork, recordHistory, startFromLastCommit, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import { createScriptTool, findTestScripts, projectRootFor, requireTestScripts, runUnitScript, withTestingScripts } from "./test-scripts.ts";
@@ -87,6 +92,10 @@ export interface RenderFunctionalityOptions {
   regenerate?: {
     in?: { moduleName: string; plainFile: string; buildDir: string };
   };
+  /** Review the unit tests once they pass - that they test what the spec says. Default true. */
+  unitReview?: boolean;
+  /** The unit test review's model. Default: the project's judge-model, else `model`. */
+  judgeModel?: string;
 }
 
 export interface RenderFunctionalityResult {
@@ -112,6 +121,8 @@ export interface RenderFunctionalityResult {
   testRemovals: TestRemoval[];
   /** How a person runs it and sees this functionality, checked by the harness. */
   tryIt?: TryIt;
+  /** What the unit test review said, when it did not simply pass: let go as it was, or still finding untested behaviour. */
+  unitReview?: { passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[] };
 }
 
 /**
@@ -276,6 +287,9 @@ export async function renderFunctionality(
     // this run must not break, so the baseline is taken before the agent starts.
     let inventory = inventoryTests(buildDir);
     const testRemovals: TestRemoval[] = [];
+    // What the code folder held before: the unit tests this run adds or changes are what the review reads.
+    const codeAtStart = digestFiles(buildDir);
+    let unitReview: RenderFunctionalityResult["unitReview"];
 
     stage("plainwright is writing the code and its unit tests");
     let response = await ask(executor, prompt, options.onDelta);
@@ -325,6 +339,26 @@ export async function renderFunctionality(
     };
     let verified = await untilPassing();
 
+    // The unit tests pass - now whether they test anything: every behaviour of the spec, so they fail when it breaks.
+    if (verified && options.unitReview !== false) {
+      const reviewed = await untilUnitTestsReviewed({
+        buildDir,
+        atStart: codeAtStart,
+        what: `functionality ${frid}`,
+        specText: specTextOf(specifications, frid),
+        label: `${moduleName} ${frid}`,
+        model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(options.plainFile).judgeModel, splitModelSpec(options.model))),
+        send: async (next) => {
+          response = await ask(executor, next, options.onDelta);
+        },
+        untilPassing,
+        stage,
+        onDelta: options.onDelta,
+      });
+      verified = reviewed.passed;
+      if (!reviewed.passed || reviewed.waived !== undefined) unitReview = reviewed;
+    }
+
     // Asked only once the tests pass: instructions for software that does not work yet
     // would be instructions for something else.
     if (options.tryIt === true && verified) {
@@ -357,7 +391,7 @@ export async function renderFunctionality(
     // never been tried, and the tree still says what the code is built from.
     const what = targetFunctionality(specifications).split("\n")[0]!.replace(/^- /, "");
     if (!passed) {
-      stage("unit tests NOT passing - undoing the render");
+      stage(unitReview?.passed === false && runs.at(-1)?.exitCode === 0 ? "the unit tests pass but still leave the spec untested - undoing the render" : "unit tests NOT passing - undoing the render");
       abandonWork(start, host?.moduleName ?? moduleName, `functionality ${frid} did not pass its unit tests`);
     } else if (host === undefined) {
       stage("recording what the code is built from, and committing it");
@@ -386,10 +420,21 @@ export async function renderFunctionality(
       passed,
       testRemovals,
       tryIt,
+      ...(unitReview !== undefined ? { unitReview } : {}),
     };
   } finally {
     executor.dispose();
   }
+}
+
+/** The specification a functionality is built from, as its unit test review reads it. */
+function specTextOf(specifications: Specifications, frid: string): string {
+  const section = (heading: string, items: string[]) => (items.length > 0 ? [`***${heading}***`, "", ...items, ""] : []);
+  return [
+    ...section("definitions", specifications[DEFINITIONS] ?? []),
+    ...section("implementation reqs", specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? []),
+    ...section(`functional specs - the last one, functionality ${frid}, is what this work built; the ones before it were built already`, specifications[FUNCTIONAL_REQUIREMENTS] ?? []),
+  ].join("\n");
 }
 
 

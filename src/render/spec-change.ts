@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata, withParseCache } from "../plain/parser.ts";
 import {
+  DEFINITIONS,
   FUNCTIONAL_REQUIREMENTS,
+  NON_FUNCTIONAL_REQUIREMENTS,
   getFrids,
   getInheritedFunctionalSpecs,
   getSpecificationsForFrid,
@@ -42,6 +44,8 @@ import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { readBuiltTree, sectionsOf, writeBuiltTree } from "./state.ts";
 import { sameSpec } from "./spec-steps.ts";
+import { untilUnitTestsReviewed } from "./unit-review.ts";
+import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
 import {
   findTestRemovals,
   inventoryTests,
@@ -238,6 +242,10 @@ export interface RenderSpecDiffOptions {
    */
   tryIt?: boolean;
   model?: string;
+  /** Review the unit tests once they pass - that they test what the change says. Default true. */
+  unitReview?: boolean;
+  /** The unit test review's model. Default: the project's judge-model, else `model`. */
+  judgeModel?: string;
   onDelta?: (delta: string) => void;
 }
 
@@ -373,6 +381,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   let response: string;
   let verified = false;
+  let unitReviewStopped = false;
   let followUp = 0;
   /** The harness's runs of the unit testing script: each is an attempt it judged. */
   let attempts = 0;
@@ -423,6 +432,27 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     };
     verified = await untilPassing();
 
+    // The unit tests pass - now whether they test what the change says, so they fail when it breaks.
+    if (verified && options.unitReview !== false) {
+      const reviewed = await untilUnitTestsReviewed({
+        buildDir,
+        atStart: digestsBefore,
+        what: "the spec change",
+        specText: specTextOf(specifications),
+        diff: options.diff,
+        label: `${moduleName} spec change`,
+        model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
+        send: async (next) => {
+          response = await ask(executor, next, options.onDelta);
+        },
+        untilPassing,
+        stage,
+        onDelta: options.onDelta,
+      });
+      verified = reviewed.passed;
+      if (!reviewed.passed) unitReviewStopped = true;
+    }
+
     // Asked only once the tests pass: instructions for software that does not work yet would
     // be instructions for something else.
     if (options.tryIt === true && verified) {
@@ -461,7 +491,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   };
 
   if (!unitPassed) {
-    stage("unit tests NOT passing - undoing the change");
+    stage(unitReviewStopped ? "the unit tests pass but still leave the change untested - undoing the change" : "unit tests NOT passing - undoing the change");
     abandonWork(unit, moduleName, "the spec change did not pass its unit tests");
     return { ...base, passed: false, stoppedAt: "unit tests" };
   }
@@ -526,6 +556,16 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   });
   if (regression.passed) land();
   return { ...base, conformance, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
+}
+
+/** The specification a spec change is rendered from, as its unit test review reads it. */
+function specTextOf(specifications: Specifications): string {
+  const section = (heading: string, items: string[]) => (items.length > 0 ? [`***${heading}***`, "", ...items, ""] : []);
+  return [
+    ...section("definitions", specifications[DEFINITIONS] ?? []),
+    ...section("implementation reqs", specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? []),
+    ...section("functional specs", specifications[FUNCTIONAL_REQUIREMENTS] ?? []),
+  ].join("\n");
 }
 
 /** What a rendered spec change did, for the agent and the person. */

@@ -110,6 +110,26 @@ another, or tests something the spec does not require. Inconvenient, slow or fai
 grounds. Justified removals are reported, not silent. The baseline is taken before the agent
 starts, so breaking an earlier functionality's test is caught too.
 
+### The unit tests are reviewed
+
+Passing unit tests prove only what they check, and a coding agent is quick to write tests that check
+next to nothing - that a function exists, that a result is not empty, that a status is 200. So once
+the unit testing script passes, a reviewer on the judge model reads the unit tests the work added or
+changed, beside the code and the spec, and changes nothing. It checks that every behaviour, edge
+case and error the spec states for this work has a test asserting the exact outcome the spec says,
+that fails when it breaks; that no test only checks something exists, asserts nothing, is skipped or
+swallows a failure; that the unit under test is never mocked - only what is outside it; and that
+the tests are deterministic. For a spec change, what it adds or changes is what needs testing, and a
+change that adds no behaviour needs no new test.
+
+Its problems go back to the coding agent, the unit testing script has to pass again, and the next
+review checks those problems first rather than starting over. A problem that leaves a behaviour of
+the spec untested - no test, or one that cannot fail - is **blocking** and never let go: after eight
+reviews with one still there, the work stops and is undone. The rest, ways to make tests that
+already test it better, are let go after five reviews - the tests cannot be optimised further - and
+what the last review suggested goes into the working notes. The conformance tests are reviewed the
+same way, as black-box tests (see [conformance tests](#conformance-tests)).
+
 ### Then
 
 Once the unit tests pass: the conformance tests already in the codebase are run and kept passing
