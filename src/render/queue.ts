@@ -230,6 +230,7 @@ export function createRenderQueue(options: {
         summary: `${basename(plainFile)} spec diff conformance`,
         diff: request.diff,
         model,
+        follows: request.after,
         lanes: [queueLane, ...moduleLanes(codebaseOf(plainFile), options.buildDir)],
         run: async (onDelta) => {
           const skipped = notFollowing(request.after);
@@ -261,6 +262,7 @@ export function createRenderQueue(options: {
         kind: "render_functionality_conformance",
         summary: `${basename(plainFile)} conformance, ${scope}`,
         model,
+        follows: after,
         lanes: [queueLane, ...moduleLanes(suite.buildDir === undefined ? codebaseOf(plainFile) : plainFile, suite.buildDir ?? options.buildDir)],
         run: async (onDelta) => {
           const skipped = notFollowing(after);

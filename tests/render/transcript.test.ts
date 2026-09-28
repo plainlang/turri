@@ -114,6 +114,7 @@ describe("the side panel", () => {
     const { createSidePanel } = await import("../../src/render/side-panel.ts");
     const { reportTryIt } = await import("../../src/render/activity.ts");
     const job = await jobWith(() => {
+      reportSpec({ label: "app 1 of 1", text: "The app prints hello.\n\nMore of it." });
       reportStage("conformance tests failing - working out whether the code, the tests or the spec are wrong");
       reportTranscript({ kind: "prompt", text: "Decide what is wrong.", agent: judge });
       reportTranscript({ kind: "text", text: "The code drops the /api/v2 prefix.", agent: judge });
@@ -126,10 +127,14 @@ describe("the side panel", () => {
     const panel = createSidePanel({ jobs: () => [job], rows: () => 40, style: PLAIN, key: "alt+o", back: () => (back += 1), close: () => (closed = true) });
     const text = () => panel.render(100).join("\n");
 
-    // Jobs first: the queue, with what finished.
+    // Jobs first: the queue, with what finished - and what each was about.
     expect(text()).toContain("[Jobs]");
     expect(text()).toContain("── finished");
     expect(text()).toContain("app.plain fs 1");
+    // The functional spec it built, whole.
+    expect(text()).toContain("app 1 of 1:");
+    expect(text()).toContain("The app prints hello.");
+    expect(text()).toContain("More of it.");
 
     panel.handleInput("\t");
     expect(text()).toContain("[Try it]");
@@ -160,10 +165,42 @@ describe("the side panel", () => {
     expect(closed).toBe(false);
   });
 
-  it("says why there are no try-it steps yet", async () => {
+  it("lists how to try every job that worked it out, newest first - not just one job's, and not the oldest's", async () => {
     const { tryItLines } = await import("../../src/render/side-panel.ts");
-    const job = await jobWith(() => {});
-    expect(tryItLines(job, 80, PLAIN).join("\n")).toContain("no try-it steps: this job worked out none");
+    const { reportTryIt } = await import("../../src/render/activity.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const registry = createJobRegistry();
+    const step = (what: string) => ({ tryIt: { setup: [], steps: [{ do: what, expect: "it works", kind: "command" as const, exitCode: 0 }] }, buildDir: "/b" });
+    const first = registry.start({ kind: "render_spec_diff", summary: "backend.plain render spec diff", run: async () => (reportTryIt(step("curl /api/orders")), { report: "" }) });
+    await registry.wait(first.id);
+    const conformance = registry.start({ kind: "render_spec_diff_conformance", summary: "backend.plain spec diff conformance", run: async () => ({ report: "" }) });
+    await registry.wait(conformance.id);
+    const second = registry.start({ kind: "render_spec_diff", summary: "frontend.plain render spec diff", run: async () => (reportTryIt(step("open http://localhost:5173")), { report: "" }) });
+    await registry.wait(second.id);
+
+    const text = tryItLines(registry.list(), 80, PLAIN).join("\n");
+    expect(text.indexOf("frontend.plain render spec diff")).toBeLessThan(text.indexOf("backend.plain render spec diff"));
+    expect(text).toContain("curl /api/orders");
+    expect(text).toContain("open http://localhost:5173");
+    expect(text).not.toContain("spec diff conformance");
+    expect(tryItLines([], 80, PLAIN).join("\n")).toContain("no try-it steps yet");
+  });
+
+  it("shows under each finished spec diff the whole change, and says which render a conformance job was the conformance of", async () => {
+    const { createSidePanel } = await import("../../src/render/side-panel.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const registry = createJobRegistry();
+    const diff = "--- a/backend.plain\n+++ b/backend.plain\n@@ -1 +1,2 @@\n+- :OrderController: takes the :AuthData: from the request.\n";
+    const job = registry.start({ kind: "render_spec_diff", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
+    await registry.wait(job.id);
+    const conformance = registry.start({ kind: "render_spec_diff_conformance", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
+    await registry.wait(conformance.id);
+    const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 30, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
+    const lines = panel.render(120).join("\n");
+    expect(lines).toContain("backend.plain render spec diff");
+    expect(lines).toContain("+- :OrderController: takes the :AuthData: from the request.");
+    expect(lines).toContain("+++ b/backend.plain");
+    expect(lines).toContain(`the conformance of backend.plain render spec diff (job ${job.id}, succeeded)`);
   });
 });
 

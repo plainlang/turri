@@ -22,6 +22,8 @@ export interface Job {
   summary: string;
   /** The spec change a render spec diff job renders, as its diff. Shown while it waits and runs. */
   diff?: string;
+  /** For a conformance job: the render job it is the conformance of. */
+  follows?: string;
   /** "provider/model-id" its agents run on, when known. */
   model?: string;
   status: JobStatus;
@@ -80,6 +82,8 @@ export interface StartJobInput {
   diff?: string;
   /** "provider/model-id" its agents run on, to show where the job is shown. */
   model?: string;
+  /** For a conformance job: the render it is the conformance of. */
+  follows?: string;
   /**
    * What the job writes, e.g. a module's directory. Two jobs sharing a lane never run at
    * the same time: the later one queues until the earlier one settles, whatever started
@@ -158,6 +162,7 @@ export function createJobRegistry(options?: {
         summary: input.summary,
         diff: input.diff,
         model: input.model,
+        ...(input.follows !== undefined ? { follows: input.follows } : {}),
         status: blockers.length > 0 ? "queued" : "running",
         sequence: (sequence += 1),
         queuedAt: now,

@@ -43,7 +43,7 @@ function wrap(text: string, width: number, indent: string): string[] {
  * A spec change's diff, whole: what it adds and removes coloured, the rest receding. A line wider
  * than the screen wraps rather than being cut - a spec line changed near its end is the change.
  */
-function diffLines(diff: string, width: number, style: TranscriptStyle): string[] {
+export function diffLines(diff: string, width: number, style: TranscriptStyle): string[] {
   return diff
     .trimEnd()
     .split("\n")

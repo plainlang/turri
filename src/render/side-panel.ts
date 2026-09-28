@@ -3,7 +3,7 @@ import { describeUsage } from "./activity.ts";
 import { describeTryIt } from "./delivery.ts";
 import { jobPanelLines } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
-import { agentsOf, roleOf, transcriptLines, type TranscriptStyle } from "./transcript-view.ts";
+import { agentsOf, diffLines, roleOf, transcriptLines, type TranscriptStyle } from "./transcript-view.ts";
 
 /**
  * The side panel: what the jobs are doing, beside the conversation rather than instead of it.
@@ -39,24 +39,43 @@ export interface SidePanelOptions {
   key: string;
 }
 
-/** The job a view is about: the one chosen, else the running one, else the latest. */
-function pick(jobs: Job[], id: string | undefined): Job | undefined {
-  return jobs.find((job) => job.id === id) ?? jobs.find((job) => job.status === "running") ?? jobs.at(-1);
+/** A job as a conformance job names the render it follows: what it was, and its id. */
+function followed(jobs: Job[], id: string): string {
+  const render = jobs.find((job) => job.id === id);
+  return render !== undefined ? `${render.summary} (job ${id}, ${render.status})` : `job ${id}`;
 }
 
-/** The Try it view: the steps a job's build was checked with - or why there are none yet. */
-export function tryItLines(job: Job | undefined, width: number, style: TranscriptStyle): string[] {
-  if (job === undefined) return [style.muted("(no job yet)")];
-  if (job.tryIt !== undefined) {
-    return describeTryIt(job.tryIt.tryIt, job.tryIt.buildDir).flatMap((line) => (line === "" ? [""] : wrapTextWithAnsi(line, Math.max(10, width))));
+/** Newest first, whatever order they come in. */
+function newestFirst(jobs: Job[]): Job[] {
+  return [...jobs].sort((a, b) => b.sequence - a.sequence);
+}
+
+/** The job a view is about: the one chosen, else the running one, else the newest. */
+function pick(jobs: Job[], id: string | undefined): Job | undefined {
+  const ordered = newestFirst(jobs);
+  return ordered.find((job) => job.id === id) ?? ordered.find((job) => job.status === "running") ?? ordered[0];
+}
+
+/**
+ * The Try it view: how to try what each job built, as the harness checked it - every job that has
+ * steps, newest first, each under what it built. A render or a spec change works them out once its
+ * tests pass; conformance jobs never do.
+ */
+export function tryItLines(jobs: Job[], width: number, style: TranscriptStyle): string[] {
+  const withSteps = newestFirst(jobs).filter((job) => job.tryIt !== undefined);
+  const lines = withSteps.flatMap((job, index) => [
+    ...(index > 0 ? [""] : []),
+    style.heading(`── ${job.summary}  (job ${job.id})`),
+    ...describeTryIt(job.tryIt!.tryIt, job.tryIt!.buildDir)
+      .slice(2)
+      .flatMap((line) => (line === "" ? [""] : wrapTextWithAnsi(line, Math.max(10, width)))),
+  ]);
+  const coming = newestFirst(jobs).filter((job) => job.tryIt === undefined && (job.status === "running" || job.status === "queued") && /render|regenerate/.test(job.kind) && !/conformance/.test(job.kind));
+  const pending = coming.map((job) => style.muted(`  ${job.summary} - ${job.status === "queued" ? "not started yet" : `still at: ${job.stage ?? "starting"}`}; its steps come once its tests pass`));
+  if (lines.length === 0 && pending.length === 0) {
+    return [style.muted("(no try-it steps yet: a render or a spec change works them out once its tests pass)")];
   }
-  const why =
-    job.status === "queued"
-      ? "the job has not started yet"
-      : job.status === "running"
-        ? `it is still at: ${job.stage ?? "starting"} - the steps are worked out once its tests pass`
-        : "this job worked out none - only a render or a spec change that passes its tests does";
-  return [style.muted(`(no try-it steps: ${why})`)];
+  return [...lines, ...(pending.length > 0 ? [...(lines.length > 0 ? [""] : []), style.muted("── still to come"), ...pending] : [])];
 }
 
 export function createSidePanel(options: SidePanelOptions) {
@@ -77,12 +96,30 @@ export function createSidePanel(options: SidePanelOptions) {
       const jobs = options.jobs();
       if (jobs.length === 0) return [style.muted("(no jobs yet)")];
       const live = jobPanelLines(jobs, { expanded: true, diffStyle: style });
-      const finished = jobs
+      const finished = newestFirst(jobs)
         .filter((item) => item.status !== "running" && item.status !== "queued")
-        .map((item) => `  ${item.status.padEnd(9)} ${item.summary} · ${formatDuration(item)}${describeUsage(item.usage) ? ` · ${describeUsage(item.usage)}` : ""}  (job ${item.id})`);
+        .flatMap((item) => [
+          `  ${item.status.padEnd(9)} ${item.summary} · ${formatDuration(item)}${describeUsage(item.usage) ? ` · ${describeUsage(item.usage)}` : ""}  (job ${item.id})`,
+          // The render it is the conformance of, for a conformance job.
+          ...(item.follows !== undefined ? [style.muted(`            the conformance of ${followed(jobs, item.follows)}`)] : []),
+          // What it was about, whole: the spec change it rendered, or the functional spec it built.
+          ...(item.diff !== undefined
+            ? diffLines(item.diff, Math.max(10, width - 12), style).map((line) => `            ${line}`)
+            : item.building !== undefined
+              ? [
+                  style.muted(`            ${item.building.label}:`),
+                  ...item.building.text
+                    .trimEnd()
+                    .split("\n")
+                    .flatMap((line) => (line === "" ? [""] : wrapTextWithAnsi(line, Math.max(10, width - 14))))
+                    .map((line) => style.accent(`              ${line}`)),
+                ]
+              : []),
+          "",
+        ]);
       return [...live, ...(finished.length > 0 ? ["", style.heading("── finished"), ...finished] : [])];
     }
-    if (view === "tryit") return tryItLines(job, width, style);
+    if (view === "tryit") return tryItLines(options.jobs(), width, style);
     if (job === undefined) return [style.muted("(no job yet)")];
     return transcriptLines(job, width, style, agent);
   };
@@ -100,7 +137,7 @@ export function createSidePanel(options: SidePanelOptions) {
 
       const tabs = VIEWS.map(({ view: item, title }) => (item === view ? style.heading(`[${title}]`) : style.muted(` ${title} `))).join(" ");
       const about =
-        view === "jobs"
+        view === "jobs" || view === "tryit"
           ? ""
           : job === undefined
             ? ""
@@ -114,7 +151,7 @@ export function createSidePanel(options: SidePanelOptions) {
       while (visible.length < bodyHeight) visible.push("");
 
       const where = fromBottom[view] === 0 ? "following" : `${fromBottom[view]} lines up`;
-      const keys = ["tab view", ...(view === "trace" ? ["a agent"] : []), ...(view !== "jobs" ? ["j job"] : []), "↑↓ pgup pgdn scroll", "esc chat", `${options.key} close`];
+      const keys = ["tab view", ...(view === "trace" ? ["a agent", "j job"] : []), "↑↓ pgup pgdn scroll", "esc chat", `${options.key} close`];
       return [
         truncateToWidth(tabs, width),
         style.muted(truncateToWidth(about, width)),
@@ -136,8 +173,8 @@ export function createSidePanel(options: SidePanelOptions) {
         const at = agent === undefined ? -1 : agents.indexOf(agent);
         agent = at + 1 < agents.length ? agents[at + 1] : undefined;
         fromBottom.trace = 0;
-      } else if (data === "j" && view !== "jobs") {
-        const jobs = options.jobs();
+      } else if (data === "j" && view === "trace") {
+        const jobs = newestFirst(options.jobs());
         const at = jobs.findIndex((item) => item.id === current()?.id);
         jobId = jobs[(at + 1) % Math.max(1, jobs.length)]?.id;
         agent = undefined;
