@@ -52,7 +52,10 @@ be just `plainwright module`:
 
 ```yaml
 module: app.plain                         # what to build when no file is given
-coding-model: anthropic/claude-sonnet-5   # the model every agent runs on
+coding-model:                             # the model every agent runs on, and how hard it thinks
+  model: anthropic/claude-sonnet-5
+  thinking: medium
+judge-model: anthropic/claude-opus-5-5    # the judge and the test review (default: coding-model)
 conformance-tests: true            # write and run conformance tests (default: when there are test reqs)
 ```
 
@@ -64,7 +67,8 @@ Useful options - `plainwright module --help` lists all of them:
 
 | | |
 | --- | --- |
-| `--model <provider/id>` | the model every agent runs on (`--coding-model` too); default, `config.yaml`'s `coding-model`, then pi's configured model |
+| `--model <provider/id>` | the model every agent runs on (`--coding-model` too), with `:level` for its thinking (`provider/id:high`); default, `config.yaml`'s `coding-model`, then its `harness-model`, then pi's configured model |
+| `--judge-model <provider/id>` | `conformance`: the model of the judge and the test review; default, `config.yaml`'s `judge-model`, then the coding model |
 | `--no-conformance` | skip conformance tests - faster, weaker |
 | `--from <frid>`, `--to <frid>` | build a range of functionalities |
 | `--only` | build just this module, not the ones it requires |

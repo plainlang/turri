@@ -1,4 +1,4 @@
-import { readProjectConfig } from "./config.ts";
+import { readProjectConfig, modelSpec, projectModels } from "./config.ts";
 import { projectDirOf } from "./render/paths.ts";
 import { listFrids, renderFunctionality } from "./render/render.ts";
 import { describeStop } from "./render/stop-report.ts";
@@ -73,7 +73,7 @@ async function main() {
     buildDir: args.buildDir,
     dryRun: args.dryRun,
     // The project's config.yaml gives the default.
-    model: args.model ?? readProjectConfig(projectDirOf(args.plainFile)).codingModel,
+    model: args.model ?? modelSpec(projectModels(readProjectConfig(projectDirOf(args.plainFile))).coding),
     tryIt: args.tryIt,
     onDelta: (delta) => process.stdout.write(delta),
     onRun: (command, exitCode) =>

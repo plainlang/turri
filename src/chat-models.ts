@@ -1,4 +1,4 @@
-import type { ProjectConfig } from "./config.ts";
+import { modelSpec, projectModels, type ProjectConfig } from "./config.ts";
 
 /**
  * The two models of `plainwright chat`, from its arguments and the project's config.yaml.
@@ -29,13 +29,13 @@ export function takeOption(args: string[], name: string): { value?: string; rest
 /** pi's arguments, with the harness model in them, and the coding model for the extension. */
 export function chatModels(
   args: string[],
-  config: Pick<ProjectConfig, "harnessModel">,
+  config: Pick<ProjectConfig, "harnessModel" | "codingModel" | "judgeModel">,
 ): { piArgs: string[]; codingModel?: string } {
   const coding = takeOption(args, "--coding-model");
   const harness = takeOption(coding.rest, "--harness-model");
   const piArgs = harness.rest;
   // pi's own flags win: a --model or --provider given as they are is left alone.
   const given = piArgs.some((arg) => /^--(model|provider)(=|$)/.test(arg));
-  const harnessModel = given ? undefined : (harness.value ?? config.harnessModel);
+  const harnessModel = given ? undefined : (harness.value ?? modelSpec(projectModels(config).harness));
   return { piArgs: harnessModel !== undefined ? ["--model", harnessModel, ...piArgs] : piArgs, codingModel: coding.value };
 }

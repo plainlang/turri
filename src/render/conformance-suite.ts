@@ -98,6 +98,8 @@ export interface ConformanceSuiteOptions extends ConformanceSelection {
   inModule?: string;
   conformanceRoot?: string;
   model?: string;
+  /** The judge's and the test review's model. */
+  judgeModel?: string;
   /** Run the merged suite for each module afterwards. */
   regression?: boolean;
   onDelta?: (delta: string) => void;
@@ -158,6 +160,7 @@ export async function renderConformanceSuite(
         buildDir,
         conformanceDir: conformanceDirFor(holder, conformanceRoot),
         model: options.model,
+        judgeModel: options.judgeModel,
         onDelta: options.onDelta,
       });
 
@@ -244,6 +247,9 @@ function conformanceReport(result: RenderConformanceTestsResult): string {
       : "",
     result.codeChanged
       ? "The implementation was changed to make the conformance tests pass."
+      : "",
+    result.reviewWaived !== undefined
+      ? `The tests were optimised as far as the review could take them; its last suggestions are in the notes: ${result.reviewWaived.map((problem) => problem.what.trim()).join(" ").slice(0, 400)}`
       : "",
     "",
     "<files>",

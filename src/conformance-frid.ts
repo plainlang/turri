@@ -1,6 +1,7 @@
-import { readProjectConfig } from "./config.ts";
+import { readProjectConfig, modelSpec, projectModels } from "./config.ts";
 import { projectDirOf } from "./render/paths.ts";
 import { renderConformanceSuite } from "./render/conformance-suite.ts";
+import { withActivity, type ActivitySink } from "./render/activity.ts";
 
 const c = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -26,6 +27,9 @@ are separate jobs: a codebase can be built and given its conformance suite later
   --template-dir <dir>     extra template directory (repeatable)
   --dry-run                print the prompt without starting an agent
   --model <provider/id>    model for the agents, e.g. google/gemini-2.5-pro
+  --judge-model <provider/id>
+                           model for the judge and the test review (default: judge-model
+                           in config.yaml, else the agents' model)
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
@@ -37,6 +41,7 @@ function parseArgs(argv: string[]) {
   let buildDir: string | undefined;
   let conformanceRoot: string | undefined;
   let model: string | undefined;
+  let judgeModel: string | undefined;
   let all = false;
   let chain = false;
   let regression = false;
@@ -48,6 +53,7 @@ function parseArgs(argv: string[]) {
     else if (arg === "--template-dir") templateDirs.push(argv[++i]!);
     else if (arg === "--range") range = argv[++i];
     else if (arg === "--model") model = argv[++i];
+    else if (arg === "--judge-model") judgeModel = argv[++i];
     else if (arg === "--all") all = true;
     else if (arg === "--chain") chain = true;
     else if (arg === "--regression") regression = true;
@@ -61,7 +67,7 @@ function parseArgs(argv: string[]) {
     else frids.push(arg);
   }
 
-  return { plainFile, frids, range, all, chain, regression, templateDirs, buildDir, conformanceRoot, model };
+  return { plainFile, frids, range, all, chain, regression, templateDirs, buildDir, conformanceRoot, model, judgeModel };
 }
 
 async function main() {
@@ -71,8 +77,24 @@ async function main() {
     process.exit(1);
   }
 
-  const result = await renderConformanceSuite({
-    plainFile: args.plainFile,
+  // What an unattended run shows as it goes: each stage, with the time and what the models have cost so far.
+  const started = Date.now();
+  let cost = 0;
+  const elapsed = () => {
+    const seconds = Math.round((Date.now() - started) / 1000);
+    return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+  };
+  const sink: ActivitySink = {
+    stage: (label) => console.log(c.dim(`[${elapsed()} · $${cost.toFixed(2)}]`) + ` ${label}`),
+    activity() {},
+    now() {},
+    usage: (usage) => void (cost += usage.cost),
+    transcript() {},
+  };
+
+  const plainFile = args.plainFile;
+  const result = await withActivity(sink, () => renderConformanceSuite({
+    plainFile,
     frids: args.frids.length > 0 ? args.frids : undefined,
     range: args.range,
     all: args.all,
@@ -82,7 +104,8 @@ async function main() {
     buildDir: args.buildDir,
     conformanceRoot: args.conformanceRoot,
     // The project's config.yaml gives the default.
-    model: args.model ?? readProjectConfig(projectDirOf(args.plainFile)).codingModel,
+    model: args.model ?? modelSpec(projectModels(readProjectConfig(projectDirOf(plainFile))).coding),
+    judgeModel: args.judgeModel,
     onDelta: (delta) => process.stdout.write(delta),
     onEvent: (event) => {
       if (event.type === "targets") {
@@ -99,7 +122,7 @@ async function main() {
         console.log(event.passed ? c.green("  pass") : c.red("  fail"));
       }
     },
-  });
+  }));
 
   const written = result.outcomes.length;
   const failed = result.outcomes.filter((o) => o.result && !o.result.passed).length;
@@ -107,7 +130,7 @@ async function main() {
   console.log(
     `\n\n${result.passed ? c.green(c.bold("conformance suite passes")) : c.red(c.bold("conformance suite not passing"))}`,
   );
-  console.log(c.dim(`  written: ${written}, failing: ${failed}`));
+  console.log(c.dim(`  written: ${written}, failing: ${failed} · ${elapsed()} · $${cost.toFixed(2)}`));
   for (const [moduleName, regression] of Object.entries(result.regression)) {
     console.log(c.dim(`  regression ${moduleName}: ${regression.passed ? "pass" : "fail"}`));
   }

@@ -1,4 +1,4 @@
-import { CONFIG_FILE, readProjectConfig } from "./config.ts";
+import { CONFIG_FILE, readProjectConfig, modelSpec, projectModels } from "./config.ts";
 import { projectDirOf } from "./render/paths.ts";
 import { c, reportEvent } from "./module-report.ts";
 import { renderChain, describeChainStop } from "./render/module.ts";
@@ -96,7 +96,7 @@ async function main() {
     to: options.to,
     buildDir: options["build-dir"],
     conformanceRoot: options["conformance-root"],
-    model: options.model ?? project.codingModel,
+    model: options.model ?? modelSpec(projectModels(project).coding),
     maxRegressionRounds: options["max-regression-rounds"]
       ? Number(options["max-regression-rounds"])
       : undefined,

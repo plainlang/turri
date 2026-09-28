@@ -109,6 +109,15 @@ export function recordHistory(dir: string, subject: string, body?: string): stri
  *
  * Returns the paths that were put back or removed, relative to the module folder.
  */
+/**
+ * The tests folder's build output too - ignored, so a clean leaves it: reports and classes of tests
+ * that are no longer there tell whoever looks that they are. The code's is kept: it can be a cache
+ * worth having, and the code is what is built from.
+ */
+function cleanTestsBuild(moduleDir: string): void {
+  if (existsSync(join(moduleDir, "tests"))) git(moduleDir, ["clean", "-q", "-fdX", "--", "tests"]);
+}
+
 export function resetToLastCommit(dir: string): string[] {
   try {
     const moduleDir = moduleDirOf(dir);
@@ -119,6 +128,7 @@ export function resetToLastCommit(dir: string): string[] {
       .split("\n")
       .filter((line) => line.trim() !== "")
       .map((line) => line.slice(3));
+    cleanTestsBuild(moduleDir);
     if (changed.length === 0) return [];
     git(moduleDir, ["reset", "-q", "--hard", "HEAD"]);
     git(moduleDir, ["clean", "-q", "-fd"]);
@@ -212,6 +222,7 @@ export function abandonWork(start: WorkStart | undefined, moduleName: string, wh
       if (!moved && status === "") continue;
       git(moduleDir, ["reset", "-q", "--hard", commit]);
       git(moduleDir, ["clean", "-q", "-fd"]);
+      cleanTestsBuild(moduleDir);
       reportActivity(`${moduleName}: ${why} - ${basename(moduleDir)} is back where the work started`);
     } catch {
       // Nothing to undo with.

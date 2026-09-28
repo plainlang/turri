@@ -10,6 +10,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
+import { splitModelSpec } from "./config.ts";
 import { projectRootOf, sessionsDir } from "./render/paths.ts";
 import {
   currentStopSignal,
@@ -122,11 +123,44 @@ export class ProviderError extends Error {
  * that chose to say nothing, and any retry loop above will keep going as if the work were
  * merely unfinished. It is raised instead.
  */
-export async function ask(
-  session: AgentSession,
-  text: string,
-  onDelta?: (delta: string) => void,
-): Promise<string> {
+export async function ask(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
+  // A provider that is overloaded or unreachable for a moment is waited out, longer than pi's own
+  // retries do, rather than failing the whole run; the agent carries on where it was.
+  let prompt = text;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await askOnce(session, prompt, onDelta);
+    } catch (error) {
+      if (!(error instanceof ProviderError) || !TRANSIENT_PROVIDER_ERROR.test(error.message) || attempt >= PROVIDER_RETRIES) throw error;
+      const wait = PROVIDER_RETRY_DELAY_MS * 2 ** attempt;
+      reportActivity(`  the model provider is failing for now - trying again in ${Math.round(wait / 1000)}s (${attempt + 1} of ${PROVIDER_RETRIES})`);
+      debugLogOf(session)?.note(`provider failing - trying again in ${Math.round(wait / 1000)}s: ${error.message.slice(0, 200)}`);
+      await waitOrStop(wait);
+      prompt = "Carry on where you were: the model provider failed part-way through your last turn.";
+    }
+  }
+}
+
+/** How many times, after pi's own retries, a turn whose provider failed for a moment is tried again - and the first wait, doubled each time. */
+export const PROVIDER_RETRIES = 3;
+export const PROVIDER_RETRY_DELAY_MS = Number(process.env.PLAINWRIGHT_PROVIDER_RETRY_DELAY ?? 15) * 1000;
+
+/** A provider error that passes: overloaded, rate limited, unreachable, timed out. */
+const TRANSIENT_PROVIDER_ERROR =
+  /\b(429|500|502|503|504|529)\b|overloaded|high demand|rate.?limit|too many requests|unavailable|fetch failed|network|connection|timed? ?out|ECONNRESET|socket|terminated/i;
+
+/** Wait, unless the job is stopped first. */
+async function waitOrStop(ms: number): Promise<void> {
+  const stop = currentStopSignal();
+  if (stop?.aborted) throw new JobStoppedError();
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    stop?.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
+  });
+  if (stop?.aborted) throw new JobStoppedError();
+}
+
+async function askOnce(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
   let out = "";
   let providerError: string | undefined;
 
@@ -230,31 +264,64 @@ export async function ask(
   // For the agent's log: the whole prompt and how the turn ended; the session streams the rest.
   const debug = debugLogOf(session);
   const turnStarted = Date.now();
-  debug?.prompt(text);
+  // A timed turn is told its time, and ended where it is when the time is up.
+  const timed = timedSessions.has(session) && TURN_LIMIT_MS > 0;
+  const prompt = timed
+    ? `${text}\n\nYou have ${formatLimit(TURN_LIMIT_MS)} for this turn: when it is up, your turn ends where it is and the harness ` +
+      "takes it from there - so do the one thing asked, check it, and finish."
+    : text;
+  let outOfTime = false;
+  const timer = timed
+    ? setTimeout(() => {
+        outOfTime = true;
+        reportActivity(`  stopped the agent's turn: its ${formatLimit(TURN_LIMIT_MS)} are up`);
+        debug?.note(`turn stopped: its ${formatLimit(TURN_LIMIT_MS)} are up`);
+        void session.abort();
+      }, TURN_LIMIT_MS)
+    : undefined;
+  debug?.prompt(prompt);
 
   try {
-    await session.prompt(text, { expandPromptTemplates: false });
+    await session.prompt(prompt, { expandPromptTemplates: false });
   } catch (error) {
     debug?.note(`turn failed after ${seconds(Date.now() - turnStarted)}: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   } finally {
+    if (timer !== undefined) clearTimeout(timer);
     unsubscribe();
     stop?.removeEventListener("abort", onStop);
     reportNow(undefined);
   }
+  if (outOfTime) out = `${out.trim()}\n\n[the turn was stopped: its ${formatLimit(TURN_LIMIT_MS)} were up]`.trim();
 
   if (stop?.aborted) {
     debug?.note(`turn stopped on request after ${seconds(Date.now() - turnStarted)}`);
     throw new JobStoppedError();
   }
 
-  if (providerError !== undefined) {
+  // A turn ended for its time is ended, whatever the provider was doing then.
+  if (providerError !== undefined && !outOfTime) {
     debug?.note(`turn ended with a provider error after ${seconds(Date.now() - turnStarted)}: ${providerError}`);
     throw new ProviderError(`${session.model?.id ?? "model"}: ${providerError}`);
   }
 
   debug?.note(`turn finished after ${seconds(Date.now() - turnStarted)}`);
   return out.trim();
+}
+
+/**
+ * How long one turn of an agent a render starts may take: past it, the turn ends where it is and
+ * the harness goes on as after any turn - it runs the tests, and judges. PLAINWRIGHT_TURN_LIMIT sets
+ * it, in seconds; 0 turns it off.
+ */
+export const TURN_LIMIT_MS = Number(process.env.PLAINWRIGHT_TURN_LIMIT ?? 120) * 1000;
+
+/** The sessions whose turns are timed: the agents a render starts, not the conversation or a skill's. */
+const timedSessions = new WeakSet<object>();
+
+/** Have this session's turns timed, as an agent a render starts has. */
+export function timeTurns(session: object): void {
+  timedSessions.add(session);
 }
 
 /** How many calls to one tool may fail in a row, nothing going through, before the agent's turn is stopped. */
@@ -264,38 +331,94 @@ export const FAILURES_BEFORE_STOP = 10;
 export const REPEATS_ALLOWED = 3;
 export const REPEATS_BEFORE_STOP = 6;
 
+/** "2 minutes", "90 seconds". */
+function formatLimit(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds % 60 === 0) return `${seconds / 60} minute${seconds === 60 ? "" : "s"}`;
+  return `${seconds} second${seconds === 1 ? "" : "s"}`;
+}
+
+/** JSON with every object's keys in order, so two ways of writing the same arguments read the same. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : item,
+  );
+}
+
+/** Tools that only look: calling one again, with nothing changed since, gives the same answer. */
+const LOOKING_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+/** How many tool calls an agent that has one thing to decide may make before it is told to decide. */
+export interface CallBudget {
+  calls: number;
+  /** The tools that hand over the decision - still let through past the budget. */
+  finish: string[];
+}
+
 /**
- * Tools that notice an agent going round in a circle: the same tool called with the same arguments,
- * again and again with nothing in between - so nothing can have changed, and the same answer comes
- * back. The first few go through; after that the call is refused with what is happening, and if the
- * agent carries on regardless its turn is stopped - the harness goes on from there, as after any turn.
+ * Tools that notice an agent going round in a circle. The same call again and again with nothing in
+ * between; or a look - read, grep, find, ls - made again with nothing changed since, however many
+ * other looks came between: the same answer comes back. The first few go through; after that the
+ * call is refused with what is happening, and if the agent carries on regardless its turn is
+ * stopped - the harness goes on from there, as after any turn.
+ *
+ * With a budget, an agent that has one thing to decide - a verdict, a review, an account - is told
+ * to decide once it has made that many calls: every tool but the one that hands it over refuses,
+ * and past twice the budget its turn is stopped.
  */
-export function guardRepeats(tools: ToolDefinition[], session: () => AgentSession | undefined): ToolDefinition[] {
+export function guardRepeats(tools: ToolDefinition[], session: () => AgentSession | undefined, budget?: CallBudget): ToolDefinition[] {
   let last: string | undefined;
   let times = 0;
+  // Looks made since the last call that could change anything, and how often each.
+  const looks = new Map<string, number>();
+  let calls = 0;
   return tools.map((tool) => ({
     ...tool,
     execute: async (...args: Parameters<ToolDefinition["execute"]>) => {
       const [, params] = args;
+      calls += 1;
+      if (budget !== undefined && !budget.finish.includes(tool.name) && calls > budget.calls) {
+        if (calls > budget.calls * 2) {
+          reportActivity(`  stopped the agent's turn: ${calls} tool calls, past its budget of ${budget.calls}`);
+          void session()?.abort();
+          throw new Error(`Stopped: ${calls} tool calls, past the budget of ${budget.calls}.`);
+        }
+        throw new Error(
+          `Not run: you have made ${budget.calls} tool calls, which is all you have. Decide now with what you know: call ` +
+            `${budget.finish.join(" or ")}.`,
+        );
+      }
       let key: string;
       try {
-        key = `${tool.name} ${JSON.stringify(params ?? {})}`;
+        // The same call is the same whatever order its arguments come in: models reorder them freely.
+        key = `${tool.name} ${canonicalJson(params ?? {})}`;
       } catch {
         key = `${tool.name} ${String(Math.random())}`;
       }
       times = key === last ? times + 1 : 1;
       last = key;
-      if (times > REPEATS_BEFORE_STOP) {
-        reportActivity(`  stopped the agent's turn: it made the same ${tool.name} call ${times} times running`);
-        void session()?.abort();
-        throw new Error(`Stopped: the same ${tool.name} call ${times} times running.`);
+      let repeats = times;
+      if (LOOKING_TOOLS.has(tool.name)) {
+        const seen = (looks.get(key) ?? 0) + 1;
+        looks.set(key, seen);
+        repeats = Math.max(repeats, seen);
+      } else {
+        // Anything else may have changed what a look would find.
+        looks.clear();
       }
-      if (times > REPEATS_ALLOWED) {
-        reportActivity(`  refused a repeated ${tool.name} call (${times} times running)`);
+      if (repeats > REPEATS_BEFORE_STOP) {
+        reportActivity(`  stopped the agent's turn: it made the same ${tool.name} call ${repeats} times with nothing changed`);
+        void session()?.abort();
+        throw new Error(`Stopped: the same ${tool.name} call ${repeats} times with nothing changed.`);
+      }
+      if (repeats > REPEATS_ALLOWED) {
+        reportActivity(`  refused a repeated ${tool.name} call (${repeats} times with nothing changed)`);
         throw new Error(
-          `Not run: you have made this exact ${tool.name} call ${times} times in a row, with nothing in between - so nothing has ` +
-            "changed, and it would give the same result again. Stop repeating it: use what it already told you, do something " +
-            `different, or finish. After ${REPEATS_BEFORE_STOP} your turn is stopped.`,
+          `Not run: you have made this exact ${tool.name} call ${repeats} times, with nothing changed since - so it would give ` +
+            "the same result again. Stop repeating it: use what it already told you, do something different, or finish. " +
+            `After ${REPEATS_BEFORE_STOP} your turn is stopped.`,
         );
       }
       return tool.execute(...args);
@@ -312,7 +435,10 @@ export async function createExecutor(opts: {
   cwd: string;
   customTools: ToolDefinition[];
   tools: string[];
-  /** "provider/model-id". Omitted: whatever pi is configured to use. */
+  /**
+   * "provider/model-id", with ":level" for how hard it thinks ("google/gemini-3.1-pro:high"), or
+   * ":level" alone for pi's default model. Omitted: whatever pi is configured to use.
+   */
   model?: string;
   /** Give it the ***plain rules - for agents that write or edit specs, not code. */
   rules?: boolean;
@@ -325,6 +451,8 @@ export async function createExecutor(opts: {
    * whole conversation is streamed to a log named after it (see debug-log.ts).
    */
   label?: string;
+  /** For an agent with one thing to decide: how many tool calls it has, and the tools that hand the decision over. */
+  budget?: CallBudget;
 }): Promise<AgentSession> {
   // Saved to disk, in the project: an agent's session is the record of what it did, and the
   // only way to pick a long run back up after the process that ran it is gone.
@@ -335,25 +463,29 @@ export async function createExecutor(opts: {
   const { session } = await createAgentSession({
     cwd: opts.cwd,
     tools: opts.tools,
-    customTools: guardRepeats(opts.customTools, () => session),
+    customTools: guardRepeats(opts.customTools, () => session, opts.budget),
     sessionManager,
     resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, opts.system),
   });
 
-  if (opts.model !== undefined) {
-    const model = findModel(session, opts.model);
+  const chosen = splitModelSpec(opts.model);
+  if (chosen.model !== undefined) {
+    const model = findModel(session, chosen.model);
     if (model === undefined) {
-      throw new Error(`Model '${opts.model}' is not configured. Check the provider's API key.`);
+      throw new Error(`Model '${chosen.model}' is not configured. Check the provider's API key.`);
     }
     await session.setModel(model);
   }
 
-  // After the model: switching models picks a thinking level of its own.
-  const thinking = inheritedThinkingLevel();
+  // After the model: switching models picks a thinking level of its own. The one given with the
+  // model wins; otherwise the conversation's.
+  const thinking = chosen.thinking ?? inheritedThinkingLevel();
   if (thinking !== undefined) session.setThinkingLevel(thinking);
 
   // After both, so the log's header says what it really runs on.
   if (opts.label !== undefined) startDebugLog(session, { cwd: opts.cwd, label: opts.label, tools: opts.tools });
+  // An agent a render starts - it has a label - has its turns timed.
+  if (opts.label !== undefined) timeTurns(session);
 
   return session;
 }

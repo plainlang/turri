@@ -64,9 +64,18 @@ Template search order: the plain file's own directory, then a sibling `template/
 `--template-dir`, then `PLAIN_TEMPLATE_DIRS`.
 
 An agent that goes round in a circle - the same tool called with the same arguments again and again,
-nothing in between, so the same answer comes back - is let through three times; the next such call is
-refused with what is happening, and past six its turn is stopped, and the harness goes on from there as
-after any turn. So is an agent whose calls to one tool fail ten times in a row with nothing going through
+nothing in between, or a look (read, grep, find, ls) made again with nothing changed since, however
+many other looks came between, so the same answer comes back - is let through three times; the next
+such call is refused with what is happening, and past six its turn is stopped, and the harness goes on
+from there as after any turn. The arguments are compared whatever order they come in.
+
+The agents with one thing to decide have a budget of tool calls: the judge 30, the test review and the
+explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
+with what it knows; past twice the budget its turn is stopped. And every turn of an agent a render
+starts has two minutes (PLAINWRIGHT_TURN_LIMIT, in seconds; 0 for none). It is told so, and when they
+are up its turn ends where it is and the harness takes it from there - it runs the tests, and judges.
+A code fix has to build and pass the code's unit tests before the conformance suite runs again: one
+that does not goes straight back to the coding agent, with the output, rather than to a judge. So is an agent whose calls to one tool fail ten times in a row with nothing going through
 in between - arguments the tool refuses never reach it, so however they are reworded, no call-by-call
 check sees them. A note's section is taken in any wording (`where`, "Where things are"), and one that is
 no section is refused with the four that are.
@@ -335,7 +344,14 @@ allow, never mocking or replacing any part of the software under test - that eve
 the spec says, with no placeholder that cannot fail, and that each acceptance test does every step it
 lists and asserts every expectation it states. It must pass, as the suite and the unit tests must:
 when it does not, the conformance agent gets exactly what is missing and what is bad, file by file, and
-the round goes again. All three passing is done.
+the round goes again. The first review is asked for every problem at once; each after it is given what
+the last one found, checks that first, and raises something new only when it is serious - a test that
+cannot fail, mocks the software, or leaves out what the spec asks for. It asks only for what can be seen
+from outside: where the spec says one part calls another, the outcome, never the call. What matters is
+found in the first few reviews - the review optimises the tests, and after that they cannot be optimised
+further - so after five that still found something, the tests are taken as they are: the run passes,
+and what the last review suggested is kept in the result and the notes' pitfalls. All three passing
+is done.
 
 A spec diff's conformance run holds its tests to the same bar. The functionalities the change touches -
 a line of their functional spec, or of one of their acceptance tests, added or removed - are worked
@@ -357,9 +373,12 @@ and the coding agent can run the conformance suite themselves, to reproduce a fa
 fix - three times a turn: the third ends the turn, and the harness runs it and judges. The conformance
 agent is told that a failure of the software itself - it does not build or start, or does what the
 spec says it must not - is not the tests' to work around. When it fails, a judge - an agent that reads
-the code and the tests, changes neither, and holds both to the spec - decides which is wrong:
+the code and the tests, changes neither, and holds both to the spec - decides which is wrong. Like the
+explorer it has a shell in a VM and the web (`web_search`, `web_fetch`), to try the software or ask a
+service it calls what it answers; its file tools write nothing, and a file its shell changes anyway is
+reported:
 
-- **the code:** the coding agent - in the code's folder and VM, seeing nothing of the tests - fixes it,
+- **the code:** the coding agent - in the code's folder and VM, reading the tests but never changing them - fixes it,
   and keeps its unit tests passing;
 - **the tests:** the conformance agent corrects them to what the spec says;
 - **the spec:** two functional specs cannot both hold, whatever the code does.

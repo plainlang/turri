@@ -55,6 +55,7 @@ import { notesToRead, recordNote } from "./notes.ts";
 import { reportSpecConflict } from "./activity.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
+import { inheritModel, modelSpec, readProjectConfig, splitModelSpec } from "../config.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
@@ -98,6 +99,8 @@ export interface RenderConformanceTestsOptions {
   maxRounds?: number;
   /** "provider/model-id". Omitted: whatever pi is configured to use. */
   model?: string;
+  /** The judge's and the test review's model. Omitted: the project's judge-model, else `model`. */
+  judgeModel?: string;
   dryRun?: boolean;
   /** Update the tests for a spec change, given as a diff, rather than for one functionality. */
   diff?: string;
@@ -140,6 +143,10 @@ export interface RenderConformanceTestsResult {
    * explorer was asked what the tests lacked. It stopped rather than spend its attempts on it.
    */
   stuck?: { failure: string; rounds: number; error: string; times: number };
+  /** The tests were sent back to be written and labelled, and never were: what was missing the last time. */
+  unlabelled?: string[];
+  /** The tests were optimised as far as REVIEW_ROUNDS reviews could take them: what the last one still suggested. */
+  reviewWaived?: ReviewProblem[];
   /** The suite passed, but the tests never passed review: what the review last found. */
   review?: Array<{ file: string; test?: string; kind: "missing" | "bad"; what: string }>;
 }
@@ -174,6 +181,9 @@ export async function renderConformanceTests(
   }
 
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
+  // The agents that give a verdict - the judge, the test review - may run on a stronger model than the rest.
+  const judgeModel =
+    options.judgeModel ?? modelSpec(inheritModel(readProjectConfig(projectDirOf(options.plainFile)).judgeModel, splitModelSpec(options.model)));
   const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName, modulesRoot(projectDirOf(options.plainFile))));
   const stage = (label: string) => {
     if (!options.dryRun) reportStage(`${forChange ? moduleName : `${moduleName} ${frid}`}: ${label}`);
@@ -289,6 +299,8 @@ export async function renderConformanceTests(
   let stuck: RenderConformanceTestsResult["stuck"];
   /** What the review last found, while it has not passed. */
   let lastReview: ReviewProblem[] | undefined;
+  let failedReviews = 0;
+  let reviewWaived: ReviewProblem[] | undefined;
   let specConflict: RenderConformanceTestsResult["specConflict"];
   /**
    * One attempt at the failing run, written into the notes' pitfalls - what the next judge reads
@@ -433,6 +445,8 @@ export async function renderConformanceTests(
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
     let verified = false;
     let rounds = 0;
+    let labelAsks = 0;
+    let unlabelled: string[] | undefined;
     for (let round = 0; round < maxRounds; round += 1) {
       const current = inventoryTests(conformanceDir);
       const removals = findTestRemovals(inventory, current);
@@ -459,18 +473,30 @@ export async function renderConformanceTests(
       if (options.diff === undefined) {
         const missing = missingTestLabels(conformanceDir, frid!, specifications[ACCEPTANCE_TESTS] ?? []);
         if (missing.length > 0) {
-          stage("labelling the conformance and acceptance tests");
-          response = await askConformance(labelsPrompt(frid!, missing), options.onDelta);
+          if (labelAsks >= LABEL_ASKS) {
+            stage(`the tests were sent back ${LABEL_ASKS} times to be written and labelled, and still are not - stopping`);
+            unlabelled = missing;
+            break;
+          }
+          labelAsks += 1;
+          stage(listFiles(conformanceDir).length === 0 ? "no tests in the tests folder - the conformance agent writes them" : "labelling the conformance and acceptance tests");
+          response = await askConformance(labelsPrompt(frid!, missing, listFiles(conformanceDir).length === 0), options.onDelta);
           continue;
         }
       } else {
         // A spec change: every functionality it touches, as a functionality's own run would have it.
-        const unlabelled = touched
+        const pending = touched
           .map((item) => ({ frid: item.frid, missing: missingTestLabels(conformanceDir, item.frid, item.acceptanceTests) }))
           .find((item) => item.missing.length > 0);
-        if (unlabelled !== undefined) {
-          stage(`labelling the conformance and acceptance tests of functionality ${unlabelled.frid}, which the change touches`);
-          response = await askConformance(labelsPrompt(unlabelled.frid, unlabelled.missing), options.onDelta);
+        if (pending !== undefined) {
+          if (labelAsks >= LABEL_ASKS) {
+            stage(`the tests were sent back ${LABEL_ASKS} times to be written and labelled, and still are not - stopping`);
+            unlabelled = pending.missing;
+            break;
+          }
+          labelAsks += 1;
+          stage(`labelling the conformance and acceptance tests of functionality ${pending.frid}, which the change touches`);
+          response = await askConformance(labelsPrompt(pending.frid, pending.missing, listFiles(conformanceDir).length === 0), options.onDelta);
           continue;
         }
       }
@@ -551,7 +577,7 @@ export async function renderConformanceTests(
           recordAttempt(rounds, recheck, `not a question of code or tests (${recheck.timedOut === true ? "the time limit" : `exit ${recheck.exitCode}`})`, { who: "conformance agent", files: fixed.files });
           continue;
         }
-        stage("conformance tests failing - working out whether the code, the tests or the spec are wrong");
+        stage(`conformance tests failing - working out whether the code, the tests or the spec are wrong${judgeModel ? ` (${judgeModel})` : ""}`);
         const verdict = await judgeFailure({
           buildDir,
           conformanceDir,
@@ -561,7 +587,7 @@ export async function renderConformanceTests(
           scope,
           notes: notesToRead(buildDir),
           label,
-          model: options.model,
+          model: judgeModel,
           onDelta: options.onDelta,
         });
         const reason = verdict.reason.split("\n")[0]!.slice(0, 160);
@@ -620,8 +646,24 @@ export async function renderConformanceTests(
         } else if (verdict.culprit === "code") {
           reportActivity(`  the code: ${reason}`);
           stage("the code is wrong - the coding agent fixes it");
+          // Each fix starts a fresh session: what earlier ones tried is in the notes' pitfalls, and one
+          // session carried through the run re-reads every earlier fix and suite output on every call -
+          // past a million tokens a call by the seventh.
+          fixer?.dispose();
+          fixer = undefined;
           const fixed = await changing(() => askFixer((first) => codeFixPrompt({ buildDir, conformanceDir, spec: specContext, run: recheck, reason: verdict.reason, first })));
           recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
+          // The fix has to build and pass its own unit tests before the suite runs again: a build
+          // error is the coding agent's to fix, not a judge's to work out from the suite's output.
+          for (let again = 0; again < FIX_UNIT_CHECKS; again += 1) {
+            stage("checking the fix: the code's unit tests");
+            const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
+            if (unit.ok) break;
+            stage("the fix does not build or pass its unit tests - back to the coding agent");
+            await changing(() =>
+              askFixer(() => `Your fix does not build or pass the code's unit tests - it has to before the conformance suite runs again.\n\n${unit.prompt}`),
+            );
+          }
         } else {
           reportActivity(`  the tests: ${reason}`);
           stage("the tests are wrong - the conformance agent fixes them");
@@ -647,7 +689,7 @@ export async function renderConformanceTests(
       const testChanges = diffFiles(testsAtStart, digestFiles(conformanceDir));
       const changedTests = [...testChanges.added, ...testChanges.changed];
       if (changedTests.length > 0) {
-        stage("reviewing the tests: black box, and the acceptance tests doing what the spec says");
+        stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_ROUNDS}): black box, and the acceptance tests doing what the spec says`);
         const review = await reviewTests({
           buildDir,
           conformanceDir,
@@ -656,14 +698,32 @@ export async function renderConformanceTests(
           functionalities: forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }],
           forChange,
           invocation,
+          ...(lastReview !== undefined ? { earlier: lastReview } : {}),
           label,
-          model: options.model,
+          model: judgeModel,
           onDelta: options.onDelta,
         });
         if (!review.pass) {
           lastReview = review.problems;
+          failedReviews += 1;
+          // What matters is found in the first few reviews; after that they are down to what hardly does.
+          // The suite and the unit tests pass: past this many, the review is let go, and what it last
+          // said is kept, not sent back again.
+          if (failedReviews >= REVIEW_ROUNDS) {
+            stage(`the tests cannot be optimised further after ${REVIEW_ROUNDS} reviews - done; what the last review suggested is in the notes`);
+            reviewWaived = review.problems;
+            recordNote(
+              buildDir,
+              "pitfalls",
+              `the conformance tests were optimised as far as ${REVIEW_ROUNDS} reviews could take them; the last one still suggested: ${review.problems.map((problem) => `${problem.file}${problem.test ? ` ${problem.test}` : ""}: ${problem.what.trim()}`).join("; ").slice(0, 600)}`,
+              `${label} conformance`,
+            );
+            lastReview = undefined;
+            verified = true;
+            break;
+          }
           reportActivity(`  the review found ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}: ${review.problems[0]!.what.slice(0, 140)}`);
-          stage(`the tests did not pass review (${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}) - the conformance agent fixes them`);
+          stage(`the review found ${review.problems.length} way${review.problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`);
           const fixed = await changing(() => askConformance(reviewFeedbackPrompt(review.problems), options.onDelta));
           response = fixed.result;
           recordAttempt(
@@ -674,7 +734,7 @@ export async function renderConformanceTests(
           );
           continue;
         }
-        stage("the tests pass review");
+        stage("the review has nothing left to improve in the tests");
       }
       lastReview = undefined;
       verified = true;
@@ -711,6 +771,8 @@ export async function renderConformanceTests(
       testRemovals,
       ...(specConflict !== undefined ? { specConflict } : {}),
       ...(stuck !== undefined ? { stuck } : {}),
+      ...(unlabelled !== undefined ? { unlabelled } : {}),
+      ...(reviewWaived !== undefined ? { reviewWaived } : {}),
       ...(!verified && lastReview !== undefined ? { review: lastReview } : {}),
     };
   } finally {
@@ -750,6 +812,15 @@ export function touchedFunctionalities(tree: MarshalledPlainSource, frids: strin
     return lines.some((line) => changed.has(line)) ? [{ frid, acceptanceTests }] : [];
   });
 }
+
+/** How many times the tests may fail review before it is let go and they are taken as they are. */
+export const REVIEW_ROUNDS = 5;
+
+/** How many times the tests are sent back to be written and labelled before the run stops. */
+export const LABEL_ASKS = 3;
+
+/** How many times a code fix that does not build or pass its unit tests goes back to the coding agent before the suite runs again. */
+export const FIX_UNIT_CHECKS = 3;
 
 /** How many times an agent runs the conformance suite in a turn before its turn ends and the harness takes over. */
 export const RUNS_PER_TURN = 3;

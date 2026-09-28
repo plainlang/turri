@@ -28,7 +28,7 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck" | "review">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck" | "review" | "unlabelled">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
   /** How many times the harness judged it before it stopped - the unit tests' attempts. */
@@ -76,6 +76,11 @@ export function describeStop(facts: StopFacts): string {
         "reqs how they do it, or change the acceptance test to what can be checked.",
       "If the test reqs leave open how the software is reached or what may be mocked, say so exactly.",
     ];
+  } else if (facts.at === "conformance" && facts.conformance?.unlabelled !== undefined) {
+    why =
+      "its conformance tests were never written and labelled as the two kinds - conformance tests and each acceptance test - " +
+      `though they were sent back for it again and again. Still missing:\n${facts.conformance.unlabelled.map((line) => `    - ${line}`).join("\n")}`;
+    todo = ["If the test reqs leave open where the tests go or how they are built, say so exactly - the folder, the files, the build."];
   } else if (facts.at === "conformance" && facts.conformance?.stuck !== undefined) {
     const { error, times, rounds } = facts.conformance.stuck;
     why =

@@ -62,9 +62,12 @@ export function missingTestLabels(testsDir: string, frid: string, acceptanceTest
 }
 
 /** Sent back when the labels are missing: which, and how to label them. */
-export function labelsPrompt(frid: string, missing: string[]): string {
+export function labelsPrompt(frid: string, missing: string[], empty = false): string {
   return [
-    `The tests pass, but they are not labelled as the two kinds they must be kept apart as:`,
+    empty
+      ? "There are no tests in your tests folder - nothing ran. Whatever a build folder or an earlier report there says, write " +
+        `the conformance tests of functionality ${frid} now, as files in your tests folder, labelled as the two kinds:`
+      : `The tests pass, but they are not labelled as the two kinds they must be kept apart as:`,
     "",
     ...missing.map((line) => `- ${line}`),
     "",

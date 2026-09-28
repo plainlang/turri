@@ -147,7 +147,9 @@ export const INTEGRITY_RULES = [
 export const ERROR_CAUSE_RULES = [
   "- Never lose why something failed. Where the code catches an error and turns it into a response, a status, a",
   "  result or a retry, it logs the error with its whole trace, and what it hands on names the cause - never a bare",
-  "  \"failed\" or \"error\" in its place, unless the specification says what it answers.",
+  "  \"failed\" or \"error\" in its place, unless the specification says what it answers. A call to another",
+  "  service that fails says what was called - the method and the address - and what came back: the status and",
+  "  the body. Never a secret: no password, key or token in a log or a message.",
 ];
 
 function section(title: string, items: string[]): string | null {

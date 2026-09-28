@@ -14,10 +14,12 @@ type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) 
 const asked: Array<{ role: string; prompt: string }> = [];
 let codeDir = "";
 /** What the stubbed judge says, and which functionality the stubbed conformance agent labels its tests for. */
-let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
+let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye.", spec_says: "The app prints hello." });
 let testedFrid = "1";
 /** What the stubbed test reviewer says. */
 let reviewSays: () => Record<string, unknown> = () => ({ pass: true, problems: [] });
+/** When set, the stubbed conformance agent writes nothing at all - it only looks. */
+let writesNothing = false;
 /** When set, each time the tests are sent back, the stub's test fails the other way: A, B, A, B - as the artifact ping-pong did. */
 let pingPong = 0;
 
@@ -63,6 +65,10 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         return "Done.";
       }
       // The conformance agent.
+      if (writesNothing) {
+        await tool("run_conformance_tests").execute("id", {});
+        return "The tests are already there.";
+      }
       if (pingPong > 0 && prompt.includes("a test is what is wrong")) {
         pingPong += 1;
         await tool("write").execute("id", {
@@ -116,9 +122,10 @@ beforeEach(() => {
       "***functional specs***\n\n- The app prints hello.\n\n  ***acceptance tests***\n\n  - Running the app prints hello and exits 0.\n",
   );
   asked.length = 0;
-  judgeSays = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye." });
+  judgeSays = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye.", spec_says: "The app prints hello." });
   testedFrid = "1";
   pingPong = 0;
+  writesNothing = false;
   reviewSays = () => ({ pass: true, problems: [] });
 });
 afterEach(async () => {
@@ -288,8 +295,13 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
         : { pass: true, problems: [] };
     const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
     expect(result.passed).toBe(true);
-    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(2);
-    const feedback = asked.find((turn) => turn.role === "conformance agent" && turn.prompt.includes("did not pass review"))!;
+    const reviewTurns = asked.filter((turn) => turn.role === "reviewer");
+    expect(reviewTurns).toHaveLength(2);
+    // The first finds everything at once; the second checks what the first sent back, rather than starting over.
+    expect(reviewTurns[0]!.prompt).toContain("Find every problem now, in this one review");
+    expect(reviewTurns[1]!.prompt).toContain("The review before this one sent the tests back with these problems");
+    expect(reviewTurns[1]!.prompt).toContain("- BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing");
+    const feedback = asked.find((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better"))!;
     expect(feedback.prompt).toContain("- BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing: assertTrue(true) is a placeholder");
   });
 
@@ -305,6 +317,44 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const review = asked.find((turn) => turn.role === "reviewer")!.prompt;
     expect(review).toContain("the functionalities the change touches (1)");
     expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
+  });
+
+  it("takes a verdict against the code only with the spec's own words - a judge that quotes none, or words the spec lacks, sends the tests back", async () => {
+    const { unfoundedCodeVerdict } = await import("../../src/render/conformance-agents.ts");
+    const spec = "- :App: should return 404 status code for unknown endpoints. The response body should be empty.";
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r", specSays: "should return 404 status code for unknown endpoints" }, spec)).toBeUndefined();
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r" }, spec)).toMatch(/quotes no words of the specification/);
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r", specSays: "Invalid credentials return 400" }, spec)).toMatch(/is not in the specification/);
+    // Code that hides why it failed is wrong whatever the spec says.
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r", causeHidden: true }, spec)).toBeUndefined();
+
+    // A judge that never quotes the spec: asked again, then the tests go back - the code is never touched.
+    judgeSays = () => ({ culprit: "code", reason: "The spec says a bad request returns 400." });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), maxRounds: 2 });
+    expect(asked.some((turn) => turn.role === "coding agent")).toBe(false);
+    expect(asked.some((turn) => turn.role === "judge" && turn.prompt.includes("quotes no words of the specification"))).toBe(true);
+    expect(result.codeChanged).toBe(false);
+  });
+
+  it("tells an agent that wrote no tests that there are none, and stops after three asks rather than every round", async () => {
+    writesNothing = true;
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(false);
+    expect(result.unlabelled).toEqual(expect.arrayContaining([expect.stringContaining('No test file is labelled "conformance tests of functionality 1"')]));
+    const writers = asked.filter((turn) => turn.role === "conformance agent");
+    expect(writers).toHaveLength(4);
+    expect(writers[1]!.prompt).toContain("There are no tests in your tests folder - nothing ran.");
+    const { describeStop } = await import("../../src/render/stop-report.ts");
+    expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toContain("were never written and labelled");
+  });
+
+  it("passes after five failed reviews - the suite and unit tests pass, and what the review last found is kept, not sent back again", async () => {
+    reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more." }] });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(true);
+    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(5);
+    expect(result.reviewWaived).toEqual([{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more." }]);
+    expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("optimised as far as 5 reviews could take them");
   });
 
   it("stops with what the review last found when the tests never pass it", async () => {

@@ -156,6 +156,9 @@ export function describeSpecDiffConformance(result: RenderSpecDiffConformanceRes
       ? `Functionalities with conformance tests: ${result.tested.join(", ")}.`
       : "No functionality has labelled conformance tests yet.",
     result.conformance.codeChanged ? "The code was changed where a test showed it did not do what the spec says." : "",
+    result.conformance.reviewWaived !== undefined
+      ? `The tests were optimised as far as the review could take them; its last suggestions are in the notes: ${result.conformance.reviewWaived.map((problem) => problem.what.trim()).join(" ").slice(0, 400)}`
+      : "",
     repairs > 0 ? `${repairs} regression repair(s) changed the code.` : "",
     result.conformance.testRemovals.length > 0
       ? `Conformance tests removed and justified: ${result.conformance.testRemovals.map((r) => r.file).join(", ")}.`

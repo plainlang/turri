@@ -1,3 +1,5 @@
+// No test waits out a provider that is failing: the harness retries at once.
+process.env.PLAINWRIGHT_PROVIDER_RETRY_DELAY ??= "0";
 import { afterAll } from "vitest";
 import { closeAllVms } from "../src/render/vm.ts";
 

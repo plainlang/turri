@@ -115,4 +115,22 @@ process.argv = [
     arg === "--coding-model" ? ["--model"] : arg.startsWith("--coding-model=") ? ["--model", arg.slice("--coding-model=".length)] : [arg],
   ),
 ];
+
+// A headless run is stopped by a signal - SIGTERM, SIGHUP, Ctrl-C - whatever else listens for it:
+// its VMs shut, and it exits. Left to the libraries' own handlers, one ran on for minutes after it
+// was told to stop, building in the same codebase as the run that came after it.
+if (command !== "check") {
+  const { closeAllVms } = await import("./render/vm.ts");
+  let stopping = false;
+  for (const [signal, code] of [["SIGTERM", 143], ["SIGHUP", 129], ["SIGINT", 130]] as const) {
+    process.on(signal, () => {
+      if (stopping) process.exit(code);
+      stopping = true;
+      console.error(`\nstopped (${signal}) - shutting the VMs down`);
+      const done = () => process.exit(code);
+      setTimeout(done, 5000).unref();
+      void closeAllVms().then(done, done);
+    });
+  }
+}
 await import(entry.module);

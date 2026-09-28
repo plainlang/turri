@@ -82,14 +82,27 @@ ones run) unless you ask for them, `coding-model` for what renders run on, and t
 
 ## Choosing a model
 
-There are two: the **harness model**, the one you chat with, and the **coding model**, the one
-every render runs on - functionalities, conformance tests, repairs, spec changes. The project's
-`config.yaml` can give both defaults:
+There are three: the **harness model**, the one you chat with; the **coding model**, the one
+every render runs on - functionalities, conformance tests, repairs, spec changes; and the **judge
+model**, which gives the verdicts in a conformance run - the judge, which says whether the code, the
+tests or the spec is wrong, and the test review. The project's `config.yaml` can give each a model and
+a thinking level (off, minimal, low, medium, high, xhigh, max):
 
 ```yaml
-harness-model: anthropic/claude-opus-5-5
-coding-model: amazon-bedrock/eu.anthropic.claude-sonnet-5
+harness-model:
+  model: anthropic/claude-opus-5-5
+  thinking: high
+coding-model:
+  model: amazon-bedrock/eu.anthropic.claude-sonnet-5
+  thinking: medium
+judge-model:
+  model: anthropic/claude-opus-5-5
 ```
+
+Each may leave out either part, and a bare string (`coding-model: provider/id`, or
+`provider/id:high`) is a model alone. What one leaves out it takes from the one it inherits from:
+the judge model from the coding model, the coding model from the harness model - so with only a
+harness model, everything runs on it.
 
 On the command line, `plainwright chat --harness-model <m> --coding-model <m>` wins over them
 (pi's own `--model` works for the harness model too), and in the conversation pi's `/model`

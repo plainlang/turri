@@ -7,7 +7,7 @@ import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
-import { CONFIG_FILE, readProjectConfig } from "./config.ts";
+import { CONFIG_FILE, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
 import { projectDirOf, skillRunDir } from "./render/paths.ts";
 import { findTestScripts } from "./render/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
@@ -1283,8 +1283,16 @@ export function projectConfigBlock(root: string): string {
           : config.conformanceTests === true
             ? "- conformance-tests: true - conformance tests are on, for every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
-        config.codingModel !== undefined ? `- coding-model: ${config.codingModel} - what renders run on, unless set_render_model chose another in this session.` : undefined,
-        config.harnessModel !== undefined ? `- harness-model: ${config.harnessModel} - the model plainwright chat starts with.` : undefined,
+        ...(() => {
+          // Each as it holds, with what it inherits: judge from coding, coding from harness.
+          const models = projectModels(config);
+          const shown = (choice: typeof models.coding) => modelSpec(choice) ?? "";
+          return [
+            models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless set_render_model chose another in this session.` : undefined,
+            models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
+            models.harness !== undefined ? `- harness-model: ${shown(models.harness)} - the model plainwright chat starts with.` : undefined,
+          ];
+        })(),
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : "none found - every build stops until there is one"}`,
         `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : "none found"}`,
         config.testingScripts === "host"
@@ -1409,7 +1417,8 @@ function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string, plain
 function codingModelDefault(plainFile?: string): { named: string; from: string } | undefined {
   const flag = process.env[CODING_MODEL_ENV]?.trim();
   if (flag) return { named: flag, from: "--coding-model" };
-  const named = readProjectConfig(configDirFor(plainFile)).codingModel;
+  // The coding model inherits what it leaves out from the harness model.
+  const named = modelSpec(projectModels(readProjectConfig(configDirFor(plainFile))).coding);
   return named !== undefined ? { named, from: CONFIG_FILE } : undefined;
 }
 
@@ -1420,11 +1429,14 @@ function codingModelDefault(plainFile?: string): { named: string; from: string }
 function projectModel(ctx: ExtensionContext, plainFile?: string): string | undefined {
   const given = codingModelDefault(plainFile);
   if (given === undefined) return undefined;
-  const resolved = resolveModel(given.named, ctx.modelRegistry);
+  // The model is looked up by name; how hard it thinks goes along with it as it was given.
+  const { model, thinking } = splitModelSpec(given.named);
+  if (model === undefined) return modelSpec({ thinking });
+  const resolved = resolveModel(model, ctx.modelRegistry);
   if (!resolved.ok) {
-    throw new Error(`${given.from} names the coding model "${given.named}", which cannot be used here.\n\n${describeResolution(resolved)}`);
+    throw new Error(`${given.from} names the coding model "${model}", which cannot be used here.\n\n${describeResolution(resolved)}`);
   }
-  return resolved.model;
+  return modelSpec({ model: resolved.model, thinking });
 }
 
 /** The default coding model for showing, with where it came from - never an error. */

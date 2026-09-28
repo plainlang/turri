@@ -6,6 +6,7 @@ import { confinedTools } from "./confine.ts";
 import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
+import { diffFiles, digestFiles } from "./codebase.ts";
 import { ERROR_CAUSE_RULES, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
 
 /**
@@ -64,6 +65,16 @@ export function explorationText(exploration: Exploration, replies: string[] = []
  * it is whole: how to build and run it, and - for every functionality the tests are for - how it
  * is reached and what to test.
  */
+/**
+ * How many tool calls the agents with one thing to decide may make before they are told to decide:
+ * the explorer its account, the reviewer its review, the judge its verdict. Past twice that, the turn
+ * is stopped. A judge that reads 40 files has read enough; one that has not decided by then is going
+ * round in a circle.
+ */
+export const EXPLORER_CALLS = 40;
+export const REVIEWER_CALLS = 40;
+export const JUDGE_CALLS = 30;
+
 /** How long an exploration may be: the interface, not the code. Longer is sent back to be cut down. */
 export const MAX_EXPLORATION_CHARS = 12_000;
 
@@ -253,6 +264,7 @@ export async function exploreInvocation(options: {
     model: options.model,
     label: `${options.label} explorer`,
     system: fence.note,
+    budget: { calls: EXPLORER_CALLS, finish: ["submit_exploration"] },
   });
   const replies: string[] = [];
   try {
@@ -383,6 +395,8 @@ export async function reviewTests(options: {
   functionalities: Array<{ frid: string; acceptanceTests: string[] }>;
   forChange?: boolean;
   invocation: string;
+  /** What the review before this one found, sent back and worked on since: what this one checks first. */
+  earlier?: ReviewProblem[];
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
@@ -424,6 +438,7 @@ export async function reviewTests(options: {
     model: options.model,
     label: `${options.label} test reviewer`,
     system: fence.note,
+    budget: { calls: REVIEWER_CALLS, finish: ["submit_review"] },
   });
   try {
     await ask(session, reviewPrompt(options), options.onDelta);
@@ -447,6 +462,7 @@ export function reviewPrompt(options: {
   functionalities: Array<{ frid: string; acceptanceTests: string[] }>;
   forChange?: boolean;
   invocation: string;
+  earlier?: ReviewProblem[];
 }): string {
   const withAcceptance = options.functionalities.filter((item) => item.acceptanceTests.length > 0);
   const whose = options.forChange
@@ -486,7 +502,27 @@ export function reviewPrompt(options: {
       : []),
     `- The conformance tests cover what the specification says ${options.forChange ? "the change does" : `functionality ${options.functionalities[0]?.frid ?? ""} does`} - its behaviour, its`,
     "  edge cases, its errors - each checked against the specification, not against what the code happens to do.",
+    "  Only what can be seen from outside: where the specification says one part calls or uses another, the test",
+    "  checks the outcome that follows - what comes back, what is stored, what the other service received - never",
+    "  that the call was made. Asking for a test of how the code works inside is not a problem to raise.",
     "",
+    ...(options.earlier !== undefined && options.earlier.length > 0
+      ? [
+          "The review before this one sent the tests back with these problems, and they have been worked on since:",
+          "",
+          ...options.earlier.map((problem) => `- ${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
+          "",
+          "Check each of them first: fixed, or still there. Raise a problem that review did not only when it is one of",
+          "the above - a test that cannot fail, mocks the software, or leaves out or misdoes what the specification or an",
+          "acceptance test asks for. Not a matter of style or thoroughness the last review let pass: the review is not",
+          "done again from the start.",
+          "",
+        ]
+      : [
+          "Find every problem now, in this one review - the tests go back once with all of them, and the next review",
+          "checks that they were fixed rather than starting over.",
+          "",
+        ]),
     "Then call submit_review once: pass when nothing is missing and nothing is bad; otherwise every problem - the",
     "file, the test, missing or bad, and exactly what, with what the specification says instead. Be specific: the",
     "agent that fixes them gets your list and nothing else.",
@@ -502,7 +538,7 @@ export function reviewPrompt(options: {
 /** The review's problems, for the conformance agent to fix. */
 export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
   return [
-    "The conformance suite and the unit tests pass, but the tests did not pass review. Each problem, exactly:",
+    "The conformance suite and the unit tests pass. A review of the tests found how to make them better - each, exactly:",
     "",
     ...problems.map((problem) => `- ${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
     "",
@@ -528,6 +564,10 @@ export function refLabel(ref: FunctionalityRef): string {
 export interface Verdict {
   culprit: Culprit;
   reason: string;
+  /** For code: the specification's words the code does not meet, as the judge quoted them. */
+  specSays?: string;
+  /** For code: it is wrong because it hides why the software failed. */
+  causeHidden?: boolean;
   /** For a spec conflict: the two functionalities that cannot both hold - in this module, or in one it requires. */
   functionalities?: FunctionalityRef[];
 }
@@ -590,6 +630,39 @@ export function sortedRefs(functionalities: FunctionalityRef[]): FunctionalityRe
 export const SPEC_CONFLICT_RAISES = 3;
 
 /** Which is wrong when the conformance suite fails - the code, the tests, or the spec itself - read against the spec. */
+/** Text as it is compared for a quote: lower case, words only. */
+function words(text: string): string {
+  return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+}
+
+/**
+ * Why a verdict that the code is wrong cannot be taken as it is, or nothing when it can. The code is
+ * wrong only against what the specification says - so the judge quotes it, and the quote has to be
+ * in the specification - or when it hides why the software failed. A test asserting what the
+ * specification leaves open is the test's mistake, however plausible the assertion.
+ */
+export function unfoundedCodeVerdict(verdict: Verdict, specText: string): string | undefined {
+  if (verdict.causeHidden === true) return undefined;
+  const quote = verdict.specSays?.trim() ?? "";
+  if (quote === "") {
+    return (
+      "Your verdict blames the code, but quotes no words of the specification it does not meet. Call submit_verdict " +
+      "again: for code, put the specification's own words the code does not meet in spec_says, copied exactly from " +
+      "<specification>; or set cause_hidden when the output does not show why the software failed. If the specification " +
+      "does not say what the failing test asserts, the test is what is wrong: culprit tests."
+    );
+  }
+  const quoted = words(quote);
+  if (quoted.trim().split(" ").length < 4 || !words(specText).includes(quoted)) {
+    return (
+      `Your verdict blames the code, but "${quote}" is not in the specification. Call submit_verdict again: for code, ` +
+      "copy into spec_says the specification's own words the code does not meet, exactly as they are in <specification>. " +
+      "If no words of it say what the failing test asserts, the test is what is wrong: culprit tests."
+    );
+  }
+  return undefined;
+}
+
 export async function judgeFailure(options: {
   buildDir: string;
   conformanceDir: string;
@@ -613,6 +686,15 @@ export async function judgeFailure(options: {
         description: "What has to change to meet the specification - or spec, when the specification cannot be met at all",
       }),
       reason: Type.String({ description: "Why, against the specification: which test, which behaviour, what the spec says" }),
+      spec_says: Type.Optional(
+        Type.String({
+          description:
+            "For code: the specification's own words the code does not meet, copied exactly from <specification> - the sentence, or the part of it that says what the test checks",
+        }),
+      ),
+      cause_hidden: Type.Optional(
+        Type.Boolean({ description: "For code: true when it is wrong because the output does not show why the software failed - it hides the cause" }),
+      ),
       functionalities: Type.Optional(
         Type.Array(
           Type.Object({
@@ -624,26 +706,43 @@ export async function judgeFailure(options: {
       ),
     }),
     async execute(_id, params) {
-      const given = params as { culprit: Culprit; reason: string; functionalities?: Array<{ module: string; id: string }> };
-      verdict = { culprit: given.culprit, reason: given.reason, ...(given.functionalities ? { functionalities: conflictRefs(given.functionalities) } : {}) };
+      const given = params as { culprit: Culprit; reason: string; spec_says?: string; cause_hidden?: boolean; functionalities?: Array<{ module: string; id: string }> };
+      verdict = {
+        culprit: given.culprit,
+        reason: given.reason,
+        ...(given.spec_says?.trim() ? { specSays: given.spec_says.trim() } : {}),
+        ...(given.cause_hidden === true ? { causeHidden: true } : {}),
+        ...(given.functionalities ? { functionalities: conflictRefs(given.functionalities) } : {}),
+      };
       return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;
-  // It reads both, and changes neither.
-  const fence = confinedTools({ workdir: options.conformanceDir, read: [options.buildDir, options.conformanceDir], write: [], noBash: true });
+  // It reads both, and changes neither. It has a shell and the web too - to try the software, or ask
+  // a service it calls what it answers - as the explorer does: its file tools write nothing, and what
+  // it changes through the shell is told.
+  const fence = confinedTools({ workdir: options.conformanceDir, read: [options.buildDir, options.conformanceDir], write: [] });
+  const before = { code: digestFiles(options.buildDir), tests: digestFiles(options.conformanceDir) };
   const session = await createExecutor({
     cwd: options.conformanceDir,
-    customTools: [submit, ...fence.tools],
-    tools: [...fence.names, "submit_verdict"],
+    customTools: [submit, ...createWebTools(), ...fence.tools],
+    tools: [...fence.names, ...WEB_TOOLS, "submit_verdict"],
     model: options.model,
     label: `${options.label} judge`,
     system: fence.note,
+    budget: { calls: JUDGE_CALLS, finish: ["submit_verdict"] },
   });
   try {
     await ask(session, judgePrompt(options), options.onDelta);
     for (let again = 0; again < 2; again += 1) {
       if (verdict === undefined) {
         await ask(session, "You have not called submit_verdict. Call it now: code, tests or spec, and why.", options.onDelta);
+        continue;
+      }
+      if (verdict.culprit === "code") {
+        const unfounded = unfoundedCodeVerdict(verdict, options.spec.text);
+        if (unfounded === undefined) break;
+        verdict = undefined;
+        await ask(session, unfounded, options.onDelta);
         continue;
       }
       if (verdict.culprit !== "spec") break;
@@ -655,7 +754,20 @@ export async function judgeFailure(options: {
   } finally {
     session.dispose();
   }
+  // A judge changes nothing: what its shell changed anyway is said, for whoever looks at the run.
+  for (const [what, dir, digest] of [["code", options.buildDir, before.code], ["tests", options.conformanceDir, before.tests]] as const) {
+    const changed = diffFiles(digest, digestFiles(dir));
+    const files = [...changed.added, ...changed.changed, ...changed.removed];
+    if (files.length > 0) reportActivity(`  the judge changed the ${what}, which it must not: ${files.slice(0, 5).join(", ")}`);
+  }
   if (verdict?.culprit === "spec" && specConflictProblem(verdict.functionalities, options.scope) !== undefined) verdict = undefined;
+  if (verdict?.culprit === "code" && unfoundedCodeVerdict(verdict, options.spec.text) !== undefined) {
+    // Blaming the code takes the specification's own words; without them, the test asserts what the spec does not say.
+    return { culprit: "tests", reason: `${verdict.reason}\n\nBut no words of the specification say so: a test that asserts what the specification does not say is what is wrong. Check each failing assertion against the specification, and assert only what it says.` };
+  }
+  if (verdict?.culprit === "code" && verdict.specSays !== undefined) {
+    verdict = { ...verdict, reason: `${verdict.reason}\n\nThe specification says: "${verdict.specSays}"` };
+  }
   // No verdict is no evidence the code is wrong: the tests are the newer work, and looked at first.
   return verdict ?? { culprit: "tests", reason: "The judge gave no verdict that could be used; check the failing tests against the specification first." };
 }
@@ -696,7 +808,13 @@ export function judgePrompt(options: {
     "",
     "When the output does not show why the software failed - it answered with an error that names no cause, and",
     "logged nothing about it - the code is what is wrong first: it hides the cause, and nobody can fix what they",
-    "cannot see. Judge code, say that the cause has to be made to show, and name where the error is caught.",
+    "cannot see. Judge code with cause_hidden, say that the cause has to be made to show, and name where the error is caught.",
+    "",
+    "To blame the code, quote in spec_says the specification's own words it does not meet, copied exactly - a",
+    "verdict of code without them is not taken. What the specification leaves open is never the code's fault: a test",
+    "that asserts it - a status code, a message, a format the specification does not name - is what is wrong.",
+    "",
+    `You have ${JUDGE_CALLS} tool calls to decide in: read what the failure points at, not the whole codebase.`,
     "",
     "When the code and the tests could both be what is wrong, choose tests. When both are wrong, say which to fix",
     "first: the one that makes the failure you see. Then call submit_verdict once, with which and why - name the",
