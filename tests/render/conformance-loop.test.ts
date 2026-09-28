@@ -348,12 +348,22 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toContain("were never written and labelled");
   });
 
+  it("never lets go of tests that do not yet test the functionality black box - however many reviews it takes", async () => {
+    reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test skips the backup it checks.", blocking: true }] });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), maxRounds: 8 });
+    expect(result.passed).toBe(false);
+    expect(asked.filter((turn) => turn.role === "reviewer").length).toBeGreaterThan(5);
+    expect(result.reviewWaived).toBeUndefined();
+    const feedback = asked.filter((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better")).at(-1)!;
+    expect(feedback.prompt).toContain("- BLOCKING · MISSING · test_acceptance_hello.py: The acceptance test skips the backup it checks.");
+  });
+
   it("passes after five failed reviews - the suite and unit tests pass, and what the review last found is kept, not sent back again", async () => {
-    reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more." }] });
+    reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more.", blocking: false }] });
     const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
     expect(result.passed).toBe(true);
     expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(5);
-    expect(result.reviewWaived).toEqual([{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more." }]);
+    expect(result.reviewWaived).toEqual([{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more.", blocking: false }]);
     expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("optimised as far as 5 reviews could take them");
   });
 

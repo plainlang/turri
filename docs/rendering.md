@@ -350,7 +350,11 @@ cannot fail, mocks the software, or leaves out what the spec asks for. It asks o
 from outside: where the spec says one part calls another, the outcome, never the call. What matters is
 found in the first few reviews - the review optimises the tests, and after that they cannot be optimised
 further - so after five that still found something, the tests are taken as they are: the run passes,
-and what the last review suggested is kept in the result and the notes' pitfalls. All three passing
+and what the last review suggested is kept in the result and the notes' pitfalls. Except a blocking
+problem - the functionality not yet tested black box: a test or an acceptance test missing, cut down or
+skipping what it checks, the software mocked or not reached from outside, a test that cannot fail. The
+review marks each problem blocking or not, and a blocking one is never let go: the tests go back until
+it is fixed. All three passing
 is done.
 
 A spec diff's conformance run holds its tests to the same bar. The functionalities the change touches -

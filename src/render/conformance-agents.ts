@@ -376,6 +376,12 @@ export interface ReviewProblem {
   test?: string;
   kind: "missing" | "bad";
   what: string;
+  /**
+   * The functionality is not yet tested, black box: a test or an acceptance test missing or cut down,
+   * the software mocked or reached other than from outside, a test that cannot fail or skips what it
+   * checks. Never let go. Anything else is a way to make good tests better.
+   */
+  blocking?: boolean;
 }
 
 /**
@@ -414,6 +420,12 @@ export async function reviewTests(options: {
           test: Type.Optional(Type.String({ description: "The test in it, when it is one test" })),
           kind: Type.Union([Type.Literal("missing"), Type.Literal("bad")]),
           what: Type.String({ description: "Exactly what is missing or bad, and what the specification says instead" }),
+          blocking: Type.Boolean({
+            description:
+              "True when the functionality is not yet tested black box because of it: a test or an acceptance test missing, cut down or " +
+              "skipping what it checks, the software mocked or not reached from outside, a test that cannot fail. False for a way to make " +
+              "tests that already do that better",
+          }),
         }),
       ),
     }),
@@ -525,7 +537,10 @@ export function reviewPrompt(options: {
         ]),
     "Then call submit_review once: pass when nothing is missing and nothing is bad; otherwise every problem - the",
     "file, the test, missing or bad, and exactly what, with what the specification says instead. Be specific: the",
-    "agent that fixes them gets your list and nothing else.",
+    "agent that fixes them gets your list and nothing else. Mark a problem blocking when because of it the",
+    "functionality is not yet tested black box - a test or an acceptance test missing, cut down or skipping what it",
+    "checks, the software mocked or not reached from outside, a test that cannot fail. Those are never let go; the",
+    "rest - ways to make tests that already do that better - are let go after a few reviews.",
     "",
     "<specification>",
     options.spec.text.trim(),
@@ -540,7 +555,7 @@ export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
   return [
     "The conformance suite and the unit tests pass. A review of the tests found how to make them better - each, exactly:",
     "",
-    ...problems.map((problem) => `- ${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
+    ...problems.map((problem) => `- ${problem.blocking === true ? "BLOCKING · " : ""}${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
     "",
     "Fix every one: implement what is missing, and make what is bad test the software black box and as the",
     "specification says. Then run the suite. Never mock the software under test or loosen a test to pass.",

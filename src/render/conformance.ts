@@ -708,8 +708,10 @@ export async function renderConformanceTests(
           failedReviews += 1;
           // What matters is found in the first few reviews; after that they are down to what hardly does.
           // The suite and the unit tests pass: past this many, the review is let go, and what it last
-          // said is kept, not sent back again.
-          if (failedReviews >= REVIEW_ROUNDS) {
+          // said is kept, not sent back again - unless the functionality is still not tested black box:
+          // a missing or cut-down test is never let go.
+          const blocking = review.problems.filter((problem) => problem.blocking === true);
+          if (failedReviews >= REVIEW_ROUNDS && blocking.length === 0) {
             stage(`the tests cannot be optimised further after ${REVIEW_ROUNDS} reviews - done; what the last review suggested is in the notes`);
             reviewWaived = review.problems;
             recordNote(
@@ -723,7 +725,11 @@ export async function renderConformanceTests(
             break;
           }
           reportActivity(`  the review found ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}: ${review.problems[0]!.what.slice(0, 140)}`);
-          stage(`the review found ${review.problems.length} way${review.problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`);
+          stage(
+            blocking.length > 0
+              ? `the review found the functionality not yet tested black box (${blocking.length} of ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}) - the conformance agent completes the tests`
+              : `the review found ${review.problems.length} way${review.problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`,
+          );
           const fixed = await changing(() => askConformance(reviewFeedbackPrompt(review.problems), options.onDelta));
           response = fixed.result;
           recordAttempt(
