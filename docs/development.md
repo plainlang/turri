@@ -28,6 +28,8 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/render/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
 | `src/render/spec-change.ts` | rendering a spec diff |
 | `src/render/queue.ts`, `src/render/jobs.ts` | the render queue and background jobs |
+| `src/render/spec-diff-parts.ts` | cutting a spec diff by the codebase each part lands in |
+| `src/render/queue-master.ts` | reworking the queued spec diffs around each new one, held to ending on the spec as it is |
 | `src/render/state.ts` | the tree the code is built from, `.plainwright.json` |
 | `src/render/history.ts` | module history in `.plaingit` |
 | `src/render/confine.ts`, `src/render/vm.ts` | the file-tool fence and the sandbox VM - see [sandbox](sandbox.md) |

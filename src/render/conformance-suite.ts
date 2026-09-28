@@ -180,7 +180,7 @@ export async function renderConformanceSuite(
         frids: target.frids,
         tree,
         required: requiredFunctionalSpecs(target.plainFile, options.templateDirs),
-        scripts: findTestScripts(projectRootFor(target.plainFile, target.buildDir)),
+        scripts: findTestScripts(projectRootFor(target.plainFile, target.buildDir), target.plainFile, target.buildDir),
         model: options.model,
         onDelta: options.onDelta,
       });
@@ -190,7 +190,7 @@ export async function renderConformanceSuite(
 
   // In the current codebase, one suite holds every module's tests: it runs once, at the end.
   if (codebase !== undefined && options.regression === true) {
-    const [, tipTree] = plainFileParser(basename(codebase.plainFile), resolveTemplateDirs(codebase.plainFile, options.templateDirs));
+    const [, tipTree] = plainFileParser(basename(codebase.plainFile, codebase.buildDir), resolveTemplateDirs(codebase.plainFile, options.templateDirs));
     const last = outcomes.filter((o) => o.result !== undefined).at(-1)?.result;
     regression[codebase.moduleName] = await ensureRegressionPasses({
       buildDir: codebase.buildDir,
@@ -199,7 +199,7 @@ export async function renderConformanceSuite(
       frids: codebase.frids,
       tree: tipTree,
       required: requiredFunctionalSpecs(codebase.plainFile, options.templateDirs),
-      scripts: findTestScripts(projectRootFor(codebase.plainFile, codebase.buildDir)),
+      scripts: findTestScripts(projectRootFor(codebase.plainFile, codebase.buildDir), codebase.plainFile, codebase.buildDir),
       model: options.model,
       onDelta: options.onDelta,
     });

@@ -1,6 +1,7 @@
-import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
+import { projectDirOf } from "./render/paths.ts";
 
 /**
  * The project's `config.yaml`, at its root - the folder that holds `plain_modules`.
@@ -33,9 +34,35 @@ import { load as loadYaml } from "js-yaml";
  * Keys are written with dashes; underscores are read the same (`conformance_tests`). Keys it
  * does not know - a codeplain `config.yaml` carries several - are ignored, and so is a value of
  * the wrong type. Everything is optional, and what is given on the command line wins.
+ *
+ * A project whose modules do not share a stack - a Python backend and a React frontend beside
+ * each other, importing one common module - gives each its own settings in `config.<module>.yaml`
+ * beside `config.yaml`: `config.backend.yaml` for `backend.plain`. A module is built with
+ * `config.yaml`, and its own file over it, key by key - a model it names takes what it leaves out
+ * from the project's. A module without a file of its own takes the one of the first module down
+ * its `requires` chain that has one: a chain is one codebase, on one stack. `module:` and
+ * `harness-model:` are the project's alone - there is one conversation - and are not read from a
+ * module's file.
  */
 
 export const CONFIG_FILE = "config.yaml";
+
+/** A module's own config file's name: `config.backend.yaml` for the module `backend`. */
+export function moduleConfigFile(module: string): string {
+  return `config.${module}.yaml`;
+}
+
+/** The modules a project folder has config files of their own for, by name. */
+export function modulesWithConfig(root: string): string[] {
+  try {
+    return readdirSync(root)
+      .map((name) => /^config\.(.+)\.yaml$/.exec(name)?.[1])
+      .filter((name): name is string => name !== undefined)
+      .sort();
+  } catch {
+    return [];
+  }
+}
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -144,9 +171,83 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 }
 
-/** The project's config, or nothing of it when there is no file or it does not parse. */
-export function readProjectConfig(root: string): ProjectConfig {
-  const path = join(root, CONFIG_FILE);
+/**
+ * The project's config - with the module's own over it, when a module is named - or nothing of it
+ * when there is no file or it does not parse.
+ */
+export function readProjectConfig(root: string, module?: string): ProjectConfig {
+  const project = readConfigFile(join(root, CONFIG_FILE));
+  if (module === undefined) return project;
+  const own = readConfigFile(join(root, moduleConfigFile(module)));
+  // The project's alone: one conversation, one module built when none is named.
+  const merged: ProjectConfig = { ...project };
+  for (const key of Object.keys(CONFIG_KEYS) as Array<keyof ProjectConfig>) {
+    if (key === "module" || key === "harnessModel" || own[key] === undefined) continue;
+    (merged as Record<string, unknown>)[key] = own[key];
+  }
+  merged.codingModel = inheritModel(own.codingModel, project.codingModel);
+  merged.judgeModel = inheritModel(own.judgeModel, project.judgeModel);
+  return withoutUndefined(merged);
+}
+
+function withoutUndefined(config: ProjectConfig): ProjectConfig {
+  return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined)) as ProjectConfig;
+}
+
+/** The front matter of a .plain file, or nothing of it. */
+function frontmatterOf(plainFile: string): Record<string, unknown> {
+  try {
+    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(plainFile, "utf8"));
+    const parsed = match ? loadYaml(match[1]!) : undefined;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The module whose config file a module is built with: its own, or else the first down its
+ * `requires` chain with one - found beside the spec, in its `template/`, or at the project root.
+ * Nothing when none has one: the project's config.yaml alone.
+ */
+export function configModuleOf(root: string, plainFile: string): string | undefined {
+  const withConfig = new Set(modulesWithConfig(root));
+  if (withConfig.size === 0) return undefined;
+  const seen = new Set<string>();
+  const visit = (file: string): string | undefined => {
+    const name = basename(file, ".plain");
+    if (seen.has(name)) return undefined;
+    seen.add(name);
+    if (withConfig.has(name)) return name;
+    const requires = frontmatterOf(file).requires;
+    for (const required of Array.isArray(requires) ? requires : typeof requires === "string" ? [requires] : []) {
+      if (typeof required !== "string") continue;
+      const found = [dirname(file), join(dirname(file), "template"), root, join(root, "template")]
+        .map((dir) => join(dir, `${required}.plain`))
+        .find((candidate) => existsSync(candidate));
+      const hit = found !== undefined ? visit(found) : withConfig.has(required) ? required : undefined;
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  };
+  return visit(resolve(plainFile));
+}
+
+/** The config a spec is built with: its project's, with its module's own over it. */
+export function configForSpec(plainFile: string): ProjectConfig {
+  const root = projectDirOf(resolve(plainFile));
+  return readProjectConfig(root, configModuleOf(root, plainFile));
+}
+
+/** The config a module is built with, by its codebase's name - `plain_modules/<module>/code`. */
+export function configModuleOfBuild(root: string, module: string): string | undefined {
+  const plainFile = [root, join(root, "template")].map((dir) => join(dir, `${module}.plain`)).find((candidate) => existsSync(candidate));
+  if (plainFile !== undefined) return configModuleOf(root, plainFile);
+  return modulesWithConfig(root).includes(module) ? module : undefined;
+}
+
+/** One config file, read, or nothing of it when it is not there or does not parse. */
+function readConfigFile(path: string): ProjectConfig {
   let parsed: unknown;
   try {
     if (!statSync(path).isFile()) return {};

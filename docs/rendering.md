@@ -7,11 +7,37 @@ code or tests, and the harness decides what runs next and whether the work is do
 ## Where things go
 
 A spec is built in its **project**: the nearest folder, from the spec's own up, that holds a
-`config.yaml` or a `plain_modules/` - or, with neither, the spec's own folder. That is where its
+`config.yaml`, a module's own `config.<module>.yaml` or a `plain_modules/` - or, with none, the
+spec's own folder. That is where its
 `plain_modules/` is, its `config.yaml` read and its testing scripts found, wherever plainwright was
 started: a project that keeps its specs in `plain/`, with `plain/config.yaml` and
 `plain/plain_modules/`, builds `plain/hubspot.plain` in `plain/plain_modules/hubspot/`, named from
 the folder above. Links in a spec are relative to the spec.
+
+### Modules on different stacks
+
+One project can hold modules that share nothing but a common module - a Python backend and a React
+frontend side by side, each importing `base` from `template/`, neither requiring the other. Each
+gets its settings in a file of its own beside `config.yaml`, named for the module:
+
+```
+config.yaml            # the project's: harness-model, coding-model, conformance-tests
+config.backend.yaml    # unittests-script: test_scripts/run_unittests_python.sh ...
+config.frontend.yaml   # unittests-script: test_scripts/run_unittests_typescript.sh, its own coding-model
+backend.plain          # import: [base, python_fastapi_template]
+frontend.plain         # import: [base, react_vite_template]
+template/              # base.plain, python_fastapi_template.plain, react_vite_template.plain
+test_scripts/          # both stacks' scripts
+```
+
+A module is built with `config.yaml` and its own file over it, key by key; a model its file names
+takes what it leaves out from the project's (`coding-model: {thinking: high}` keeps the project's
+model). A module without a file of its own - `backend_admin`, which requires `backend` - takes the
+one of the first module down its `requires` chain that has one: a chain is one codebase, on one
+stack. What runs in a codebase follows that codebase's file, even for a required module's spec
+rebuilt there. An import module is not built, and has none. `module:` and `harness-model:` are the
+project's alone - there is one conversation - and are not read from a module's file; with several
+modules and no `module:`, building a module needs its `.plain` file named.
 
 | | |
 | --- | --- |
@@ -170,7 +196,8 @@ project's own testing scripts, run by the harness the same way every time:
 The `implement-unit-testing-script` and `implement-conformance-testing-script` skills write them.
 They are looked for at the project root - the folder that holds `plain_modules` - in this order:
 
-1. `config.yaml`, naming them by path from the root:
+1. `config.yaml` - or the module's own `config.<module>.yaml`, for a project whose modules are on
+   different stacks - naming them by path from the root:
 
    ```yaml
    unittests-script: test_scripts/run_unittests.sh
@@ -182,7 +209,7 @@ They are looked for at the project root - the folder that holds `plain_modules` 
 
 The same `config.yaml` holds the project's other defaults - `module`, `model`, `conformance-tests` -
 for [unattended runs](headless.md). A folder holding two of a kind is not guessed between: name the
-one to use in `config.yaml`. The
+one to use in `config.yaml`, or in each module's own file. The
 scripts are not linked from the specs; a link to one is ignored.
 
 They are required: a build with no unit testing script, or with conformance on and no conformance
@@ -266,6 +293,74 @@ all in one.
 When it passes, the tree the code is built from becomes the spec as parsed when the diff went in -
 every section, not only the functional specs - and the diff is committed with it. A diff queued
 behind others is rendered from its own parse, not from the files as they are by the time it runs.
+
+### Restructuring, new required modules, and changes across modules
+
+Not every change to the `.plain` files is a change to the code. Before a spec diff renders, the
+spec the codebase is built from is compared with the spec with the change in, as the parser
+resolves them: the definitions and the implementation and test reqs as sets - in any order, from
+the module's own file or one it imports - and the functional specs in order, those it inherits
+then its own, whichever module each is written in. When they are the same - definitions moved to
+a common module, reqs reordered, specs moved between modules of the chain, only the frontmatter
+description changed - nothing is rendered: the spec is recorded as it is now laid out and
+committed, with no agent, no testing script and no conformance job. In the queue such a job is
+named "spec restructured - nothing to render" from the start, and the queue master leaves it be.
+`render_module` takes a spec that is only restructured the same way.
+
+Moving specs into a module the code was not built on is different: a module required now - a new
+module the specs were split into, or an existing one required for the first time - whose code the
+codebase does not hold. No change to the code brings that in, so it is not a spec diff. The queue
+starts the chain's build instead: the new module is built, and every built module above it starts
+again from scratch on its code - its code, conformance tests and record removed and committed, so
+what was there stays in its history. `render_module` does the same whenever it finds a built
+module that was not built on the whole chain below it (its record does not list a module as
+inherited, or, with nothing inherited on record, its history never started from it).
+`render_spec_diff` refuses such a change and says to render the module.
+
+A change to several modules lands where each module's code lives. When a diff changes two modules
+of a chain and the one above is not built yet, those are two codebases, so the queue cuts it into
+a spec diff per codebase, bottom of the chain first: the module below renders its part in its own
+codebase, and the one above starts from that code when its part runs. A file a module imports goes
+with the lowest module that reads it. When the module above is built, the whole diff lands in its
+codebase, as before. A part that lands in a codebase holding nothing yet, with nothing queued for
+it, is given its module's whole spec as the change - not the files the modules below it read,
+which come with their code.
+
+### The queue master
+
+Spec diffs queued for one codebase can overlap: a later change can undo, redo or rewrite what an
+earlier one still waiting in the queue would render. Whenever a spec diff job is submitted while at
+least one other is waiting, the queue master reworks the waiting ones. The harness works out the net
+change - from the spec the code is built from (or the one the running spec diff lands) to the spec
+as it now is - as numbered changes, and a proposal: each waiting job keeps the changes of its own
+still in the net change, the rest going to the newest. An agent (the judge model, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
+every waiting job's diff, the spec before and after the new change and the `.plain` file itself, and
+may delete, merge, reorder, rewrite and insert jobs, or ask the person when it is not sure. It commits
+a queue of jobs, each a set of the numbered changes, and the harness holds it to where the queue has
+to end: every change in exactly one job, no job without a change, the spec consistent after every job
+(nothing used before it is defined), and the last job ending exactly on the `.plain` file as it is
+now. A queue that does not check is refused with why; when the agent never commits one that does,
+the harness takes its own proposal, and failing that the whole net change as one job.
+
+The harness's proposal keeps each queued job's own changes with it - as they were queued, or
+edited since: when a later change takes the `My profile` link out of the nav bar a queued job adds,
+the nav bar as it is now is still that job's, and a job only adding the profile page is left with
+nothing. So taking something out of queued work is one spec diff that removes it from every spec
+that names it; the queue master takes out the jobs it undoes and rewrites the ones it touches.
+
+A planned job runs as the queued job it came from, keeping its place and id, wherever the order
+allows; one that has to run earlier takes the place of a job the plan left out, and what does not
+fit goes on after them as a new job. A job the rework leaves out never runs: it says where its
+change went - to another job, or undone - its conformance job with it. A spec diff that has
+started is never touched, and a functionality render still waiting on the codebase leaves the
+queue as it is.
+
+In a conversation, `rework_queue` has the queue master rework a codebase's queued spec diffs as the
+person asks - run the feed first, merge two, split one - held to the same end; what would change
+the spec itself takes a spec diff. Stopping a queued spec diff by hand does not take its change
+out of the `.plain` files, so a spec diff that starts after one ahead of it did not land - stopped,
+or failed - takes its diff again, from what the code is built from to the spec it leaves, and says
+so: what it records is always what it built.
 
 `render_spec_diff_conformance` is its conformance half, on its own - what `render_functionality_conformance`
 is to `render_functionality`. It takes the same diff, applies it unless it already is, and has one

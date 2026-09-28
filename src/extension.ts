@@ -7,8 +7,8 @@ import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
-import { CONFIG_FILE, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
-import { projectDirOf, skillRunDir } from "./render/paths.ts";
+import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
+import { skillRunDir } from "./render/paths.ts";
 import { findTestScripts } from "./render/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { createWebTools } from "./render/web.ts";
@@ -44,6 +44,7 @@ import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from ".
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./render/spec-change-conformance.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
+import { describeQueuedParts } from "./spec-tools.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
   createJobRegistry,
@@ -737,7 +738,14 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       // No file named: the project's config.yaml says which module.
       const located = fromWorkingDir(cwd, given);
       const named = located.plain_file ?? readProjectConfig(located.base).module;
-      if (named === undefined) throw new Error(`Name the .plain file to build, or set module: in ${CONFIG_FILE}.`);
+      if (named === undefined) {
+        const stacks = modulesWithConfig(located.base);
+        throw new Error(
+          stacks.length > 0
+            ? `Name the .plain file to build: this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}.`
+            : `Name the .plain file to build, or set module: in ${CONFIG_FILE}.`,
+        );
+      }
       const params = { ...located, plain_file: resolve(located.base, named) };
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       return deliver(jobs, {
@@ -976,6 +984,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
     promptGuidelines: [
       "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
       "Pass conformance: false when the user asks to render without conformance tests.",
+      "A change that takes something out of work still queued - a page the user dropped, from every spec that names it - is one spec diff like any other: the queue master takes the queued jobs it undoes out, and gives the ones it touches their changes as they now are.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
@@ -1017,7 +1026,12 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
           tryIt: params.try_it ?? true,
           conformance: conformanceOption(params.conformance, params.plain_file),
         });
-        return queuedReport(jobs, queued.jobId, "render_spec_diff", queued.conformanceJobId);
+        if (queued.parts.length === 1 && queued.parts[0]!.what === "render") return queuedReport(jobs, queued.jobId, "render_spec_diff", queued.conformanceJobId);
+        // Split across codebases, only restructured, or a rebuild from scratch: said as it was queued.
+        return {
+          content: [{ type: "text" as const, text: `${describeQueuedParts(queued.parts)} Tell the user, and carry on. Use check_job with a job's id if they ask how it is going.` }],
+          details: { jobId: queued.jobId, jobIds: queued.parts.map((part) => part.jobId), conformanceJobId: queued.conformanceJobId },
+        };
       }
       return deliver(jobs, {
         kind: "render_spec_diff",
@@ -1244,12 +1258,12 @@ const CONFORMANCE_PARAM = Type.Optional(
 function conformanceOption(asked: boolean | undefined, plainFile?: string): false | undefined {
   if (asked === false) return false;
   if (asked === true) return undefined;
-  return readProjectConfig(configDirFor(plainFile)).conformanceTests === false ? false : undefined;
+  return configOf(plainFile).conformanceTests === false ? false : undefined;
 }
 
-/** Where the config.yaml for a spec is: its project's, or - with no spec - the session's folder. */
-function configDirFor(plainFile?: string): string {
-  return plainFile !== undefined ? projectDirOf(resolve(process.cwd(), plainFile)) : process.cwd();
+/** The config a spec is built with - its project's, with its module's own over it - or, with no spec, the session folder's. */
+function configOf(plainFile?: string) {
+  return plainFile !== undefined ? configForSpec(resolve(process.cwd(), plainFile)) : readProjectConfig(process.cwd());
 }
 
 /**
@@ -1258,14 +1272,21 @@ function configDirFor(plainFile?: string): string {
  * Nothing when there is no project here.
  */
 export function conformanceStatus(root: string): string | undefined {
-  const project = existsSync(join(root, CONFIG_FILE))
+  const project = hasConfig(root)
     ? root
     : readdirSync(root, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "plain_modules")
         .map((entry) => join(root, entry.name))
-        .find((dir) => existsSync(join(dir, CONFIG_FILE)));
+        .find(hasConfig);
   if (project === undefined) return undefined;
   const config = readProjectConfig(project);
+  // Modules on stacks of their own may say otherwise: each as its config has it, when they differ.
+  const modules = modulesWithConfig(project);
+  const perModule = modules.map((module) => [module, readProjectConfig(project, module).conformanceTests] as const);
+  if (perModule.some(([, on]) => on !== config.conformanceTests)) {
+    const state = (on: boolean | undefined) => (on === false ? "off" : on === true ? "on" : "on with test reqs");
+    return `conformance: ${perModule.map(([module, on]) => `${module} ${state(on)}`).join(", ")}`;
+  }
   if (config.conformanceTests === false) return "conformance off (config.yaml)";
   if (config.conformanceTests === true) return "conformance on (config.yaml)";
   if (config.module === undefined) return "conformance on where there are test reqs";
@@ -1278,6 +1299,11 @@ export function conformanceStatus(root: string): string | undefined {
   }
 }
 
+/** Whether a folder holds a project's config: config.yaml, or a module's own config.<module>.yaml. */
+function hasConfig(dir: string): boolean {
+  return existsSync(join(dir, CONFIG_FILE)) || modulesWithConfig(dir).length > 0;
+}
+
 /**
  * The project's config.yaml, for the chat's agent: what it says, and what that means for the
  * tools - so a question about the project's settings is answered from the file, not from the
@@ -1287,22 +1313,56 @@ export function projectConfigBlock(root: string): string {
   // The session's folder, and the projects one folder down - specs kept in plain/, with its own
   // config.yaml and plain_modules - which its specs are built in when named from here.
   const projects = [
-    ...(existsSync(join(root, CONFIG_FILE)) ? [root] : []),
+    ...(hasConfig(root) ? [root] : []),
     ...readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "plain_modules")
       .map((entry) => join(root, entry.name))
-      .filter((dir) => existsSync(join(dir, CONFIG_FILE))),
+      .filter(hasConfig),
   ];
   if (projects.length === 0) return "";
 
   const describe = (dir: string): string[] => {
-    const config = readProjectConfig(dir);
-    const scripts = findTestScripts(dir);
+    const modules = modulesWithConfig(dir);
     const where = dir === root ? "" : ` (paths relative to ${relative(root, dir)}/)`;
+    const at = (name: string) => (dir === root ? name : `${relative(root, dir)}/${name}`);
     return [
-      dir === root ? `${CONFIG_FILE}, for the specs here:` : `${relative(root, dir)}/${CONFIG_FILE}, for the specs in ${relative(root, dir)}/ - built in ${relative(root, dir)}/plain_modules:`,
+      ...settings(
+        readProjectConfig(dir),
+        findTestScripts(dir),
+        dir === root ? `${CONFIG_FILE}, for the specs here:` : `${relative(root, dir)}/${CONFIG_FILE}, for the specs in ${relative(root, dir)}/ - built in ${relative(root, dir)}/plain_modules:`,
+        where,
+        modules.length > 0 ? "project of modules" : "project",
+      ),
+      // A module on a stack of its own: its file over the project's, for it and the modules built on it.
+      ...modules.flatMap((module) => {
+        const plainFile = join(dir, `${module}.plain`);
+        return [
+          "",
+          ...settings(
+            readProjectConfig(dir, module),
+            findTestScripts(dir, plainFile, join(dir, "plain_modules", module, "code")),
+            `${at(moduleConfigFile(module))}, over ${CONFIG_FILE}, for ${module}.plain and the modules that require it - as they are built:`,
+            where,
+            "module",
+          ),
+        ];
+      }),
+    ];
+  };
+
+  const settings = (
+    config: ReturnType<typeof readProjectConfig>,
+    scripts: ReturnType<typeof findTestScripts>,
+    heading: string,
+    where: string,
+    /** The project's file, and whether its modules have files of their own - whose scripts are theirs - or a module's. */
+    of: "project" | "project of modules" | "module",
+  ): string[] => {
+    const perModule = of === "project of modules";
+    return [
+      heading,
       ...[
-        config.module !== undefined ? `- module: ${config.module}${where} - the module to build when the user does not name one.` : undefined,
+        config.module !== undefined && of !== "module" ? `- module: ${config.module}${where} - the module to build when the user does not name one.` : undefined,
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === true
@@ -1315,11 +1375,11 @@ export function projectConfigBlock(root: string): string {
           return [
             models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless set_render_model chose another in this session.` : undefined,
             models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
-            models.harness !== undefined ? `- harness-model: ${shown(models.harness)} - the model plainwright chat starts with.` : undefined,
+            models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model plainwright chat starts with.` : undefined,
           ];
         })(),
-        `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : "none found - every build stops until there is one"}`,
-        `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : "none found"}`,
+        `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each module's file below names its own" : "none found - every build stops until there is one"}`,
+        `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each module's file" : "none found"}`,
         config.testingScripts === "host"
           ? "- testing-scripts: host - the testing scripts run in place on this machine, from the project, against the host codebase - not in the sandbox VM."
           : undefined,
@@ -1329,7 +1389,8 @@ export function projectConfigBlock(root: string): string {
 
   return [
     `<project config>`,
-    `A project's ${CONFIG_FILE} sets how its specs are built. The render tools follow the one of the spec they build;`,
+    `A project's ${CONFIG_FILE} sets how its specs are built - and a module's own config.<module>.yaml, over it, how that module`,
+    "and the ones built on it are: its stack's testing scripts, models and conformance. The render tools follow the one of the spec they build;",
     "answer questions about the project's settings from it, and say when a render will differ from it because the user",
     "asked. Name a spec by its path from here - plain/hubspot.plain - and it is built in its own project.",
     ...projects.flatMap((dir) => ["", ...describe(dir)]),
@@ -1443,7 +1504,7 @@ function codingModelDefault(plainFile?: string): { named: string; from: string }
   const flag = process.env[CODING_MODEL_ENV]?.trim();
   if (flag) return { named: flag, from: "--coding-model" };
   // The coding model inherits what it leaves out from the harness model.
-  const named = modelSpec(projectModels(readProjectConfig(configDirFor(plainFile))).coding);
+  const named = modelSpec(projectModels(configOf(plainFile)).coding);
   return named !== undefined ? { named, from: CONFIG_FILE } : undefined;
 }
 
@@ -1579,6 +1640,9 @@ function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): 
       registry: jobs,
       cwd,
       modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
+      // The queue master reasons about the whole queue: it runs on the judge model, and asks the person in the chat.
+      masterModel: modelSpec(projectModels(readProjectConfig(cwd)).judge),
+      askPerson: (question) => (from.ctx.hasUI ? from.ctx.ui.input(`The queue master asks: ${question}`) : Promise.resolve(undefined)),
     });
     shared = { queue, from };
     renderQueues.set(jobs, shared);
@@ -1749,6 +1813,34 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     }),
     async execute(_id, params) {
       const text = stopJob(jobs, params.job_id);
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "rework_queue",
+    label: "Rework queue",
+    description:
+      "Have the queue master rework the render spec diff jobs waiting for a codebase, as the user asks: reorder them, " +
+      "merge them, split one, rewrite what each renders. It works on every waiting spec diff of that codebase at once and " +
+      "is held to where the queue ends: the spec as the .plain files have it now - every change in exactly one job, the " +
+      "spec holding together after each. It does not change the spec. A running job stays as it is.",
+    promptSnippet: "rework_queue: have the queue master reorder, merge or rewrite the queued spec diffs of a codebase",
+    promptGuidelines: [
+      "Queued spec diffs are reworked by the queue master, never by stopping and re-queueing jobs by hand. To take " +
+        "something out of what is queued - a feature, a page, a link - change the spec: a spec diff that removes it from " +
+        "the .plain files (render_spec_diff). The queue master is told of every new spec diff, and takes the jobs it undoes " +
+        "out and rewrites the ones it touches. rework_queue is for the rest: an order, a merge, a split the user asks for.",
+      "Do not stop a queued spec diff to drop its change: its change stays in the .plain files, and the next job renders it anyway.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "A .plain file of the module whose codebase's queue to rework" }),
+      working_dir: WORKING_DIR_PARAM,
+      instruction: Type.String({ description: "What the user wants of the queue, in their words - e.g. 'run the feed before the nav bar'" }),
+    }),
+    async execute(_id, given, _signal, _onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
+      const text = await renderQueueFor(jobs, cwd, ctx).rework(resolve(cwd, params.plain_file), params.instruction);
       return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
@@ -1935,9 +2027,16 @@ function stopJob(jobs: JobRegistry, named: string): string {
   const stopped = jobs.stop(target.id);
   if (stopped === undefined) return `Job ${target.id} (${target.summary}) is already ${target.status}.`;
   const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
+  // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
+  const inSpec =
+    target.kind === "render_spec_diff"
+      ? " Its change is still in the .plain files: the next spec diff queued for that codebase renders it along with its own. To " +
+        "drop the change, take it out of the spec with a spec diff (render_spec_diff) - the queue master then reworks the queued " +
+        "jobs around it - and to reorder or merge queued spec diffs, use rework_queue."
+      : "";
   return stopped.status === "stopped"
-    ? `Stopped ${target.summary} (${target.id}) before it started.${queued}`
-    : `Stopping ${target.summary} (${target.id}): its agent is being stopped now.${queued}`;
+    ? `Stopped ${target.summary} (${target.id}) before it started.${queued}${inSpec}`
+    : `Stopping ${target.summary} (${target.id}): its agent is being stopped now.${queued}${inSpec}`;
 }
 
 /**

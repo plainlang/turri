@@ -37,10 +37,11 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./render.ts";
-import { type ChainEntry, copyRequiredCode, findCodebaseTip } from "./requires.ts";
+import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } from "./requires.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
-import { sectionsOf, writeBuiltTree } from "./state.ts";
+import { readBuiltTree, sectionsOf, writeBuiltTree } from "./state.ts";
+import { sameSpec } from "./spec-steps.ts";
 import {
   findTestRemovals,
   inventoryTests,
@@ -128,9 +129,21 @@ export function plainFilesOf(diff: string): string[] {
  * ones it imports, in the project - added from nothing. What a build that starts from nothing is
  * given, so it is told everything it builds, not only the last thing written.
  */
-export function wholeSpecDiff(plainFile: string, cwd: string, templateDirs: string[] = []): string {
+export function wholeSpecDiff(plainFile: string, cwd: string, templateDirs: string[] = [], except: string[] = []): string {
   const root = resolve(cwd);
-  const dirs = resolveTemplateDirs(resolve(root, plainFile), templateDirs);
+  const skip = new Set(except.map((path) => resolve(root, path)));
+  return specFilesOf(resolve(root, plainFile), templateDirs)
+    .filter((path) => !relative(root, path).startsWith("..") && !skip.has(path))
+    .map((path) => {
+      const run = spawnSync("git", ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative(root, path)], { cwd: root, encoding: "utf8" });
+      return run.stdout;
+    })
+    .join("");
+}
+
+/** A module's .plain file and every one it imports, transitively - the files its spec is read from. */
+export function specFilesOf(plainFile: string, templateDirs: string[] = []): string[] {
+  const dirs = resolveTemplateDirs(resolve(plainFile), templateDirs);
   const files: string[] = [];
   const visit = (path: string) => {
     if (files.includes(path) || !existsSync(path)) return;
@@ -141,14 +154,25 @@ export function wholeSpecDiff(plainFile: string, cwd: string, templateDirs: stri
       if (found !== undefined) visit(resolve(found));
     }
   };
-  visit(resolve(root, plainFile));
-  return files
-    .filter((path) => !relative(root, path).startsWith(".."))
-    .map((path) => {
-      const run = spawnSync("git", ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative(root, path)], { cwd: root, encoding: "utf8" });
-      return run.stdout;
-    })
-    .join("");
+  visit(resolve(plainFile));
+  return files;
+}
+
+/** A git diff cut into what it does to each file, in order: the file's path (the new side's), and its part of the diff. */
+export function diffByFile(diff: string): Array<{ file: string; diff: string }> {
+  const lines = diff.split("\n");
+  const starts: number[] = [];
+  const headed = lines.some((line) => line.startsWith("diff --git "));
+  lines.forEach((line, index) => {
+    if (headed ? line.startsWith("diff --git ") : line.startsWith("--- ") && lines[index + 1]?.startsWith("+++ ")) starts.push(index);
+  });
+  return starts.map((start, index) => {
+    const part = lines.slice(start, starts[index + 1] ?? lines.length);
+    const target = part.map((line) => /^\+\+\+ (?:b\/)?(.+?)\s*$/.exec(line)?.[1]).find((path) => path !== undefined && path !== "/dev/null");
+    const source = part.map((line) => /^--- (?:a\/)?(.+?)\s*$/.exec(line)?.[1]).find((path) => path !== undefined && path !== "/dev/null");
+    const text = part.join("\n");
+    return { file: target ?? source ?? "", diff: text.endsWith("\n") ? text : `${text}\n` };
+  });
 }
 
 /**
@@ -236,6 +260,8 @@ export interface RenderSpecDiffResult {
   stoppedAt: "unit tests" | "conformance" | "regression" | null;
   /** Conformance was left to a job of its own, which should run now. */
   conformanceLater?: boolean;
+  /** The specs were only restructured: nothing was rendered, the spec as now laid out was recorded. */
+  restructured?: boolean;
 }
 
 export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<RenderSpecDiffResult> {
@@ -246,23 +272,55 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const { moduleName, tree, chain } = spec;
   const tip = chain.at(-1)!;
   const stage = (label: string) => reportStage(`${unitOf(moduleName)}: ${label}`);
+  // A module required now that the code was not built on is not something a change to the code can
+  // bring in: the code has to start again, on that module's.
+  const fresh = newlyRequired(chain);
+  if (fresh !== undefined) {
+    throw new Error(
+      `${tip.moduleName} now requires ${fresh.modules.join(", ")}, which its code was not built on, so a spec diff cannot bring the change in. ` +
+        `Render the module instead (render_module ${relative(cwd, tip.plainFile)}): it builds ${fresh.modules.join(", ")} and starts ` +
+        `${fresh.rebuild.map((entry) => entry.moduleName).join(", ")} again from scratch on it.`,
+    );
+  }
   stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);
-  // Whether the change is done is the project's testing scripts: without them, nothing is built.
-  stage("finding the project's testing scripts");
-  const root = projectRootFor(tip.plainFile, tip.buildDir);
-  // Turned off, the conformance testing script is not used at all, found or not.
-  const scripts = options.conformance === false ? withoutConformance(findTestScripts(root)) : findTestScripts(root);
-  const conformanceOn = options.conformance !== false && (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0;
-  requireTestScripts(moduleName, scripts, { conformance: conformanceOn });
-  reportActivity(`  unit testing script: ${relative(root, scripts.unit)}`);
-  if (scripts.conformance !== undefined && conformanceOn) reportActivity(`  conformance testing script: ${relative(root, scripts.conformance)}`);
-  if (options.conformance === false) reportActivity("  conformance is off: no conformance tests are written or run");
   // The change is made to the codebase's last known good state, not to what an interrupted
   // run left half-written.
   stage("starting from the codebase's last commit");
   // The change is one unit - its code, its conformance tests, the whole suite - landed whole,
   // with the spec it was built from, or undone whole.
   const unit = startWork([tip.buildDir, conformanceDirFor(moduleName, modulesRoot(projectDirOf(tip.plainFile)))], moduleName);
+  // Only laid out differently - definitions moved to a common module, specs moved between modules
+  // of the chain: the code already is what the spec says. Nothing to render; the spec is recorded
+  // as it is now laid out.
+  const builtBefore = readBuiltTree(tip.buildDir);
+  if (builtBefore !== null && sameSpec(builtBefore, tree)) {
+    stage("the specs were only restructured - nothing to render; recording the spec as it is now laid out");
+    writeBuiltTree(tip.buildDir, tree);
+    recordHistory(tip.buildDir, `spec restructured: ${summarizeDiff(options.diff)}`, options.diff);
+    return {
+      moduleName,
+      buildDir: tip.buildDir,
+      diff: applied,
+      response: "The specs were only restructured: the code is already built from the same spec, so nothing was rendered.",
+      runs: [],
+      attempts: 0,
+      testRemovals: [],
+      files: { added: [], changed: [], removed: [] },
+      passed: true,
+      stoppedAt: null,
+      restructured: true,
+    };
+  }
+  // Whether the change is done is the project's testing scripts: without them, nothing is built.
+  stage("finding the project's testing scripts");
+  const root = projectRootFor(tip.plainFile, tip.buildDir);
+  // Turned off, the conformance testing script is not used at all, found or not.
+  const scripts = options.conformance === false ? withoutConformance(findTestScripts(root, tip.plainFile, tip.buildDir)) : findTestScripts(root, tip.plainFile, tip.buildDir);
+  const conformanceOn = options.conformance !== false && (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0;
+  requireTestScripts(moduleName, scripts, { conformance: conformanceOn });
+  reportActivity(`  unit testing script: ${relative(root, scripts.unit)}`);
+  if (scripts.conformance !== undefined && conformanceOn) reportActivity(`  conformance testing script: ${relative(root, scripts.conformance)}`);
+  if (options.conformance === false) reportActivity("  conformance is off: no conformance tests are written or run");
   const frids = [...getFrids(tree)];
   const lastFrid = frids.at(-1);
   const sections = sectionsOf(tree);
@@ -474,6 +532,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 export function describeSpecDiff(result: RenderSpecDiffResult): string {
   const { added, changed, removed } = result.files;
   const repairs = result.regression?.repairs.length ?? 0;
+  if (result.restructured === true) {
+    return `The specs were only restructured: ${result.moduleName}'s code (${result.buildDir}) is already built from the same spec, so nothing was rendered - the spec is recorded as it is now laid out.`;
+  }
   return [
     result.passed
       ? `Rendered the spec change in ${result.moduleName}'s codebase (${result.buildDir}).`

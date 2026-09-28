@@ -1,12 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
 import { resolveTemplateDirs } from "./render.ts";
-import { inheritBuiltTree, STATE_FILE, type RequiredSpec } from "./state.ts";
-import { head, recordHistory } from "./history.ts";
+import { builtRequiredSpecs, inheritBuiltTree, STATE_FILE, type RequiredSpec } from "./state.ts";
+import { head, historyLog, recordHistory } from "./history.ts";
 import { listFiles } from "./testing.ts";
 
 /**
@@ -229,6 +229,46 @@ export function copyRequiredCode(
   }
   recordStart();
   return copied;
+}
+
+/**
+ * A module the chain requires now that a module built in it was not built on: one required for
+ * the first time - a new module the specs were split into, say - and the built modules above it,
+ * whose code was started without it and so has to start again from scratch.
+ *
+ * A module was built on what its record lists as inherited; one with nothing recorded, on what it
+ * was started from, as its history says. A module below it with nothing built was never under it.
+ */
+export function newlyRequired(chain: ChainEntry[]): { modules: string[]; rebuild: ChainEntry[] } | undefined {
+  for (const [index, entry] of chain.entries()) {
+    if (index === 0 || listFiles(entry.buildDir).length === 0) continue;
+    const recorded = builtRequiredSpecs(entry.buildDir);
+    if (recorded === null) continue;
+    const known = new Set(recorded.map((spec) => spec.module));
+    const history = known.size === 0 ? historyLog(entry.buildDir, 10_000) : "";
+    const missing = chain.slice(0, index).filter((below) => {
+      if (listFiles(below.buildDir).length === 0) return true;
+      if (known.size > 0) return !known.has(below.moduleName);
+      // Nothing inherited on record: new only when the history shows the code was never started from it.
+      return below.moduleName === entry.requires && !history.startsWith("No history") && !history.includes(`start from ${below.moduleName}`);
+    });
+    if (missing.length > 0) {
+      return { modules: missing.map((below) => below.moduleName), rebuild: chain.slice(index).filter((above) => listFiles(above.buildDir).length > 0) };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Take a module back to nothing - its code, its conformance tests and what they were built from -
+ * so it is built again from the start, on the module it now requires. Committed, so the code that
+ * was there is in its history.
+ */
+export function startFromScratch(entry: ChainEntry, why: string): void {
+  const testsDir = join(dirname(entry.buildDir), "tests");
+  for (const dir of [entry.buildDir, testsDir]) rmSync(dir, { recursive: true, force: true });
+  mkdirSync(entry.buildDir, { recursive: true });
+  recordHistory(entry.buildDir, `start from scratch: ${why}`);
 }
 
 export function describeChain(chain: ChainEntry[]): string {

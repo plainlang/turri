@@ -189,3 +189,28 @@ describe("the regeneration prompt", () => {
     expect(prompt).not.toContain('version="as built"');
   });
 });
+
+describe("rendering the chain after its specs were split into a new module below", () => {
+  it("builds the new module, then the one above again from scratch on it - its old code in its history", async () => {
+    const { writeTestScripts } = await import("../test-scripts.ts");
+    const { existsSync } = await import("node:fs");
+    const { historyLog, recordHistory } = await import("../../src/render/history.ts");
+    writeTestScripts(dir);
+    writeFileSync(file("shop"), module_(["- Shop one.", "- Shop two."]));
+    built("shop");
+    recordHistory(buildOf("shop"), "built shop");
+    // Shop one moves into catalog, which shop now requires.
+    writeFileSync(file("catalog"), module_(["- Shop one."]));
+    writeFileSync(file("shop"), module_(["- Shop two."], "catalog"));
+
+    const result = await renderChain({ plainFile: file("shop") });
+
+    expect(result.passed).toBe(true);
+    expect(renders.map((render) => [render.plainFile, render.frid, render.buildDir])).toEqual([
+      [file("catalog"), "1", buildOf("catalog")],
+      [file("shop"), "1", buildOf("shop")],
+    ]);
+    expect(existsSync(join(buildOf("shop"), "app.py"))).toBe(false);
+    expect(historyLog(buildOf("shop"))).toMatch(/start from catalog[\s\S]*start from scratch: it now requires catalog[\s\S]*built shop/);
+  });
+});

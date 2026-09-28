@@ -35,13 +35,15 @@ import { ATTEMPTS, describeStop, type StopFacts } from "./stop-report.ts";
 import {
   copyRequiredCode,
   findCodebaseTip,
+  newlyRequired,
   requiredFunctionalSpecs,
   resolveRequiresChain,
+  startFromScratch,
   type ChainEntry,
 } from "./requires.ts";
 import type { RequiredSpec } from "./state.ts";
-import { readBuiltTree } from "./state.ts";
-import { llmPlanner, planSpecSteps, reachedByRendering, type Planner } from "./spec-steps.ts";
+import { readBuiltTree, writeBuiltTree } from "./state.ts";
+import { llmPlanner, planSpecSteps, reachedByRendering, sameSpec, type Planner } from "./spec-steps.ts";
 import type { RenderSpecDiffResult, SpecSnapshot } from "./spec-change.ts";
 import {
   describePending,
@@ -392,7 +394,13 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   // functionality by functionality as asked.
   if (options.from === undefined && options.to === undefined && !options.force) {
     const built = readBuiltTree(buildDir);
-    if (built !== null && !reachedByRendering(built, tree)) {
+    // Only laid out differently - definitions moved to a common module, specs moved between this
+    // module and one it requires: the code already is what the spec says. Recorded, not rendered.
+    if (built !== null && !reachedByRendering(built, tree) && sameSpec(built, tree)) {
+      reportStage(`${unitOf(moduleName)}: the specs were only restructured - nothing to render; recording the spec as it is now laid out`);
+      writeBuiltTree(buildDir, tree);
+      recordHistory(buildDir, "spec restructured: nothing to render");
+    } else if (built !== null && !reachedByRendering(built, tree)) {
       const brought = await renderAsSpecDiffs(options, { moduleName, tree, built, buildDir });
       if (brought !== undefined && "queued" in brought) {
         return {
@@ -461,7 +469,7 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
   // What decides each functionality is done is the project's testing scripts: without them,
   // nothing is built.
   // Turned off, the conformance testing script is not used at all, found or not.
-  const found = findTestScripts(projectRootFor(options.plainFile, buildDir));
+  const found = findTestScripts(projectRootFor(options.plainFile, buildDir), options.plainFile, buildDir);
   const scripts = options.conformance === false ? withoutConformance(found) : found;
   requireTestScripts(moduleName, scripts, { conformance: conformanceEnabled });
   const inRange = allFrids.slice(fromIndex, toIndex + 1);
@@ -757,7 +765,7 @@ export async function regenerateFunctionality(
   }
 
   // The scripts of the codebase it is regenerated in; turned off, no conformance testing script is used.
-  const found = findTestScripts(projectRootFor(host?.plainFile ?? options.plainFile, buildDir));
+  const found = findTestScripts(projectRootFor(host?.plainFile ?? options.plainFile, buildDir), host?.plainFile ?? options.plainFile, buildDir);
   const scripts = options.conformance === false ? withoutConformance(found) : found;
   const hasTestReqs = (getSpecificationItems(tree, TEST_REQUIREMENTS) ?? []).length > 0;
 
@@ -914,6 +922,17 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
 
   const byModule = new Map(chain.map((entry) => [entry.moduleName, entry]));
   const outcomes: ChainOutcome[] = [];
+
+  // A module required now that the built code was not started on - the specs split into a new
+  // module below: it is built, and every built module above it starts again from scratch, on it.
+  const fresh = options.skipRequires ? undefined : newlyRequired(chain);
+  if (fresh !== undefined) {
+    const now = fresh.modules.join(", ");
+    for (const entry of fresh.rebuild) {
+      reportStage(`${unitOf(entry.moduleName)}: it now requires ${now}, which its code was not built on - starting it again from scratch`);
+      startFromScratch(entry, `it now requires ${now}`);
+    }
+  }
 
   // Where the chain's code already lives. Everything below it is in its codebase, so it is
   // not rebuilt in its own - an ancestor whose spec changed is regenerated up here instead.

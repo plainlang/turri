@@ -125,7 +125,10 @@ script - named by `unittests-script:` in `config.yaml` at the project root, or t
 `run_unittests*.sh` in the root or in `test_scripts/` - keep it. Otherwise write
 `test_scripts/run_unittests_<language>.sh` with the `implement-unit-testing-script` skill, for the
 language and framework just settled. Do not link it from the specs. Without it, every build stops
-before it starts.
+before it starts. When this module sits in a project beside another on a different stack - a
+frontend beside a backend, sharing only an imported module - its script is named in its own
+`config.<module>.yaml` beside `config.yaml` (`unittests-script:`), not in `config.yaml`, which is
+the project's and holds what the modules share.
 
 Run `plainwright check` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.

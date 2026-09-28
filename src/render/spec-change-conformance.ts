@@ -88,7 +88,7 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
 
   stage("finding the project's testing scripts");
   const root = projectRootFor(tip.plainFile, tip.buildDir);
-  const scripts = findTestScripts(root);
+  const scripts = findTestScripts(root, tip.plainFile, tip.buildDir);
   requireTestScripts(moduleName, scripts, { conformance: true });
   reportActivity(`  conformance testing script: ${relative(root, scripts.conformance!)}`);
 

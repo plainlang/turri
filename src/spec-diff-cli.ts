@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { modelSpec, projectModels, readProjectConfig } from "./config.ts";
+import { modelSpec, projectModels, configForSpec } from "./config.ts";
 import { projectDirOf } from "./render/paths.ts";
 import { describeSpecDiff, renderSpecDiff } from "./render/spec-change.ts";
 import { withActivity, type ActivitySink } from "./render/activity.ts";
@@ -68,7 +68,7 @@ async function main() {
       inModule: args.inModule,
       conformance: args.conformance,
       tryIt: false,
-      model: args.model ?? modelSpec(projectModels(readProjectConfig(projectDirOf(plainFile))).coding),
+      model: args.model ?? modelSpec(projectModels(configForSpec(plainFile)).coding),
     }),
   );
   console.log(`\n${describeSpecDiff(result)}`);

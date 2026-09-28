@@ -117,8 +117,44 @@ export function reachedByRendering(built: MarshalledPlainSource | null, current:
     const { spec, acceptanceTests } = specStateFor(tree, frid);
     return JSON.stringify([spec, acceptanceTests ?? []]);
   };
-  const around = (tree: MarshalledPlainSource) => JSON.stringify([sectionsOf(tree), getInheritedFunctionalSpecs(tree)]);
+  // The sections in any order: definitions moved to a common module read the same.
+  const around = (tree: MarshalledPlainSource) =>
+    JSON.stringify([Object.entries(sectionsOf(tree)).map(([heading, texts]) => [heading, [...texts].sort()]), getInheritedFunctionalSpecs(tree)]);
   return around(built!) === around(current) && builtFrids.every((frid) => own(built!, frid) === own(current, frid));
+}
+
+/**
+ * Whether two trees are the same spec, however it is laid out across files: the definitions, the
+ * implementation and test reqs the same - in any order, from the module's own file or an imported
+ * one - and the functional specs the same, in order, those it inherits then its own, whichever
+ * module each is written in. Specs moved between a module and the ones it requires are the same
+ * spec: the code holds them all. But a module required now that was not before is not - its code
+ * is not in this codebase - so `after` may only drop required modules, never gain one.
+ *
+ * What it takes to tell a restructuring of the specs - definitions moved to a common module,
+ * sections reordered - from a change: one of these has nothing to render.
+ */
+export function sameSpec(before: MarshalledPlainSource, after: MarshalledPlainSource): boolean {
+  const modulesOf = (tree: MarshalledPlainSource) => new Set(getInheritedFunctionalSpecs(tree).map((spec) => spec.module));
+  const had = modulesOf(before);
+  if ([...modulesOf(after)].some((module) => !had.has(module))) return false;
+  const text = (item: unknown) => {
+    const { module: _module, frid: _frid, ...rest } = item as Record<string, unknown>;
+    return JSON.stringify(sortKeys(rest));
+  };
+  const list = (tree: MarshalledPlainSource, heading: string) => ((tree[heading] as unknown[] | undefined) ?? []).map(text);
+  const shape = (tree: MarshalledPlainSource) => {
+    const others = Object.keys(tree)
+      .filter((key) => !TREE_SECTIONS.includes(key))
+      .sort()
+      .map((key) => [key, sortKeys(tree[key])]);
+    return JSON.stringify({
+      sections: [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS].map((heading) => list(tree, heading).sort()),
+      specs: [...list(tree, REQUIRED_FUNCTIONAL_SPECS), ...list(tree, FUNCTIONAL_REQUIREMENTS)],
+      others,
+    });
+  };
+  return shape(before) === shape(after);
 }
 
 /** Whether a line of a serialized tree is a section's name rather than an item. */
@@ -573,7 +609,7 @@ export async function planSpecSteps(
  * What makes a spec not hold together that neither end already has: a concept used before any
  * step defines it, or defined twice - the parser's own concept checks.
  */
-function inconsistencies(tree: MarshalledPlainSource, endpoints: Set<string>): string[] {
+export function inconsistencies(tree: MarshalledPlainSource, endpoints: Set<string>): string[] {
   return validateConcepts(tree).filter((error) => !endpoints.has(error));
 }
 
@@ -660,7 +696,7 @@ export function diffSpecText(before: string, after: string, file = "spec.plain",
   return gitDiff(`${plainText(before, layout)}\n`, `${plainText(after, layout)}\n`, 3, [file, file]);
 }
 
-function makeStep(title: string, reason: string, changes: SpecChange[], before: string, after: string, file: string, layout?: SpecLayout): SpecStep {
+export function makeStep(title: string, reason: string, changes: SpecChange[], before: string, after: string, file: string, layout?: SpecLayout): SpecStep {
   return {
     title,
     reason,

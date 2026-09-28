@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { copyRequiredCode, describeChain, requiredFunctionalSpecs, resolveRequiresChain } from "../../src/render/requires.ts";
+import { copyRequiredCode, describeChain, newlyRequired, requiredFunctionalSpecs, resolveRequiresChain, startFromScratch } from "../../src/render/requires.ts";
+import { historyLog, recordHistory } from "../../src/render/history.ts";
+import { writeBuiltTree } from "../../src/render/state.ts";
 import { isModuleUpToDate, pendingFrids, readBuiltTree, recordBuiltFunctionality } from "../../src/render/state.ts";
 import { getFrids, getInheritedFunctionalSpecs, getSpecificationItems } from "../../src/plain/spec.ts";
 import { plainFileParser } from "../../src/plain/parser.ts";
@@ -213,5 +215,46 @@ describe("the conformance tests, when code is copied up the chain", () => {
     expect(readFileSync(join(build, "middle", "tests", "auth", "test_login.py"), "utf8")).toBe("def test_login(): pass\n");
     // The code folder holds only code.
     expect(existsSync(join(to, "tests"))).toBe(false);
+  });
+});
+
+describe("a module required that the code was not built on", () => {
+  /** Code in a module's build, and what it was built from. */
+  const built = (module: string, tree: object) => {
+    const code = join(build, module, "code");
+    mkdirSync(code, { recursive: true });
+    writeFileSync(join(code, "app.py"), `# ${module}\n`);
+    writeBuiltTree(code, tree);
+    recordHistory(code, `built ${module}`);
+  };
+
+  it("is nothing while every built module was built on the whole chain below it", () => {
+    built("base", { "functional specs": [{ markdown: "- Do the thing." }] });
+    built("middle", { "required functional specs": [{ markdown: "- Do the thing.", module: "base", frid: "1" }], "functional specs": [{ markdown: "- Do the thing." }] });
+    expect(newlyRequired(resolveRequiresChain(join(dir, "middle.plain"), [], build))).toBeUndefined();
+  });
+
+  it("is a module below that nothing is built of - the specs split into a new module - and the built ones above start from scratch", () => {
+    // middle was built on its own; now it requires base, which is new.
+    built("middle", { "functional specs": [{ markdown: "- Do the thing." }] });
+    const chain = resolveRequiresChain(join(dir, "top.plain"), [], build);
+    const fresh = newlyRequired(chain)!;
+    expect(fresh.modules).toEqual(["base"]);
+    expect(fresh.rebuild.map((entry) => entry.moduleName)).toEqual(["middle"]);
+
+    mkdirSync(join(build, "middle", "tests"), { recursive: true });
+    writeFileSync(join(build, "middle", "tests", "test_old.py"), "pass\n");
+    startFromScratch(fresh.rebuild[0]!, "it now requires base");
+    expect(existsSync(join(build, "middle", "code", "app.py"))).toBe(false);
+    expect(existsSync(join(build, "middle", "tests"))).toBe(false);
+    expect(readBuiltTree(join(build, "middle", "code"))).toBeNull();
+    // The code that was there is in the history.
+    expect(historyLog(join(build, "middle", "code"))).toMatch(/start from scratch: it now requires base[\s\S]*built middle/);
+  });
+
+  it("is a built module the record does not list as inherited", () => {
+    built("base", { "functional specs": [{ markdown: "- Do the thing." }] });
+    built("middle", { "required functional specs": [{ markdown: "- Other.", module: "elsewhere", frid: "1" }], "functional specs": [{ markdown: "- Do the thing." }] });
+    expect(newlyRequired(resolveRequiresChain(join(dir, "middle.plain"), [], build))?.modules).toEqual(["base"]);
   });
 });

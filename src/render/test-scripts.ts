@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { CONFIG_FILE, CONFIG_KEYS, readProjectConfig } from "../config.ts";
+import { CONFIG_FILE, CONFIG_KEYS, configModuleOf, configModuleOfBuild, moduleConfigFile, readProjectConfig } from "../config.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -40,6 +40,8 @@ export interface TestScripts {
   notes?: Partial<Record<ScriptKind, string>>;
   /** Conformance was turned off: the conformance testing script is not run, found or not. */
   conformanceOff?: boolean;
+  /** Where the config has them run: in place on this machine, or in the VM (the default). */
+  testingScripts?: "vm" | "host";
 }
 
 /**
@@ -108,22 +110,32 @@ function onlyScriptIn(dir: string, kind: ScriptKind): { path?: string; several?:
  * A folder holding two of a kind does not say which is meant: it is skipped, and noted, so the
  * error that stops the build can say to name one in config.yaml.
  */
-export function findTestScripts(root: string): TestScripts {
+export function findTestScripts(root: string, plainFile?: string, buildDir?: string): TestScripts {
   const found: TestScripts = {};
   const notes: Partial<Record<ScriptKind, string>> = {};
-  const config = readProjectConfig(root);
+  // The module's own config file over the project's, when it has one - its stack's scripts: the
+  // codebase's it runs in, else the spec's.
+  const inModules = buildDir !== undefined && resolve(buildDir).split(sep).includes("plain_modules");
+  const module =
+    (inModules ? configModuleOfBuild(root, basename(dirname(resolve(buildDir!)))) : undefined) ??
+    (plainFile !== undefined ? configModuleOf(root, plainFile) : undefined);
+  const config = readProjectConfig(root, module);
+  const file = module !== undefined ? `${moduleConfigFile(module)} (over ${CONFIG_FILE})` : CONFIG_FILE;
+  // Where a module's script is named: its own file, once the project has several stacks.
+  const nameIn = module !== undefined ? moduleConfigFile(module) : plainFile !== undefined ? `${CONFIG_FILE} - or, for one module of several stacks, config.${basename(plainFile, ".plain")}.yaml` : CONFIG_FILE;
+  if (config.testingScripts !== undefined) found.testingScripts = config.testingScripts;
   for (const kind of Object.keys(SCRIPT_KEYS) as ScriptKind[]) {
     const named = kind === "unit" ? config.unittestsScript : config.conformanceTestsScript;
     if (named !== undefined) {
       const path = resolve(root, named.trim());
       // Agents write in plain_modules: a script there could be changed by the work it judges.
       if (path.split(sep).includes("plain_modules")) {
-        notes[kind] = `${CONFIG_FILE} names ${named.trim()} as the ${SCRIPT_KEYS[kind]}, inside plain_modules - where agents write, so it is not used.`;
+        notes[kind] = `${file} names ${named.trim()} as the ${SCRIPT_KEYS[kind]}, inside plain_modules - where agents write, so it is not used.`;
       } else if (isFile(path)) {
         found[kind] = path;
         continue;
       } else {
-        notes[kind] = `${CONFIG_FILE} names ${named.trim()} as the ${SCRIPT_KEYS[kind]}, and there is no such file.`;
+        notes[kind] = `${file} names ${named.trim()} as the ${SCRIPT_KEYS[kind]}, and there is no such file.`;
       }
     }
     for (const dir of [root, join(root, SCRIPTS_DIR)]) {
@@ -133,7 +145,7 @@ export function findTestScripts(root: string): TestScripts {
         break;
       }
       if (several !== undefined && notes[kind] === undefined) {
-        notes[kind] = `${dir === root ? "The project root" : `${SCRIPTS_DIR}/`} holds ${several.join(", ")} - name the one to use in ${CONFIG_FILE}.`;
+        notes[kind] = `${dir === root ? "The project root" : `${SCRIPTS_DIR}/`} holds ${several.join(", ")} - name the one to use in ${nameIn}.`;
       }
     }
   }
@@ -161,7 +173,8 @@ export class MissingTestScriptError extends Error {
         "",
         "What to change in the project:",
         `- Add one with the \`${skill}\` skill: it writes \`${SCRIPTS_DIR}/${file}_<language>.sh\`.`,
-        `- It is looked for in \`${CONFIG_FILE}\` at the project root (\`${SCRIPT_KEYS[kind]}: <path>\`), then in the root,`,
+        `- It is looked for in \`${CONFIG_FILE}\` at the project root (\`${SCRIPT_KEYS[kind]}: <path>\`) - or the module's own`,
+        `  \`config.<module>.yaml\` beside it, for a project whose modules are on different stacks - then in the root,`,
         `  then in \`${SCRIPTS_DIR}/\` - one ${file}*.sh in either folder is used.`,
         "",
         "Then build again.",
@@ -206,7 +219,7 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
     "</testing scripts>",
     "",
     `The harness decides whether your work is done by running ${used.length === 1 ? "this script" : "these scripts"} itself, ` +
-      (readProjectConfig(root).testingScripts === "host"
+      ((scripts.testingScripts ?? readProjectConfig(root).testingScripts) === "host"
         ? "in place on the host machine, against the host codebase it merges your code into: "
         : "on the host machine - not in your VM - on a fresh copy of your work: ") +
       used
@@ -305,7 +318,9 @@ function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const parts = resolve(buildDir).split(sep);
   const index = parts.lastIndexOf("plain_modules");
   const root = index > 0 ? parts.slice(0, index).join(sep) : dirname(resolve(buildDir));
-  return { root, inPlace: readProjectConfig(root).testingScripts === "host" };
+  // The module's own config file decides, when it has one: plain_modules/<module>/code.
+  const module = configModuleOfBuild(root, basename(dirname(resolve(buildDir))));
+  return { root, inPlace: readProjectConfig(root, module).testingScripts === "host" };
 }
 
 /** The model providers' keys, kept out of what runs on this machine: the tests are agents' code. */

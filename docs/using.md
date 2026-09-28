@@ -74,6 +74,18 @@ other, jobs on different modules run side by side.
   the jobs redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
 - **`/jobs`** lists every job, **`/stop <id>`** stops one - a queued one never starts.
+- **A change that renders nothing** - definitions moved to a common module, specs moved between
+  modules - is recorded, not rendered: the job says "spec restructured - nothing to render".
+  Specs moved into a module the code was not built on start a rebuild instead: that module, then
+  the codebase from scratch on it. A change to two modules of a chain, the upper one not built
+  yet, is split into a spec diff per codebase, bottom first.
+- **Spec diffs that overlap** are reworked as each one is queued: the queue master merges, drops,
+  reorders or rewrites the waiting ones so they render only what is left of them - a change that
+  undoes a queued one takes that job out - and always end on the spec as it is in the `.plain` file.
+  It may ask you when it is not sure. A job it takes out says so in the Jobs view. To drop something
+  already queued, ask for it to be taken out of the spec - one spec diff - and the queue master
+  takes it out of the queued jobs; to reorder or merge them, ask, and the chat uses `rework_queue`.
+  Stopping a queued spec diff leaves its change in the spec: the next one renders it.
 - **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
   stops, and so does every job queued behind it, without running. The harness then works out why: an
   agent that can read the project's specs, code, tests, testing scripts and logs, and plainwright's
@@ -96,6 +108,11 @@ it sets, and the render tools default to it - `module` when you ask to build wit
 `conformance-tests: false` to render without conformance tests (none written, none of the existing
 ones run) unless you ask for them, `coding-model` for what renders run on, and the testing scripts.
 `harness-model` is what `plainwright chat` starts on. What you ask for in the conversation wins.
+
+A project whose modules are on different stacks gives each its own `config.<module>.yaml` beside
+`config.yaml` - `config.backend.yaml`, `config.frontend.yaml` - with its testing scripts, models and
+conformance over the project's; the chat is told both, and each render follows its module's. See
+[modules on different stacks](rendering.md#modules-on-different-stacks).
 
 ## Choosing a model
 

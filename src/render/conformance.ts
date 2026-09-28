@@ -55,7 +55,7 @@ import { notesToRead, recordNote } from "./notes.ts";
 import { reportSpecConflict } from "./activity.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
-import { inheritModel, modelSpec, readProjectConfig, splitModelSpec } from "../config.ts";
+import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
@@ -183,7 +183,7 @@ export async function renderConformanceTests(
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
   // The agents that give a verdict - the judge, the test review - may run on a stronger model than the rest.
   const judgeModel =
-    options.judgeModel ?? modelSpec(inheritModel(readProjectConfig(projectDirOf(options.plainFile)).judgeModel, splitModelSpec(options.model)));
+    options.judgeModel ?? modelSpec(inheritModel(configForSpec(options.plainFile).judgeModel, splitModelSpec(options.model)));
   const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName, modulesRoot(projectDirOf(options.plainFile))));
   const stage = (label: string) => {
     if (!options.dryRun) reportStage(`${forChange ? unitOf(moduleName) : unitOf(moduleName, frid)}: ${label}`);
@@ -228,7 +228,7 @@ export async function renderConformanceTests(
   // changed, its unit testing script: without them, nothing is written.
   stage("finding the project's testing scripts");
   const root = projectRootFor(options.plainFile, buildDir);
-  const scripts = findTestScripts(root);
+  const scripts = findTestScripts(root, options.plainFile, buildDir);
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: true });
 
   const linkedResources = loadLinkedResources(tree, forChange ? null : frid!, templateDirs);

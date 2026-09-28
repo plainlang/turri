@@ -62,6 +62,9 @@ conformance-tests: true            # write and run conformance tests (default: w
 The same file names the [testing scripts](rendering.md#the-testing-scripts). Options on the command
 line win over it; `plainwright render`, `regenerate` and `conformance` take its `coding-model` too,
 and `--coding-model` means the same as `--model` on every one of them.
+A module on a stack of its own takes its settings from `config.<module>.yaml` over `config.yaml`
+([modules on different stacks](rendering.md#modules-on-different-stacks)); with several and no
+`module:`, name the file: `plainwright module backend.plain`.
 
 Useful options - `plainwright module --help` lists all of them:
 

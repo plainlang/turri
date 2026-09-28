@@ -1,5 +1,4 @@
-import { readProjectConfig, modelSpec, projectModels } from "./config.ts";
-import { projectDirOf } from "./render/paths.ts";
+import { configForSpec, modelSpec, projectModels } from "./config.ts";
 import { renderConformanceSuite } from "./render/conformance-suite.ts";
 import { withActivity, type ActivitySink } from "./render/activity.ts";
 
@@ -104,7 +103,7 @@ async function main() {
     buildDir: args.buildDir,
     conformanceRoot: args.conformanceRoot,
     // The project's config.yaml gives the default.
-    model: args.model ?? modelSpec(projectModels(readProjectConfig(projectDirOf(plainFile))).coding),
+    model: args.model ?? modelSpec(projectModels(configForSpec(plainFile)).coding),
     judgeModel: args.judgeModel,
     onDelta: (delta) => process.stdout.write(delta),
     onEvent: (event) => {

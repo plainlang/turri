@@ -167,6 +167,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
       for (const job of queued) {
         lines.push(`  queued  ${job.summary}  (job ${job.id}, after ${job.waitingOn.join(", ")})`);
         if (job.diff !== undefined) lines.push(`          ${summarizeDiff(job.diff, diffStyle)}`);
+        if (job.note !== undefined) lines.push(`          ${job.note}`);
       }
     } else {
       // Counted, then named in order - so however narrow the line gets, the number is there.

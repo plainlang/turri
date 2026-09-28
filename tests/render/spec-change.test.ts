@@ -364,3 +364,34 @@ describe("the history of a rendered spec change", () => {
     expect(head(result.buildDir)).toBeDefined();
   });
 });
+
+describe("a spec diff that only restructures the specs", () => {
+  it("renders nothing - a definition moved to a common module - and records the spec as it is now laid out", async () => {
+    const withUser = (fs: string[]) => `***definitions***\n\n- :User: is a person.\n\n${plain(fs)}`;
+    writeFileSync(join(dir, "app.plain"), withUser(["- A :User: can register."]));
+    const first = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(withUser(["- A :User: can register."]), withUser(["- A :User: can register."])), cwd: dir, applied: "already applied" });
+    expect(first.passed).toBe(true);
+    const agentTurns = prompts.length;
+
+    // The definition moves into an import module: the spec the code is built from reads the same.
+    writeFileSync(join(dir, "common.plain"), "***definitions***\n\n- :User: is a person.\n");
+    const moved = `---\nimport:\n  - common\n---\n\n${plain(["- A :User: can register."])}`;
+    writeFileSync(join(dir, "app.plain"), moved);
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(withUser(["- A :User: can register."]), moved), cwd: dir, applied: "already applied" });
+
+    expect(result).toMatchObject({ passed: true, restructured: true, attempts: 0 });
+    expect(prompts).toHaveLength(agentTurns);
+    expect(readBuiltTree(result.buildDir)).toEqual(parsed());
+  });
+
+  it("is refused when the module now requires one its code was not built on - that takes a rebuild from scratch", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });
+    // One moves into a new module that app now requires.
+    writeFileSync(join(dir, "accounts.plain"), plain(["- One."]));
+    writeFileSync(join(dir, "app.plain"), `---\nrequires:\n  - accounts\n---\n\n${plain(["- Two."])}`);
+    await expect(renderSpecDiff({ plainFile: "app.plain", diff: "+- Two.", cwd: dir, applied: "already applied" })).rejects.toThrow(
+      /app now requires accounts, which its code was not built on[\s\S]*render_module/,
+    );
+  });
+});

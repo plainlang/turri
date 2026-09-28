@@ -10,6 +10,7 @@ import {
   onlyAppendsFunctionalSpecs,
   parseTree,
   reachedByRendering,
+  sameSpec,
   planPrompt,
   planSpecSteps,
   serializeTree,
@@ -568,5 +569,34 @@ describe("a spec change laid out as the module's file", () => {
     expect(diff).toContain("+- A :User: can log in and gets a :Token:.");
     // Three lines of context before it: :Token: goes in at the file's line 11.
     expect(diff).toContain("@@ -8,6 +8,8 @@\n");
+  });
+});
+
+describe("a restructuring of the specs", () => {
+  const built = {
+    definitions: [item("- :User: is a person."), item("- :Session: is a sign-in.")],
+    "implementation reqs": [item("- Python.")],
+    "functional specs": [item("- A :User: can register."), item("- A :User: can log in.")],
+  } as MarshalledPlainSource;
+
+  it("is the same spec - definitions moved to a common module, and so read in another order", () => {
+    const moved = { ...built, definitions: [item("- :Session: is a sign-in."), item("- :User: is a person.")] } as MarshalledPlainSource;
+    expect(sameSpec(built, moved)).toBe(true);
+    // Nothing to render - and render_module takes it as built, not as spec diffs.
+    expect(reachedByRendering(built, moved)).toBe(true);
+  });
+
+  it("is the same spec when functional specs move to the module the code already holds them from", () => {
+    const own = { ...built, "functional specs": [item("- A :User: can register."), item("- A :User: can log in.")], "required functional specs": [item("- Say hello.", { module: "base", frid: "1" })] } as MarshalledPlainSource;
+    const movedDown = { ...built, "functional specs": [item("- A :User: can log in.")], "required functional specs": [item("- Say hello.", { module: "base", frid: "1" }), item("- A :User: can register.", { module: "base", frid: "2" })] } as MarshalledPlainSource;
+    expect(sameSpec(own, movedDown)).toBe(true);
+  });
+
+  it("is not the same spec when a module is required that the code was not built on, or anything reads differently", () => {
+    const onNew = { ...built, "functional specs": [item("- A :User: can log in.")], "required functional specs": [item("- A :User: can register.", { module: "accounts", frid: "1" })] } as MarshalledPlainSource;
+    expect(sameSpec(built, onNew)).toBe(false);
+    expect(sameSpec(built, { ...built, definitions: [item("- :User: is a student."), item("- :Session: is a sign-in.")] } as MarshalledPlainSource)).toBe(false);
+    // Functional specs in another order are another spec: each is built on the ones before it.
+    expect(sameSpec(built, { ...built, "functional specs": [item("- A :User: can log in."), item("- A :User: can register.")] } as MarshalledPlainSource)).toBe(false);
   });
 });

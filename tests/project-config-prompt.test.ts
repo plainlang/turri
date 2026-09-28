@@ -26,6 +26,25 @@ describe("what the chat's agent is told about the project's config.yaml", () => 
     expect(block).toContain("conformance testing script: none found");
   });
 
+  it("shows each module's own config file over the project's - its stack's scripts and models", () => {
+    mkdirSync(join(root, "test_scripts"));
+    for (const script of ["run_unittests_python.sh", "run_unittests_typescript.sh"]) writeFileSync(join(root, "test_scripts", script), "#!/bin/bash\n");
+    writeFileSync(join(root, "config.yaml"), "harness-model: google/gemini-3.1-pro\ncoding-model: google/gemini-3.1-flash\n");
+    writeFileSync(join(root, "config.backend.yaml"), "unittests-script: test_scripts/run_unittests_python.sh\n");
+    writeFileSync(join(root, "config.frontend.yaml"), "unittests-script: test_scripts/run_unittests_typescript.sh\ncoding-model: amazon-bedrock/eu.anthropic.claude-sonnet-5\n");
+    writeFileSync(join(root, "backend.plain"), "***functional specs***\n\n- Serve.\n");
+    writeFileSync(join(root, "frontend.plain"), "***functional specs***\n\n- Show.\n");
+    const block = projectConfigBlock(root);
+    expect(block).toContain("unit testing script: none for the whole project - each module's file below names its own");
+    const backend = block.slice(block.indexOf("config.backend.yaml, over config.yaml"), block.indexOf("config.frontend.yaml, over"));
+    expect(backend).toContain("unit testing script: test_scripts/run_unittests_python.sh");
+    expect(backend).toContain("coding-model: google/gemini-3.1-flash");
+    expect(backend).not.toContain("harness-model");
+    const frontend = block.slice(block.indexOf("config.frontend.yaml, over"));
+    expect(frontend).toContain("unit testing script: test_scripts/run_unittests_typescript.sh");
+    expect(frontend).toContain("coding-model: amazon-bedrock/eu.anthropic.claude-sonnet-5");
+  });
+
   it("is nothing without a config.yaml", () => {
     expect(projectConfigBlock(root)).toBe("");
   });

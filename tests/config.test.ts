@@ -103,3 +103,75 @@ describe("the project's config.yaml", () => {
     expect(readProjectConfig(root)).toEqual({});
   });
 });
+
+describe("a module's own config file", () => {
+  /** cognio: a Python backend and a React frontend side by side, importing one common module. */
+  beforeEach(() => {
+    writeFileSync(join(root, "config.yaml"), ["harness-model: anthropic/claude-opus-5-5", "coding-model: google/gemini-3.1-flash:low", "conformance-tests: true"].join("\n"));
+    writeFileSync(
+      join(root, "config.backend.yaml"),
+      ["unittests-script: test_scripts/run_unittests_python.sh", "conformance-tests-script: test_scripts/run_conformance_tests_python.sh"].join("\n"),
+    );
+    writeFileSync(
+      join(root, "config.frontend.yaml"),
+      [
+        "unittests-script: test_scripts/run_unittests_typescript.sh",
+        "coding-model:",
+        "  thinking: high",
+        "conformance-tests: false",
+        "harness-model: somebody/else",
+        "module: frontend.plain",
+      ].join("\n"),
+    );
+    writeFileSync(join(root, "base.plain"), "***definitions***\n\n- :User: is a person.\n");
+    writeFileSync(join(root, "backend.plain"), "---\nimport:\n  - base\n---\n\n***functional specs***\n\n- Serve.\n");
+    writeFileSync(join(root, "frontend.plain"), "---\nimport:\n  - base\n---\n\n***functional specs***\n\n- Show.\n");
+    writeFileSync(join(root, "backend_admin.plain"), "---\nrequires:\n  - backend\n---\n\n***functional specs***\n\n- Administer.\n");
+  });
+
+  it("lays its keys over config.yaml's - a model it names taking what it leaves out from the project's", async () => {
+    const { configForSpec, modulesWithConfig } = await import("../src/config.ts");
+    expect(modulesWithConfig(root)).toEqual(["backend", "frontend"]);
+    expect(configForSpec(join(root, "backend.plain"))).toEqual({
+      harnessModel: { model: "anthropic/claude-opus-5-5" },
+      codingModel: { model: "google/gemini-3.1-flash", thinking: "low" },
+      conformanceTests: true,
+      unittestsScript: "test_scripts/run_unittests_python.sh",
+      conformanceTestsScript: "test_scripts/run_conformance_tests_python.sh",
+    });
+    // The conversation's model, and the module built when none is named, are the project's alone.
+    expect(configForSpec(join(root, "frontend.plain"))).toEqual({
+      harnessModel: { model: "anthropic/claude-opus-5-5" },
+      codingModel: { model: "google/gemini-3.1-flash", thinking: "high" },
+      conformanceTests: false,
+      unittestsScript: "test_scripts/run_unittests_typescript.sh",
+    });
+  });
+
+  it("holds for the modules built on it, down the requires chain - and an import module or a module without one has config.yaml alone", async () => {
+    const { configForSpec, configModuleOf } = await import("../src/config.ts");
+    expect(configModuleOf(root, join(root, "backend_admin.plain"))).toBe("backend");
+    expect(configForSpec(join(root, "backend_admin.plain")).unittestsScript).toBe("test_scripts/run_unittests_python.sh");
+    expect(configModuleOf(root, join(root, "base.plain"))).toBeUndefined();
+    expect(configForSpec(join(root, "base.plain")).unittestsScript).toBeUndefined();
+  });
+
+  it("makes its folder a project, and each module finds its own stack's testing scripts there", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const { projectDirOf } = await import("../src/render/paths.ts");
+    const { findTestScripts } = await import("../src/render/test-scripts.ts");
+    rmSync(join(root, "config.yaml"));
+    mkdirSync(join(root, "test_scripts"));
+    for (const script of ["run_unittests_python.sh", "run_unittests_typescript.sh", "run_conformance_tests_python.sh"]) writeFileSync(join(root, "test_scripts", script), "#!/bin/bash\n");
+    expect(projectDirOf(join(root, "backend.plain"))).toBe(root);
+
+    expect(findTestScripts(root, join(root, "backend.plain")).unit).toBe(join(root, "test_scripts", "run_unittests_python.sh"));
+    expect(findTestScripts(root, join(root, "frontend.plain")).unit).toBe(join(root, "test_scripts", "run_unittests_typescript.sh"));
+    // Run in the backend's codebase, a required module's spec is tested as the backend is.
+    expect(findTestScripts(root, join(root, "base.plain"), join(root, "plain_modules", "backend_admin", "code")).unit).toBe(join(root, "test_scripts", "run_unittests_python.sh"));
+    // Without a module, the project cannot say which of two it means - and says where to name it.
+    const project = findTestScripts(root);
+    expect(project.unit).toBeUndefined();
+    expect(findTestScripts(root, join(root, "other.plain")).notes?.unit).toContain("config.other.yaml");
+  });
+});

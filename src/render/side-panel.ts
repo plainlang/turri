@@ -113,6 +113,8 @@ export function createSidePanel(options: SidePanelOptions) {
           `  ${item.status.padEnd(9)} ${item.summary} · ${formatDuration(item)}${describeUsage(item.usage) ? ` · ${describeUsage(item.usage)}` : ""}  (job ${item.id})`,
           // The render it is the conformance of, for a conformance job.
           ...(item.follows !== undefined ? [style.muted(`            the conformance of ${followed(jobs, item.follows)}`)] : []),
+          // What the queue master did to it.
+          ...(item.note !== undefined ? wrapTextWithAnsi(item.note, Math.max(10, width - 12)).map((line) => style.accent(`            ${line}`)) : []),
           // The job that planned it, for a spec diff a module's render queued.
           ...(plannerOf(jobs, item.id) !== undefined ? [style.muted(`            planned by ${followed(jobs, plannerOf(jobs, item.id)!.id)}`)] : []),
           // What a planning job planned: the spec diffs it queued, in order.

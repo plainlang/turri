@@ -37,16 +37,25 @@ export function defaultTestsDir(moduleName: string, cwd: string = process.cwd())
  */
 /**
  * The project a spec belongs to: the nearest folder, from the spec's own up, that holds a
- * `config.yaml` or a `plain_modules` - where its code is built, its config read, its testing
- * scripts found. Without either, the spec's own folder. So `plain/hubspot.plain`, beside
+ * `config.yaml`, a module's own `config.<module>.yaml` or a `plain_modules` - where its code is
+ * built, its config read, its testing scripts found. Without any, the spec's own folder. So `plain/hubspot.plain`, beside
  * `plain/config.yaml` and `plain/plain_modules`, is built there, wherever plainwright was started;
  * specs at the root of their project are built where they always were.
  */
 export function projectDirOf(plainFile: string): string {
   const start = dirname(resolve(plainFile));
   for (let dir = start; ; dir = dirname(dir)) {
-    if (existsSync(join(dir, "config.yaml")) || existsSync(join(dir, MODULES_DIR))) return dir;
+    if (existsSync(join(dir, "config.yaml")) || existsSync(join(dir, MODULES_DIR)) || hasModuleConfig(dir)) return dir;
     if (dirname(dir) === dir) return start;
+  }
+}
+
+/** Whether a folder holds a module's own config file - config.<module>.yaml - which makes it a project too. */
+function hasModuleConfig(dir: string): boolean {
+  try {
+    return readdirSync(dir).some((name) => /^config\..+\.yaml$/.test(name));
+  } catch {
+    return false;
   }
 }
 

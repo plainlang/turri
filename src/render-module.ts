@@ -1,5 +1,4 @@
-import { CONFIG_FILE, readProjectConfig, modelSpec, projectModels } from "./config.ts";
-import { projectDirOf } from "./render/paths.ts";
+import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, readProjectConfig, modelSpec, projectModels } from "./config.ts";
 import { c, reportEvent } from "./module-report.ts";
 import { renderChain, describeChainStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
@@ -65,11 +64,16 @@ async function main() {
   const config = readProjectConfig(process.cwd());
   const plainFile = positional[0] ?? config.module;
   if (!plainFile) {
-    console.error(`${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`);
+    const stacks = modulesWithConfig(process.cwd());
+    console.error(
+      stacks.length > 0
+        ? `${USAGE}\n\nNo file given, and this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}: name the one to build.`
+        : `${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`,
+    );
     process.exit(1);
   }
   // The rest from the spec's own project - which may be a folder below this one.
-  const project = { ...config, ...Object.fromEntries(Object.entries(readProjectConfig(projectDirOf(plainFile))).filter(([, v]) => v !== undefined)) };
+  const project = { ...config, ...Object.fromEntries(Object.entries(configForSpec(plainFile)).filter(([, v]) => v !== undefined)) };
 
   const result = await renderChain({
     plainFile,

@@ -181,7 +181,7 @@ export async function renderFunctionality(
   // Whether the code is done is the project's unit testing script: without one, nothing is built.
   stage("finding the project's testing scripts");
   const root = projectRootFor(options.plainFile, buildDir);
-  const scripts = findTestScripts(root);
+  const scripts = findTestScripts(root, options.plainFile, buildDir);
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: false });
   if (!options.dryRun) reportActivity(`  unit testing script: ${relative(root, scripts.unit!)}`);
   const conformance = options.conformance ?? specifications[TEST_REQUIREMENTS].length > 0;

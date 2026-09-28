@@ -1,13 +1,13 @@
-import { basename, resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { plainFileParser } from "./plain/parser.ts";
+import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
+import { importedNames } from "./render/spec-diff-parts.ts";
 import { resolveTemplateDirs } from "./render/render.ts";
-import { applySpecDiff, plainFilesOf, revertSpecDiff, snapshotSpec, wholeSpecDiff } from "./render/spec-change.ts";
-import { readBuiltTree } from "./render/state.ts";
-import { listFiles } from "./render/testing.ts";
+import { applySpecDiff, plainFilesOf, revertSpecDiff, snapshotSpec } from "./render/spec-change.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
-import type { RenderQueue } from "./render/queue.ts";
+import type { QueuedSpecDiffPart, RenderQueue } from "./render/queue.ts";
 import { reviewNote, type LiveReviewer } from "./tools.ts";
 
 /** Whether a question has been answered since the last new spec change was written. */
@@ -26,6 +26,21 @@ type AnyTool = ToolDefinition<any, any, any>;
  * build queued in the same call: a change cannot reach the specs without its render being
  * started. A new change needs an answer since the last one; a correction does not.
  */
+/** What a spec change was queued as, in a sentence or two: a job per codebase it lands in. */
+export function describeQueuedParts(parts: QueuedSpecDiffPart[]): string {
+  const one = (part: QueuedSpecDiffPart) => {
+    if (part.what === "restructure") return `job ${part.jobId} records it in ${part.module}'s codebase: the specs are only laid out differently, so there is nothing to render`;
+    if (part.what === "rebuild") {
+      return `job ${part.jobId} builds ${part.newlyRequired!.join(", ")} and then ${part.module} again from scratch on it: ${part.module} now requires a module its code was not built on, which no spec diff can bring in`;
+    }
+    return `job ${part.jobId} renders it in ${part.module}'s codebase${part.fromNothing ? " - nothing is built there yet, so it is given the whole spec as the change, everything written so far" : ""}`;
+  };
+  if (parts.length === 1) return `In the background, ${one(parts[0]!)}.`;
+  return `It lands in ${parts.length} codebases, so it is split into a job for each, bottom of the chain first - each module's part in its own codebase, the one above starting from the code below: ${parts
+    .map((part, index) => `${index + 1}. ${part.files.join(", ")}: ${one(part)}`)
+    .join("; ")}.`;
+}
+
 export function createSpecDiffTools(options: {
   queue: RenderQueue;
   cwd: string;
@@ -33,9 +48,6 @@ export function createSpecDiffTools(options: {
 }): { tools: AnyTool[]; pace: SpecPace } {
   const { queue, cwd, liveReview } = options;
   let answeredSinceLastDiff = true;
-  // The codebases a change of this interview has been queued for: only the first to one that
-  // holds nothing yet is given the whole spec.
-  const started = new Set<string>();
 
   const writeDiff = defineTool({
     name: "write_spec_diff",
@@ -49,6 +61,7 @@ export function createSpecDiffTools(options: {
     promptGuidelines: [
       "Every change to a .plain file in the product phase goes through write_spec_diff, as a git diff with paths relative to the project root. It writes the change and starts its build in one step.",
       "One change per answer, and a new one only after the user has answered a question about it. Set fixes_earlier to correct something already written.",
+      "To take something out of what is already written and queued - the user drops a page or a feature - write the diff that removes it from every spec that names it, with fixes_earlier. The queue master takes out the queued builds it undoes and rewrites the ones it touches; never stop builds to drop a change - it stays in the files.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "The .plain file of the module the change is built for" }),
@@ -70,9 +83,33 @@ export function createSpecDiffTools(options: {
 
       const result = applySpecDiff(params.diff, cwd);
       // A change that breaks a spec is not written at all, so nothing is ever built from a
-      // file that cannot be parsed. A module with no functional specs yet is not broken.
-      for (const file of touched) {
-        const path = resolve(cwd, file);
+      // file that cannot be parsed. A module with no functional specs yet is not broken. An import
+      // module - definitions only, say - is not a module of its own: it is parsed as the modules
+      // that import it read it, the one the change is built for among them.
+      const importers = (file: string) => {
+        const name = basename(file, ".plain");
+        const dir = dirname(resolve(cwd, file));
+        return readdirSync(dir)
+          .filter((entry) => entry.endsWith(".plain"))
+          .map((entry) => join(dir, entry))
+          .filter((path) => {
+            try {
+              return ((readPlainSourceMetadata(readFileSync(path, "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined) ?? []).includes(name);
+            } catch {
+              return false;
+            }
+          });
+      };
+      const imported = importedNames(resolveTemplateDirs(resolve(cwd, params.plain_file)));
+      const toParse = [
+        ...new Set(
+          [params.plain_file, ...touched].flatMap((file) =>
+            imported.has(basename(file, ".plain")) ? importers(file).filter((path) => !imported.has(basename(path, ".plain"))) : [resolve(cwd, file)],
+          ),
+        ),
+      ];
+      for (const path of toParse) {
+        const file = relative(cwd, path);
         try {
           plainFileParser(basename(path), resolveTemplateDirs(path), { allowNoFunctionalities: true });
         } catch (error) {
@@ -89,20 +126,17 @@ export function createSpecDiffTools(options: {
       const spec = snapshotSpec(params.plain_file, { cwd });
       // The first change built into a codebase that holds nothing yet is built from nothing: its
       // build is told the whole spec as the change - what the earlier phases wrote with the file
-      // tools, as well as this answer - not only the lines this answer changed.
-      const codebase = spec.chain.at(-1)!.buildDir;
-      const fromNothing = !started.has(codebase) && readBuiltTree(codebase) === null && listFiles(codebase).length === 0;
-      started.add(codebase);
-      const diff = fromNothing ? wholeSpecDiff(spec.plainFile, cwd) : params.diff;
-      const jobId = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff, applied: result, spec }).jobId;
+      // tools, as well as this answer - not only the lines this answer changed. The queue works that
+      // out for each codebase the change lands in.
+      const queued = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec, wholeIfUnbuilt: true });
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
-        `Rendering it as job ${jobId}, in the background - carry on with the interview.`,
-        ...(fromNothing ? ["Nothing is built yet, so this build is given the whole spec as the change - everything written so far, not only this answer."] : []),
+        describeQueuedParts(queued.parts),
+        "Carry on with the interview.",
       ];
       return {
         content: [{ type: "text" as const, text: lines.join(" ") + reviewNote(liveReview) }],
-        details: { jobId, files: touched },
+        details: { jobId: queued.jobId, jobIds: queued.parts.map((part) => part.jobId), files: touched },
       };
     },
   });
