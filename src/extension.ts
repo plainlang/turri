@@ -1844,8 +1844,9 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     name: "rework_queue",
     label: "Rework queue",
     description:
-      "Have the queue master rework the render spec diff jobs waiting for a codebase, as the user asks: reorder them, " +
-      "merge them, split one, rewrite what each renders. It works on every waiting spec diff of that codebase at once and " +
+      "Have the queue master rework the render spec diff jobs waiting for a codebase, and their conformance jobs, as the user " +
+      "asks: reorder them, merge them, split one, rewrite what each renders, cancel conformance jobs or have a job write its " +
+      "conformance tests in its own render. It works on every waiting spec diff of that codebase at once and " +
       "is held to where the queue ends: the spec as the .plain files have it now - every change in exactly one job, the " +
       "spec holding together after each. It does not change the spec. A running job stays as it is.",
     promptSnippet: "rework_queue: have the queue master reorder, merge or rewrite the queued spec diffs of a codebase",

@@ -347,8 +347,15 @@ removal folded into the jobs it touched is not a job of its own, and the jobs ta
 rewritten are named. A job the master rewrites without renaming it is named for what it now
 renders. In the TUI each rework is also a notice.
 
-In a conversation, `rework_queue` has the queue master rework a codebase's queued spec diffs as the
-person asks - run the feed first, merge two, split one - held to the same end; what would change
+Conformance jobs are part of the queue it reworks. It sees which conformance job follows each spec
+diff, and turns a job's conformance tests off - its conformance job cancelled, and it renders on its
+unit tests alone - or on, when the config has them on and the module has test reqs: then the job
+writes and runs them in its own render, since a conformance job added behind the queue would test
+code that has moved on.
+
+In a conversation, `rework_queue` has the queue master rework a codebase's queued spec diffs and
+their conformance jobs as the person asks - run the feed first, merge two, split one, cancel the
+conformance jobs - held to the same end; what would change
 the spec itself takes a spec diff. Stopping a queued spec diff by hand does not take its change
 out of the `.plain` files, so a spec diff that starts after one ahead of it did not land - stopped,
 or failed - takes its diff again, from what the code is built from to the spec it leaves, and says

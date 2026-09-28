@@ -120,6 +120,11 @@ export interface RenderQueue {
    * Nothing when it left the queue as it was.
    */
   afterRework(jobId: string, timeoutMs?: number): Promise<string | undefined>;
+  /**
+   * Hold what is queued to the config as it is now: a queued conformance job whose spec's config
+   * has since turned conformance tests off is stopped, saying why. Returns the jobs it stopped.
+   */
+  refresh(): string[];
 }
 
 /**
@@ -246,6 +251,9 @@ export function createRenderQueue(options: {
   const masters = new Map<string, Promise<void>>();
   const lastSeen = new Map<string, MarshalledPlainSource>();
   const gateOf = (codebase: string) => masters.get(codebase) ?? Promise.resolve();
+  // Every conformance job, by id: the spec it is for, so a config that turns conformance off reaches it while it waits.
+  const conformanceJobs = new Map<string, string>();
+  const offNote = "Not run: conformance tests are off in the project's config (conformance-tests: false) - turned off after it was queued. Turn them on again and render, and they are written again.";
   // Per codebase, the queue master's turns that changed the queue: how many, and what the last one did.
   const turns = new Map<string, { count: number; summary: string; by: string; taken: string[]; rewritten: string[] }>();
   // The codebases being built again from scratch, by job: the queue master leaves their spec diffs alone.
@@ -266,6 +274,11 @@ export function createRenderQueue(options: {
         if (work.superseded !== undefined) return { report: work.superseded, details: { passed: false, skipped: true, landed: false } };
         work.started = true;
         rebaseIfBehind(work, work.jobId!);
+        // The config as it is now: conformance turned off since it was queued holds for it too.
+        if (!work.off && conformanceOff(work.plainFile)) {
+          work.off = true;
+          work.conformanceLater = false;
+        }
         // write_spec_diff applied it, and parsed the spec, when it was written; later changes
         // may be on top of it in the files now.
         const result = await renderSpecDiff({
@@ -326,6 +339,20 @@ export function createRenderQueue(options: {
     }
   };
 
+  /** How a spec diff's conformance tests are run: by its conformance job, still to run; in its own render; or not at all. */
+  const conformanceOf = (work: SpecDiffWork): "job" | "render" | "off" => {
+    if (work.conformanceJobId !== undefined && isPending(options.registry.get(work.conformanceJobId)?.status)) return "job";
+    if (!work.off && !work.conformanceLater && hasTestReqs(work.spec) && !conformanceOff(work.plainFile)) return "render";
+    return "off";
+  };
+
+  /** A queued spec diff as the queue shows it, with how its conformance tests run. */
+  const queueLine = (work: SpecDiffWork) => {
+    const how = conformanceOf(work);
+    const conformance = how === "job" ? `conformance tests: job ${work.conformanceJobId}` : how === "render" ? "conformance tests: in its own render" : "no conformance tests";
+    return `- job ${work.jobId} · ${work.title} · ${conformance}${work.started ? " (running)" : ""}`;
+  };
+
   /** Rework the queue around a new change: after whatever the queue master was already doing for that codebase. */
   const triggerMaster = (work: SpecDiffWork) => {
     if (options.queueMaster === false) return;
@@ -374,9 +401,17 @@ export function createRenderQueue(options: {
       base,
       previous: previousSpec,
       current: latest.spec.tree,
-      queued: waiting.map((work) => ({ jobId: work.jobId!, title: work.title, tree: work.spec.tree, textDiff: work.diff })),
+      queued: waiting.map((work) => ({
+        jobId: work.jobId!,
+        title: work.title,
+        tree: work.spec.tree,
+        textDiff: work.diff,
+        conformance: conformanceOf(work) !== "off",
+        ...(conformanceOf(work) === "job" ? { conformanceJobId: work.conformanceJobId } : {}),
+      })),
       specFile,
       specText,
+      conformanceAvailable: !conformanceOff(latest.plainFile) && hasTestReqs(latest.spec),
       ...(instruction !== undefined ? { instruction } : {}),
     };
     // Only added on top - nothing queued is undone, edited or needed elsewhere: nothing to rework, and no agent to ask.
@@ -433,7 +468,8 @@ export function createRenderQueue(options: {
       const from = planned.jobId !== undefined && planned.jobId !== work?.jobId ? ` - the change job ${planned.jobId} was queued with` : "";
       if (work === undefined) {
         // More jobs than there are places: they go on after them, in order.
-        const extra: SpecDiffWork = { ...waiting.at(-1)!, title: planned.title, diff: step.textDiff, applied: "already applied", spec: { ...waiting.at(-1)!.spec, tree: step.tree }, started: false, jobId: undefined, conformanceJobId: undefined, superseded: undefined, before };
+        const withTests = planned.conformance === true && hasTestReqs(waiting.at(-1)!.spec) && !conformanceOff(waiting.at(-1)!.plainFile);
+        const extra: SpecDiffWork = { ...waiting.at(-1)!, title: planned.title, diff: step.textDiff, applied: "already applied", spec: { ...waiting.at(-1)!.spec, tree: step.tree }, started: false, jobId: undefined, conformanceJobId: undefined, superseded: undefined, before, off: !withTests, conformanceLater: withTests };
         const { jobId } = startSpecDiff(extra);
         rewritten.push(jobId);
         const job = options.registry.get(jobId);
@@ -459,6 +495,29 @@ export function createRenderQueue(options: {
       if (work.conformanceJobId !== undefined) {
         const conformance = options.registry.get(work.conformanceJobId);
         if (conformance !== undefined) conformance.diff = step.textDiff;
+      }
+      // Its conformance tests, as the plan has them: a conformance job cancelled, or the tests written in its own render.
+      const how = conformanceOf(work);
+      if (planned.conformance !== true && how !== "off") {
+        if (how === "job") {
+          const cancelled = `Cancelled by ${by}: its spec diff, job ${work.jobId}, renders on its unit tests alone. ${plan.summary}`;
+          options.registry.stop(work.conformanceJobId!);
+          const conformance = options.registry.get(work.conformanceJobId!);
+          if (conformance !== undefined) {
+            conformance.note = cancelled;
+            conformance.error = cancelled;
+          }
+          taken.push(work.conformanceJobId!);
+        }
+        work.off = true;
+        work.conformanceLater = false;
+        if (!rewritten.includes(work.jobId!)) rewritten.push(work.jobId!);
+        if (job !== undefined) job.note = `${job.note !== undefined ? `${job.note} ` : ""}Conformance tests off, by ${by}: it renders on its unit tests alone.`;
+      } else if (planned.conformance === true && how === "off" && hasTestReqs(work.spec) && !conformanceOff(work.plainFile)) {
+        work.off = false;
+        work.conformanceLater = false;
+        if (!rewritten.includes(work.jobId!)) rewritten.push(work.jobId!);
+        if (job !== undefined) job.note = `${job.note !== undefined ? `${job.note} ` : ""}Conformance tests on, by ${by}: it writes and runs them in its own render.`;
       }
     }
     // The queued jobs no planned job runs as: their change is undone, or runs in another job.
@@ -499,7 +558,7 @@ export function createRenderQueue(options: {
     const work = jobId !== undefined ? works.get(jobId) : undefined;
     const now = [...works.values()]
       .filter((item) => item.codebase === codebase && item.jobId !== undefined && item.superseded === undefined && isPending(options.registry.get(item.jobId)?.status))
-      .map((item) => `- job ${item.jobId} · ${item.title}${item.started ? " (running)" : ""}`);
+      .map(queueLine);
     const own =
       work === undefined
         ? []
@@ -646,6 +705,7 @@ export function createRenderQueue(options: {
         run: async (onDelta) => {
           if (follows !== undefined) await gateOf(follows.codebase);
           if (follows?.superseded !== undefined) return { report: follows.superseded, details: { passed: false, skipped: true } };
+          if (conformanceOff(plainFile)) return { report: offNote, details: { passed: false, skipped: true } };
           const skipped = notFollowing(request.after);
           if (skipped !== undefined) return { report: skipped, details: { passed: false, skipped: true } };
           const result = await renderSpecDiffConformance({
@@ -662,6 +722,7 @@ export function createRenderQueue(options: {
         },
       });
       jobs.set(job.id, job);
+      conformanceJobs.set(job.id, plainFile);
       last = job.id;
       if (follows !== undefined) follows.conformanceJobId = job.id;
       shown.push({ jobId: job.id, what: `spec diff conformance: ${summarizeDiff(request.diff)}` });
@@ -681,11 +742,13 @@ export function createRenderQueue(options: {
         run: async (onDelta) => {
           const skipped = notFollowing(after);
           if (skipped !== undefined) return { report: skipped, details: { passed: false, skipped: true } };
+          if (conformanceOff(plainFile)) return { report: offNote, details: { passed: false, skipped: true } };
           const result = await renderConformanceSuite({ ...suite, plainFile, model, onDelta });
           return { report: describeConformanceSuite(result), details: { passed: result.passed } };
         },
       });
       jobs.set(job.id, job);
+      conformanceJobs.set(job.id, plainFile);
       last = job.id;
       shown.push({ jobId: job.id, what: `conformance: ${scope}` });
       return { jobId: job.id, position: shown.length };
@@ -790,6 +853,28 @@ export function createRenderQueue(options: {
       if (last !== undefined) await options.registry.wait(last);
     },
 
+    refresh() {
+      const stopped: string[] = [];
+      for (const [id, plainFile] of conformanceJobs) {
+        if (options.registry.get(id)?.status !== "queued" || !conformanceOff(plainFile)) continue;
+        options.registry.stop(id);
+        const job = options.registry.get(id);
+        if (job !== undefined) {
+          job.note = offNote;
+          job.error = offNote;
+        }
+        stopped.push(id);
+      }
+      // The spec diffs they followed now render with conformance off, and leave no tests to a job of their own.
+      for (const work of works.values()) {
+        if (!work.started && !work.off && conformanceOff(work.plainFile)) {
+          work.off = true;
+          work.conformanceLater = false;
+        }
+      }
+      return stopped;
+    },
+
     async afterRework(jobId, timeoutMs = 120_000) {
       const work = works.get(jobId);
       if (work === undefined || options.queueMaster === false) return undefined;
@@ -818,13 +903,16 @@ export function createRenderQueue(options: {
       }
       const target = codebase;
       // After whatever the master is already doing for this codebase; the spec diffs wait for it.
+      const turnsBefore = turns.get(target)?.count ?? 0;
       const turn = gateOf(target).then(() => runMaster(target, instruction));
       masters.set(target, turn.then(() => {}).catch(() => {}));
       const { plan, why } = await turn;
       if (plan === undefined) return `The queue master did nothing: ${why}.`;
+      // What the turn changed - spec diffs and conformance jobs taken out or rewritten - and the queue it left.
+      if ((turns.get(target)?.count ?? 0) > turnsBefore) return describeTurn(target) ?? plan.summary;
       const now = [...works.values()]
         .filter((work) => work.codebase === target && work.jobId !== undefined && work.superseded === undefined && isPending(options.registry.get(work.jobId)?.status))
-        .map((work) => `- job ${work.jobId} · ${work.title}${work.started ? " (running)" : ""}`);
+        .map(queueLine);
       const stopped = [...works.values()].filter((work) => work.codebase === target && work.superseded !== undefined && options.registry.get(work.jobId!)?.status === "stopped");
       return [
         `${plan.by === "master" ? "The queue master" : "The harness"}: ${plan.summary}`,

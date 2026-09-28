@@ -8,14 +8,17 @@ import type { SpecSnapshot } from "../../src/render/spec-change.ts";
 const ran: string[] = [];
 let renderPasses = true;
 const conformanceLaterSeen: Array<boolean | undefined> = [];
+/** What each render was told about conformance: false, off. */
+const conformanceSeen: Array<boolean | undefined> = [];
 const renderedDiffs: string[] = [];
 
 vi.mock("../../src/render/spec-change.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/render/spec-change.ts")>();
   return {
     ...actual,
-    renderSpecDiff: async (options: { conformanceLater?: boolean; diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
+    renderSpecDiff: async (options: { conformance?: boolean; conformanceLater?: boolean; diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
       ran.push("render spec diff");
+      conformanceSeen.push(options.conformance);
       renderedDiffs.push(options.diff ?? "");
       conformanceLaterSeen.push(options.conformanceLater);
       // Landing, it records the spec it was given - as the real one does.
@@ -52,6 +55,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "plainwright-queue-conformance-"));
   ran.length = 0;
   conformanceLaterSeen.length = 0;
+  conformanceSeen.length = 0;
   renderedDiffs.length = 0;
   renderPasses = true;
 });
@@ -278,5 +282,46 @@ describe("the queue master", () => {
     // The jobs keep their places; what each renders is the plan's.
     expect(registry.get(navJob.jobId)!.status).toBe("succeeded");
     expect(renderedDiffs).toHaveLength(2);
+  });
+
+  it("cancels the conformance jobs when asked - every one of them - and the spec diffs they followed render on their unit tests alone", async () => {
+    const { writeBuiltTree } = await import("../../src/render/state.ts");
+    const buildDir = join(dir, "plain_modules", "app", "code");
+    const withTests = (items: string[]) => ({ "test reqs": [{ markdown: "- pytest." }], "functional specs": items.map((markdown) => ({ markdown })) });
+    writeBuiltTree(buildDir, withTests(["- Say hello."]) as never);
+    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
+    const snapshot = (items: string[]) => ({ moduleName: "app", plainFile: join(dir, "app.plain"), tree: withTests(items), chain: [{ moduleName: "app", plainFile: join(dir, "app.plain"), buildDir }] }) as unknown as SpecSnapshot;
+    const master = async (input: { instruction?: string }, tools: { setConformance(jobs: string[], on: boolean, reason: string): string; commit(summary: string): { ok: boolean; problems: string[] } }) => {
+      if (input.instruction === undefined) return void tools.commit("As queued.");
+      expect(tools.setConformance(["all"], false, "as asked")).toContain("conformance jobs are cancelled");
+      expect(tools.commit("Turned the conformance tests off for every queued job, as asked.").problems).toEqual([]);
+    };
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const registry = createJobRegistry();
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "app.plain")), run: async () => (await held, { report: "" }) });
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never });
+    const queued = [
+      q.enqueueSpecDiff({ plainFile: "app.plain", diff: "+- Say goodbye.", applied: "already applied", spec: snapshot(["- Say hello.", "- Say goodbye."]) }),
+      q.enqueueSpecDiff({ plainFile: "app.plain", diff: "+- Say thanks.", applied: "already applied", spec: snapshot(["- Say hello.", "- Say goodbye.", "- Say thanks."]) }),
+    ];
+    for (const item of queued) expect(item.conformanceJobId).toBeDefined();
+
+    const said = await q.rework(join(dir, "app.plain"), "remove the conformance jobs");
+    release();
+    for (const item of queued) await registry.wait(item.jobId);
+    for (const item of queued) await registry.wait(item.conformanceJobId!);
+
+    for (const item of queued) {
+      const conformance = registry.get(item.conformanceJobId!)!;
+      expect(conformance.status).toBe("stopped");
+      expect(conformance.note).toMatch(/^Cancelled by the queue master/);
+      expect(said).toContain(`job ${item.conformanceJobId}`);
+    }
+    expect(said).toContain("Turned the conformance tests off for every queued job");
+    expect(said).toMatch(/· no conformance tests/);
+    // The renders ran, with conformance off - and no conformance job ran after them.
+    expect(ran).toEqual(["render spec diff", "render spec diff"]);
+    expect(conformanceSeen).toEqual([false, false]);
   });
 });

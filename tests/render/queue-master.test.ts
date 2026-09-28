@@ -42,6 +42,27 @@ describe("the queue master's proposal", () => {
   });
 });
 
+describe("conformance tests in the queue", () => {
+  it("are turned off for every job at once, and cannot be turned on where the config or the spec has none", async () => {
+    const results: string[] = [];
+    const queued = story().queued.map((job) => ({ ...job, conformance: true }));
+    const plan = await reworkQueue({
+      input: { ...story(), queued, instruction: "no conformance tests", conformanceAvailable: false },
+      agent: async (_input, tools) => {
+        results.push(tools.setConformance(["all"], false, "as asked"));
+        results.push(tools.setConformance(["1"], true, "try"));
+        tools.deleteJob("job2", "undone");
+        tools.deleteJob("job3", "undone");
+        tools.commit("Conformance off.");
+      },
+    });
+    expect(results[0]).toContain("conformance jobs are cancelled");
+    expect(results[1]).toContain("cannot be turned on here");
+    expect(plan.by).toBe("master");
+    expect(plan.jobs.map((job) => job.conformance)).toEqual([false]);
+  });
+});
+
 describe("a job the master names", () => {
   it("is its place before it is the start of an id - ids are hex, and one can begin with 2", () => {
     const draft = [

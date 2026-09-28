@@ -60,7 +60,8 @@ other, jobs on different modules run side by side.
 - **The panel** above the input shows each running job - its stage, what its agents are doing,
   its model, time and cost - and the queue. `ctrl+o` expands it.
 - **The side panel** (`ctrl+j`, which in plainwright replaces pi's own new-line key - `shift+enter` still
-  inserts one) opens on the right, beside the chat, with three views - `tab`
+  inserts one; pi outside plainwright keeps it, and a `tui.input.newLine` of your own in
+  `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with three views - `tab`
   switches between them:
   - **Jobs** - the whole queue: what runs, what waits and on what, what finished, with time and cost;
   - **Try it** - how to try what a job built, as the harness checked it, once its tests pass;

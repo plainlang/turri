@@ -46,6 +46,10 @@ export interface QueuedDiff {
   tree: MarshalledPlainSource;
   /** Its change, as the job renders it. */
   textDiff: string;
+  /** Its conformance tests are written and run - by a job of their own right behind it, or in its own render. */
+  conformance?: boolean;
+  /** The conformance job that follows it, when there is one. */
+  conformanceJobId?: string;
 }
 
 /** One job of the reworked queue: a title, why, and the changes it makes. `jobId` is the queued job it came from, if any. */
@@ -54,11 +58,18 @@ export interface DraftJob {
   reason: string;
   changes: string[];
   jobId?: string;
+  /** Its conformance tests are written and run: by the conformance job it has, or in its own render. Off, it renders on its unit tests. */
+  conformance?: boolean;
 }
 
 export interface MasterInput {
   /** What the person asked of the queue, when they asked the master themselves - not a new change. */
   instruction?: string;
+  /**
+   * Whether a job can have conformance tests at all: they are on in the config and the module has
+   * test reqs to write them from. Without, none can be turned on.
+   */
+  conformanceAvailable?: boolean;
   /** What the code will be built from when the first queued job runs. */
   base: MarshalledPlainSource;
   /** The spec as it was before this change - as the master last saw it. */
@@ -142,7 +153,7 @@ export function propose(input: MasterInput): DraftJob[] {
     const isNew = index === input.queued.length - 1;
     const changes = net.filter((change) => !taken.has(change.id) && owns[index]!.some((mine) => sameChange(mine, change))).map((change) => change.id);
     changes.forEach((id) => taken.add(id));
-    return { title: job.title, reason: isNew ? "the new change" : "as it was queued", changes, jobId: job.jobId };
+    return { title: job.title, reason: isNew ? "the new change" : "as it was queued", changes, jobId: job.jobId, conformance: job.conformance === true };
   });
   // A change no job made as it is, but one made an item it is like - edited since - goes back to that job, the first most like it.
   for (const change of net) {
@@ -229,7 +240,9 @@ export interface MasterTools {
   mergeJobs(jobs: string[], title: string, reason: string): string;
   reorderJobs(order: string[]): string;
   rewriteJob(job: string, change: { title?: string; reason?: string; changes?: string[] }): string;
-  insertJob(job: { title: string; reason: string; changes: string[]; position: number }): string;
+  insertJob(job: { title: string; reason: string; changes: string[]; position: number; conformance?: boolean }): string;
+  /** Turn the conformance tests of jobs - or of "all" of them - on or off. */
+  setConformance(jobs: string[], on: boolean, reason: string): string;
   askPerson(question: string): Promise<string>;
   /** Check the draft and take it, or say what is wrong with it. */
   commit(summary: string): { ok: boolean; problems: string[] };
@@ -285,7 +298,13 @@ export async function reworkQueue(options: {
       const at = names.map((name) => findJob(draft, name));
       if (at.some((index) => index === -1)) return `Not every one of ${names.join(", ")} is in the draft.`;
       const first = Math.min(...at);
-      const merged: DraftJob = { title, reason, changes: at.sort((a, b) => a - b).flatMap((index) => draft[index]!.changes), jobId: draft[first]!.jobId };
+      const merged: DraftJob = {
+        title,
+        reason,
+        changes: at.sort((a, b) => a - b).flatMap((index) => draft[index]!.changes),
+        jobId: draft[first]!.jobId,
+        conformance: at.some((index) => draft[index]!.conformance === true),
+      };
       draft = draft.flatMap((job, index) => (index === first ? [merged] : at.includes(index) ? [] : [job]));
       return `Merged into "${title}", where the first of them was.`;
     },
@@ -306,8 +325,23 @@ export async function reworkQueue(options: {
     },
     insertJob(job) {
       const position = Math.max(1, Math.min(draft.length + 1, Math.round(job.position)));
-      draft = [...draft.slice(0, position - 1), { title: job.title, reason: job.reason, changes: [...job.changes] }, ...draft.slice(position - 1)];
-      return `Inserted "${job.title}" as job ${position}.`;
+      // Conformance as the rest of the queue has it, unless it says; never where there can be none.
+      const conformance = input.conformanceAvailable === true && (job.conformance ?? draft.some((other) => other.conformance === true));
+      draft = [...draft.slice(0, position - 1), { title: job.title, reason: job.reason, changes: [...job.changes], conformance }, ...draft.slice(position - 1)];
+      return `Inserted "${job.title}" as job ${position}${conformance ? ", with its conformance tests" : ""}.`;
+    },
+    setConformance(names, on, reason) {
+      const all = names.some((name) => name.trim().toLowerCase() === "all");
+      const at = all ? draft.map((_, index) => index) : names.map((name) => findJob(draft, name));
+      if (at.some((index) => index === -1)) return `Not every one of ${names.join(", ")} is in the draft.`;
+      if (on && input.conformanceAvailable !== true) {
+        return "Conformance tests cannot be turned on here: they are off in the project's config, or the module has no test reqs to write them from. That takes a change to the config or the spec, not to the queue.";
+      }
+      for (const index of at) draft[index] = { ...draft[index]!, conformance: on };
+      const named = at.map((index) => `"${draft[index]!.title}"`).join(", ");
+      return on
+        ? `Conformance tests on for ${named}: each writes and runs them in its own render, where it has no conformance job. ${reason}`
+        : `Conformance tests off for ${named}: their conformance jobs are cancelled, and each renders on its unit tests alone. ${reason}`;
     },
     async askPerson(question) {
       const answer = await options.askPerson?.(question);
@@ -327,7 +361,7 @@ export async function reworkQueue(options: {
   }
   if (committed !== undefined) return { jobs: stepsOf(input, committed.draft), summary: committed.summary, by: "master" };
   if (checkDraft(input, proposal).length === 0) return { jobs: stepsOf(input, proposal), summary: "The queue master committed no queue; the queue runs as proposed.", by: "proposal" };
-  const whole: DraftJob[] = [{ title: input.queued.at(-1)?.title ?? "The spec change", reason: "the whole of the queued change, in one job", changes: netChanges(input.base, input.current).map((change) => change.id), jobId: input.queued[0]?.jobId }];
+  const whole: DraftJob[] = [{ title: input.queued.at(-1)?.title ?? "The spec change", reason: "the whole of the queued change, in one job", changes: netChanges(input.base, input.current).map((change) => change.id), jobId: input.queued[0]?.jobId, conformance: input.queued.some((job) => job.conformance === true) }];
   return { jobs: whole[0]!.changes.length === 0 ? [] : stepsOf(input, whole), summary: "The queue master committed no queue that checks; the whole change runs as one job.", by: "fallback" };
 }
 
@@ -348,6 +382,11 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
     "spec as the .plain files have it now. Every change is in exactly one job; a job makes at least one; and the jobs, applied",
     "in order, leave a spec that holds together after each, ending exactly on the .plain files as they are. commit_queue checks",
     "it, and says what is wrong if anything is - fix that and commit again. A job that is running is not in the queue: it stays.",
+    "",
+    "Conformance tests are part of the queue too. A spec diff job with them on is followed by a conformance job of its own,",
+    "which writes and runs its conformance tests once it lands. set_conformance turns them off for jobs - or all of them - and",
+    `that cancels their conformance jobs; on, a job writes and runs them in its own render. ${input.conformanceAvailable === true ? "They can be turned on here." : "They cannot be turned on here: the config has them off, or the module has no test reqs."}`,
+    "Do only what you have a tool for, and say in the summary exactly what you did - never that you did something you could not.",
     "",
     "Read the changes as ***plain, by the rules in your system prompt: what a concept's definition, an imported or required",
     "module, an implementation or test req means for the functional specs that use it, and so what has to go first or together.",
@@ -371,7 +410,11 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
     "</the new change>",
     "",
     "<the queue, in the order it runs - each job's change as it was queued>",
-    ...input.queued.flatMap((job, index) => [`job ${index + 1} (${job.jobId}) · ${job.title}`, job.textDiff.trim(), ""]),
+    ...input.queued.flatMap((job, index) => [
+      `job ${index + 1} (${job.jobId}) · ${job.title} · ${job.conformanceJobId !== undefined ? `its conformance tests: job ${job.conformanceJobId}, right behind it` : job.conformance ? "its conformance tests: in its own render" : "no conformance tests"}`,
+      job.textDiff.trim(),
+      "",
+    ]),
     "</the queue>",
     "",
     "<the changes - the whole of the queue's work, from what the code will be built from to the spec now>",
@@ -379,7 +422,7 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
     "</the changes>",
     "",
     "<the draft, as the harness proposes it - each job keeping the changes of its own still part of the work>",
-    ...proposal.map((job, index) => `job ${index + 1}${job.jobId ? ` (${job.jobId})` : " (new)"} · ${job.title}: ${job.changes.length > 0 ? job.changes.join(", ") : "no changes left - the new change undid them"}`),
+    ...proposal.map((job, index) => `job ${index + 1}${job.jobId ? ` (${job.jobId})` : " (new)"} · ${job.title}: ${job.changes.length > 0 ? job.changes.join(", ") : "no changes left - the new change undid them"} · conformance tests: ${job.conformance ? "on" : "off"}`),
     "</the draft>",
     "",
     "<the spec as the .plain files have it now>",
@@ -402,7 +445,7 @@ export function llmQueueMaster(options: { cwd: string; model?: string; label?: s
         description: "The draft queue as it stands: each job's title and the changes it makes.",
         parameters: Type.Object({}),
         async execute() {
-          return say(tools.draft().map((item, index) => `job ${index + 1}${item.jobId ? ` (${item.jobId})` : " (new)"} · ${item.title}: ${item.changes.join(", ") || "no changes"}`).join("\n") || "(empty)");
+          return say(tools.draft().map((item, index) => `job ${index + 1}${item.jobId ? ` (${item.jobId})` : " (new)"} · ${item.title}: ${item.changes.join(", ") || "no changes"}${item.conformance ? " · conformance tests: on" : " · conformance tests: off"}`).join("\n") || "(empty)");
         },
       }),
       defineTool({
@@ -445,9 +488,26 @@ export function llmQueueMaster(options: { cwd: string; model?: string; label?: s
         name: "insert_job",
         label: "Insert a job",
         description: "Add a job at a place in the queue (1 is first), making the changes given by id.",
-        parameters: Type.Object({ title: Type.String(), reason: Type.String(), changes: Type.Array(Type.String()), position: Type.Number() }),
+        parameters: Type.Object({
+          title: Type.String(),
+          reason: Type.String(),
+          changes: Type.Array(Type.String()),
+          position: Type.Number(),
+          conformance: Type.Optional(Type.Boolean({ description: "Its conformance tests on or off. Default: as the rest of the queue has them" })),
+        }),
         async execute(_id, params) {
           return say(tools.insertJob(params));
+        },
+      }),
+      defineTool({
+        name: "set_conformance",
+        label: "Conformance on or off",
+        description:
+          "Turn the conformance tests of jobs on or off. Off cancels a job's conformance job and it renders on its unit tests " +
+          "alone; on, a job writes and runs its conformance tests in its own render. Name the jobs, or [\"all\"].",
+        parameters: Type.Object({ jobs: Type.Array(job), on: Type.Boolean(), reason: Type.String() }),
+        async execute(_id, params) {
+          return say(tools.setConformance(params.jobs, params.on, params.reason));
         },
       }),
       defineTool({
