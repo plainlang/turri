@@ -8,6 +8,7 @@ import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { ERROR_CAUSE_RULES, fixMethod, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
+import { REVIEW_LESSON } from "./notes.ts";
 
 /**
  * The agents a conformance run needs beside the one that writes the tests.
@@ -572,6 +573,7 @@ export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
     "Fix every one: implement what is missing, and make what is bad test the software black box and as the",
     "specification says. Then run the suite. Never mock the software under test or loosen a test to pass.",
     ...INTEGRITY_RULES,
+    ...REVIEW_LESSON,
   ].join("\n");
 }
 

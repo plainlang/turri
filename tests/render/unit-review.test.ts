@@ -24,7 +24,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 
 const { changedUnitTests, untilUnitTestsReviewed, UNIT_REVIEW_LIMIT, UNIT_REVIEW_ROUNDS } = await import("../../src/render/unit-review.ts");
 const { digestFiles } = await import("../../src/render/codebase.ts");
-const { readNotes } = await import("../../src/render/notes.ts");
+const { readNotes, recordNote } = await import("../../src/render/notes.ts");
 
 let dir: string;
 beforeEach(() => {
@@ -37,7 +37,8 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const weak = { file: "test_app.py", kind: "bad" as const, what: "only checks that register returns something - not the user it stores", blocking: true };
 const better = { file: "test_app.py", kind: "bad" as const, what: "could check the error message too", blocking: false };
 
-function loop(sent: string[], passing = true) {
+/** The stand-in coding agent: it takes each prompt, and - when it reflects - leaves the review's lesson in the notes. */
+function loop(sent: string[], passing = true, reflects = true) {
   const atStart = digestFiles(dir);
   writeFileSync(join(dir, "app.py"), "def register(email): return {'email': email}\n");
   writeFileSync(join(dir, "test_app.py"), "def test_register(): assert register('a@b.c')\n");
@@ -47,7 +48,10 @@ function loop(sent: string[], passing = true) {
     what: "functionality 1",
     specText: "***functional specs***\n\n- A visitor registers with an email; the user is stored with it.\n",
     label: "app 1",
-    send: async (prompt) => void sent.push(prompt),
+    send: async (prompt) => {
+      sent.push(prompt);
+      if (reflects && prompt.includes("leave the lesson")) recordNote(dir, "pitfalls", `Tests assert what register stores, never only that it returned (${sent.length})`, "app 1");
+    },
     untilPassing: async () => passing,
     stage: () => {},
   });
@@ -73,6 +77,21 @@ describe("the unit test review", () => {
     expect(reviewPrompts[0]).toContain("A visitor registers with an email");
     // The next review checks what the last one found, first.
     expect(reviewPrompts[1]).toContain("The review before this one sent the tests back with these problems");
+  });
+
+  it("asks the coding agent for the lesson, as a rule for the agents after it - and asks once more when it left none", async () => {
+    verdicts.push({ pass: false, problems: [weak] }, { pass: true, problems: [] });
+    const sent: string[] = [];
+    await loop(sent);
+    expect(sent[0]).toContain("add to the pitfalls what this review taught");
+    expect(readNotes(dir).pitfalls.join("\n")).toContain("Tests assert what register stores, never only that it returned");
+    expect(sent).toHaveLength(1);
+
+    verdicts.push({ pass: false, problems: [weak] }, { pass: true, problems: [] });
+    const forgot: string[] = [];
+    await loop(forgot, true, false);
+    expect(forgot).toHaveLength(2);
+    expect(forgot[1]).toContain("You worked on what the review found, but left no lesson in the notes");
   });
 
   it("lets go of what only makes good tests better after a few reviews - and keeps it in the notes", async () => {

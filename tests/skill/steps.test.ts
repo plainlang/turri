@@ -133,6 +133,15 @@ describe("spark-plain, forge-plain's quick twin", () => {
   });
 });
 
+describe("temper-plain", () => {
+  it("renders a rough spec, reads back what the builds had to decide, and writes it in - with the tools to wait and to read", () => {
+    const skill = loadSkill("skills/temper-plain");
+    expect(skill.steps.map((step) => step.name)).toEqual(["intake", "render", "temper", "report"]);
+    expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "render_spec", "wait_for_jobs", "spec_findings"]));
+    expect(skill.paced).toBe(false);
+  });
+});
+
 describe("add-feature", () => {
   it("builds a feature as forge-plain builds a product: product questions, one spec diff per answer, paced", () => {
     const skill = loadSkill("skills/add-feature");

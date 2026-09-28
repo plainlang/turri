@@ -124,9 +124,39 @@ export function withNotes(prompt: string, buildDir: string): string {
         "Earlier agents on this codebase wrote these down, to spare you exploring from scratch. They may be",
         "out of date: the code and the specification are the truth. Each line says when and by which step it was",
         "written; where two disagree, the later one is right. Build on the assumptions unless the code or the",
-        "specification shows one wrong.",
+        "specification shows one wrong. The pitfalls include what earlier reviews sent tests back for: write your",
+        "tests so they would pass those reviews the first time.",
       ].join("\n");
   return `${earlier}\n\n${prompt}\n\n${GUIDANCE}`;
+}
+
+/**
+ * What an agent a review sent tests back to is asked to leave: the lesson, not the fix - the kind of
+ * test the review found weak or missing, and how to write it instead - so every later agent on the
+ * codebase writes it right from its first test, and the first reviews have less to send back.
+ */
+export const REVIEW_LESSON = [
+  "",
+  "Then leave the lesson for the agents after you: call update_notes and add to the pitfalls what this review taught",
+  "you - the kind of test it found weak or missing, and how to write it instead - as a rule the next agent can follow",
+  "from its first test, not a record of this one fix: e.g. \"Tests assert the exact response body and status, never only",
+  "that one came back\". One short line per lesson; skip one the notes already have, and sharpen one that was not enough.",
+];
+
+/**
+ * After an agent worked on what a review found: when it left no new pitfall - no lesson - it is asked
+ * once more, so the next agent does not make the same tests the review has to send back again.
+ */
+export async function reflectOnReview(buildDir: string, pitfallsBefore: string[], send: (prompt: string) => Promise<unknown>): Promise<void> {
+  const known = new Set(pitfallsBefore);
+  if (readNotes(buildDir).pitfalls.some((line) => !known.has(line))) return;
+  await send(
+    [
+      "You worked on what the review found, but left no lesson in the notes. Call update_notes now and add to the pitfalls",
+      "the kind of test the review found weak or missing, and how to write it instead - a rule the next agent on this",
+      "codebase can follow from its first test, so the review does not have to send the same back again. Change nothing else.",
+    ].join("\n"),
+  );
 }
 
 export interface NotesChange {

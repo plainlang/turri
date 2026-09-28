@@ -50,6 +50,12 @@ declares gates today.
 `write_spec_diff` otherwise refuses a new change until the user has answered a question since the
 last one - one answer, one change, as an interview writes them. `spark-plain` is unpaced.
 
+A skill that lists `render_spec`, `wait_for_jobs` and `spec_findings` in `allowed-tools` - as
+`temper-plain` does - can build what a module's spec holds (functionality by functionality, or the
+difference as one spec diff), wait for its builds with a time limit, and read back, numbered and each
+once, what the builds recorded since the run started: the assumptions and pitfalls in every
+codebase's working notes, a failed job's diagnosis, a spec that contradicts itself.
+
 Each step is told where its skill's files are, so a path it names - `references/intent.md` - and a
 skill it says to follow - `implement-unit-testing-script` - are found without searching.
 

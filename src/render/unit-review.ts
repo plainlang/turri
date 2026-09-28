@@ -6,7 +6,7 @@ import { reportActivity } from "./activity.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { REVIEWER_CALLS, reviewKind } from "./conformance-agents.ts";
-import { recordNote } from "./notes.ts";
+import { readNotes, recordNote, reflectOnReview, REVIEW_LESSON } from "./notes.ts";
 import { INTEGRITY_RULES } from "./prompt.ts";
 import { TEST_FILE_PATTERN } from "./testing.ts";
 
@@ -199,6 +199,7 @@ export function unitReviewFeedbackPrompt(problems: UnitReviewProblem[]): string 
     "the exact outcome, so they fail when it breaks. Change the code only where a stronger test shows it wrong.",
     "Then run the unit tests. Never loosen a test, delete one, or mock the unit under test to make it pass.",
     ...INTEGRITY_RULES,
+    ...REVIEW_LESSON,
   ].join("\n");
 }
 
@@ -251,7 +252,10 @@ export async function untilUnitTestsReviewed(options: {
         : `the review found ${review.problems.length} way${review.problems.length === 1 ? "" : "s"} to make the unit tests test more - the coding agent improves them`,
     );
     earlier = review.problems;
+    const pitfalls = readNotes(options.buildDir).pitfalls;
     await options.send(unitReviewFeedbackPrompt(review.problems));
+    // The lesson, left for the agents after it: the next functionality's tests start from it.
+    await reflectOnReview(options.buildDir, pitfalls, options.send);
     if (!(await options.untilPassing())) return { passed: false, problems: review.problems };
   }
   options.stage(`the unit tests still leave what the spec states untested after ${UNIT_REVIEW_LIMIT} reviews - stopping`);

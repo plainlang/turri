@@ -20,6 +20,7 @@ The skills that build from scratch:
 | --- | --- |
 | `forge-plain` | intent, stack, then testing - conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job the moment it is written, with its conformance tests when they are on |
 | `spark-plain` | its quick twin: asks only what you want to build and confirms a five-line brief, then chooses the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff the queue master works into the builds still queued |
+| `temper-plain` | for a spec you already have, rough or hand-written: renders it, waits for the builds, reads back what they had to decide on their own - assumptions, pitfalls, a failed build's diagnosis, a spec that contradicts itself - and writes into the spec what it should have said, as spec diffs that re-render only what they change; asks only for conflicts and choices that matter to you; round after round until one finds nothing new |
 
 `skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see

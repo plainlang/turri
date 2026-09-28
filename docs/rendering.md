@@ -130,6 +130,13 @@ already test it better, are let go after five reviews - the tests cannot be opti
 what the last review suggested goes into the working notes. The conformance tests are reviewed the
 same way, as black-box tests (see [conformance tests](#conformance-tests)).
 
+Every time a review sends tests back, the agent that fixes them also leaves the lesson in the
+working notes' pitfalls: not the fix, but the kind of test the review found weak or missing and how
+to write it instead - "tests assert the exact response body, never only that one came back". One
+that fixes the tests and leaves no lesson is asked once more. Every later agent on the codebase
+starts from the notes, and is told to write its tests so they would pass those reviews the first
+time - so the reviews of the next functionalities have less to send back, and finish sooner.
+
 ### Then
 
 Once the unit tests pass: the conformance tests already in the codebase are run and kept passing

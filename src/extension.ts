@@ -424,6 +424,8 @@ export default function (pi: ExtensionAPI) {
         // check_job and list_jobs see them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
         renderQueue: renderQueueFor(jobs, cwd, ctx),
+        // A skill that waits for its builds and reads what they recorded - temper-plain - sees the same jobs.
+        jobs,
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderFunctionalityConformanceTool(cwd, jobs, ctx), ...createWebTools()],

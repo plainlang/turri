@@ -20,7 +20,7 @@ import {
 import { reportActivity, reportSpec, reportStage, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { abandonWork, moduleDirOf, recordHistory, startWork, type WorkStart } from "./history.ts";
-import { notesForSession, withNotes } from "./notes.ts";
+import { notesForSession, readNotes, reflectOnReview, withNotes } from "./notes.ts";
 import { labelsPrompt, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
   createScriptTool,
@@ -730,7 +730,10 @@ export async function renderConformanceTests(
               ? `the review found the functionality not yet tested black box (${blocking.length} of ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}) - the conformance agent completes the tests`
               : `the review found ${review.problems.length} way${review.problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`,
           );
+          const pitfalls = readNotes(buildDir).pitfalls;
           const fixed = await changing(() => askConformance(reviewFeedbackPrompt(review.problems), options.onDelta));
+          // The lesson, left for the agents after it: the next functionality's conformance tests start from it.
+          await reflectOnReview(buildDir, pitfalls, (prompt) => askConformance(prompt, options.onDelta));
           response = fixed.result;
           recordAttempt(
             rounds,
