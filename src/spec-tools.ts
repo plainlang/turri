@@ -129,9 +129,14 @@ export function createSpecDiffTools(options: {
       // tools, as well as this answer - not only the lines this answer changed. The queue works that
       // out for each codebase the change lands in.
       const queued = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec, wholeIfUnbuilt: true });
+      // The queue master reworks the queued builds around it first: what it made of them is what to tell the user.
+      const reports = await Promise.all(queued.parts.filter((part) => part.what === "render").map((part) => queue.afterRework(part.jobId)));
+      const reworked = [...new Set(reports.filter((report): report is string => report !== undefined))];
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
-        describeQueuedParts(queued.parts),
+        // One build the master reworked: what it made of it is the whole story.
+        ...(reworked.length > 0 && queued.parts.length === 1 ? [] : [describeQueuedParts(queued.parts)]),
+        ...(reworked.length > 0 ? [`\n\n${reworked.join("\n\n")}\n\nTell the user what became of it, as said here.`] : []),
         "Carry on with the interview.",
       ];
       return {

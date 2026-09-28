@@ -1026,10 +1026,18 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
           tryIt: params.try_it ?? true,
           conformance: conformanceOption(params.conformance, params.plain_file),
         });
-        if (queued.parts.length === 1 && queued.parts[0]!.what === "render") return queuedReport(jobs, queued.jobId, "render_spec_diff", queued.conformanceJobId);
-        // Split across codebases, only restructured, or a rebuild from scratch: said as it was queued.
+        // The queue master reworks the queue around it first: what it made of it is what to tell the user.
+        const reworked = await queueReworkOf(renderQueueFor(jobs, cwd, ctx), queued.parts);
+        if (queued.parts.length === 1 && queued.parts[0]!.what === "render" && reworked === undefined) return queuedReport(jobs, queued.jobId, "render_spec_diff", queued.conformanceJobId);
+        // Split across codebases, only restructured, a rebuild from scratch, or reworked by the queue master: said as it is now.
         return {
-          content: [{ type: "text" as const, text: `${describeQueuedParts(queued.parts)} Tell the user, and carry on. Use check_job with a job's id if they ask how it is going.` }],
+          content: [
+            {
+              type: "text" as const,
+              // One render the master reworked: what it made of it is the whole story.
+              text: `${reworked !== undefined && queued.parts.length === 1 ? reworked : `${describeQueuedParts(queued.parts)}${reworked !== undefined ? `\n\n${reworked}` : ""}`}\n\nTell the user what became of it - as said here, not as first queued - and carry on. Use check_job with a job's id if they ask how it is going.`,
+            },
+          ],
           details: { jobId: queued.jobId, jobIds: queued.parts.map((part) => part.jobId), conformanceJobId: queued.conformanceJobId },
         };
       }
@@ -1643,12 +1651,27 @@ function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): 
       // The queue master reasons about the whole queue: it runs on the judge model, and asks the person in the chat.
       masterModel: modelSpec(projectModels(readProjectConfig(cwd)).judge),
       askPerson: (question) => (from.ctx.hasUI ? from.ctx.ui.input(`The queue master asks: ${question}`) : Promise.resolve(undefined)),
+      onRework: (report) => {
+        if (!from.ctx.hasUI) return;
+        try {
+          from.ctx.ui.notify(report.split("\n")[0]!, "info");
+        } catch {
+          // A notice is a convenience; the Jobs view says it all the same.
+        }
+      },
     });
     shared = { queue, from };
     renderQueues.set(jobs, shared);
   }
   shared.from.ctx = ctx;
   return shared.queue;
+}
+
+/** What the queue master's turn made of a newly queued spec change's jobs, once it is over - or nothing, when it left them. */
+export async function queueReworkOf(queue: RenderQueue, parts: Array<{ jobId: string; what: string }>): Promise<string | undefined> {
+  const reports = await Promise.all(parts.filter((part) => part.what === "render").map((part) => queue.afterRework(part.jobId)));
+  const said = [...new Set(reports.filter((report): report is string => report !== undefined))];
+  return said.length > 0 ? said.join("\n\n") : undefined;
 }
 
 /** What a tool says when it queued its work - and its conformance tests, when they follow as a job of their own. */

@@ -44,6 +44,7 @@ vi.mock("../../src/render/conformance-suite.ts", async (importOriginal) => {
 });
 
 const { createJobRegistry } = await import("../../src/render/jobs.ts");
+const { moduleLanes } = await import("../../src/render/lanes.ts");
 const { createRenderQueue } = await import("../../src/render/queue.ts");
 
 let dir: string;
@@ -187,12 +188,21 @@ describe("the queue master", () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     const registry = createJobRegistry();
-    registry.start({ kind: "render", summary: "ahead", lanes: [], run: async () => (await held, { report: "" }) });
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "frontend.plain")), run: async () => (await held, { report: "" }) });
     const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never });
     const navJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: `+${nav}`, applied: "already applied", spec: snapshot([signUp, nav]) });
     const profileJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: `+${profile}`, applied: "already applied", spec: snapshot([signUp, nav, profile]) });
     const feedJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: `+${feed}`, applied: "already applied", spec: snapshot([signUp, nav, profile, feed]) });
     const removal = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: "- no profile page", applied: "already applied", spec: snapshot([signUp, navNow, feed]) });
+    // What the tool that queued the removal tells the user: not that it is queued, but what became of it.
+    const said = (await q.afterRework(removal.jobId))!;
+    expect(said).toContain("The queue master reworked the queue: Took the profile page out of the queue.");
+    expect(said).toContain(`Job ${removal.jobId}, this change, does not run as a job of its own`);
+    expect(said).toContain(`Taken out, never to run: job ${profileJob.jobId}.`);
+    expect(said).toMatch(new RegExp(`Rewritten to render the change as it now is: job ${navJob.jobId}`));
+    // Named for what it renders now: the nav bar without the profile link.
+    expect(said).toMatch(new RegExp(`- job ${navJob.jobId} · .*The nav bar has the links \`Feed\` to \`/\`, and \`Search\``));
+    expect(said).not.toContain(`- job ${removal.jobId}`);
     release();
     for (const id of [navJob.jobId, profileJob.jobId, feedJob.jobId, removal.jobId]) await registry.wait(id);
 
@@ -218,7 +228,7 @@ describe("the queue master", () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     const registry = createJobRegistry();
-    registry.start({ kind: "render", summary: "ahead", lanes: [], run: async () => (await held, { report: "" }) });
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "backend.plain")), run: async () => (await held, { report: "" }) });
     const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
     const comments = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users comment on sessions.", applied: "already applied", spec: snapshot(["- Users sign up.", "- Users comment on sessions."]) });
     const kudos = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users give kudos.", applied: "already applied", spec: snapshot(["- Users sign up.", "- Users comment on sessions.", "- Users give kudos."]) });
@@ -252,7 +262,7 @@ describe("the queue master", () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     const registry = createJobRegistry();
-    registry.start({ kind: "render", summary: "ahead", lanes: [], run: async () => (await held, { report: "" }) });
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "frontend.plain")), run: async () => (await held, { report: "" }) });
     const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never });
     const navJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: "+- The nav bar.", applied: "already applied", spec: snapshot(["- Sign up.", "- The nav bar."]) });
     const feedJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: "+- The feed.", applied: "already applied", spec: snapshot(["- Sign up.", "- The nav bar.", "- The feed."]) });

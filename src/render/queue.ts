@@ -114,6 +114,12 @@ export interface RenderQueue {
    * it. Says what it did, and the queue it left.
    */
   rework(plainFile: string, instruction: string): Promise<string>;
+  /**
+   * Once the queue master's turn for a newly queued spec diff is over - or the wait runs out - what
+   * it did to the queue: whether that job still runs, what it took out and rewrote, the queue it left.
+   * Nothing when it left the queue as it was.
+   */
+  afterRework(jobId: string, timeoutMs?: number): Promise<string | undefined>;
 }
 
 /**
@@ -199,6 +205,8 @@ export function createRenderQueue(options: {
   masterModel?: string;
   /** How the queue master asks the person, when it is not sure. */
   askPerson?: (question: string) => Promise<string | undefined>;
+  /** Told what the queue master did, each time it reworks a queue - for the person, in the TUI. */
+  onRework?: (report: string) => void;
   /** Builds a codebase again from scratch. Defaults to rendering its chain. */
   rebuild?: RebuildRunner;
 }): RenderQueue {
@@ -238,6 +246,8 @@ export function createRenderQueue(options: {
   const masters = new Map<string, Promise<void>>();
   const lastSeen = new Map<string, MarshalledPlainSource>();
   const gateOf = (codebase: string) => masters.get(codebase) ?? Promise.resolve();
+  // Per codebase, the queue master's turns that changed the queue: how many, and what the last one did.
+  const turns = new Map<string, { count: number; summary: string; by: string; taken: string[]; rewritten: string[] }>();
   // The codebases being built again from scratch, by job: the queue master leaves their spec diffs alone.
   const rebuilds: Array<{ jobId: string; codebase: string; part: QueuedSpecDiffPart }> = [];
   const rebuildRunner: RebuildRunner = options.rebuild ?? defaultRebuild;
@@ -413,6 +423,8 @@ export function createRenderQueue(options: {
     });
 
     const used = new Set(placed.map((entry) => entry.work).filter((work): work is SpecDiffWork => work !== undefined));
+    const taken: string[] = [];
+    const rewritten: string[] = [];
     let before = base;
     for (const { planned, work } of placed) {
       const step = planned.step;
@@ -421,13 +433,16 @@ export function createRenderQueue(options: {
         // More jobs than there are places: they go on after them, in order.
         const extra: SpecDiffWork = { ...waiting.at(-1)!, title: planned.title, diff: step.textDiff, applied: "already applied", spec: { ...waiting.at(-1)!.spec, tree: step.tree }, started: false, jobId: undefined, conformanceJobId: undefined, superseded: undefined, before };
         const { jobId } = startSpecDiff(extra);
+        rewritten.push(jobId);
         const job = options.registry.get(jobId);
         if (job !== undefined) job.note = `${from === "" ? "Inserted" : "Moved here"} by ${by}: ${planned.title}${from}. ${plan.summary}`;
         before = step.tree;
         continue;
       }
       const changed = work.diff !== step.textDiff;
-      work.title = planned.title;
+      if (changed) rewritten.push(work.jobId!);
+      // Not renamed by the master: named for what it now renders, not for what it was queued with.
+      work.title = planned.title === work.title && changed ? summarizeDiff(step.textDiff) : planned.title;
       work.diff = step.textDiff;
       work.applied = "already applied";
       work.spec = { ...work.spec, tree: step.tree };
@@ -455,6 +470,7 @@ export function createRenderQueue(options: {
           ? `taken out by ${by}: its change is undone by a later one, or is part of ${[...used].map((kept) => kept.jobId).join(", ")}`
           : `cancelled by ${by}: the queued changes together change nothing the code is not already built from`;
       work.superseded = `Not run - ${into}. ${plan.summary}`;
+      taken.push(work.jobId!);
       for (const id of [work.jobId, work.conformanceJobId]) {
         if (id === undefined) continue;
         options.registry.stop(id);
@@ -465,6 +481,40 @@ export function createRenderQueue(options: {
         }
       }
     }
+    // A turn that changed the queue is told: to the tool that queued the change, and to the person.
+    if (taken.length > 0 || rewritten.length > 0) {
+      const codebase = waiting[0]!.codebase;
+      turns.set(codebase, { count: (turns.get(codebase)?.count ?? 0) + 1, summary: plan.summary, by, taken, rewritten });
+      const report = describeTurn(codebase);
+      if (report !== undefined) options.onRework?.(report);
+    }
+  };
+
+  /** What a queue master's turn did to a codebase's queue, in a few lines - for the tool that queued the change, and the person. */
+  const describeTurn = (codebase: string, jobId?: string): string | undefined => {
+    const turn = turns.get(codebase);
+    if (turn === undefined) return undefined;
+    const work = jobId !== undefined ? works.get(jobId) : undefined;
+    const now = [...works.values()]
+      .filter((item) => item.codebase === codebase && item.jobId !== undefined && item.superseded === undefined && isPending(options.registry.get(item.jobId)?.status))
+      .map((item) => `- job ${item.jobId} · ${item.title}${item.started ? " (running)" : ""}`);
+    const own =
+      work === undefined
+        ? []
+        : work.superseded !== undefined
+          ? [`Job ${jobId}, this change, does not run as a job of its own: ${work.superseded.replace(/^Not run - /, "")}`]
+          : turn.rewritten.includes(jobId!)
+            ? [`Job ${jobId}, this change, was reworked: ${options.registry.get(jobId!)?.note ?? turn.summary}`]
+            : [`Job ${jobId}, this change, runs as it was queued.`];
+    const others = turn.taken.filter((id) => id !== jobId);
+    const changed = turn.rewritten.filter((id) => id !== jobId);
+    return [
+      `The queue master reworked the queue${turn.by === "the harness" ? " (the harness's plan, the master's did not check)" : ""}: ${turn.summary}`,
+      ...own,
+      ...(others.length > 0 ? [`Taken out, never to run: ${others.map((id) => `job ${id}`).join(", ")}.`] : []),
+      ...(changed.length > 0 ? [`Rewritten to render the change as it now is: ${changed.map((id) => `job ${id}`).join(", ")}.`] : []),
+      now.length > 0 ? `The spec diffs queued for it now, in the order they run:\n${now.join("\n")}` : "No spec diff is queued for it now.",
+    ].join("\n");
   };
 
   /** Whether a spec as parsed has test reqs, which conformance tests are written from. */
@@ -522,6 +572,7 @@ export function createRenderQueue(options: {
       started: false,
       restructure,
       before,
+      turnAt: turns.get(codebase)?.count ?? 0,
     };
     const started = startSpecDiff(work);
     const job = options.registry.get(started.jobId);
@@ -737,6 +788,20 @@ export function createRenderQueue(options: {
       if (last !== undefined) await options.registry.wait(last);
     },
 
+    async afterRework(jobId, timeoutMs = 120_000) {
+      const work = works.get(jobId);
+      if (work === undefined || options.queueMaster === false) return undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = await Promise.race([
+        gateOf(work.codebase).then(() => false),
+        new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(true), timeoutMs))),
+      ]);
+      clearTimeout(timer);
+      if (timedOut) return `The queue master is still reworking the queue for this change; the jobs it takes out or rewrites say so in the Jobs view (ctrl+j).`;
+      if ((turns.get(work.codebase)?.count ?? 0) <= (work.turnAt ?? 0)) return undefined;
+      return describeTurn(work.codebase, jobId);
+    },
+
     async rework(plainFile, instruction) {
       if (options.queueMaster === false) return "The queue master is off for this queue: nothing was reworked.";
       const file = resolve(options.cwd, plainFile);
@@ -810,6 +875,8 @@ interface SpecDiffWork {
    * from anything else - that job stopped or failed - its diff is taken again from what is built.
    */
   before?: MarshalledPlainSource | null;
+  /** How many turns of the queue master had changed its codebase's queue when it was queued. */
+  turnAt?: number;
 }
 
 /** Build a chain again: the module now required, then the ones above it from scratch - `renderChain` sees to that. */

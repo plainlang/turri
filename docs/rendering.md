@@ -355,6 +355,12 @@ change went - to another job, or undone - its conformance job with it. A spec di
 started is never touched, and a functionality render still waiting on the codebase leaves the
 queue as it is.
 
+The tool that queued the change - `render_spec_diff`, `write_spec_diff` - waits for the queue
+master's turn, up to two minutes, and says what became of it rather than that it was queued: a
+removal folded into the jobs it touched is not a job of its own, and the jobs taken out and
+rewritten are named. A job the master rewrites without renaming it is named for what it now
+renders. In the TUI each rework is also a notice.
+
 In a conversation, `rework_queue` has the queue master rework a codebase's queued spec diffs as the
 person asks - run the feed first, merge two, split one - held to the same end; what would change
 the spec itself takes a spec diff. Stopping a queued spec diff by hand does not take its change
