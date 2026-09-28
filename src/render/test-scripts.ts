@@ -1,3 +1,4 @@
+import { fixMethod } from "./prompt.ts";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -490,7 +491,15 @@ export function scriptFailure(run: ScriptRun, what: string): string {
       ? "It exited 69: the toolchain it needs is not installed on this machine, where the testing scripts run. That cannot be " +
         "fixed from your sandbox - install_system_packages installs into your VM, not here. Say in your report exactly what is " +
         "missing, so the person can install it."
-      : `Fix the cause and run the tests again. Do not remove or weaken a test to get a pass.`;
+      : [
+          ...fixMethod({
+            what: what === "unit testing" ? "unit tests" : "conformance tests",
+            fixes: what === "unit testing" ? "code" : "tests",
+            runTool: what === "unit testing" ? "run_unit_tests" : "run_conformance_tests",
+          }),
+          "",
+          "Do not remove or weaken a test to get a pass.",
+        ].join("\n");
   return [
     `The harness ran the project's ${what} script, \`${run.command}\`, and it failed (exit ${run.exitCode}). That run is what`,
     "decides whether this is done - the script is at the top of your prompt, so you can see what it does.",

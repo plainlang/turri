@@ -89,7 +89,11 @@ But a functionality is not done on the agent's run, whatever it ran: after each 
 runs the unit testing script itself**, and only that run counts (see
 [the testing scripts](#the-testing-scripts)). It sends the agent back, up to 20 times, when:
 
-- **The harness's run of the unit testing script fails** - its output goes back to the agent.
+- **The harness's run of the unit testing script fails** - its output goes back to the agent, with how
+  to fix it, as every failure an agent is sent back with does (unit tests, a conformance run, a test or
+  code the judge found wrong): understand the failure from its whole trace; find the root cause in the
+  lines it points at, against the spec; reproduce it with that one test; fix the cause; check it with
+  that test and then the whole suite, the run that counts; and leave the cause and the fix in the notes.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
 

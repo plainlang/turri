@@ -7,7 +7,7 @@ import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
-import { ERROR_CAUSE_RULES, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
+import { ERROR_CAUSE_RULES, fixMethod, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
 
 /**
  * The agents a conformance run needs beside the one that writes the tests.
@@ -911,10 +911,11 @@ export function codeFixPrompt(options: { buildDir: string; conformanceDir?: stri
     options.run.output.trimEnd(),
     "</failing run>",
     "",
-    "Reproduce it first, and check your fix the same way: run_conformance_tests runs the project's conformance testing",
-    "script on the code as it now is with the whole suite, and you get its output. Make",
-    "the failure show in your own unit tests too where you can - for software that will not start, a unit test that",
-    "starts it - so run_unit_tests catches it from now on.",
+    ...fixMethod({ what: "conformance tests", fixes: "code", runTool: "run_conformance_tests" }),
+    "",
+    "run_conformance_tests runs the project's conformance testing script on the code as it now is, with the whole",
+    "suite, and you get its output. Make the failure show in your own unit tests too where you can - for software that",
+    "will not start, a unit test that starts it - so run_unit_tests catches it from now on.",
     "",
     "If the output does not show why the software failed - an error answered with a bare \"failed\", nothing logged",
     "about it - make it show first: where the code catches the error, log it with its whole trace and keep its",
@@ -948,6 +949,8 @@ export function testsFixPrompt(options: { run: ScriptRun; reason: string }): str
     "<failing run>",
     options.run.output.trimEnd(),
     "</failing run>",
+    "",
+    ...fixMethod({ what: "conformance tests", fixes: "tests", runTool: "run_conformance_tests" }),
     "",
     "Correct the test to what the specification says. Never change a test so it agrees with code that",
     "contradicts the specification, and never delete, skip or weaken a test to get a pass.",

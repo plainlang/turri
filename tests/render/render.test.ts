@@ -315,6 +315,30 @@ describe("functionalities, by the module they belong to", () => {
 });
 
 describe("the build's identity, and the code's build files", () => {
+  it("sends every failure back with how to fix it: understand, find the root cause, reproduce, fix, check the whole suite, note it", async () => {
+    const { scriptFailure } = await import("../../src/render/test-scripts.ts");
+    const { codeFixPrompt, testsFixPrompt } = await import("../../src/render/conformance-agents.ts");
+    const run = { command: "run_unittests.sh", exitCode: 1, output: "FAILED test_app.py::test_x - AssertionError", timeoutMs: 1 };
+    const prompts = [
+      scriptFailure(run, "unit testing"),
+      scriptFailure(run, "conformance testing"),
+      testsFixPrompt({ run, reason: "The test expects 400; the spec says nothing of it." }),
+      codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." }, run, reason: "r", first: true }),
+    ];
+    for (const prompt of prompts) {
+      expect(prompt).toContain("1. Understand the failure.");
+      expect(prompt).toContain("2. Find where it comes from.");
+      expect(prompt).toContain("3. Reproduce it:");
+      expect(prompt).toContain("4. Fix the cause, in the");
+      expect(prompt).toContain("5. Check the fix:");
+      expect(prompt).toContain("6. Leave in your notes what the cause was");
+    }
+    expect(prompts[0]).toContain("run just that test with bash - one file, one case");
+    expect(prompts[0]).toContain("then the whole suite with run_unit_tests");
+    expect(prompts[2]).toContain("4. Fix the cause, in the tests");
+    expect(prompts[3]).toContain("4. Fix the cause, in the code");
+  });
+
   it("never loses why something failed: every coding agent keeps the cause, the judge blames code that hides it, and the fixer makes it show first", async () => {
     const { buildRenderPrompt } = await import("../../src/render/prompt.ts");
     const { codeFixPrompt, judgePrompt } = await import("../../src/render/conformance-agents.ts");

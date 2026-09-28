@@ -142,6 +142,34 @@ export const INTEGRITY_RULES = [
 ];
 
 /**
+ * How a failure is fixed - for every agent sent back with one: understand it, reproduce it, fix the
+ * cause, check the fix the way the harness will. A fix made from the last line of the output alone
+ * fixes the symptom, if anything, and comes back next round.
+ */
+export function fixMethod(options: { what: "unit tests" | "conformance tests"; fixes: "code" | "tests"; runTool: string }): string[] {
+  const runOne =
+    options.what === "unit tests"
+      ? "run just that test with bash - one file, one case - and watch it fail the same way"
+      : `run it with ${options.runTool} and watch it fail the same way - the output names the failing test`;
+  return [
+    "Work through it in order:",
+    `1. Understand the failure. Which ${options.what === "unit tests" ? "test" : "conformance test"} failed, what it expected and what it got, and the exact error`,
+    "   with its whole trace and every cause it names. When the output is cut, the whole of it is in the file the cut",
+    "   names: read it. Don't go on the last line alone.",
+    `2. Find where it comes from. Read the lines the trace points at, in the ${options.fixes === "code" ? "code - and the test, to see exactly what it does and expects" : "test - and the code, to see how it is reached"}.`,
+    `   Hold what ${options.fixes === "code" ? "the code does" : "the test asserts"} against what the specification says. Say to yourself what the root cause is before`,
+    "   you change anything - not the symptom: the null behind the exception, the wrong path behind the 404.",
+    `3. Reproduce it: ${runOne}. A failure you cannot reproduce, you cannot`,
+    "   know you fixed. If it does not fail, find out why before you change anything.",
+    `4. Fix the cause, in the ${options.fixes}: the change that makes ${options.fixes === "code" ? "the code do" : "the test check"} what the specification says. One cause at a time.`,
+    `5. Check the fix: run the failing test again and see it pass, then the whole suite with ${options.runTool} - the run`,
+    "   that counts. A fix that breaks another test is not a fix. If it still fails, go back to 1 with the new output:",
+    "   it may be the next cause, now that this one is out of the way.",
+    "6. Leave in your notes what the cause was and what fixed it, in a line, for whoever meets it next.",
+  ];
+}
+
+/**
  * Why something failed is never lost - for every agent that writes or fixes code. A failure answered
  * with a bare "failed" and logged nowhere leaves whoever has to fix it guessing, round after round.
  */
