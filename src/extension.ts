@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -313,7 +313,8 @@ export default function (pi: ExtensionAPI) {
     label: "Run gated skill",
     description:
       "Execute one of this project's gated skills end to end. The skill's steps, review gates and " +
-      "judges are enforced by the harness, so the result has already passed review when it comes back.\n\n" +
+      "judges are enforced by the harness, so a gated skill's result has already passed review when it comes back; a skill " +
+      "without gates is not reviewed. Every result says which files the run changed in the project.\n\n" +
       `Available skills:\n${catalogue}${pendingNote}`,
     promptSnippet: "run_skill: execute a gated project skill (steps and review gates enforced by the harness)",
     promptGuidelines: [
@@ -406,6 +407,9 @@ export default function (pi: ExtensionAPI) {
         },
       };
 
+      // What the run changes in the project - its specs, resources, scripts - is said with its result: a skill that
+      // writes nothing is not taken for one that did its work.
+      const filesBefore = projectFiles(cwd);
       const { result, output: captured } = await captureConsole(() =>
         runSkill({
         skillDir: skill.dir,
@@ -443,9 +447,33 @@ export default function (pi: ExtensionAPI) {
       const noise = describeCaptured(captured);
       if (noise !== null) push(noise);
 
+      const changes = changedFiles(filesBefore, projectFiles(cwd));
+      const changed =
+        changes.length > 0
+          ? `It changed ${changes.length} file${changes.length === 1 ? "" : "s"} in the project: ${changes.join(", ")}.`
+          : "It changed no file in the project - whatever it said it wrote is not there. Say so to the user; do not report the work as done.";
+      // A skill that edits the specs with the file tools builds nothing: the change is the conversation's to render.
+      const specsChanged = changes.filter((path) => path.endsWith(".plain"));
+      const unrendered =
+        specsChanged.length > 0 && !skill.allowedTools.includes("write_spec_diff")
+          ? `${specsChanged.join(", ")} changed, and nothing renders that yet: render the change - render_spec_diff with its git diff, or render_module.`
+          : "";
+      const gated = skill.steps.some((step) => step.gate !== undefined);
       const text = result.ok
-        ? [`${skill.name}: passed all gates.`, "", "<artifact>", result.output, "</artifact>", "", "<trace>", ...trace, "</trace>"].join("\n")
-        : [`${skill.name}: stopped at a gate. No approved artifact.`, "", "<trace>", ...trace, "</trace>"].join("\n");
+        ? [
+            gated ? `${skill.name}: passed all gates.` : `${skill.name}: finished. It has no review gates, so nothing checked its work: read what it changed before you report it.`,
+            changed,
+            ...(unrendered !== "" ? [unrendered] : []),
+            "",
+            "<artifact>",
+            result.output,
+            "</artifact>",
+            "",
+            "<trace>",
+            ...trace,
+            "</trace>",
+          ].join("\n")
+        : [`${skill.name}: stopped at a gate. No approved artifact.`, changed, "", "<trace>", ...trace, "</trace>"].join("\n");
 
       if (ctx.hasUI) ctx.ui.setStatus("forge-skill", undefined);
       return { content: [{ type: "text" as const, text }], details: { ok: result.ok, artifacts: result.artifacts } };
@@ -1323,6 +1351,41 @@ export function parallelJobs(cwd: string): number {
   const fromEnv = Number(process.env.PLAINWRIGHT_PARALLEL_JOBS);
   if (Number.isInteger(fromEnv) && fromEnv >= 1) return fromEnv;
   return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs();
+}
+
+/** The project's own files and a digest of each - not plain_modules, dependencies, or plainwright's and git's folders. */
+export function projectFiles(root: string): Map<string, string> {
+  const files = new Map<string, string>();
+  const walk = (dir: string, depth: number) => {
+    if (depth > 8) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "plain_modules" || entry.name === "node_modules" || entry.name === "__pycache__") continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path, depth + 1);
+      else if (entry.isFile()) {
+        try {
+          files.set(relative(root, path), createHash("sha1").update(readFileSync(path)).digest("hex"));
+        } catch {
+          // A file that cannot be read is left out.
+        }
+      }
+    }
+  };
+  walk(root, 0);
+  return files;
+}
+
+/** The files added, changed or removed between two digests of the project. */
+export function changedFiles(before: Map<string, string>, after: Map<string, string>): string[] {
+  const changed = [...after].filter(([path, digest]) => before.get(path) !== digest).map(([path]) => path);
+  const removed = [...before.keys()].filter((path) => !after.has(path)).map((path) => `${path} (removed)`);
+  return [...changed, ...removed].sort();
 }
 
 /** Whether a folder holds a project's config: config.yaml, or a module's own config.<module>.yaml. */

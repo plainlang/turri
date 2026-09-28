@@ -133,6 +133,28 @@ describe("spark-plain, forge-plain's quick twin", () => {
   });
 });
 
+describe("a skill's tools", () => {
+  it("are the file tools when it names none - as the Agent Skills spec has it - and none when it says none", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { DEFAULT_SKILL_TOOLS } = await import("../../src/skill.ts");
+    expect(loadSkill("skills/add-implementation-requirement").allowedTools).toEqual(DEFAULT_SKILL_TOOLS);
+    expect(DEFAULT_SKILL_TOOLS).toEqual(expect.arrayContaining(["read", "write", "edit", "bash"]));
+    const dir = mkdtempSync(join(tmpdir(), "plainwright-skill-"));
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: none\ndescription: nothing\nallowed-tools: []\n---\n\nDo nothing.\n");
+    expect(loadSkill(dir).allowedTools).toEqual([]);
+  });
+
+  it("every skill here has what it needs to read and write the project", () => {
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    for (const name of readdirSync("skills")) {
+      const skill = loadSkill(`skills/${name}`);
+      expect(skill.allowedTools, name).toEqual(expect.arrayContaining(["read", "write", "edit"]));
+    }
+  });
+});
+
 describe("temper-plain", () => {
   it("renders a rough spec, reads back what the builds had to decide, and writes it in - with the tools to wait and to read", () => {
     const skill = loadSkill("skills/temper-plain");

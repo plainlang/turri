@@ -199,11 +199,15 @@ export function loadSkill(skillDir: string): Skill {
     name,
     description,
     dir,
-    allowedTools: (data["allowed-tools"] as string[]) ?? [],
+    // No list is no restriction, as the Agent Skills spec has it: the file tools every skill needs. An empty list is none.
+    allowedTools: Array.isArray(data["allowed-tools"]) ? (data["allowed-tools"] as string[]) : [...DEFAULT_SKILL_TOOLS],
     steps,
     paced: (data.metadata as { paced?: unknown } | undefined)?.paced !== false,
   };
 }
+
+/** The tools a skill that names none is given: reading, writing and searching the project, and a shell. */
+export const DEFAULT_SKILL_TOOLS = ["read", "write", "edit", "bash", "ls", "grep", "find"];
 
 export function readRubric(skill: Skill, review: { rubric: string }): string {
   return readFileSync(join(skill.dir, review.rubric), "utf8").trim();
