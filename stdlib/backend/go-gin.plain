@@ -1,0 +1,18 @@
+---
+import:
+  - stdlib/lang/go
+  - stdlib/backend/common
+description: A backend in Go 1.25 with Gin, validator tags and slog.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Gin, made with `gin.New()` and its own middleware only, in release mode.
+- :Implementation: keeps `main` in `cmd/server/`, and the rest in packages under `internal/`: `config`, `httpapi` - routes, handlers and middleware - `service` and `store`.
+  - It builds with `go build -o bin/server ./cmd/server`.
+- :Implementation: parses the environment into a `Config` struct in `internal/config`.
+- :Implementation: binds every request body with `ShouldBindJSON` and validates it with `binding` tags, answering a failure as `validation_error` with its `details`.
+- :Implementation: has handlers report an error with `c.Error(err)`, and one middleware write the error body for the last one, finding the domain error with `errors.As`, and recover from panics as `internal_error`.
+- :Implementation: logs with a `slog.JSONHandler` on standard output, with middleware that sets the request id and logs the request line; Gin's own logger is not used.
+- :Implementation: stops with `http.Server.Shutdown` when the context from `signal.NotifyContext` ends.
+- :UnitTests: use `net/http/httptest` against the Gin engine.

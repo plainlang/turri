@@ -1,0 +1,14 @@
+---
+import:
+  - stdlib/lang/go
+  - stdlib/cli/common
+description: A command-line tool in Go 1.25 with the standard library's flag package and no dependencies.
+---
+
+***implementation reqs***
+
+- :Implementation: uses the standard library only: `flag`, with one `flag.FlagSet` per command, and no third-party dependency.
+- :Implementation: keeps `main` in `cmd/<tool>/`, which calls `run(args, stdout, stderr) int` and exits with what it returns, the commands in `internal/cli/`, the work in packages under `internal/`, and the tool's errors under `internal/errs`.
+  - It builds with `go build -o bin/<tool> ./cmd/<tool>`.
+- :Implementation: logs with a `slog.TextHandler` on standard error, at the level `--verbose` or `--debug` gives.
+- :UnitTests: call `run` with arguments and buffers for its output.

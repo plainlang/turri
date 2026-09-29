@@ -1,0 +1,15 @@
+---
+description: What every stdlib library shares - one public API, its errors and its logs.
+---
+
+***implementation reqs***
+
+- :Implementation: is a library: other code uses it through its public API, and it has no command line and no service of its own.
+- :Implementation: exports its public API from one entry point, and keeps everything else internal.
+- :Implementation: documents every public function and type in the language's doc comments.
+- :Implementation: reports every failure as one of its own error types, all under one base error a caller can catch.
+  - An error from a dependency is wrapped in one of its own, with the original as its cause.
+- :Implementation: logs only through the language's standard logging, under its own name, and sets up no output for it: the application using it decides.
+- :Implementation: reads no environment variables, writes nothing to standard output, and keeps no global state a caller cannot reset.
+- :Implementation: has its version in its package manifest, starting at 0.1.0.
+- :UnitTests: cover the internal code as well as the public API.

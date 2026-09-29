@@ -1,0 +1,14 @@
+---
+import:
+  - stdlib/lang/go
+  - stdlib/cli/common
+description: A command-line tool in Go 1.25 with Cobra.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Cobra, with `main` in `cmd/<tool>/`, one file per command in `internal/cli/`, the work in packages under `internal/`, and the tool's errors under `internal/errs`.
+  - Every command uses `RunE`, and the root command sets `SilenceUsage` and `SilenceErrors`, so `main` alone writes the error and chooses the exit code.
+  - It builds with `go build -o bin/<tool> ./cmd/<tool>`.
+- :Implementation: logs with a `slog.TextHandler` on standard error, at the level `--verbose` or `--debug` gives.
+- :UnitTests: run commands through the root command with `SetArgs`, `SetOut` and `SetErr`.

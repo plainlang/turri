@@ -1,0 +1,17 @@
+---
+import:
+  - stdlib/lang/python
+  - stdlib/cli/common
+description: A command-line tool in Python 3.12 with the standard library's argparse and no dependencies.
+---
+
+***implementation reqs***
+
+- :Implementation: uses the standard library only: `argparse`, with one subparser per command, and no third-party dependency at run time.
+- :Implementation: keeps its code in the package `app/`.
+  - `app/cli.py` holds `main(argv=None) -> int`, which builds the parser, runs the command, and turns a `ToolError` into its message and exit code.
+  - One module per command in `app/commands/`, each with `add_parser(subparsers)` and `run(args) -> int`.
+  - The work lives in `app/core/`, and the tool's errors in `app/errors.py`, under one base class `ToolError`.
+  - `[project.scripts]` names the tool, `<tool> = "app.cli:main"`.
+- :Implementation: sets up the standard `logging` module to write to standard error with the level `--verbose` or `--debug` gives.
+- :UnitTests: call `main` with a list of arguments, and read what it printed with `capsys`.

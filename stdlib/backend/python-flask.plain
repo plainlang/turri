@@ -1,0 +1,20 @@
+---
+import:
+  - stdlib/lang/python
+  - stdlib/backend/common
+description: A backend in Python 3.12 with Flask 3, Pydantic v2, Gunicorn and structlog.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Flask 3, with Pydantic v2 for request and response bodies, served by Gunicorn with 2 workers.
+- :Implementation: keeps its code in the package `app/`.
+  - `app/__init__.py` holds the application factory `create_app(settings=None)`, which reads `Settings` from the environment when none is given.
+  - `app/config.py` holds `Settings`, a frozen dataclass.
+  - `app/api/` holds one Blueprint per resource, `app/services/` the services, `app/repositories/` the repositories, and `app/errors.py` the domain errors and their handlers.
+  - It starts with `uv run gunicorn --bind 0.0.0.0:$PORT --workers 2 'app:create_app()'`.
+- :Implementation: validates every request body with a Pydantic model, and answers a `ValidationError` as `validation_error` with its `details`.
+- :Implementation: registers error handlers for the domain errors' base class, for Werkzeug's `HTTPException` - its status, and its name in snake case as the code - and for `Exception`.
+- :Implementation: logs as JSON with structlog, set up once in `app/logging.py`, with the standard `logging` module routed through it.
+  - A `before_request` hook binds the request id with `structlog.contextvars`, and an `after_request` hook logs the request line and sends back `X-Request-ID`.
+- :UnitTests: use an application from `create_app` with test settings, and its `test_client()`.

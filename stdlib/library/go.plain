@@ -1,0 +1,12 @@
+---
+import:
+  - stdlib/lang/go
+  - stdlib/library/common
+description: A library in Go 1.25, as one Go module.
+---
+
+***implementation reqs***
+
+- :Implementation: is one Go module whose root package is its public API, documented in `doc.go`, with everything else in packages under `internal/`.
+- :Implementation: declares its errors as sentinel values and error types in `errors.go`.
+- :Implementation: logs only through a `*slog.Logger` the caller passes in, and nothing when none is given.

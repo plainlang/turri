@@ -1,0 +1,16 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/cli/common
+description: A command-line tool in TypeScript on Node.js 24 with Commander.
+---
+
+***implementation reqs***
+
+- :Implementation: runs on Node.js 24, with Commander.
+- :Implementation: keeps its code in `src/`: `src/cli.ts` builds the program with `exitOverride()` and runs it, one module per command in `src/commands/`, the work in `src/core/`, and the tool's errors in `src/errors.ts` under one base class `ToolError`.
+  - `bin` in `package.json` names the tool, pointing at `dist/cli.js`.
+  - It builds with `npm run build` - `tsc` into `dist/` - and runs with `node dist/cli.js`.
+- :Implementation: turns a `ToolError` or a Commander error into its message and exit code in `src/cli.ts`, around `program.parseAsync`.
+- :Implementation: logs through a small logger in `src/logger.ts` that writes to standard error, with the level `--verbose` or `--debug` gives.
+- :UnitTests: use Vitest, running commands through `program.parseAsync` with `exitOverride()` and captured output, next to the code as `<file>.test.ts`, and run with `npx vitest run`.

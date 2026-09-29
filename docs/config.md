@@ -39,7 +39,7 @@ judge-model:                         # the verdicts of a conformance run (defaul
 conformance-tests: true              # write and run conformance tests (default: where there are test reqs)
 unittests-script: test_scripts/run_unittests_python.sh
 conformance-tests-script: test_scripts/run_conformance_tests_python.sh
-testing-scripts: host                # run the testing scripts in place (default: on a fresh copy)
+run-testing-scripts-in: host         # where the testing scripts run: host - this machine, in place (default: vm - each module's VM)
 ```
 
 | key | what it sets | unset |
@@ -54,7 +54,7 @@ testing-scripts: host                # run the testing scripts in place (default
 | `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `plainwright vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
 | `system-packages` | Alpine packages every VM of the project installs when it starts - a library or tool a build needs, `sqlite`, `jq` | none |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the machine's memory holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
-| `testing-scripts` | `host`: the testing scripts run in place, on the real build and tests folders - for an integration embedded in a host codebase. `vm`: the default, said outright | each run on a fresh copy of the code |
+| `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](rendering.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key plainwright
 does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the

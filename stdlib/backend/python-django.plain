@@ -1,0 +1,18 @@
+---
+import:
+  - stdlib/lang/python
+  - stdlib/backend/common
+description: A backend in Python 3.12 with Django 5, Django REST Framework, Gunicorn and python-json-logger.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Django 5 with Django REST Framework, served by Gunicorn with 2 workers.
+- :Implementation: keeps the Django project in the package `config/` - `settings.py`, `urls.py`, `wsgi.py` - and each area of the domain in a Django app under `apps/`.
+  - Each app has `models.py`, `serializers.py`, `views.py` with DRF views, `services.py`, `urls.py`, and its migrations in `migrations/`.
+- :Implementation: reads its settings from the environment in `config/settings.py`, and its database from `DATABASE_URL` with dj-database-url, an SQLite file `db.sqlite3` when unset.
+  - It starts with `uv run python manage.py migrate --noinput && uv run gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 2`.
+- :Implementation: keeps the business logic in each app's `services.py`, never in a view or a serializer.
+- :Implementation: sets DRF's `EXCEPTION_HANDLER` to one function that turns the domain errors, DRF's exceptions and `Http404` into the error body, and DRF's `ValidationError` into `validation_error` with its `details`.
+- :Implementation: logs as JSON with python-json-logger, set up in `LOGGING` in `config/settings.py`, with a middleware that keeps the request id in a context variable, adds it to every record, and logs the request line.
+- :UnitTests: use pytest-django with DRF's `APIClient`, against a test database Django creates.

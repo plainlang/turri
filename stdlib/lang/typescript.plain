@@ -1,0 +1,11 @@
+---
+description: TypeScript 5 in strict mode with npm - what every stdlib TypeScript stack shares.
+---
+
+***implementation reqs***
+
+- :Implementation: is written in TypeScript 5 with `strict` and `noUncheckedIndexedAccess` on, as ES modules.
+- :Implementation: manages dependencies with npm, with `package-lock.json` committed.
+- :Implementation: is formatted with Prettier and linted with ESLint's recommended TypeScript rules.
+- :Implementation: never uses `any`: data from outside - a request, a response, a file, the environment - is `unknown` until it is validated.
+- :Implementation: reports a failure by throwing an `Error` subclass of its own, with `cause` set when it wraps another error, and never throws a string or a plain object.

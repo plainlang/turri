@@ -1,0 +1,20 @@
+---
+import:
+  - stdlib/lang/python
+  - stdlib/backend/common
+description: A backend in Python 3.12 with FastAPI, Pydantic v2, Uvicorn and structlog.
+---
+
+***implementation reqs***
+
+- :Implementation: uses FastAPI with Pydantic v2 and pydantic-settings, served by Uvicorn.
+- :Implementation: keeps its code in the package `app/`.
+  - `app/main.py` builds the application in `create_app(settings)` and exposes `app = create_app(Settings())`.
+  - `app/config.py` holds `Settings`, a pydantic-settings class.
+  - `app/api/` holds one `APIRouter` per resource, `app/services/` the services, `app/repositories/` the repositories, and `app/errors.py` the domain errors and their handlers.
+  - It starts with `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+- :Implementation: declares every request and response body as a Pydantic model, and reaches services and settings in a handler through `Depends`.
+- :Implementation: registers one exception handler for the domain errors' base class, one for `RequestValidationError` answering `validation_error` with its `details`, one for Starlette's `HTTPException`, and one for `Exception`.
+- :Implementation: logs as JSON with structlog, set up once in `app/logging.py`, with the standard `logging` module routed through it and Uvicorn's access log off.
+  - A middleware binds the request id with `structlog.contextvars` and logs the request line.
+- :UnitTests: use FastAPI's `TestClient`, with dependencies replaced through `app.dependency_overrides`.

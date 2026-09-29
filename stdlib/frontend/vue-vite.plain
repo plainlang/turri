@@ -1,0 +1,16 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/frontend/common
+description: A frontend in Vue 3 and TypeScript with Vite, Vue Router and Pinia.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Vue 3 with single-file components and `<script setup lang="ts">`, built with Vite, and takes the backend's base URL from `VITE_API_URL`.
+- :Implementation: routes with Vue Router 4, one route per page in `src/router.ts`.
+- :Implementation: keeps pages in `src/views/`, shared components in `src/components/`, composables in `src/composables/`, stores in `src/stores/`, the API layer in `src/api/`, and the logger in `src/lib/logger.ts`.
+- :Implementation: holds state that several pages share in Pinia setup stores, and loads a page's own data in a composable that returns its data, its loading flag and its error.
+- :Implementation: catches any other failure in `app.config.errorHandler` and the router's `onError`, and shows the page that says something went wrong.
+- :Implementation: styles components in their own `<style scoped>` block.
+- :UnitTests: mount components with Vue Test Utils, with a fresh Pinia per test from `createTestingPinia`.

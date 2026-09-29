@@ -297,7 +297,7 @@ describe.runIf(vmSupported())("running the tests", { timeout: VM_TIMEOUT }, () =
     expect(await runCommand(code, "python3 app.py")).toEqual({ exitCode: 0, output: "hi\n" });
   });
 
-  it("runs the conformance testing script on this machine, on a copy inside plain_modules, and leaves nothing behind", async () => {
+  it("runs the conformance testing script in the module's VM, on a copy inside plain_modules, and leaves nothing behind", async () => {
     writeFileSync(join(tests, "check.sh"), "python3 app.py; pwd\n");
     const script = (body: string) => {
       writeFileSync(join(root, "run_conformance_tests.sh"), body);
@@ -306,10 +306,9 @@ describe.runIf(vmSupported())("running the tests", { timeout: VM_TIMEOUT }, () =
     const result = await runConformanceScript(code, [tests], script('cd "$1" && sh "$2/check.sh"\n'));
     expect(result.output).toContain("hi\n");
     expect(result.output).toContain(join(root, "plain_modules", ".plainwright", "scripts"));
-    // On the host, in its environment - not the VM, which holds nothing above plain_modules.
-    const onHost = await runConformanceScript(code, [tests], script(`cat ${join(outside, "secret.ts")}\n`));
-    expect(onHost.exitCode).toBe(0);
-    expect(onHost.output).toContain("const secret = 1;");
+    expect(result.where).toBe("vm");
+    // In the VM, which holds nothing above plain_modules.
+    expect((await runConformanceScript(code, [tests], script(`cat ${join(outside, "secret.ts")}\n`))).exitCode).not.toBe(0);
     expect(readdirSync(join(root, "plain_modules", ".plainwright", "scripts"))).toEqual([]);
   });
 });

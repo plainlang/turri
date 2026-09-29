@@ -1,0 +1,15 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/frontend/common
+description: A frontend in Svelte 5 and TypeScript with SvelteKit as a single-page app on adapter-static.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Svelte 5 with runes, in SvelteKit with `adapter-static` writing to `dist/` with the fallback `index.html`, and `ssr` off in the root layout, and takes the backend's base URL from `PUBLIC_API_URL`.
+- :Implementation: keeps pages in `src/routes/`, shared components in `src/lib/components/`, the API layer in `src/lib/api/`, and the logger in `src/lib/logger.ts`.
+- :Implementation: loads a page's data in its `+page.ts` `load` function, and holds state that several pages share in `.svelte.ts` modules with `$state`.
+- :Implementation: shows the page that says something went wrong from `src/routes/+error.svelte`, and catches any other failure in `handleError` in `src/hooks.client.ts`.
+- :Implementation: styles components in their own `<style>` block.
+- :UnitTests: render components with `@testing-library/svelte`.

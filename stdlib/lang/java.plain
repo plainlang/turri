@@ -1,0 +1,12 @@
+---
+description: Java 21 with SLF4J, JUnit 5 and AssertJ - what every stdlib Java stack shares.
+---
+
+***implementation reqs***
+
+- :Implementation: is written in Java 21, with records for data carriers and `Optional` only as a return type.
+- :Implementation: reports a failure by throwing an unchecked exception of its own, all of them subclasses of one base exception.
+  - It catches `Exception` only at its outermost boundary, and wraps a caught exception with it as the cause.
+- :Implementation: logs through SLF4J, with one `private static final Logger` per class, and never with `System.out` or `System.err`.
+- :Implementation: uses constructor injection only, with every field it can make `final` made so.
+- :UnitTests: use JUnit 5 and AssertJ, with Mockito for stand-ins, in `src/test/java` mirroring the main packages, named `<Class>Test`.

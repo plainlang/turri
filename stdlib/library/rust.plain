@@ -1,0 +1,12 @@
+---
+import:
+  - stdlib/lang/rust
+  - stdlib/library/common
+description: A library in Rust, as one Cargo library package.
+---
+
+***implementation reqs***
+
+- :Implementation: is one Cargo library package with its public API in `src/lib.rs`, and `#![deny(missing_docs)]` on.
+- :Implementation: defines its error type in `src/error.rs`, with a `Result<T>` alias over its `Error`, and never panics on a caller's input.
+- :Implementation: emits `tracing` events under its crate name, and installs no subscriber.

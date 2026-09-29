@@ -1,0 +1,12 @@
+---
+description: Stable Rust with Cargo, thiserror and tracing - what every stdlib Rust stack shares.
+---
+
+***implementation reqs***
+
+- :Implementation: is written in stable Rust, edition 2021, as Cargo packages.
+- :Implementation: returns a `Result` for every failure, with error types of its own defined with `thiserror`.
+  - It never calls `unwrap` or `expect` outside tests.
+- :Implementation: logs with the `tracing` crate.
+- :Implementation: is formatted with rustfmt and passes `cargo clippy` with no warnings.
+- :UnitTests: are `#[cfg(test)] mod tests` modules next to the code, run with `cargo test`.

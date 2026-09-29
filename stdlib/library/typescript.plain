@@ -1,0 +1,14 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/library/common
+description: A library in TypeScript for Node.js 24, packaged with npm.
+---
+
+***implementation reqs***
+
+- :Implementation: runs on Node.js 24 and later, with its public API exported from `src/index.ts` as named exports only.
+- :Implementation: builds with `npm run build` - `tsc` into `dist/` with type declarations - and publishes `dist/` through the `exports` field of `package.json`.
+- :Implementation: defines its errors in `src/errors.ts`, under one base class `<Library>Error`.
+- :Implementation: logs only through a logger the caller passes in, and nothing when none is given.
+- :UnitTests: use Vitest, next to the code as `<file>.test.ts`, and run with `npx vitest run`.

@@ -1,0 +1,18 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/backend/common
+description: A backend in TypeScript on Node.js 24 with Fastify 5, TypeBox and its built-in pino logs.
+---
+
+***implementation reqs***
+
+- :Implementation: runs on Node.js 24, with Fastify 5, and TypeBox schemas through `@fastify/type-provider-typebox` for validation.
+- :Implementation: keeps its code in `src/`.
+  - `src/app.ts` builds the application in `buildApp(deps)`, and `src/server.ts` starts it and closes it on a signal.
+  - `src/config.ts` reads the environment against a TypeBox schema, `src/routes/` holds one plugin per resource, `src/services/` the services, `src/repositories/` the repositories, and `src/errors.ts` the domain errors.
+  - It builds with `npm run build` - `tsc` into `dist/` - and starts with `npm start`, which runs `node dist/server.js`.
+- :Implementation: declares a schema for every route's body, query, params and response.
+- :Implementation: turns errors into responses in one `setErrorHandler`, schema validation failures into `validation_error` with their `details`, and unknown routes in `setNotFoundHandler`.
+- :Implementation: logs with Fastify's own pino logger, with `requestIdHeader` set to `x-request-id`, a UUID v4 from `genReqId` when it is missing, and `requestIdLogLabel` set to `request_id`.
+- :UnitTests: use Vitest and `app.inject()` on `buildApp` with stand-in dependencies, next to the code as `<file>.test.ts`, and run with `npx vitest run`.

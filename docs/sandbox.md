@@ -49,8 +49,9 @@ try-it checks - runs in a
   conformance tests are rendered - the conformance agent's and the judge's commands. They can read and
   run the code, and build it from a copy in the scratch folder, but never change it.
 
-The project's testing scripts are the exception, by design: they run on the host, in its environment,
-and only through `run_unit_tests`, `run_conformance_tests` and the harness's own runs - see
+The project's testing scripts run in the module's VM too, on a fresh copy of the code, and only
+through `run_unit_tests`, `run_conformance_tests` and the harness's own runs. The one exception is a
+project with `run-testing-scripts-in: host`, whose scripts run on this machine, in place - see
 [the testing scripts](rendering.md#the-testing-scripts). The agent gets their output, nothing more.
 
 Each also holds `plain_modules/.plainwright` - the package caches and the copies test runs happen

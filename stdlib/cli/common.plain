@@ -1,0 +1,17 @@
+---
+description: What every stdlib command-line tool shares - arguments in, results out, its errors, exit codes and logs.
+---
+
+***implementation reqs***
+
+- :Implementation: is a command-line tool: it reads its arguments, standard input and environment variables, and writes its results to standard output.
+- :Implementation: takes each setting from its flag, else from the environment variable `<TOOL>_<SETTING>`, else from its default.
+- :Implementation: keeps parsing the command line apart from the work: a command parses its arguments, calls the work, and prints what it returns.
+- :Implementation: reports a failure of the work by raising one of its own errors, which the command layer turns, in one place, into its message and exit code.
+  - It writes the message to standard error as one line, `Error: <message>`.
+  - It exits 0 on success, 1 on a failure of the work, 2 on a usage error, and 130 when interrupted with Ctrl-C.
+  - It shows a stack trace only with `--debug`.
+- :Implementation: logs to standard error only, never standard output: warnings by default, `INFO` with `--verbose`, `DEBUG` with `--debug`.
+- :Implementation: prints its usage with `--help` and its version with `--version`.
+- :UnitTests: call the work directly, and each command through its framework's in-process runner.
+- :UnitTests: replace the network with stand-ins, and use a temporary directory for files.

@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
+import { stdlibCatalogue } from "./stdlib.ts";
 
 /**
  * The ***plain authoring rules.
@@ -16,10 +17,12 @@ export function loadRules(rulesDir: string): Array<{ name: string; content: stri
     return [];
   }
 
-  return entries.map((entry) => ({
-    name: basename(entry, ".md"),
-    content: readFileSync(join(rulesDir, entry), "utf8").trim(),
-  }));
+  return entries.map((entry) => {
+    const name = basename(entry, ".md");
+    const content = readFileSync(join(rulesDir, entry), "utf8").trim();
+    // The standard library's rule carries what is in it, read from the templates themselves.
+    return { name, content: name === "stdlib" ? [content, stdlibCatalogue()].filter(Boolean).join("\n\n") : content };
+  });
 }
 
 /** The block appended to the system prompt. Identical every turn, so it stays cacheable. */

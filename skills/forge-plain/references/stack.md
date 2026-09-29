@@ -11,6 +11,26 @@ Write each requirement into `***implementation reqs***`:
 
 Do **not** add `***test reqs***` or `***acceptance tests***` in this phase — the test reqs belong to the testing phase, right after this one.
 
+## First: a stack from the standard library
+
+Before the topics, settle what kind of software each module is - a backend, a frontend, a
+command-line tool, a library - and offer the standard library's stacks for that kind (the stdlib
+rule, in `<plain-rules>`, lists them). Ask with `ask_user`: the stacks of that kind as options, the
+one that fits earlier answers first, and "Something else…" for a stack of the user's own.
+
+- **A stack from the standard library.** Import it into the module's frontmatter as
+  `stdlib/<kind>/<stack>`, and read the templates it brings: the stack, its `stdlib/lang/<language>`
+  and its kind's `common` - the folder is in the stdlib rule. They settle topics 1, 2 and 5, error handling and
+  logging in topic 6, and the unit-test framework in topic 8: do not ask about those, and write no
+  requirement that restates them. Say in one line what the stack settles - its language, framework,
+  layout, how it reports errors and logs - so the user knows what they chose. Then walk only topics
+  3, 4, 6 (what the stack leaves open), 7, and the unit testing script in 8.
+- **Something else.** Walk every topic below. When the language is one the standard library has, its
+  `stdlib/lang/<language>` template can still be imported for the language-wide conventions.
+
+A user who wants something the stack settles done differently - another framework, another layout -
+has chosen something else: an import cannot be taken back in part.
+
 ## Topics (in order)
 
 1. **Programming language** — e.g. Python, TypeScript, Java, Go. Author a language requirement at the appropriate scope (template if shared across modules, otherwise on the module). Review that requirement snippet.

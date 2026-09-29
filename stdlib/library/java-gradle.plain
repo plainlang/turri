@@ -1,0 +1,13 @@
+---
+import:
+  - stdlib/lang/java
+  - stdlib/library/common
+description: A library in Java 21, built with Gradle's Kotlin DSL into one jar.
+---
+
+***implementation reqs***
+
+- :Implementation: builds with Gradle through the Gradle wrapper, from `build.gradle.kts` with the `java-library` plugin, into one jar, and depends only on `slf4j-api` for logging.
+- :Implementation: keeps its public API in one package, and everything else in an `internal` package under it.
+- :Implementation: defines its exceptions under one base class `<Library>Exception`.
+- :UnitTests: run with `./gradlew test`.

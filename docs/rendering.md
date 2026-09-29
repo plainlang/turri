@@ -232,72 +232,38 @@ scripts are not linked from the specs; a link to one is ignored.
 They are required: a build with no unit testing script, or with conformance on and no conformance
 testing script, stops before it starts and says which skill adds it.
 
-**Where they run.** On this machine - the host - never in a VM: the project's own script, at its own
-path, from the project's folder, in this machine's environment, with its toolchains. That is the only
-way the two scripts are ever run: the harness's own runs, and the agents' `run_unit_tests` and
-`run_conformance_tests`, which run them exactly as the harness does. Whatever an agent runs with its
-own `bash` stays in its VM; its shell is Alpine Linux, so something that works there can still fail on
-the host, and only the host's run counts - the agents are told so.
+**Where they run.** In the module's VM by default - the same Alpine Linux VM the agents' `bash`
+runs in, with the same toolchains and the packages they installed - so what passes in an agent's
+shell passes in the run that decides. That is the only way the two scripts are ever run: the
+harness's own runs, and the agents' `run_unit_tests` and `run_conformance_tests`, which run them
+exactly as the harness does. A toolchain the script needs and the VM lacks (exit 69), the agent
+installs with `install_system_packages`, and the next run has it.
 
 Each run is given a fresh copy of the code, and of the whole conformance suite, in
-`plain_modules/.plainwright/scripts/`, named for its module and the run: the scripts work in
-`/tmp/<lang>_<basename of the build>`, and every module's build is called `code`, so two modules
-testing at once never share that folder, and nothing a test writes reaches the code.
+`plain_modules/.plainwright/scripts/`, named for its module and the run, with the project's script
+copied in beside it: the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's
+build is called `code`, so two modules testing at once never share that folder, and nothing a test
+writes reaches the code. The unit tests run in the module's code VM, the conformance suite in its
+tests VM.
 
-An integration embedded in a host codebase needs its real folders: its scripts merge the generated
-code into the host and find the host from their own path. For it, `testing-scripts: host` in the
-project's `config.yaml` runs them in place - on the real build and tests folders, as codeplain did:
+`run-testing-scripts-in: host` in the project's `config.yaml` runs them on this machine instead, in place:
+the project's own script at its own path, from the project's folder, on the real build and tests
+folders, in this machine's environment with its toolchains, as codeplain did. An integration embedded
+in a host codebase needs it - its scripts merge the generated code into the host and find the host
+from their own path - and so does a project whose tests need something only this machine has:
 
 ```yaml
 # plain/config.yaml
-testing-scripts: host
+run-testing-scripts-in: host
 ```
 
 Either way the agents are not moved: their file tools and `bash` stay fenced to `plain_modules` and
 the VM, and only the scripts' output reaches them. The time limit and a stopped job end the script
-and all it started, and the model providers' API keys are kept out of its environment. What the
-script does to the host - copying the package into it - it does, as it is written to. A toolchain the
-host lacks (exit 69) cannot be installed by an agent from its sandbox: it says what is missing, for
-you to install.
-
-Turning conformance off (`conformance: false`, `--no-conformance`) sets the conformance testing script
-aside, found or not: no conformance tests are written, the ones already in the codebase are not run,
-and no agent is shown it. That is different from a module with no test reqs, which writes no
-conformance tests of its own but still keeps the codebase's existing ones passing.
-
-The scripts live in the project, outside `plain_modules`, where no agent can reach them - one
-`config.yaml` names inside `plain_modules` is refused. Each run has the command time limit: two
-minutes, or `PLAINWRIGHT_COMMAND_TIMEOUT` seconds.
-A run that has not finished by then is stopped - with everything it started - and counts as failed.
-The agent gets what it had printed by then, told that the output ends where the run hung, and what
-most often keeps a test run from ending: a server started in the foreground, a prompt waiting for
-input, a network call to a host the VM cannot reach, a lock or a loop that never ends.
-
-The agents have the same scripts as their final check: `run_unit_tests` and `run_conformance_tests`
-take no command, and run the unit and conformance testing scripts exactly as the harness does -
-the conformance one on the code with the whole suite. Anything else, while they work, they run
-with `bash`.
-
-Each agent is shown the scripts its work is judged by, whole, at the start of its prompt: the unit
-testing script always; the conformance testing script to the conformance and repair agents, and to
-the coding agent only when conformance tests are written for its build. It gets the script's
-output when a run fails.
-
-Output an agent is shown - a script's, or a command's it ran itself - is shown whole up to 60,000
-characters. A longer one keeps its last 60,000 (the failures, the stack traces, the summary), and says
-how much was cut from the start; the whole of it is kept in
-`plain_modules/.plainwright/logs/`, where the agent can read it, and the cut names the file. The
-last 100 are kept.
-
-## A spec change, as a diff
-
-`render_spec_diff` takes a change to the specs as a git diff of the `.plain` files - any section,
-across any number of files, from scratch included. The diff is applied with git (or accepted as
-already applied), and the spec is parsed with it in. One agent makes the code match - given the
-spec the code is built from, as its record says when the job starts, and the diff: the state before
-the change, and the change that takes it to the state after, never the state after with the change
-beside it. Then the conformance tests are brought in line - from the spec after the change, which is
-what they check - the whole suite runs with repairs, and try-it is worked out and checked.
+and all it started. On the host the model providers' API keys are kept out of its environment, and
+what the script does to the host - copying the package into it - it does, as it is written to. Code
+the agents wrote runs on this machine there, so it is for projects that ask for it. The agents are
+told the host's run is the one that counts, and a toolchain the host lacks (exit 69) cannot be
+installed from their sandbox: they say what is missing, for you to install.
 
 ### Functionality renders and spec diffs, stacked
 

@@ -1,0 +1,13 @@
+---
+description: Go 1.25 with slog and go test - what every stdlib Go stack shares.
+---
+
+***implementation reqs***
+
+- :Implementation: is written in Go 1.25, as one Go module with `go.mod` and `go.sum` committed.
+- :Implementation: returns an error as the last result for every failure, and never panics on one it can expect.
+  - It wraps an error with `fmt.Errorf("<what failed>: %w", err)`.
+  - It declares the errors a caller checks as sentinel values or error types, which callers compare with `errors.Is` and `errors.As`.
+- :Implementation: logs with `log/slog`, and never with `fmt.Print` or the `log` package.
+- :Implementation: is formatted with gofmt and passes `go vet`.
+- :UnitTests: use the `testing` package, table-driven where a function has several cases, next to the code as `<file>_test.go`, and run with `go test ./...`.

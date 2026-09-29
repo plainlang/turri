@@ -113,6 +113,10 @@ Read `references/stack.md` and walk its topics in order: language, frameworks, s
 external services, structure and architecture, other constraints, anything else, and last the
 unit tests - generated code needs them from the first functionality onward.
 
+Offer the standard library's stacks first (the stdlib rule, in `<plain-rules>`, and the first
+section of `references/stack.md`): a stack from it is one import, and only what it leaves open -
+storage, external services, other constraints - is asked and written.
+
 Create the module structure and frontmatter so there is a `.plain` file to build into, and
 author every requirement into `***implementation reqs***` at the right scope — shared
 requirements into the template, module-specific ones into the module. Write these with the
@@ -146,8 +150,10 @@ First the decision: are there conformance tests at all? Ask it explicitly, and w
 `config.yaml` as `conformance-tests:` - the chat and every build follow it. Off, and the phase is
 done once the user confirms: the product phase's builds then write and run no conformance tests.
 
-On: each answer about how the tests are written and run becomes a `:ConformanceTests:` requirement
-in `***test reqs***`, written with the ordinary file tools. A change to the test reqs is not a spec
+On: when the stack came from the standard library, import its conformance template
+(`stdlib/<kind>/conformance/<stack>`) and ask only about what it does not settle. Each answer about how the
+tests are written and run becomes a `:ConformanceTests:` requirement in `***test reqs***`, written
+with the ordinary file tools. A change to the test reqs is not a spec
 diff: never use `write_spec_diff` in this phase. Then make sure the project has its conformance
 testing script - `implement-conformance-testing-script` writes it into `test_scripts/` when
 plainwright finds none - and run `check_plain` on what you changed. Without both, the first build of

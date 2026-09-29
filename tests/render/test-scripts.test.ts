@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { renderFunctionality } from "../../src/render/render.ts";
 import { findTestScripts, projectRootFor, requireTestScripts, withTestingScripts } from "../../src/render/test-scripts.ts";
+import { vmSupported } from "../../src/render/vm.ts";
 
 let root: string;
 beforeEach(() => {
@@ -119,7 +120,7 @@ describe("the testing scripts, in an agent's prompt", () => {
 });
 
 describe("the testing scripts, run", () => {
-  it("run on this machine, from the project, on a fresh copy of the code - never in the VM, and without the provider keys", async () => {
+  it("run on this machine, in place, from the project, when the project says run-testing-scripts-in: host - without the provider keys", async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -128,6 +129,7 @@ describe("the testing scripts, run", () => {
     const code = join(root, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, "app.py"), "print('hi')\n");
+    writeFileSync(join(root, "config.yaml"), "run-testing-scripts-in: host\n");
     const script = join(root, "run_unittests.sh");
     writeFileSync(script, 'echo "cwd=$(pwd)"; echo "build=$1"; ls "$1"; echo "key=${ANTHROPIC_API_KEY:-none}"; echo "host=$(uname -s)"\n');
     const before = process.env.ANTHROPIC_API_KEY;
@@ -135,9 +137,10 @@ describe("the testing scripts, run", () => {
     try {
       const run = await runUnitScript(code, script);
       expect(run.exitCode).toBe(0);
+      expect(run.where).toBe("host");
       expect(run.output).toContain(`cwd=${root}\n`);
-      // A copy named for its module and the run, so two modules testing at once never share /tmp/<lang>_<name>.
-      expect(run.output).toMatch(new RegExp(`build=${join(root, "plain_modules", ".plainwright", "scripts")}/[\\w-]+/app-[\\w-]+\\n`));
+      // In place: the real build folder, not a copy.
+      expect(run.output).toContain(`build=${code}\n`);
       expect(run.output).toContain("app.py");
       expect(run.output).toContain("key=none");
       expect(run.output).toContain(`host=${process.platform === "darwin" ? "Darwin" : "Linux"}`);
@@ -147,4 +150,39 @@ describe("the testing scripts, run", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("tell an agent a missing toolchain is its to install in the VM, and the person's to install on the host", async () => {
+    const { scriptFailure } = await import("../../src/render/test-scripts.ts");
+    const run = { command: "test_scripts/run_unittests_python.sh", exitCode: 69, output: "Error: Python 3.12 or newer is required", timeoutMs: 120_000 };
+    expect(scriptFailure({ ...run, where: "vm" }, "unit testing")).toContain("Install it with install_system_packages");
+    expect(scriptFailure({ ...run, where: "host" }, "unit testing")).toContain("so the person can install it");
+  });
+});
+
+describe.runIf(vmSupported())("the testing scripts, run in the VM", () => {
+  it("run by default in the module's VM, on a fresh copy of the code named for its module and the run, with the script copied beside it", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { runUnitScript } = await import("../../src/render/test-scripts.ts");
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-vm-scripts-")));
+    const code = join(root, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    writeFileSync(join(code, "app.py"), "print('hi')\n");
+    const script = join(root, "test_scripts", "run_unittests.sh");
+    mkdirSync(join(root, "test_scripts"));
+    writeFileSync(script, 'echo "build=$1"; ls "$1"; echo "host=$(uname -s)"; echo "me=$0"\n');
+    try {
+      const run = await runUnitScript(code, script);
+      expect(run.exitCode, run.output).toBe(0);
+      expect(run.where).toBe("vm");
+      expect(run.output).toMatch(/build=\S+\/app-[\w-]+\n/);
+      expect(run.output).toContain("app.py");
+      expect(run.output).toContain("host=Linux");
+      // The copy names itself as the project's script.
+      expect(run.output).toContain("me=test_scripts/run_unittests.sh");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 300_000);
 });

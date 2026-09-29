@@ -1,5 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The ***plain standard library: import modules for generic pieces of software that ship with plainwright,
+ * imported as `stdlib/backend/python-fastapi` - a reserved name (see plain/stdlib.ts).
+ */
+export const STDLIB_DIR = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), "stdlib");
 
 /**
  * Where a module's generated code and tests live.

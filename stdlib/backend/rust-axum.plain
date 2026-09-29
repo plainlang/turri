@@ -1,0 +1,17 @@
+---
+import:
+  - stdlib/lang/rust
+  - stdlib/backend/common
+description: A backend in Rust with axum 0.8 on tokio, serde, validator and tracing JSON logs.
+---
+
+***implementation reqs***
+
+- :Implementation: uses axum 0.8 on tokio, with serde for JSON and validator for request bodies.
+- :Implementation: keeps its code in one Cargo package: `src/main.rs` starts the server, `src/app.rs` builds the `Router` in `app(state)`, `src/config.rs` reads the environment, `src/routes/` holds one module per resource, `src/service/` the services, `src/store/` the repositories, and `src/error.rs` the error type.
+  - It builds with `cargo build --release`.
+- :Implementation: has handlers return `Result<_, AppError>`, where `AppError` is an enum of the domain errors that implements `IntoResponse` and writes the error body.
+- :Implementation: answers a body that does not parse or validate as `validation_error` with its `details`, through an extractor of its own.
+- :Implementation: logs with `tracing-subscriber`'s JSON formatter on standard output, with tower-http's `SetRequestIdLayer`, `PropagateRequestIdLayer` and `TraceLayer` putting the request id on every event and logging the request line.
+- :Implementation: stops through axum's `serve` with `with_graceful_shutdown`, on SIGTERM or Ctrl-C.
+- :UnitTests: call the `Router` with `oneshot` from tower's `ServiceExt`.

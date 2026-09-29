@@ -50,6 +50,7 @@ import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from ".
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./render/spec-change-conformance.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
+import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { describeQueuedParts } from "./spec-tools.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
@@ -224,7 +225,7 @@ export default function (pi: ExtensionAPI) {
   // With them, the instruction to do plainwright's work with its tools rather than its command
   // line - enforced below, not only asked for.
   const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"));
-  const rulesBlock = renderRulesBlock(rules);
+  const rulesBlock = chatRulesBlock(rules);
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
   pi.on("before_agent_start", (event) => ({
@@ -1563,9 +1564,9 @@ export function projectConfigBlock(root: string): string {
         })(),
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each module's file below names its own" : "none found - every build stops until there is one"}`,
         `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each module's file" : "none found"}`,
-        config.testingScripts === "host"
-          ? "- testing-scripts: host - the testing scripts run in place on this machine, from the project, against the host codebase - not in the sandbox VM."
-          : undefined,
+        config.runTestingScriptsIn === "host"
+          ? "- run-testing-scripts-in: host - the testing scripts run in place on this machine, from the project, against the host codebase - not in the sandbox VM."
+          : "- run-testing-scripts-in: vm - the testing scripts run in each module's VM, on a fresh copy of its code; `run-testing-scripts-in: host` runs them on this machine instead, in place.",
       ].filter((line): line is string => line !== undefined),
     ];
   };
@@ -2629,11 +2630,26 @@ const BANNER_ENTRY = "plainwright_banner";
  * adds a wordmark of its own at the top of the session. `plainwright chat` starts pi without
  * its header (see pi-launch.ts), leaving only this one.
  */
+/**
+ * The ***plain rules as the conversation has them in its system prompt, every turn - the standard library's
+ * inventory among them, in its rule, so the conversation knows what a spec can import from the start.
+ */
+export function chatRulesBlock(rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"))): string {
+  return renderRulesBlock(rules);
+}
+
 function registerBranding(
   pi: ExtensionAPI,
   ruleCount: number,
   skills: { skills: Skill[]; pending: string[] },
 ) {
+  pi.registerCommand("stdlib", {
+    description: "List the ***plain standard library: the stacks a spec can import instead of writing its implementation reqs.",
+    handler: async (_args, ctx) => {
+      if (ctx.hasUI) ctx.ui.notify(describeStdlib(), "info");
+    },
+  });
+
   pi.registerEntryRenderer(BANNER_ENTRY, (entry, _options, theme) => {
     const data = entry.data as
       | {
@@ -2641,6 +2657,7 @@ function registerBranding(
           rules: number;
           skills: number;
           pending: number;
+          stdlib?: number;
           cwd: string;
           sandbox?: ReturnType<typeof vmSummary>;
         }
@@ -2658,6 +2675,7 @@ function registerBranding(
           theme.fg(
             "muted",
             `${data.rules} rules · ${data.skills} skill${data.skills === 1 ? "" : "s"}` +
+              (data.stdlib !== undefined && data.stdlib > 0 ? ` · ${data.stdlib} stdlib stacks (/stdlib)` : "") +
               (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
           ),
           theme.fg("dim", data.cwd),
@@ -2681,6 +2699,7 @@ function registerBranding(
         rules: ruleCount,
         skills: skills.skills.length,
         pending: skills.pending.length,
+        stdlib: stdlibStackCount(),
         cwd: ctx.cwd,
         sandbox: vmSummary(),
       });

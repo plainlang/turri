@@ -9,7 +9,7 @@ import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { keepFullOutput, listFiles, shownOutput, truncateOutput, type TestRun } from "./testing.ts";
-import { COMMAND_TIMEOUT_MS } from "./vm.ts";
+import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 /**
  * The project's testing scripts, and the harness's runs of them.
@@ -20,13 +20,19 @@ import { COMMAND_TIMEOUT_MS } from "./vm.ts";
  * run by the harness, never by the agent. The same script, the same way, every time: done is a
  * decision the project made, not one an agent makes about its own work.
  *
- * The scripts live beside the specs, outside `plain_modules`, so no agent can reach them. They
- * run on this machine, never in a VM - the harness's runs and the agents' run_unit_tests and
- * run_conformance_tests alike, which are the only ways they are ever run: the project's own
- * script, at its own path, from the project, in the environment it was written for. What an agent
- * runs with its own bash stays in its VM. Each run is given a fresh copy of the code under a name
- * of its own - the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build
- * is called `code` - unless the project runs them on the real folders (`testing-scripts: host`).
+ * The scripts live beside the specs, outside `plain_modules`, so no agent can reach them. The
+ * harness's runs and the agents' run_unit_tests and run_conformance_tests are the only ways they are
+ * ever run, and where is the project's choice (`run-testing-scripts-in:` in its config):
+ *
+ * - `vm`, the default: in the module's VM - the one the agents' bash runs in, with the same
+ *   toolchains - on a fresh copy of the code, the script copied in beside it. What passes in an
+ *   agent's shell passes there, and nothing the agents wrote runs on this machine.
+ * - `host`: on this machine, in place - the project's own script at its own path, from the project,
+ *   on the real build and tests folders, in this machine's environment. For an integration embedded
+ *   in a host codebase, whose scripts merge the code into it; not sandboxed, so only when asked for.
+ *
+ * A copy is named for its module and the run: the scripts work in `/tmp/<lang>_<basename of the
+ * build>`, and every module's build is called `code`.
  */
 
 export type ScriptKind = "unit" | "conformance";
@@ -40,8 +46,8 @@ export interface TestScripts {
   notes?: Partial<Record<ScriptKind, string>>;
   /** Conformance was turned off: the conformance testing script is not run, found or not. */
   conformanceOff?: boolean;
-  /** Where the config has them run: in place on this machine, or in the VM (the default). */
-  testingScripts?: "vm" | "host";
+  /** Where the config has them run: in the module's VM (the default), or in place on this machine. */
+  runTestingScriptsIn?: "vm" | "host";
 }
 
 /**
@@ -123,7 +129,7 @@ export function findTestScripts(root: string, plainFile?: string, buildDir?: str
   const file = module !== undefined ? `${moduleConfigFile(module)} (over ${CONFIG_FILE})` : CONFIG_FILE;
   // Where a module's script is named: its own file, once the project has several stacks.
   const nameIn = module !== undefined ? moduleConfigFile(module) : plainFile !== undefined ? `${CONFIG_FILE} - or, for one module of several stacks, config.${basename(plainFile, ".plain")}.yaml` : CONFIG_FILE;
-  if (config.testingScripts !== undefined) found.testingScripts = config.testingScripts;
+  if (config.runTestingScriptsIn !== undefined) found.runTestingScriptsIn = config.runTestingScriptsIn;
   for (const kind of Object.keys(SCRIPT_KEYS) as ScriptKind[]) {
     const named = kind === "unit" ? config.unittestsScript : config.conformanceTestsScript;
     if (named !== undefined) {
@@ -213,15 +219,16 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
   });
 
   const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
+  const onHost = (scripts.runTestingScriptsIn ?? readProjectConfig(root).runTestingScriptsIn) === "host";
   return [
     "<testing scripts>",
     rendered.join("\n\n"),
     "</testing scripts>",
     "",
     `The harness decides whether your work is done by running ${used.length === 1 ? "this script" : "these scripts"} itself, ` +
-      ((scripts.testingScripts ?? readProjectConfig(root).testingScripts) === "host"
+      (onHost
         ? "in place on the host machine, against the host codebase it merges your code into: "
-        : "on the host machine - not in your VM - on a fresh copy of your work: ") +
+        : "in your VM - the one your bash runs in - on a fresh copy of your work: ") +
       used
         .map((kind) => (kind === "unit" ? "the unit testing script as `<script> <build folder>`" : "the conformance testing script as `<script> <build folder> <whole conformance suite folder>`"))
         .join(", ") +
@@ -230,9 +237,17 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
       `workspace, and the path above is the project's, not one you can reach. Never copy, recreate or adapt ${used.length === 1 ? "it" : "them"} in the ` +
       `codebase, and never write a test runner of your own: call ${tools}, which run ${used.length === 1 ? "it" : "them"} exactly as the harness does - ` +
       "that run is the one that counts. Run a single test or file with bash while you work, as you like.",
-    "Your bash runs in a Linux VM; these scripts run on the host, in its environment - its toolchains, its operating " +
-      "system. Something that works in your shell can still fail there, and only the host's run counts. What the code " +
-      "needs to be built and run belongs in the code (its dependency manifest), never only in your VM.",
+    ...(onHost
+      ? [
+          "Your bash runs in a Linux VM; these scripts run on the host, in its environment - its toolchains, its operating " +
+            "system. Something that works in your shell can still fail there, and only the host's run counts. What the code " +
+            "needs to be built and run belongs in the code (its dependency manifest), never only in your VM.",
+        ]
+      : [
+          "A toolchain or system library the script needs and the VM lacks, install with install_system_packages: the runs " +
+            "that decide use the same VM. What the code needs to be built and run belongs in the code (its dependency " +
+            "manifest), so a fresh copy of it builds.",
+        ]),
     "",
     prompt,
   ].join("\n");
@@ -249,6 +264,8 @@ export interface ScriptRun {
   timeoutMs: number;
   /** Where the whole output is, when it was too long to be shown whole. */
   log?: string;
+  /** Where it ran: in the module's VM, or on this machine. */
+  where?: "vm" | "host";
   /** What an agent that read the whole of it said failed and why - for the judge and whoever fixes it. */
 }
 
@@ -311,8 +328,8 @@ export function setScriptTimeoutForTests(ms: number | undefined): void {
 
 /**
  * The project a build belongs to - the folder above its `plain_modules`, where the testing scripts'
- * own paths start - and whether its config.yaml has them run on the real folders, in place
- * (`testing-scripts: host`), rather than on a fresh copy.
+ * own paths start - and whether its config.yaml has them run on this machine, in place
+ * (`run-testing-scripts-in: host`), rather than in the module's VM on a fresh copy.
  */
 function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const parts = resolve(buildDir).split(sep);
@@ -320,7 +337,7 @@ function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const root = index > 0 ? parts.slice(0, index).join(sep) : dirname(resolve(buildDir));
   // The module's own config file decides, when it has one: plain_modules/<module>/code.
   const module = configModuleOfBuild(root, basename(dirname(resolve(buildDir))));
-  return { root, inPlace: readProjectConfig(root, module).testingScripts === "host" };
+  return { root, inPlace: readProjectConfig(root, module).runTestingScriptsIn === "host" };
 }
 
 /** The model providers' keys, kept out of what runs on this machine: the tests are agents' code. */
@@ -371,17 +388,49 @@ async function runOnHost(root: string, script: string, args: string[], logDir: s
       : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
   );
   const log = keepFullOutput(logDir, basename(script), output);
-  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: truncateOutput(output, log), timedOut, timeoutMs, ...(log !== undefined ? { log } : {}) };
+  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: truncateOutput(output, log), timedOut, timeoutMs, where: "host", ...(log !== undefined ? { log } : {}) };
+}
+
+/** A path, quoted for bash. */
+function quote(path: string): string {
+  return `'${path.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * A testing script run in a module's VM: the project's script copied fresh into the staging folder,
+ * beside the code copied there, and `bash <copy> <args>` run from it. `vmOf`: the module folder
+ * whose VM runs it - the build's for the unit tests, the tests' for the conformance suite.
+ */
+async function runInModuleVm(stagingRoot: string, script: string, args: string[], vmOf: string, logDir: string): Promise<ScriptRun> {
+  const copy = join(stagingRoot, basename(script));
+  writeFileSync(copy, readFileSync(script));
+  const timeoutMs = scriptTimeoutMs;
+  const started = Date.now();
+  reportActivity(`  ▶ ${shown(script)} in the module's VM (limit ${Math.round(timeoutMs / 1000)}s)`);
+  const { exitCode, output, timedOut } = await runInVm(`bash ${[copy, ...args].map(quote).join(" ")}`, {
+    cwd: stagingRoot,
+    for: vmOf,
+    timeoutMs,
+    timeoutNote: (ms) => `\n[stopped after ${Math.round(ms / 1000)}s, the time limit for a test run: counted as failed]`,
+  });
+  const took = ((Date.now() - started) / 1000).toFixed(1);
+  reportActivity(
+    timedOut === true
+      ? `  ✗ ${shown(script)} did not finish in ${Math.round(timeoutMs / 1000)}s - stopped, counted as failed`
+      : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
+  );
+  // The copy's path, where the script names itself, reads as the project's script.
+  const shownText = output.split(copy).join(shown(script));
+  const log = keepFullOutput(logDir, basename(script), shownText);
+  return { command: shown(script), exitCode: timedOut === true ? 124 : exitCode, output: truncateOutput(shownText, log), timedOut: timedOut === true, timeoutMs, where: "vm", ...(log !== undefined ? { log } : {}) };
 }
 
 /**
  * The harness's run of the unit testing script on the code as it is now - and run_unit_tests'.
  *
- * Always on this machine, never in a VM: the project's own script, at its own path, from the
- * project, in the environment it was written for. This and runConformanceScript are the only ways
- * the testing scripts are ever run. The code is a fresh copy for each run, named for its module and
- * the run - the scripts work in /tmp/<lang>_<basename of the build>, and two modules testing at once
- * must not share one - unless the project runs them in place (`testing-scripts: host`).
+ * In the module's VM on a fresh copy of the code, or - `run-testing-scripts-in: host` - on this machine, in
+ * place (see the top of this file). This and runConformanceScript are the only ways the testing
+ * scripts are ever run.
  */
 export async function runUnitScript(buildDir: string, script: string): Promise<ScriptRun> {
   const project = projectOfBuild(buildDir);
@@ -391,7 +440,7 @@ export async function runUnitScript(buildDir: string, script: string): Promise<S
   ensureInVmScratch(buildDir, staging.root);
   try {
     reportActivity(`  copying ${stageBuild(buildDir, staging.build)} files of the code for the unit testing script`);
-    return await runOnHost(project.root, script, [staging.build], buildDir);
+    return await runInModuleVm(staging.root, script, [staging.build], buildDir, buildDir);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }
@@ -400,7 +449,8 @@ export async function runUnitScript(buildDir: string, script: string): Promise<S
 /**
  * The harness's run of the conformance testing script - and run_conformance_tests': the code, and
  * the codebase's whole conformance suite - every functionality's tests, and those carried up from
- * the modules below - in one folder, run at once. On this machine, as runUnitScript.
+ * the modules below - in one folder, run at once. Where runUnitScript runs: in the VM - the module's
+ * tests VM, a copy of the code staged beside the tests - or on this machine in place.
  */
 export async function runConformanceScript(buildDir: string, testsDirs: string[], scripts: TestScripts): Promise<ScriptRun> {
   if (scripts.conformance === undefined) throw new Error("No conformance testing script to run.");
@@ -423,8 +473,7 @@ export async function runConformanceScript(buildDir: string, testsDirs: string[]
       const code = stageBuild(buildDir, staging.build);
       const count = stageTests(testsDirs, staging.tests);
       reportActivity(`  copying ${code} files of the code and the whole conformance suite (${count} files) for the conformance testing script`);
-      build = staging.build;
-      tests = staging.tests;
+      return await runInModuleVm(staging.root, scripts.conformance, [staging.build, staging.tests], testsDirs[0] ?? buildDir, buildDir);
     }
     return await runOnHost(project.root, scripts.conformance, [build, tests], buildDir);
   } finally {
@@ -502,7 +551,10 @@ function timedOutFailure(run: ScriptRun, what: string): string {
 export function scriptFailure(run: ScriptRun, what: string): string {
   if (run.timedOut === true) return timedOutFailure(run, what);
   const cause =
-    run.exitCode === 69
+    run.exitCode === 69 && run.where === "vm"
+      ? "It exited 69: the toolchain it needs is not installed in the VM, where the testing scripts run. Install it with " +
+        "install_system_packages - the runs that decide use the same VM - and run the tests again."
+      : run.exitCode === 69
       ? "It exited 69: the toolchain it needs is not installed on this machine, where the testing scripts run. That cannot be " +
         "fixed from your sandbox - install_system_packages installs into your VM, not here. Say in your report exactly what is " +
         "missing, so the person can install it."

@@ -140,6 +140,7 @@ export interface RenderFunctionalityResult {
  * Template search order, matching file_utils.get_template_directories: the plain file's
  * own directory first, then a sibling `template/` directory if there is one (where a
  * project keeps its import modules), then anything passed in, then PLAIN_TEMPLATE_DIRS.
+ * A `stdlib/...` import is not looked for in them: it is plainwright's (see plain/stdlib.ts).
  */
 export function resolveTemplateDirs(plainFile: string, extra: string[] = []): string[] {
   const own = dirname(resolve(plainFile));

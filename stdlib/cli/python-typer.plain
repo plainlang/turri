@@ -1,0 +1,15 @@
+---
+import:
+  - stdlib/lang/python
+  - stdlib/cli/common
+description: A command-line tool in Python 3.12 with Typer.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Typer, with its pretty exceptions off, in the package `app/`.
+  - `app/cli.py` holds the Typer app, with a callback for `--verbose`, `--debug` and `--version` that sets up logging, and one module per command in `app/commands/`.
+  - The work lives in `app/core/`, and the tool's errors in `app/errors.py`, under one base class `ToolError`.
+  - `[project.scripts]` names the tool, `<tool> = "app.cli:main"`, where `main()` runs the Typer app and turns a `ToolError` into its message and exit code.
+- :Implementation: sets up the standard `logging` module to write to standard error with the level `--verbose` or `--debug` gives.
+- :UnitTests: run commands with Typer's `CliRunner`.

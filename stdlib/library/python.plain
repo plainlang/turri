@@ -1,0 +1,13 @@
+---
+import:
+  - stdlib/lang/python
+  - stdlib/library/common
+description: A library in Python 3.12, packaged with uv.
+---
+
+***implementation reqs***
+
+- :Implementation: is one package in `src/<package>/`, whose `__init__.py` is its public API with `__all__`, and marks itself as typed with `py.typed`.
+- :Implementation: builds with `uv build`, and declares only its run-time dependencies in `[project] dependencies`.
+- :Implementation: defines its errors in `src/<package>/errors.py`, under one base class `<Package>Error`.
+- :Implementation: logs with `logging.getLogger("<package>")` and its children, with a `NullHandler` added to that logger.

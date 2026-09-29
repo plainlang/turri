@@ -1,0 +1,17 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/frontend/common
+description: A frontend in Angular 20 and TypeScript with standalone components, signals and HttpClient.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Angular 20 with standalone components, signals for state, and the Angular CLI, building into `dist/`, with `npm run preview` serving the build.
+- :Implementation: takes the backend's base URL from `src/environments/environment.ts`, set at build time.
+- :Implementation: keeps pages in `src/app/pages/`, shared components in `src/app/components/`, services in `src/app/services/`, the API layer in `src/app/api/`, and the logger in `src/app/logger.ts`.
+- :Implementation: makes backend calls with `HttpClient`, with one interceptor that turns an error into an `ApiError`.
+- :Implementation: routes with the Angular Router, one lazy-loaded route per page in `src/app/app.routes.ts`.
+- :Implementation: catches any other failure in its own `ErrorHandler`, and shows the page that says something went wrong.
+- :Implementation: styles each component in its own stylesheet.
+- :UnitTests: use `TestBed` and `HttpTestingController`, with Vitest through the Angular CLI's unit-test builder, next to the code as `<file>.spec.ts`, and run with `npx ng test --watch=false`.

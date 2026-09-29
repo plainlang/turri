@@ -1,0 +1,17 @@
+---
+description: What every stdlib frontend shares - a single-page app, its API layer, errors, logs and test ids.
+---
+
+***implementation reqs***
+
+- :Implementation: is a single-page web app, built by `npm run build` into `dist/`, whose build `npm run preview -- --port $PORT` serves.
+- :Implementation: calls its backend at the base URL it is built with, `/api` when none is given.
+- :Implementation: makes every backend call through its API layer: one typed function per call, and no call to `fetch` anywhere else.
+  - A response that is not 2xx becomes an `ApiError` with its `status`, and the `code` and `message` of the backend's error body `{"error": {"code", "message"}}`.
+  - A request that gets no response becomes an `ApiError` with the code `network_error`.
+- :Implementation: shows an `ApiError` from a page's own calls on that page, in place of what failed, with its message.
+- :Implementation: catches any other failure at the root of the app, and shows a page saying something went wrong, with a button that reloads it.
+- :Implementation: logs through its own logger module only, with `debug`, `info`, `warn` and `error`, which writes to the browser console, `debug` only in a development build; no `console` call is anywhere else.
+- :Implementation: gives every element a person acts on an accessible role and name, or a `data-testid` when it has none.
+- :UnitTests: use Vitest with jsdom, next to the code as `<file>.test.ts` or `<file>.test.tsx`, and run with `npx vitest run`.
+- :UnitTests: replace the API layer with a stand-in, never the network.

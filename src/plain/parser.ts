@@ -17,6 +17,7 @@ import {
 } from "./errors.ts";
 import { findLargeBase64Blob, getLoadedTemplates, openFrom } from "./files.ts";
 import { renderPlainSource } from "./liquid.ts";
+import { isStdlibModule, readStdlibModule } from "./stdlib.ts";
 import {
   getRawText,
   lineNumber,
@@ -628,7 +629,8 @@ export function parsePlainSource(
 }
 
 export function readModulePlainSource(moduleName: string, templateDirs: string[]): string {
-  const plainSourceText = openFrom(templateDirs, moduleName + PLAIN_SOURCE_FILE_EXTENSION);
+  // `stdlib/...` is plainwright's standard library, and only that - see stdlib.ts.
+  const plainSourceText = isStdlibModule(moduleName) ? readStdlibModule(moduleName, templateDirs) : openFrom(templateDirs, moduleName + PLAIN_SOURCE_FILE_EXTENSION);
   if (plainSourceText === null) {
     throw new ModuleDoesNotExistError(`Module does not exist (${moduleName}).`);
   }

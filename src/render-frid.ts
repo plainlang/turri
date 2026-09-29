@@ -20,7 +20,7 @@ const USAGE = `usage: npm run render -- <file.plain> [frid] [options]
   --model <provider/id>  model for the agent, e.g. google/gemini-2.5-pro
   --no-try-it            skip working out how to try it once it is built
 
-  PLAIN_TEMPLATE_DIRS    colon-separated template directories (e.g. the standard library)`;
+  PLAIN_TEMPLATE_DIRS    colon-separated template directories, searched before plainwright's standard library`;
 
 function parseArgs(argv: string[]) {
   const positional: string[] = [];

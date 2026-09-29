@@ -1,0 +1,16 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/frontend/common
+description: A frontend in React 19 and TypeScript with Vite, React Router, TanStack Query and react-hook-form.
+---
+
+***implementation reqs***
+
+- :Implementation: uses React 19 with function components and hooks only, built with Vite, and takes the backend's base URL from `VITE_API_URL`.
+- :Implementation: routes with React Router 7, with one route per page in `src/routes.tsx`, and the root route's `errorElement` as the page that catches any other failure.
+- :Implementation: keeps pages in `src/pages/`, shared components in `src/components/`, one component per `.tsx` file, hooks in `src/hooks/`, the API layer in `src/api/`, and the logger in `src/lib/logger.ts`.
+- :Implementation: loads and changes backend data with TanStack Query, one hook per call in `src/hooks/`, and holds no copy of it in component state.
+- :Implementation: builds forms with react-hook-form and a zod schema per form, showing each field's error beside it.
+- :Implementation: styles components with CSS Modules, one `<Component>.module.css` beside each component.
+- :UnitTests: render components with React Testing Library, drive them with `@testing-library/user-event`, and wrap them in a fresh `QueryClient` per test.

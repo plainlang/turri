@@ -1,0 +1,18 @@
+---
+import:
+  - stdlib/lang/go
+  - stdlib/backend/common
+description: A backend in Go 1.25 with the standard library's net/http and slog, and no framework.
+---
+
+***implementation reqs***
+
+- :Implementation: uses the standard library's `net/http` with its method and path patterns, and no web framework.
+- :Implementation: keeps `main` in `cmd/server/`, and the rest in packages under `internal/`: `config`, `httpapi` - handlers, middleware and error writing - `service` and `store`.
+  - It builds with `go build -o bin/server ./cmd/server`.
+- :Implementation: parses the environment into a `Config` struct in `internal/config`.
+- :Implementation: decodes every request body with `encoding/json` with `DisallowUnknownFields`, into a struct whose `Validate() error` reports every invalid field.
+- :Implementation: writes handlers that return an error, adapted to `http.Handler` in one place that writes the error body, finding the domain error with `errors.As`.
+- :Implementation: logs with a `slog.JSONHandler` on standard output, with middleware that adds the request id to the request's context and logs the request line.
+- :Implementation: stops with `http.Server.Shutdown` when the context from `signal.NotifyContext` ends.
+- :UnitTests: use `net/http/httptest` for handlers and middleware.

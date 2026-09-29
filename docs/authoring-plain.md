@@ -54,6 +54,81 @@ files are processed with Liquid first, so a template can be included with parame
 section that owns it. A tech choice written into a functional spec, or a behaviour written into
 the implementation reqs, is not flagged - it is simply not read.
 
+## The standard library
+
+plainwright ships a standard library of import modules in `stdlib/` that settle everything about a
+generic piece of software on one stack except what it does: its language and framework, layout,
+configuration, error handling, logging, shutdown, and how it is unit and conformance tested. A spec
+imports one and writes only its own concepts and functional specs:
+
+```plain
+---
+import:
+  - stdlib/backend/python-flask
+  - stdlib/backend/conformance/python-flask    # leave it out to skip conformance tests
+---
+
+***functional specs***
+
+- ...
+```
+
+| kind | stacks - each with `stdlib/<kind>/conformance/<stack>` beside it |
+| --- | --- |
+| `stdlib/backend/` | `python-fastapi`, `python-flask`, `python-django`, `typescript-express`, `typescript-fastify`, `typescript-nestjs`, `java-springboot`, `go-nethttp`, `go-gin`, `rust-axum` |
+| `stdlib/frontend/` | `react-vite`, `vue-vite`, `sveltekit-spa`, `angular` |
+| `stdlib/cli/` | `python-typer`, `python-click`, `python-argparse`, `typescript-commander`, `go-cobra`, `go-flag`, `rust-clap`, `java-picocli` |
+| `stdlib/library/` | `python`, `typescript`, `java-maven`, `java-gradle`, `go`, `rust` |
+
+It is built in three layers, and a stack imports the other two:
+
+- **The language** - `stdlib/lang/python`, `typescript`, `java`, `go`, `rust`: the version, the
+  dependency manager, formatting, how a failure is reported (an exception, a returned error, a
+  `Result`), the logging library, and the unit test framework and layout. A module on a stack the
+  library does not have can import its language alone.
+- **The kind's `common`** - what every stack of a kind shares:
+
+  | kind | settles |
+  | --- | --- |
+  | backend | settings from the environment into one typed object, checked at start (exit 1 when one is missing); handler, service and repository layers; domain errors turned in one place into `{"error": {"code", "message"}}` - `not_found` 404, `conflict` 409, `validation_error` 422 with `details` per field, `unauthenticated` 401, `forbidden` 403, `internal_error` 500 with no message and the stack trace logged; JSON logs on standard output with `timestamp`, `level`, `logger`, `message` and `request_id`, level from `LOG_LEVEL`, one line per request, never a secret or a body; `X-Request-ID` taken or made and sent back; shutdown on SIGTERM within 10 seconds |
+  | frontend | one API layer that turns a failed call into an `ApiError` with the backend's error code, or `network_error`; errors shown in place, and a page for anything else at the root; one logger module, no `console` elsewhere; accessible roles and test ids |
+  | cli | settings from flags, then `<TOOL>_<SETTING>`, then defaults; the work apart from parsing; errors as `Error: <message>` on standard error, exit 0, 1, 2 for a usage error, 130 on Ctrl-C, a stack trace only with `--debug`; logs on standard error, warnings by default, `--verbose`, `--debug` |
+  | library | one public entry point; one base error type, with a dependency's errors wrapped; logs through the language's logging with no output set up; no environment variables, output or global state |
+
+- **The stack** - the framework and how it does each of those: for `python-flask`, an application
+  factory, one Blueprint per resource, Pydantic for bodies, `@app.errorhandler` for the error body,
+  structlog JSON logs with the request id bound in a hook, Gunicorn. For `go-cobra`, `RunE`
+  commands with Cobra's own error printing off, so `main` alone writes the error and picks the exit
+  code, and slog on standard error.
+
+Each conformance template imports its kind's `conformance/common`: a backend's tests start the
+built service on a free port and reach it over HTTP only, checking a failure by status and
+`error.code`; a frontend's run the served build in Chromium through Playwright with the backend
+stood in; a command-line tool's run the built tool as a process; a library's go through its public
+entry point.
+
+- **Conformance tests apart.** A spec without the conformance template has no test reqs, so no
+  conformance tests are written or run for it. Turning them on later is adding that one import.
+- **A reserved name.** An import that starts with `stdlib/` is always plainwright's template, never
+  a file of the project's. A project with a module at such a path - `stdlib/backend/python-fastapi.plain`
+  beside the spec, in its `template/` folder or in `PLAIN_TEMPLATE_DIRS` - gets an error saying the
+  name is reserved, so which one a spec builds on never depends on what is on disk beside it.
+- **No concepts.** Its requirements are on the predefined `:Implementation:`, `:UnitTests:` and
+  `:ConformanceTests:` only, so it never collides with a spec's own definitions.
+- **Pinned to the VM.** It names the toolchains of the default VM image - Python 3.12, Node.js 24,
+  Java 21, Go 1.25, Rust - so its builds find them.
+- **Not storage, not the testing scripts.** A module with a database says which on top of its
+  stack. It still needs its unit testing script, and a conformance testing script when it has
+  conformance tests.
+- **Known to the agents.** The `stdlib` rule, in every spec-writing agent's system prompt, says when
+  to import which, and lists every template with what it is and the folder it is in, read from
+  `stdlib/` when the rules load. `spark-plain` and `forge-plain` import a stack when the one chosen
+  is in it, and its conformance template when conformance tests are on.
+
+A requirement beyond the stack - storage, an outside service - is added on top of it. A module that
+differs from its stack on something the stack settles - another framework, another layout - writes
+its own instead: an import cannot be taken back in part.
+
 ## The rules
 
 `forge/rules/` holds the authoring rules. They are in the system prompt of every agent that
@@ -73,6 +148,7 @@ an agent has to decide to go and read.
 | `import-modules.md`, `requires-modules.md` | the two ways modules build on each other |
 | `exported-concepts.md`, `required-concepts.md` | which concepts cross module boundaries |
 | `integrations.md` (+ standalone, embedded, embedded testing) | specs for REST API integrations, deployed standalone or embedded in an existing codebase |
+| `stdlib.md` | the standard library: when to import which template, and every template with what it is and where it is, read from `stdlib/` |
 
 The ones that shape a spec most:
 

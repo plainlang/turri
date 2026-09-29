@@ -21,7 +21,7 @@ import { projectDirOf } from "./render/paths.ts";
  * conformance-tests: false                                  # write and run conformance tests (default: when there are test reqs)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
- * testing-scripts: host                                     # where they run: in the VM (default), or on this machine - see test-scripts.ts
+ * run-testing-scripts-in: host                              # where the testing scripts run: vm (default), or host - see test-scripts.ts
  * ```
  *
  * Each model is a model reference and a thinking level (off, minimal, low, medium, high, xhigh, max),
@@ -152,7 +152,8 @@ export interface ProjectConfig {
    * Where the harness runs the testing scripts: in the sandbox VM (the default), or in place on
    * this machine - for an integration embedded in a host codebase the VM does not hold.
    */
-  testingScripts?: "vm" | "host";
+  /** Where the testing scripts run: in each module's VM, or on this machine in place. */
+  runTestingScriptsIn?: "vm" | "host";
   /** How many jobs run at once in the chat - modules that share nothing build side by side up to it. Unset: from the machine's memory. */
   parallelJobs?: number;
   /**
@@ -177,11 +178,15 @@ export const CONFIG_KEYS = {
   conformanceTests: "conformance-tests",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
-  testingScripts: "testing-scripts",
+  runTestingScriptsIn: "run-testing-scripts-in",
   parallelJobs: "parallel-jobs",
   systemPackages: "system-packages",
   vmImage: "vm-image",
 } as const satisfies Record<keyof ProjectConfig, string>;
+
+function whereScriptsRun(value: unknown): "vm" | "host" | undefined {
+  return value === "host" ? "host" : value === "vm" ? "vm" : undefined;
+}
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
@@ -299,7 +304,8 @@ function readConfigFile(path: string): ProjectConfig {
     conformanceTests: typeof conformance === "boolean" ? conformance : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
-    testingScripts: raw[CONFIG_KEYS.testingScripts] === "host" ? "host" : raw[CONFIG_KEYS.testingScripts] === "vm" ? "vm" : undefined,
+    // `testing-scripts:`, its name before, is read the same.
+    runTestingScriptsIn: whereScriptsRun(raw[CONFIG_KEYS.runTestingScriptsIn] ?? raw["testing-scripts"]),
     vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),
     systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
       ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())

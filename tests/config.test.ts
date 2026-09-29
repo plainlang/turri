@@ -32,7 +32,7 @@ describe("the project's config.yaml", () => {
       conformanceTests: false,
       unittestsScript: "test_scripts/run_unittests_rust.sh",
       conformanceTestsScript: "test_scripts/run_conformance_tests_rust.sh",
-      testingScripts: undefined,
+      runTestingScriptsIn: undefined,
     });
   });
 

@@ -350,7 +350,7 @@ export function explorePrompt(
     ...(testingScripts !== undefined && testingScripts.length > 0
       ? [
           "",
-          "This is the project's conformance testing script, which the harness runs on this machine to decide whether the",
+          "This is the project's conformance testing script, which the harness runs to decide whether the",
           "tests pass - read it for what it builds or installs before the tests run, and so what the tests can depend on:",
           ...testingScripts.flatMap((script) => ["", `<script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</script>"]),
         ]

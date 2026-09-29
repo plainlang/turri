@@ -1,0 +1,14 @@
+---
+import:
+  - stdlib/lang/rust
+  - stdlib/cli/common
+description: A command-line tool in Rust with clap 4.
+---
+
+***implementation reqs***
+
+- :Implementation: uses clap 4's derive API, as one Cargo package: `src/main.rs` parses the arguments and runs the command, one module per command in `src/commands/`, the work in `src/lib.rs` and its modules, and the tool's error type in `src/error.rs`.
+  - `main` returns an `ExitCode`, writing the error and choosing the code itself.
+  - It builds with `cargo build --release`.
+- :Implementation: logs with `tracing-subscriber` on standard error, at the level `--verbose` or `--debug` gives.
+- :UnitTests: call the work directly, and parse arguments with `Cli::try_parse_from`.

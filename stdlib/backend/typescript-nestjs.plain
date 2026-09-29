@@ -1,0 +1,18 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/backend/common
+description: A backend in TypeScript on Node.js 24 with NestJS 11, class-validator and nestjs-pino.
+---
+
+***implementation reqs***
+
+- :Implementation: runs on Node.js 24, with NestJS 11 on its Express platform.
+- :Implementation: keeps one Nest module per resource in `src/<resource>/`, with its controller, its service, and its repository as a provider.
+  - `src/main.ts` starts the application with `enableShutdownHooks()`, and `src/app.module.ts` imports the modules.
+  - It builds with `npm run build` - `nest build` into `dist/` - and starts with `npm start`, which runs `node dist/main.js`.
+- :Implementation: reads its configuration with `@nestjs/config`, validated at start by a schema.
+- :Implementation: validates every request body, query and path parameter as a DTO class with class-validator, through a global `ValidationPipe` with `whitelist` and `transform` on, whose failures are `validation_error` with their `details`.
+- :Implementation: turns errors into responses in one global exception filter, for the domain errors, Nest's `HttpException` and anything else.
+- :Implementation: logs with nestjs-pino, with the request id from `X-Request-ID` as `request_id`.
+- :UnitTests: use Jest with ts-jest and `@nestjs/testing`, controllers through supertest, next to the code as `<file>.spec.ts`, and run with `npx jest`.

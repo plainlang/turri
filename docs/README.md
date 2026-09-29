@@ -26,6 +26,7 @@ pages go into each part.
 | which model renders, and how to change it | [using](using.md#choosing-a-model), [the project config](config.md#models) |
 | what `config.yaml` can set, and what happens without it | [the project config](config.md) |
 | how a backend and a frontend on different stacks share one project | [the project config](config.md#modules-on-different-stacks) |
+| which ready-made stacks a spec can import - a FastAPI backend, a React frontend | [the standard library](authoring-plain.md#the-standard-library) |
 | everything an agent was sent and did, to debug it | [using](using.md#agent-logs) |
 | how to render a spec overnight, and resume it | [running unattended](headless.md) |
 | how to rebuild one functionality | [running unattended](headless.md#rebuilding-one-functionality) |

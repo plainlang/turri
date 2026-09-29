@@ -46,6 +46,12 @@ where it stopped.
 
 What each render does, in order, is in [rendering](rendering.md).
 
+The conversation knows the ***plain standard library from its first turn: the stdlib rule in its
+system prompt lists every stack and where the templates are, so "build this as a Flask backend"
+becomes an import of `stdlib/backend/python-flask`, not a stack written out by hand. The banner at
+start says how many stacks there are, and **`/stdlib`** lists them, each with what it is (see
+[the standard library](authoring-plain.md#the-standard-library)).
+
 The agent does this work with these tools, never by running plainwright's command line - or
 another pi - through its shell: that would be a separate, headless run outside the job panel,
 `/watch` and `/stop`. The harness refuses such a command unless your message asks for the

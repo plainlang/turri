@@ -1,0 +1,19 @@
+---
+import:
+  - stdlib/lang/java
+  - stdlib/backend/common
+description: A backend in Java 21 with Spring Boot 3, Maven, Bean Validation and Logback JSON logs.
+---
+
+***implementation reqs***
+
+- :Implementation: uses Spring Boot 3 with Spring Web and Bean Validation, built with Maven through the Maven wrapper from `pom.xml` with the Spring Boot parent.
+- :Implementation: keeps its code in one base package with the subpackages `web` - controllers, request and response records - `service`, `repository`, `domain`, `config` and `error`.
+  - It builds with `./mvnw package` into one executable jar, started with `java -jar target/<artifact>.jar`.
+- :Implementation: binds its settings from `application.yaml` into `@ConfigurationProperties` records, each set from an environment variable with its default, as `server.port: ${PORT:8000}`.
+- :Implementation: validates every request body with `@Valid`, and answers `MethodArgumentNotValidException` as `validation_error` with its `details`.
+- :Implementation: turns errors into responses in one `@RestControllerAdvice`, for the domain errors, Spring's own errors and `Exception`.
+- :Implementation: logs as JSON with Logback and logstash-logback-encoder, set up in `logback-spring.xml`.
+  - A `OncePerRequestFilter` puts the request id in the MDC as `request_id`, sends it back, and logs the request line.
+- :Implementation: shuts down with `server.shutdown: graceful` and a 10 second timeout per shutdown phase.
+- :UnitTests: cover services with plain JUnit, and controllers with `@WebMvcTest` and `MockMvc` with the services mocked, run with `./mvnw test`.

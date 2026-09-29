@@ -1,0 +1,18 @@
+---
+import:
+  - stdlib/lang/typescript
+  - stdlib/backend/common
+description: A backend in TypeScript on Node.js 24 with Express 5, zod and pino.
+---
+
+***implementation reqs***
+
+- :Implementation: runs on Node.js 24, with Express 5, zod for validation, and pino with pino-http for logs.
+- :Implementation: keeps its code in `src/`.
+  - `src/app.ts` builds the application in `createApp(deps)`, and `src/server.ts` starts it and stops it on a signal.
+  - `src/config.ts` parses the environment with a zod schema, `src/routes/` holds one `Router` per resource, `src/services/` the services, `src/repositories/` the repositories, and `src/errors.ts` the domain errors.
+  - It builds with `npm run build` - `tsc` into `dist/` - and starts with `npm start`, which runs `node dist/server.js`.
+- :Implementation: validates every request body, query and path parameter with a zod schema, and answers a `ZodError` as `validation_error` with its `details`.
+- :Implementation: turns errors into responses in one error-handling middleware, registered last, which every rejected handler reaches.
+- :Implementation: logs through one pino logger from `src/logger.ts`, with pino-http taking the request id from `X-Request-ID` and logging the request line.
+- :UnitTests: use Vitest and supertest against `createApp` with stand-in dependencies, next to the code as `<file>.test.ts`, and run with `npx vitest run`.

@@ -1,0 +1,25 @@
+---
+description: What every stdlib backend shares - a layered JSON HTTP service, its configuration, errors, logs and shutdown.
+---
+
+***implementation reqs***
+
+- :Implementation: is an HTTP service that serves JSON.
+- :Implementation: reads its configuration from environment variables once, at start, into one typed settings object that it passes to what needs it.
+  - Every setting has a default, except secrets.
+  - It listens on all interfaces, on the port in `PORT`, 8000 when unset.
+  - It does not start when a setting is missing or invalid: it writes which one to standard error and exits 1.
+- :Implementation: is layered: a handler parses and validates the request, calls a service, and turns its result into the response; a service holds the business logic and knows nothing of HTTP; data access sits behind repository interfaces that the services are given.
+- :Implementation: reports a failure of the business logic by raising one of its domain errors, which one place turns into the response.
+  - Not found is 404 with the code `not_found`, a conflict 409 `conflict`, invalid input 422 `validation_error`, a missing or bad credential 401 `unauthenticated`, a forbidden action 403 `forbidden`.
+- :Implementation: answers every error, the framework's own included, with the JSON body `{"error": {"code": "<snake_case code>", "message": "<text for a person>"}}`.
+  - A `validation_error` body adds `details`: one `{"field": "<dotted path>", "message": "<text>"}` per invalid field.
+- :Implementation: answers an unexpected failure with 500 and the code `internal_error`, never with its message or stack trace, and logs it at `ERROR` with the stack trace.
+- :Implementation: logs to standard output as JSON, one object per line, with `timestamp` (ISO 8601, UTC), `level`, `logger`, `message`, and the `request_id` of the request it belongs to.
+  - It logs at the level in `LOG_LEVEL`, `INFO` when unset.
+  - It logs one `INFO` line when each request ends, with `method`, `path`, `status` and `duration_ms`.
+  - It never logs a secret, a token, a password, or a request or response body.
+- :Implementation: takes each request's id from its `X-Request-ID` header, or makes a UUID v4 when it has none, and sends it back in `X-Request-ID`.
+- :Implementation: stops on SIGTERM or SIGINT: it stops taking connections and finishes the requests under way, for at most 10 seconds.
+- :UnitTests: cover the services directly, and each handler through the framework's in-process test client, never a listening port.
+- :UnitTests: replace every repository and outside service with an in-memory stand-in.

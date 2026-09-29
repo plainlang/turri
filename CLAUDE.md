@@ -53,6 +53,16 @@ deliberate. See `docs/parser.md` before "fixing" one. It resolves linked resourc
 process cwd, which is why vitest runs with `root: "."` and the fixtures in `tests/data/` use
 repo-relative paths. A "frid" is a functionality id (`"1"`, `"2.1"`, ...).
 
+**The standard library (`stdlib/`)** holds import modules that settle a generic piece of software
+on one stack - `stdlib/backend/python-flask`, `stdlib/cli/go-cobra`, ... Each stack imports its
+language's `stdlib/lang/<language>` and its kind's `common.plain`; its test reqs are a template of
+their own, `stdlib/<kind>/conformance/<stack>`, so a spec that skips conformance tests leaves it out.
+`stdlib/` is a reserved import prefix: `src/plain/stdlib.ts` reads such an import from plainwright's
+folder only, and a project module at the same path is an error. The templates define no concepts,
+and a `::` in them would be read as one. `src/stdlib.ts` appends the catalogue - every template, what
+it is, and the folder - to the `stdlib` rule when the rules load, so the rule never drifts from the
+files.
+
 **Gated skills** (spec authoring): `skills/*/SKILL.md` is parsed by `src/skill.ts` into steps (the
 `###` headings under `## Steps`) and gates (`metadata.gates` in the frontmatter). `src/graph.ts`
 compiles those into a LangGraph `StateGraph` (step -> gate -> route), and `src/judge.ts` runs
@@ -90,7 +100,7 @@ is reported as pending, not dropped.
 symlinks resolved) that fences agents to `plain_modules`. `vm.ts` runs every command (agent `bash`,
 test scripts, try-it checks) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
 and shut down when idle or when the project moves to another module. There is no host fallback,
-except testing scripts under `testing-scripts: host`. plainwright turns off `AGENTS.md`/`CLAUDE.md`
+except testing scripts under `run-testing-scripts-in: host`. plainwright turns off `AGENTS.md`/`CLAUDE.md`
 loading for every agent it starts (`noContextFiles` in `src/pi.ts`).
 
 **Jobs and progress.** In the TUI, render tools start background jobs (`queue.ts`, `jobs.ts`).
@@ -104,7 +114,7 @@ through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportSta
 **Projects.** A spec is built in its project: the nearest folder upwards holding `config.yaml`, a
 `config.<module>.yaml` or `plain_modules/` (`projectDirOf` in `paths.ts`). `config.yaml`
 (`src/config.ts`) holds `module`, `harness-model`, `coding-model`, `judge-model`,
-`conformance-tests`, `testing-scripts` and the script paths; a module on a stack of its own lays
+`conformance-tests`, `run-testing-scripts-in` and the script paths; a module on a stack of its own lays
 `config.<module>.yaml` over it, found down its `requires` chain (`configForSpec`). `docs/config.md`
 documents every key.
 
