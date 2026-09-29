@@ -114,7 +114,7 @@ function discoverSkills(): { skills: Skill[]; pending: string[] } {
  */
 function askUserVia(
   ctx: ExtensionContext,
-  onExchange: (question: string, answer: string) => void,
+  onExchange: (question: string, answer: string, said?: string) => void,
 ): AskUser {
   return async (request) => {
     if (!ctx.hasUI) {
@@ -127,7 +127,7 @@ function askUserVia(
         select: (title, options) => ctx.ui.select(title, options),
         input: (title) => ctx.ui.input(title),
       });
-      onExchange(request.question, answer);
+      onExchange(request.question, answer, request.context);
       return answer;
     } finally {
       ctx.ui.setWorkingMessage();
@@ -432,7 +432,9 @@ export default function (pi: ExtensionAPI) {
         resume: params.resume === true && interrupted !== undefined,
         report,
         context: conversationContext(ctx, params.context),
-        askUser: askUserVia(ctx, (question, answer) => {
+        askUser: askUserVia(ctx, (question, answer, said) => {
+          // What the skill's agent said before asking stays in the run's record, not only in the dialog.
+          for (const line of (said ?? "").trim().split("\n").filter((line) => line.trim() !== "")) push(`  ${line}`);
           push(`  Q: ${question}`);
           push(`  A: ${answer}`);
           recordExchange(pi, { skill: skill.name, question, answer });

@@ -104,7 +104,10 @@ change the step makes and puts its findings on the executor's next tool result.
 - **Interview the user.** `ask_user` puts one question to the person. In the TUI it is a dialog;
   from the CLI the options are numbered. Offering choices is required, not optional - a call with
   neither `options` nor `free_form: true` is refused - and every list carries "Something else…".
-  `multi_select: true` keeps offering what is left until they are done.
+  `multi_select: true` keeps offering what is left until they are done. The skill's agent talks in a
+  session of its own that the person never sees, so what it said since its last question - the
+  brief it asks them to confirm, the plan it lays out - is shown above the question in the dialog,
+  and kept in the run's trace with the answer.
 - **Build while it interviews.** `write_spec_diff` (forge-plain, spark-plain) writes a change to the
   spec and queues its render in one call; the interview carries on while the builds run in the
   background, one after another. `render_status` shows the queue.

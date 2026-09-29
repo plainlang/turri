@@ -13,6 +13,12 @@ export interface AskUserRequest {
   multiSelect?: boolean;
   /** Deliberately asking without options, for a genuinely open question. */
   freeForm?: boolean;
+  /**
+   * What the asker said since its last question - a brief to confirm, the choices it weighed - shown
+   * above the question. A skill's agent talks in a session of its own that nobody sees, so without it
+   * "Is this the right brief?" arrives with no brief.
+   */
+  context?: string;
 }
 
 export type AskUser = (request: AskUserRequest) => Promise<string>;
@@ -83,16 +89,19 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
   const refusal = missingOptions(request);
   if (refusal !== null) return refusal;
 
+  // The question, below what it is about.
+  const context = request.context?.trim() ?? "";
+  const titled = (question: string) => (context !== "" ? `${context}\n\n${question}` : question);
   const options = request.options ?? [];
   if (options.length === 0) {
-    return (await io.input(request.question)) ?? DISMISSED;
+    return (await io.input(titled(request.question))) ?? DISMISSED;
   }
 
   if (request.multiSelect !== true) {
-    const choice = await io.select(request.question, [...options, OTHER_OPTION]);
+    const choice = await io.select(titled(request.question), [...options, OTHER_OPTION]);
     if (choice === undefined) return DISMISSED;
     if (choice !== OTHER_OPTION) return choice;
-    return (await io.input(request.question)) ?? DISMISSED;
+    return (await io.input(titled(request.question))) ?? DISMISSED;
   }
 
   // Pick several: keep offering what is left until they say they are done.
@@ -100,12 +109,12 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
   let remaining = [...options];
   while (remaining.length > 0) {
     const title = chosen.length === 0 ? request.question : `${request.question}  [so far: ${chosen.join(", ")}]`;
-    const choice = await io.select(title, [...remaining, OTHER_OPTION, DONE_OPTION]);
+    const choice = await io.select(titled(title), [...remaining, OTHER_OPTION, DONE_OPTION]);
 
     if (choice === undefined) break;
     if (choice === DONE_OPTION) break;
     if (choice === OTHER_OPTION) {
-      const typed = await io.input(request.question);
+      const typed = await io.input(titled(request.question));
       if (typed !== undefined && typed.trim() !== "") chosen.push(typed.trim());
       continue;
     }

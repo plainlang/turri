@@ -91,7 +91,7 @@ export type { AskUser, AskUserRequest };
  * that is fully specified and useless for an interview. The harness still owns the
  * sequence - the step decides what to ask, not whether the gate afterwards runs.
  */
-export function createAskUserTool(ask: AskUser, onAnswered?: () => void) {
+export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: () => string) {
   return defineTool({
     name: "ask_user",
     label: "Ask the user",
@@ -129,6 +129,7 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void) {
         options: params.options,
         multiSelect: params.multi_select,
         freeForm: params.free_form,
+        ...(said !== undefined ? { context: said() } : {}),
       });
       onAnswered?.();
       return {

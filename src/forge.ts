@@ -12,6 +12,8 @@ import { createTemperTools, TEMPER_TOOLS } from "./temper-tools.ts";
 import type { JobRegistry } from "./render/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
+/** How much of what the agent said before a question is shown with it: its end, where the brief is. */
+const SAID_MAX = 6000;
 import type { RenderQueue } from "./render/queue.ts";
 
 export interface EscalationRequest {
@@ -107,11 +109,19 @@ export async function runSkill(opts: {
       ? createSpecDiffTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy, paced: skill.paced })
       : undefined;
 
+  // What the agent says between its questions - a brief to confirm, a plan - reaches the person only with
+  // the next question: the session it talks in is its own, and nobody reads it.
+  let said = "";
   if (opts.askUser !== undefined) {
     customTools.push(
-      createAskUserTool(opts.askUser, () => {
-        diffs?.pace.answered();
-      }),
+      createAskUserTool(
+        opts.askUser,
+        () => {
+          said = "";
+          diffs?.pace.answered();
+        },
+        () => said,
+      ),
     );
   }
   if (opts.renderQueue !== undefined) {
@@ -146,6 +156,12 @@ export async function runSkill(opts: {
     attempts: {},
     updatedAt: "",
   };
+  executor.subscribe((event) => {
+    if (event.type !== "message_update") return;
+    const update = event.assistantMessageEvent;
+    if (update.type === "text_start" && said.trim() !== "") said += "\n\n";
+    else if (update.type === "text_delta") said = (said + update.delta).slice(-SAID_MAX);
+  });
   manifest.sessionFile = executor.sessionFile;
   writeManifest(runDir, manifest);
 
