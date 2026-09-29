@@ -155,6 +155,17 @@ export interface ProjectConfig {
   testingScripts?: "vm" | "host";
   /** How many jobs run at once in the chat - modules that share nothing build side by side up to it. Unset: from the machine's memory. */
   parallelJobs?: number;
+  /**
+   * Alpine packages every VM of the project has - installed when it starts, from the project's package
+   * cache after the first time: a toolchain the image does not hold (zig), a library a build needs.
+   */
+  systemPackages?: string[];
+  /**
+   * The project's own VM image: toolchains and packages removed from and added to what the default image
+   * holds - `{ remove: ["java"], add: ["zig"] }`. Given, plainwright vm-image in the project builds it, and
+   * every VM of the project runs it. The project's alone.
+   */
+  vmImage?: { packages?: string[]; add: string[]; remove: string[]; mirror?: string; repositories?: string[] };
 }
 
 /** The config keys, as written in the file. */
@@ -168,6 +179,8 @@ export const CONFIG_KEYS = {
   conformanceTestsScript: "conformance-tests-script",
   testingScripts: "testing-scripts",
   parallelJobs: "parallel-jobs",
+  systemPackages: "system-packages",
+  vmImage: "vm-image",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function text(value: unknown): string | undefined {
@@ -185,7 +198,7 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
   // The project's alone: one conversation, one module built when none is named.
   const merged: ProjectConfig = { ...project };
   for (const key of Object.keys(CONFIG_KEYS) as Array<keyof ProjectConfig>) {
-    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || own[key] === undefined) continue;
+    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "vmImage" || own[key] === undefined) continue;
     (merged as Record<string, unknown>)[key] = own[key];
   }
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
@@ -249,6 +262,23 @@ export function configModuleOfBuild(root: string, module: string): string | unde
   return modulesWithConfig(root).includes(module) ? module : undefined;
 }
 
+/** A `vm-image:` as the config gives it: lists of names to add and to remove, or nothing when it names neither. */
+function imageChanges(value: unknown): { packages?: string[]; add: string[]; remove: string[]; mirror?: string; repositories?: string[] } | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const list = (items: unknown) => (Array.isArray(items) ? items.filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim()) : []);
+  const raw = value as { packages?: unknown; add?: unknown; remove?: unknown; mirror?: unknown; repositories?: unknown };
+  // `packages:` defines the image in full; `add:` and `remove:` change the default one; `mirror:` and
+  // `repositories:` say where it is downloaded from.
+  const changes = {
+    ...(Array.isArray(raw.packages) ? { packages: list(raw.packages) } : {}),
+    ...(typeof raw.mirror === "string" && raw.mirror.trim() !== "" ? { mirror: raw.mirror.trim() } : {}),
+    ...(Array.isArray(raw.repositories) ? { repositories: list(raw.repositories) } : {}),
+    add: list(raw.add),
+    remove: list(raw.remove),
+  };
+  return changes.packages !== undefined || changes.mirror !== undefined || changes.repositories !== undefined || changes.add.length > 0 || changes.remove.length > 0 ? changes : undefined;
+}
+
 /** One config file, read, or nothing of it when it is not there or does not parse. */
 function readConfigFile(path: string): ProjectConfig {
   let parsed: unknown;
@@ -270,6 +300,10 @@ function readConfigFile(path: string): ProjectConfig {
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     testingScripts: raw[CONFIG_KEYS.testingScripts] === "host" ? "host" : raw[CONFIG_KEYS.testingScripts] === "vm" ? "vm" : undefined,
+    vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),
+    systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
+      ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())
+      : undefined,
     parallelJobs:
       typeof raw[CONFIG_KEYS.parallelJobs] === "number" && Number.isInteger(raw[CONFIG_KEYS.parallelJobs]) && (raw[CONFIG_KEYS.parallelJobs] as number) >= 1
         ? (raw[CONFIG_KEYS.parallelJobs] as number)

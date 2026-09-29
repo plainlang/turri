@@ -8,7 +8,9 @@ import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
-import { ensureInVmScratch, MODULES_DIR, modulesRootOf, vmScratchDir } from "./paths.ts";
+import { ensureInVmScratch, MODULES_DIR, modulesRootOf, projectRootOf, vmScratchDir } from "./paths.ts";
+import { readProjectConfig } from "../config.ts";
+import { hasProjectImage, projectImageTag } from "../vm-image.ts";
 
 /**
  * Where every command runs: a Gondolin micro-VM for the module it works in, holding that
@@ -222,6 +224,25 @@ export function vmImage(): { tag: string; path: string } | undefined {
   }
 }
 
+/**
+ * The image a project's VMs run: its own, when its config.yaml asks for one and it is built - else the
+ * default, saying why when it has one that is not built yet. PLAINWRIGHT_VM_IMAGE wins over both.
+ */
+export function vmImageFor(project: string): { tag: string; path: string; own: boolean; missing?: string } | undefined {
+  if (process.env.PLAINWRIGHT_VM_IMAGE === undefined && hasProjectImage(project)) {
+    const tag = projectImageTag(project);
+    try {
+      return { tag, path: resolveImageSelector(tag).assetDir, own: true };
+    } catch {
+      const fallback = vmImage();
+      const missing = `this project's own VM image (${tag}) is not built yet - plainwright vm-image, run in the project, builds it`;
+      return fallback !== undefined ? { ...fallback, own: false, missing } : undefined;
+    }
+  }
+  const image = vmImage();
+  return image !== undefined ? { ...image, own: false } : undefined;
+}
+
 /** Room for dependencies and build output, and for compilers to run. */
 const VM_DISK = process.env.PLAINWRIGHT_VM_DISK ?? "8G";
 const VM_MEMORY = process.env.PLAINWRIGHT_VM_MEMORY ?? "2G";
@@ -423,7 +444,8 @@ export function vmHolds(dir: string): string[] {
 async function start(project: string, mounts: string[], readOnly: string[] = []): Promise<VM> {
   const cache = packageCacheDir(project);
   ensureInVmScratch(project, join(cache, "apk"));
-  const image = vmImage();
+  const image = vmImageFor(projectRootOf(project));
+  if (image?.missing !== undefined) reportActivity(`  ${image.missing}; this VM runs ${image.tag} meanwhile`);
   const started = Date.now();
   const holds = mounts.map((mount) => relative(dirname(project), mount)).join(" and ");
   reportActivity(`  starting the sandbox VM for ${holds} (${image ? image.tag : "stock image"}) - the first command waits for it`);
@@ -646,8 +668,17 @@ function packagesFile(dir: string): string {
   return join(vmScratchDir(dir), "system-packages.json");
 }
 
-/** The system packages installed in this project's VM, installed again whenever one starts. */
+/**
+ * The system packages this project's VMs have, installed whenever one starts: the ones `system-packages:`
+ * in its config.yaml names, and the ones an agent installed with install_system_packages.
+ */
 export function systemPackages(dir: string): string[] {
+  const configured = (readProjectConfig(projectRootOf(dir)).systemPackages ?? []).filter((name) => PACKAGE_NAME.test(name));
+  return [...new Set([...configured, ...installedPackages(dir)])];
+}
+
+/** The ones an agent installed with install_system_packages, and so every later VM of the project has too. */
+export function installedPackages(dir: string): string[] {
   const file = packagesFile(dir);
   if (!existsSync(file)) return [];
   try {
@@ -677,7 +708,8 @@ export async function installSystemPackages(
   const root = modulesRootOf(dir);
   const result = await runInVm(`apk add --no-progress ${names.join(" ")}`, { cwd: dir, ...options });
   if (result.exitCode === 0) {
-    const all = [...new Set([...systemPackages(root), ...names])].sort();
+    // What the agents installed, kept apart from what config.yaml names - the config says those itself.
+    const all = [...new Set([...installedPackages(root), ...names])].sort();
     writeFileSync(packagesFile(root), `${JSON.stringify({ packages: all }, null, 2)}\n`);
   }
   return result;

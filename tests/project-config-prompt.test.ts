@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { projectConfigBlock } from "../src/extension.ts";
+import { projectConfigBlock, sandboxBlock } from "../src/extension.ts";
 
 let root: string;
 beforeEach(() => {
@@ -49,3 +49,31 @@ describe("what the chat's agent is told about the project's config.yaml", () => 
     expect(projectConfigBlock(root)).toBe("");
   });
 });
+
+describe("what the chat's agent is told about the sandbox VM", () => {
+  it("names the image, what goes into it, what the project's implementation reqs need of it and it lacks, and the extra packages", async () => {
+    process.env.PLAINWRIGHT_VM_IMAGE_CONFIG = join(root, "home-vm-image.json");
+    try {
+      writeFileSync(join(root, "config.yaml"), "system-packages: [sqlite]\nvm-image:\n  add: [zig]\n  remove: [java]\n");
+      writeFileSync(join(root, "game.plain"), "***implementation reqs***\n\n- :Implementation: is written in Zig.\n\n***functional specs***\n\n- Draw a square.\n");
+      const block = sandboxBlock(root);
+      expect(block).toContain("<sandbox VM>");
+      expect(block).toContain("see the managing-vms rule");
+      expect(block).toContain("then this project's vm-image: in config.yaml");
+      expect(block).toMatch(/game: its implementation reqs need Zig \(zig\)/);
+      expect(block).toContain("system-packages: in config.yaml - sqlite");
+      // Its own image is not built here: it takes a build.
+      expect(block).toContain("build_vm_image");
+    } finally {
+      delete process.env.PLAINWRIGHT_VM_IMAGE_CONFIG;
+    }
+  });
+
+  it("is backed by the managing-vms rule, loaded with the ***plain rules", async () => {
+    const { loadRules } = await import("../src/rules.ts");
+    const rule = loadRules("forge/rules").find((item) => item.name === "managing-vms");
+    expect(rule?.content).toContain("Against the implementation reqs");
+    expect(rule?.content).toContain("build_vm_image");
+  });
+});
+

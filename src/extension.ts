@@ -9,8 +9,12 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
-import { skillRunDir } from "./render/paths.ts";
-import { defaultParallelJobs } from "./render/vm.ts";
+import { modulesRoot, skillRunDir } from "./render/paths.ts";
+import { defaultParallelJobs, installedPackages, STOCK_IMAGE, vmImageFor } from "./render/vm.ts";
+import { stackAgainstImage } from "./vm-stack.ts";
+import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, projectImageTag, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
+import { buildVmImage } from "./setup.ts";
+import { describeContents, imageSources, resolveImageContents } from "./vm-image-contents.ts";
 import { findTestScripts } from "./render/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { createWebTools } from "./render/web.ts";
@@ -224,7 +228,7 @@ export default function (pi: ExtensionAPI) {
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: [event.systemPrompt, TOOLS_NOT_CLI, projectConfigBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
+    systemPrompt: [event.systemPrompt, TOOLS_NOT_CLI, projectConfigBlock(cwd), sandboxBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
   }));
 
   // The conversation's agent does not run plainwright again through its shell, unless the person
@@ -298,6 +302,7 @@ export default function (pi: ExtensionAPI) {
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
+  registerBuildVmImage(pi, cwd, jobs);
   registerRenderSpecDiffConformance(pi, cwd, jobs);
   registerRenderModels(pi);
 
@@ -1394,6 +1399,49 @@ export function changedFiles(before: Map<string, string>, after: Map<string, str
   return [...changed, ...removed].sort();
 }
 
+/**
+ * The sandbox VM, for the chat's agent, read afresh every turn: the image this project's VMs run and what
+ * it holds, what goes into it and from where, what the project's implementation reqs need of it and it
+ * lacks, and the project's extra packages. How to manage all of it is the managing-vms rule.
+ */
+export function sandboxBlock(cwd: string): string {
+  const own = hasProjectImage(cwd);
+  const image = vmImageFor(cwd);
+  const built = readBuiltImage(own ? cwd : undefined);
+  const plan = imagePlan(own ? { project: cwd } : {});
+  const holding = built?.packages ?? plan.packages;
+  const holds = (packages: string[]) => {
+    const { toolchains, extra } = toolchainsOf(packages);
+    return [...toolchains, ...extra].join(", ") || "only the basics";
+  };
+  const stack = stackAgainstImage(cwd, image !== undefined ? holding : []);
+  const configured = readProjectConfig(cwd).systemPackages ?? [];
+  const installed = installedPackages(modulesRoot(cwd));
+  return [
+    "<sandbox VM>",
+    "Every command an agent runs - its shell, the builds, the tests - runs in a VM of this image (see the managing-vms rule).",
+    imageSources(undefined, plan).official
+      ? `- Where it comes from: Alpine Linux ${imageSources().version}, from Alpine's own server - the base system and every package, from its main and community repositories (${imageSources().repositories.map((repository) => repository.url).join(", ")}); a mirror or other repositories can be set in the recipe. build_vm_image with plan: true lists each package a build downloads: its version, repository, project, licence and size, and what each toolchain costs.`
+      : `- Where it comes from: Alpine Linux ${imageSources().version}, from the sources the recipe names in place of Alpine's own server - the base system and kernel from ${imageSources(undefined, plan).mirror}, packages from ${imageSources(undefined, plan).repositories.map((repository) => repository.url).join(", ")}; what a VM installs later comes from there too. build_vm_image with plan: true lists each package a build downloads, as those repositories have it.`,
+    image === undefined
+      ? `- In use: the ${STOCK_IMAGE.short}.`
+      : image.own
+        ? `- In use: this project's own image, ${image.tag}, holding ${holds(holding)}${built !== undefined ? ` (built ${built.builtAt.slice(0, 10)})` : ""}.`
+        : `- In use: the default image, ${image.tag}, holding ${holds(holding)}${built !== undefined ? ` (built ${built.builtAt.slice(0, 10)})` : ""}${image.missing !== undefined ? ` - ${image.missing}` : ""}.`,
+    `- Its recipe: ${describePlan(plan)}. plainwright's recipe (${join(PACKAGE_ROOT, "vm", "image.json")}), then the person's file ` +
+      `${userImageFile()}${plan.file !== undefined ? "" : " (none yet)"}${own ? `, then this project's vm-image: in config.yaml` : ""}.`,
+    ...(plan.refused.length > 0 ? [`- Not applied: ${plan.refused.join("; ")}.`] : []),
+    ...(planDiffersFromBuilt(plan, built) || (own && image?.own !== true) ? ["- The recipe asks for something the image was not built with: it takes a build - build_vm_image."] : []),
+    ...stack.map(({ module, needs, missing }) =>
+      needs.length === 0
+        ? `- ${module}: its implementation reqs name no toolchain this knows.`
+        : `- ${module}: its implementation reqs need ${needs.map((need) => `${need.toolchain} (${need.words.join(", ")})`).join(", ")}${missing.length > 0 ? ` - the image LACKS ${missing.map((need) => `${need.toolchain} (Alpine: ${need.package})`).join(", ")}` : " - the image has them"}.`,
+    ),
+    `- Extra packages every VM of this project installs when it starts: system-packages: in config.yaml${configured.length > 0 ? ` - ${configured.join(", ")}` : " - none"}; the coding agents' install_system_packages${installed.length > 0 ? ` - ${installed.join(", ")}` : " - none"}.`,
+    "</sandbox VM>",
+  ].join("\n");
+}
+
 /** Whether a folder holds a project's config: config.yaml, or a module's own config.<module>.yaml. */
 function hasConfig(dir: string): boolean {
   return existsSync(join(dir, CONFIG_FILE)) || modulesWithConfig(dir).length > 0;
@@ -2191,6 +2239,72 @@ function listJobs(jobs: JobRegistry): string {
     .join("\n");
 }
 
+
+/** Building the sandbox VM image - the default one, or a project's own - from the chat, as a background job. */
+function registerBuildVmImage(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "build_vm_image",
+    label: "Build VM image",
+    description:
+      "Build a sandbox VM image from its recipe, as a background job: the default one - plainwright's recipe with the " +
+      `person's changes from ${userImageFile()} - or, with scope "project", the project's own, from its config.yaml's ` +
+      "vm-image: over that, under a tag of its own. Every VM started after it runs the new image; one already running " +
+      "keeps the one it started with. About 7 minutes and 2 GB with every toolchain, less with fewer.",
+    promptSnippet: "build_vm_image: build the sandbox VM image - the default one, or the project's own",
+    promptGuidelines: [
+      "Write the recipe first - the person's image file, or the project's vm-image: in config.yaml - with the file tools, then build it with build_vm_image. Say what it will hold, and that it takes minutes, before you start it.",
+    ],
+    parameters: Type.Object({
+      scope: Type.Union([Type.Literal("default"), Type.Literal("project")], {
+        description: '"default": the image every project without one of its own runs. "project": this project\'s own, from vm-image: in its config.yaml',
+      }),
+      plan: Type.Optional(
+        Type.Boolean({
+          description:
+            "Build nothing: say what a build would download and from where - Alpine Linux's own repositories - each package the " +
+            "recipe names with its version, repository, project and licence, what each toolchain costs, and any name the " +
+            "repositories do not have. Use it to show the person what they would get, before building.",
+        }),
+      ),
+      working_dir: WORKING_DIR_PARAM,
+      wait: WAIT_PARAM,
+    }),
+    async execute(_id, given, _signal, onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given as { working_dir?: string } & typeof given);
+      const project = (params as { base?: string }).base ?? cwd;
+      if (params.scope === "project" && !hasProjectImage(project)) {
+        throw new Error(`${join(project, "config.yaml")} has no vm-image: - write the project's image there first (packages, or add and remove).`);
+      }
+      if (params.plan === true) {
+        const plan = imagePlan(params.scope === "project" ? { project } : {});
+        const contents = await resolveImageContents(plan);
+        const text = [`${params.scope === "project" ? projectImageTag(project) : "The default image"}: ${describePlan(plan)}.`, ...plan.refused.map((refused) => `Not applied: ${refused}`), "", ...describeContents(contents)].join("\n");
+        return { content: [{ type: "text" as const, text }], details: { missing: contents.missing } };
+      }
+      return deliver(jobs, {
+        kind: "build_vm_image",
+        summary: params.scope === "project" ? `VM image for ${basename(project)}` : "default VM image",
+        model: undefined,
+        wait: params.wait,
+        mode: ctx.mode,
+        // One image build at a time: they share the builder and the image store.
+        lanes: ["vm-image-build"],
+        onUpdate,
+        run: async (onDelta) => {
+          const status = await buildVmImage({ ...(params.scope === "project" ? { project } : {}), write: onDelta });
+          const plan = imagePlan(params.scope === "project" ? { project } : {});
+          return {
+            report:
+              status === 0
+                ? `Built ${params.scope === "project" ? projectImageTag(project) : "the default image"}: ${describePlan(plan)}. VMs started from now on run it.`
+                : `The image did not build (exit ${status}); VMs keep the image they had. The output above says why.`,
+            details: { passed: status === 0 },
+          };
+        },
+      });
+    },
+  });
+}
 
 /**
  * Static validation of a ***plain specification.

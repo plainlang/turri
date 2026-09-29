@@ -118,11 +118,15 @@ It lives in `plain_modules/.plainwright`, which ignores itself in git:
 
 ## Installing what the image lacks
 
-The full image has Python, Node, Java 21 with Maven and Gradle, Go, Rust, C/C++ with make and
-cmake, and git (see [installation](installation.md#building-the-vm-image)). A language, compiler
-or system library it lacks, the agent installs with `install_system_packages` (Alpine packages).
-The packages are recorded in `system-packages.json` and installed again - from the project's
-cache - whenever the project's VM starts, so what one render set up is there for every later one.
+The default full image has Python, Node, Java 21 with Maven and Gradle, Go, Rust, C/C++ with make
+and cmake, and git. You can change it for every project, or give a project an image of its own -
+see [what goes into the image](installation.md#what-goes-into-the-image). A language, compiler or
+system library it lacks, the agent installs with `install_system_packages` (Alpine packages). The
+packages are recorded in `system-packages.json` and installed again - from the project's cache -
+whenever the project's VM starts, so what one render set up is there for every later one; so are
+the ones `system-packages:` in the project's `config.yaml` names. They come from the repositories
+the image was built with - Alpine's own, or the mirror the recipe names (see
+[where it is downloaded from](installation.md#where-it-is-downloaded-from)).
 Project dependencies go through the project's own package manager as usual.
 
 On the stock image there is too little room for that - see
