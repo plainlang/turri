@@ -35,6 +35,10 @@ export interface Reporter {
   liveReview?(name: string, passes: number, findings: number): void;
   judge(index: number, model: string, verdict: string, violations: number): void;
   outcome(name: string, decision: Decision, critique: string): void;
+  /** One thing the skill's agent just did - a tool call, as one short line - for a view of it while it works. */
+  activity?(line: string): void;
+  /** The skill's agent's words as they stream, from the start of each reply: `fresh` when a new one begins. */
+  said?(delta: string, fresh: boolean): void;
 }
 
 const stepNode = (s: string) => `step.${s}`;

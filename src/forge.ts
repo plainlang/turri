@@ -4,6 +4,7 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createExecutor } from "./pi.ts";
+import { describeToolCall, describeToolResult } from "./render/activity.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
@@ -156,11 +157,26 @@ export async function runSkill(opts: {
     attempts: {},
     updatedAt: "",
   };
+  // What the agent does, as it does it: its session is its own, so without this a long step is silence.
   executor.subscribe((event) => {
+    if (event.type === "tool_execution_start") {
+      opts.report.activity?.(describeToolCall(event.toolName, event.args as Record<string, unknown> | undefined));
+      return;
+    }
+    if (event.type === "tool_execution_end") {
+      const line = describeToolResult(event.toolName, event.result, event.isError);
+      if (line !== undefined) opts.report.activity?.(line);
+      return;
+    }
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
-    if (update.type === "text_start" && said.trim() !== "") said += "\n\n";
-    else if (update.type === "text_delta") said = (said + update.delta).slice(-SAID_MAX);
+    if (update.type === "text_start") {
+      if (said.trim() !== "") said += "\n\n";
+      opts.report.said?.("", true);
+    } else if (update.type === "text_delta") {
+      said = (said + update.delta).slice(-SAID_MAX);
+      opts.report.said?.(update.delta, false);
+    }
   });
   manifest.sessionFile = executor.sessionFile;
   writeManifest(runDir, manifest);

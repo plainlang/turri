@@ -393,15 +393,44 @@ export default function (pi: ExtensionAPI) {
       }
 
       const trace: string[] = [`skill: ${skill.name}`, ...describeGates(skill).map((l) => `  ${l}`)];
+      // While it runs, what its agent is doing leads: pi shows a running tool's first lines, and the trace's first
+      // lines are the gates, which say nothing about now. The result keeps the trace alone.
+      const live = { started: Date.now(), step: "", stepStarted: Date.now(), recent: [] as string[], saying: "" };
+      const show = () => {
+        const elapsed = (since: number) => {
+          const s = Math.round((Date.now() - since) / 1000);
+          return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+        };
+        const words = live.saying.replace(/\s+/g, " ").trim();
+        const view = [
+          `${skill.name}${live.step !== "" ? ` · ${live.step}, ${elapsed(live.stepStarted)}` : ""} · ${elapsed(live.started)} in all`,
+          ...live.recent.map((line) => `  ${line}`),
+          ...(words !== "" ? [`  says: ${words.length > 160 ? `…${words.slice(-159)}` : words}`] : []),
+          "",
+        ];
+        onUpdate?.({ content: [{ type: "text" as const, text: [...view, ...trace].join("\n") }], details: {} });
+      };
       const push = (line: string) => {
         trace.push(line);
-        onUpdate?.({ content: [{ type: "text" as const, text: trace.join("\n") }], details: {} });
+        show();
       };
+      const ticker = setInterval(show, 5000);
+      ticker.unref?.();
 
       const report: Reporter = {
         step: (name, attempt) => {
           if (ctx.hasUI) ctx.ui.setStatus("forge-skill", skillStatus(skill, name, attempt));
+          live.step = skillStatus(skill, name, attempt).slice(skill.name.length + 2);
+          live.stepStarted = Date.now();
           push(`step ${name} (attempt ${attempt})`);
+        },
+        activity: (line) => {
+          live.recent = [...live.recent, line].slice(-6);
+          show();
+        },
+        said: (delta, fresh) => {
+          live.saying = fresh ? "" : live.saying + delta;
+          show();
         },
         artifact: (path, body) => push(`  ${path}: ${body.split("\n")[0]}${body.includes("\n") ? " ..." : ""}`),
         gate: (name, judges) => push(judges === 0 ? `gate ${name}: no artifact` : `gate ${name}: ${judges} judges`),
@@ -459,7 +488,7 @@ export default function (pi: ExtensionAPI) {
           return ctx.ui.confirm(`Review gate: ${skill.name}`, `${critique}\n\n${question}`);
         },
         }),
-      );
+      ).finally(() => clearInterval(ticker));
       const noise = describeCaptured(captured);
       if (noise !== null) push(noise);
 

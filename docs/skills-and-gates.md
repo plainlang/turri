@@ -118,6 +118,12 @@ The harness still owns the sequence. A step chooses what to ask; it does not cho
 gate afterwards runs. A run is saved as it goes, so an interrupted one can be resumed where it
 stopped.
 
+While a skill runs in the chat, `run_skill`'s output leads with what its agent is doing now: the skill,
+its step and how long each has taken, its last few tool calls, and the end of what it is saying,
+refreshed every few seconds. pi shows only a running tool's first lines, and a step can take many
+minutes without a new line in the trace. The result the conversation gets back keeps the trace
+alone.
+
 ## Rules
 
 `forge/rules/` holds the \*\*\*plain authoring rules. Every rule, in full, is appended to the system

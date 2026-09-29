@@ -22,6 +22,7 @@ vi.mock("../src/pi.ts", () => {
     },
     ask: async () => {
       const askUser = tools.find((tool) => tool.name === "ask_user")!;
+      for (const listener of listeners) listener({ type: "tool_execution_start", toolName: "write", args: { path: "asana.plain" } });
       say("- The problem: invoices get lost.\n- The primary user: a freelancer.");
       await askUser.execute("1", { question: "Is this the right brief for the first version?", options: ["Build it", "Change something"] });
       say("Noted.");
@@ -41,6 +42,32 @@ beforeEach(() => {
   );
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+describe("a skill's agent at work", () => {
+  it("is reported as it works - each tool call, and its words from the start of each reply", async () => {
+    const { runSkill } = await import("../src/forge.ts");
+    const activity: string[] = [];
+    let saying = "";
+    await runSkill({
+      skillDir: join(root, "skill"),
+      cwd: root,
+      runDir: join(root, "run"),
+      report: {
+        step: () => {},
+        artifact: () => {},
+        gate: () => {},
+        judge: () => {},
+        outcome: () => {},
+        activity: (line) => activity.push(line),
+        said: (delta, fresh) => (saying = fresh ? "" : saying + delta),
+      },
+      escalate: async () => false,
+      askUser: async () => "Build it",
+    });
+    expect(activity[0]).toContain("write asana.plain");
+    expect(saying).toBe("Noted.");
+  });
+});
 
 describe("a skill's question", () => {
   it("comes with what its agent said since its last question - the brief it asks about - and only that", async () => {
