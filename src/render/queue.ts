@@ -352,12 +352,14 @@ export function createRenderQueue(options: {
    * A spec diff about to start whose job ahead did not land - stopped, or failed - would render only
    * its own change and then record the spec as built with the other's in it too: code and record
    * would disagree. So its diff is taken again, from what the code is built from to the spec it
-   * leaves, and it says so.
+   * leaves, and it says so. Nothing built yet is the empty spec: a first build's job ahead that did not
+   * land - the scaffold of a new project - leaves the one behind it to build all of it, not only its own.
    */
   const rebaseIfBehind = (work: SpecDiffWork, jobId: string) => {
-    const built = readBuiltTree(work.codebase);
-    if (work.before === undefined || work.before === null || built === null) return;
-    if (serializeTree(built) === serializeTree(work.before) || sameSpec(built, work.before)) return;
+    if (work.before === undefined) return;
+    const built = readBuiltTree(work.codebase) ?? {};
+    const before = work.before ?? {};
+    if (serializeTree(built) === serializeTree(before) || sameSpec(built, before)) return;
     let layout;
     try {
       layout = layoutOf(readFileSync(work.plainFile, "utf8"));
@@ -463,7 +465,8 @@ export function createRenderQueue(options: {
               conformance: conformanceOf(running) !== "off",
               ...(conformanceOf(running) === "job" ? { conformanceJobId: running.conformanceJobId } : {}),
             },
-            ...(built !== null ? { built } : {}),
+            // Nothing built yet is the empty spec, so a first build can be stopped and started again too.
+            built: built ?? {},
           }
         : {}),
     };

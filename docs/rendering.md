@@ -423,7 +423,9 @@ conformance jobs - held to the same end; what would change
 the spec itself takes a spec diff. Stopping a queued spec diff by hand does not take its change
 out of the `.plain` files, so a spec diff that starts after one ahead of it did not land - stopped,
 or failed - takes its diff again, from what the code is built from to the spec it leaves, and says
-so: what it records is always what it built.
+so: what it records is always what it built. On a module nothing is built on yet, what the code is
+built from is the empty spec: the job behind a first scaffold that did not land builds the scaffold
+too, and the queue master can stop a first build and start it again as it can any other.
 
 `render_spec_diff_conformance` is its conformance half, on its own - what `render_functionality_conformance`
 is to `render_functionality`. It takes the same diff, applies it unless it already is, and has one

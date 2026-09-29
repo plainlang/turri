@@ -253,6 +253,47 @@ describe("the queue master", () => {
     expect(registry.get(kudos.jobId)!.note).toContain("Rebased when it started");
   });
 
+  it("takes a first build's change again from nothing when the scaffold ahead of it was stopped - nothing built is the empty spec", async () => {
+    const buildDir = join(dir, "plain_modules", "backend", "code");
+    const scaffold = { "implementation reqs": [{ markdown: "- TypeScript." }] };
+    const withSpec = { ...scaffold, "functional specs": [{ markdown: "- Users sign up." }] };
+    writeFileSync(join(dir, "backend.plain"), "***implementation reqs***\n\n- TypeScript.\n\n***functional specs***\n\n- Users sign up.\n");
+    const snapshot = (tree: object) => ({ moduleName: "backend", plainFile: join(dir, "backend.plain"), tree, chain: [{ moduleName: "backend", plainFile: join(dir, "backend.plain"), buildDir }] }) as unknown as SpecSnapshot;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const registry = createJobRegistry();
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "backend.plain")), run: async () => (await held, { report: "" }) });
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    const first = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- TypeScript.", applied: "already applied", spec: snapshot(scaffold) });
+    const second = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users sign up.", applied: "already applied", spec: snapshot(withSpec) });
+    registry.stop(first.jobId);
+    release();
+    await registry.wait(second.jobId);
+
+    expect(renderedDiffs).toHaveLength(1);
+    expect(renderedDiffs[0]).toContain("TypeScript.");
+    expect(renderedDiffs[0]).toContain("Users sign up.");
+    expect(registry.get(second.jobId)!.note).toContain("Rebased when it started");
+  });
+
+  it("runs a first build's jobs one after the other, though the spec had no functional specs when the first was queued", async () => {
+    const spec = join(dir, "backend.plain");
+    const buildDir = join(dir, "plain_modules", "backend", "code");
+    const snapshot = (tree: object) => ({ moduleName: "backend", plainFile: spec, tree, chain: [{ moduleName: "backend", plainFile: spec, buildDir }] }) as unknown as SpecSnapshot;
+    writeFileSync(spec, "***implementation reqs***\n\n- :Implementation: is TypeScript.\n");
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    holdNext = true;
+    const scaffold = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- :Implementation: is TypeScript.", applied: "already applied", spec: snapshot({ "implementation reqs": [{ markdown: "- TypeScript." }] }) });
+    writeFileSync(spec, "***implementation reqs***\n\n- :Implementation: is TypeScript.\n\n***functional specs***\n\n- Users sign up.\n");
+    const first = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users sign up.", applied: "already applied", spec: snapshot({ "implementation reqs": [{ markdown: "- TypeScript." }], "functional specs": [{ markdown: "- Users sign up." }] }) });
+    await vi.waitFor(() => expect(releaseSlow).toBeDefined());
+    expect(registry.get(scaffold.jobId)!.status).toBe("running");
+    expect(registry.get(first.jobId)!.status).toBe("queued");
+    releaseSlow!();
+    await registry.wait(first.jobId);
+  });
+
   it("reworks the queue as the person asks - the feed before the nav bar - and says what it left", async () => {
     const { writeBuiltTree } = await import("../../src/render/state.ts");
     const buildDir = join(dir, "plain_modules", "frontend", "code");

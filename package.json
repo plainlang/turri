@@ -51,7 +51,9 @@
     "src",
     ".pi",
     "skills",
+    "forge",
     "vm",
+    "docs",
     "README.md"
   ]
 }

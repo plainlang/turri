@@ -56,7 +56,9 @@ command line ("run it headless", "use the CLI", or the command itself). pi confi
 
 A render takes minutes, so in the TUI every render tool starts the work as a background job and
 returns straight away. The conversation carries on; jobs on the same module - or on modules of one
-`requires` chain - queue behind each other, in the order they were asked for, and jobs on modules
+`requires` chain - queue behind each other, in the order they were asked for, from the first job on:
+one queued while the spec is only a scaffold, with no functional specs yet, or while it does not
+parse, still holds its module, so nothing on the module runs beside it. Jobs on modules
 that share nothing run side by side, each module in its own VM, with its own progress panel - two
 modules or ten. How many run at once is capped by what the machine has room for: past
 `parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a job whose turn has

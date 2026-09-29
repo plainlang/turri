@@ -382,6 +382,7 @@ export async function reworkQueue(options: {
       if (stopped !== undefined) return `Job ${stopped.jobId} is already stopped.`;
       if (input.running === undefined) return "Nothing is running: there is no job to stop.";
       if (input.built === undefined) return "It cannot be stopped: nothing records what the code is built from before it, to start again from.";
+      // (A first build has one: the empty spec - nothing is built, so its work starts from nothing.)
       stopped = { jobId: input.running.jobId, reason };
       work = { ...input, base: input.built, queued: [input.running, ...input.queued], running: undefined };
       draft = propose(work);
