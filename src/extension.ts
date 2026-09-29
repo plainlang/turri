@@ -1233,6 +1233,12 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
           // The job itself reports why no codebase could be chosen.
         }
       }
+      // In the background it joins the render queue, as a functionality's render does: it lands on its unit tests,
+      // and its conformance tests - brought in line with the new spec - and the whole suite follow as a job of their own.
+      if (!shouldWait(ctx.mode, params.wait) && params.build_dir === undefined && params.in_module === undefined) {
+        const queued = renderQueueFor(jobs, cwd, ctx).enqueue({ plainFile, frid: params.frid, regenerate: true, model });
+        return queuedReport(jobs, queued.jobId, "regenerate_functionality", queued.conformanceJobId);
+      }
       return deliver(jobs, {
         kind: "regenerate_functionality",
         summary: `${basename(params.plain_file)} fs ${params.frid} (rebuild)`,

@@ -4,6 +4,7 @@ description: >-
   Add a concept to the ***definitions*** section of a ***plain spec file. Use
   when the user wants to define a new concept, entity, or domain term in a
   .plain file.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Concept

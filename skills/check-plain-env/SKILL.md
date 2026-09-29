@@ -8,6 +8,7 @@ description: >-
   installed (with versions), what's missing, and concrete OS-specific install
   commands for the gaps. Run this any time someone is about to render, test,
   or onboard onto a ***plain project for the first time.
+allowed-tools: [read, bash, ls, grep, find]
 ---
 
 # Check Plain Env

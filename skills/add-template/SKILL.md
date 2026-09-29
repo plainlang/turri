@@ -4,6 +4,7 @@ description: >-
   Create or include a Liquid template in a ***plain spec file using
   {% include %} syntax. Use when the same spec content needs to be reused
   across multiple .plain files with different parameters.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Template

@@ -214,3 +214,16 @@ describe("rendering the chain after its specs were split into a new module below
     expect(historyLog(buildOf("shop"))).toMatch(/start from catalog[\s\S]*start from scratch: it now requires catalog[\s\S]*built shop/);
   });
 });
+
+describe("a regeneration that leaves its conformance tests to the job behind it", () => {
+  it("lands on its unit tests - no conformance tests of its own, no suite - and says the job behind it has them", async () => {
+    for (const name of ["base", "middle", "top"]) built(name);
+    writeFileSync(file("base"), module_(["- Base one, changed.", "- Base two."]));
+    const result = await regenerateFunctionality({ plainFile: file("base"), frid: "1", conformanceLater: true });
+    expect(result).toMatchObject({ passed: true, stoppedAt: null, conformanceLater: true });
+    expect(result.conformance).toBeUndefined();
+    expect(result.regression).toBeUndefined();
+    expect(renders).toHaveLength(1);
+  });
+});
+

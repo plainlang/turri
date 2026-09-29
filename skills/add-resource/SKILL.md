@@ -5,6 +5,7 @@ description: >-
   the user wants to reference a JSON schema, API spec, data file, or other
   external file from within a functional spec, definition, or implementation
   requirement.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Resource

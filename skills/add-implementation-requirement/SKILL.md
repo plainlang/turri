@@ -6,6 +6,7 @@ description: >-
   requirements like technology choices, architectural constraints, coding
   standards, data formats, error handling strategies, or any HOW-to-build
   guidance to a .plain file.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Implementation Requirement

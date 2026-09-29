@@ -52,7 +52,7 @@ import {
   builtRequiredSpecs,
   type Pending,
 } from "./state.ts";
-import { renderFunctionality, resolveTemplateDirs, type RenderFunctionalityResult } from "./render.ts";
+import { renderFunctionality, resolveTemplateDirs, type PinnedSpec, type RenderFunctionalityResult } from "./render.ts";
 import {
   listFiles,
   runCommand,
@@ -673,6 +673,13 @@ async function renderAsSpecDiffs(
 
 export interface RegenerateFunctionalityOptions extends RenderModuleOptions {
   frid: string;
+  /** The spec as it was when the regeneration was asked for: what it builds, whatever the file says by then. */
+  pinned?: PinnedSpec;
+  /**
+   * Land on the unit tests, and leave the conformance tests - brought in line with the new spec - and
+   * the whole suite to a job of its own right behind it, as a functionality's render and a spec diff do.
+   */
+  conformanceLater?: boolean;
   /**
    * The module whose codebase to regenerate in. Default: the furthest-built module whose
    * requires chain includes this one - required only when those sit on different branches.
@@ -692,6 +699,8 @@ export interface RegenerateFunctionalityResult {
   regression?: RegressionResult;
   passed: boolean;
   stoppedAt: "unit tests" | "conformance" | "regression" | null;
+  /** It landed on its unit tests: its conformance tests, and the whole suite, follow as a job of their own. */
+  conformanceLater?: boolean;
 }
 
 /**
@@ -712,7 +721,7 @@ export async function regenerateFunctionality(
   options: RegenerateFunctionalityOptions,
 ): Promise<RegenerateFunctionalityResult> {
   const templateDirs = resolveTemplateDirs(options.plainFile, options.templateDirs);
-  const [moduleName, tree] = plainFileParser(basename(options.plainFile), templateDirs);
+  const [moduleName, tree] = options.pinned !== undefined ? [options.pinned.moduleName, options.pinned.tree] : plainFileParser(basename(options.plainFile), templateDirs);
 
   const allFrids = [...getFrids(tree)];
   if (!allFrids.includes(options.frid)) {
@@ -756,6 +765,7 @@ export async function regenerateFunctionality(
     buildDir,
     model: options.model,
     regenerate: { in: host },
+    ...(options.pinned !== undefined ? { pinned: options.pinned } : {}),
     onDelta: options.onDelta,
     onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
   });
@@ -768,6 +778,12 @@ export async function regenerateFunctionality(
   const found = findTestScripts(projectRootFor(host?.plainFile ?? options.plainFile, buildDir), host?.plainFile ?? options.plainFile, buildDir);
   const scripts = options.conformance === false ? withoutConformance(found) : found;
   const hasTestReqs = (getSpecificationItems(tree, TEST_REQUIREMENTS) ?? []).length > 0;
+
+  // Landed on its unit tests: its conformance tests and the whole suite are the job behind it.
+  if (options.conformanceLater === true && options.conformance !== false && hasTestReqs) {
+    reportStage(`${unitOf(moduleName, options.frid)}: regenerated - its conformance tests, and the whole suite, follow as a job of their own`);
+    return { ...base, render, passed: true, stoppedAt: null, conformanceLater: true };
+  }
 
   // No conformance tests of its own to bring in line - conformance is off, or the module has no
   // test reqs to write them from. The codebase's existing ones are still kept passing, unless off.
@@ -800,6 +816,8 @@ export async function regenerateFunctionality(
     // In the codebase it is regenerated in: its tests are that codebase's tests.
     conformanceDir: conformanceDirFor(host?.moduleName ?? moduleName, conformanceRoot),
     model: options.model,
+    // The spec it was asked to regenerate from, when it was pinned: the tests follow what the code was built from.
+    ...(options.pinned !== undefined ? { spec: options.pinned } : {}),
     onDelta: options.onDelta,
     onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
   });

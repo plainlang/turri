@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { committedText } from "./history.ts";
 import { join } from "node:path";
 import {
   ACCEPTANCE_TESTS,
@@ -120,9 +121,31 @@ function withoutEmpty(tree: MarshalledPlainSource): MarshalledPlainSource {
 
 /** The tree the code in `buildDir` was built from - or null when nothing records one. */
 export function readBuiltTree(buildDir: string): MarshalledPlainSource | null {
+  let text: string;
+  try {
+    text = readFileSync(join(buildDir, STATE_FILE), "utf8");
+  } catch {
+    return null;
+  }
+  return treeFromRecord(text);
+}
+
+/**
+ * The tree the code was built from as the codebase's last commit records it - what the harness
+ * itself wrote when the last unit of work landed. The file on disk is in the code folder, where an
+ * agent's shell can reach it; what the harness records next is built on this, so a change an agent
+ * made to the record is never carried on. Without a history: the file on disk.
+ */
+export function readCommittedTree(buildDir: string): MarshalledPlainSource | null {
+  const text = committedText(buildDir, STATE_FILE);
+  return text !== undefined ? treeFromRecord(text) : readBuiltTree(buildDir);
+}
+
+/** A record's text as the tree it holds, whatever layout wrote it - or null when it is not one. */
+function treeFromRecord(text: string): MarshalledPlainSource | null {
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(join(buildDir, STATE_FILE), "utf8"));
+    raw = JSON.parse(text);
   } catch {
     return null;
   }
@@ -163,7 +186,8 @@ export function withBuiltFunctionality(built: MarshalledPlainSource | null, curr
 
 /** Record that functionality `frid` of `current` is built in `buildDir`. */
 export function recordBuiltFunctionality(buildDir: string, current: MarshalledPlainSource, frid: string): MarshalledPlainSource {
-  const tree = withBuiltFunctionality(readBuiltTree(buildDir), current, frid);
+  // Built on the record as the harness last committed it, never on one an agent changed since.
+  const tree = withBuiltFunctionality(readCommittedTree(buildDir), current, frid);
   writeBuiltTree(buildDir, tree);
   return tree;
 }
@@ -173,7 +197,7 @@ export function recordBuiltFunctionality(buildDir: string, current: MarshalledPl
  * rebuilt there, as that module's spec - `item` - now has it. Nothing else of its tree moves.
  */
 export function recordBuiltRequiredFunctionality(buildDir: string, module: string, frid: string, item: SpecificationItem): void {
-  const built = readBuiltTree(buildDir) ?? {};
+  const built = readCommittedTree(buildDir) ?? {};
   const required = items(built, REQUIRED_FUNCTIONAL_SPECS);
   const at = required.findIndex((entry) => entry.module === module && entry.frid === frid);
   const entry = { ...item, module, frid };

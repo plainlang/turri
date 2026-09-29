@@ -83,6 +83,14 @@ describe("confinedTools", () => {
     expect(existsSync(join(code, "tests", "test_app.py"))).toBe(true);
   });
 
+  it("refuses the record of what the code is built from - it is the harness's to write", async () => {
+    const fence = confinedTools({ workdir: code });
+    const write = fence.tools.find((tool) => tool.name === "write")!;
+    const edit = fence.tools.find((tool) => tool.name === "edit")!;
+    await expect(execute(write, { path: ".plainwright.json", content: "{}\n" })).rejects.toThrow(/the harness's record of what the code is built from/);
+    await expect(execute(edit, { path: ".plainwright.json", edits: [{ oldText: "{", newText: "[" }] })).rejects.toThrow(/no agent does/);
+  });
+
   it("reaches every module in plain_modules", async () => {
     const fence = confinedTools({ workdir: tests });
     const read = fence.tools.find((t) => t.name === "read")!;

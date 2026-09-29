@@ -6,6 +6,7 @@ description: >-
   Use after drafting a new functional spec (during `add-functional-spec`, or
   per spec during `add-functional-specs`) to verify it fits within the
   complexity limit before inserting it.
+allowed-tools: [read, ls, grep, find]
 ---
 
 # Analyze If Functional Spec Is Too Complex

@@ -77,7 +77,7 @@ describe("rendering and waiting, from a skill", () => {
     const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     const queued = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
     expect(queued).toContain("Queued 2 renders of app.plain: functionality 1");
-    const waited = text(await tool(tools, "wait_for_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
+    const waited = text(await tool(tools, "watch_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
     expect(waited).toContain("Every build queued since this run started has finished");
     expect(waited).toMatch(/app\.plain fs 1 · succeeded after \S+ - built 1/);
     expect(rendered).toEqual(["1", "2"]);
@@ -96,5 +96,76 @@ describe("rendering and waiting, from a skill", () => {
     expect(changed).toMatch(/as one spec diff: job \S+/);
     expect(registry.list()[0]!.diff).toContain("+- Say hello, loudly.");
     registry.stop(registry.list()[0]!.id);
+  });
+});
+
+describe("watching the builds, for a run that goes on until the spec is built", () => {
+  it("tells a build that struggles - sent back again and again, setbacks, a conflict, a retry, far too long - from one that goes well", async () => {
+    const { struggling, LONG_BUILD_MS } = await import("../src/temper-tools.ts");
+    const job = (stage: string | undefined, stages: string[], startedAt = Date.now()) =>
+      ({ status: "running", stage, startedAt, transcript: stages.map((text) => ({ kind: "stage", text })) }) as never;
+    expect(struggling(job("app 2: running the unit testing script (attempt 1)", ["app 2: plainwright is writing the code"]))).toBeUndefined();
+    expect(struggling(job("app 2: unit tests not passing - fixing (round 5 of 20)", []))?.why).toContain("sent back 5 times of at most 20");
+    expect(struggling(job(undefined, Array.from({ length: 5 }, (_, i) => `app 2: unit tests not passing - fixing (round ${i + 1} of 20)`)))?.why).toContain("5 setbacks");
+    expect(struggling(job(undefined, ["a spec conflict between functionalities app 2 and app 4 is recorded (1 of 3)"]))?.key).toBe("conflict");
+    expect(struggling(job(undefined, ["the job failed - trying it once more (1 of 1)"]))?.key).toBe("retry");
+    expect(struggling(job(undefined, [], Date.now() - LONG_BUILD_MS - 1000))?.why).toContain("running for");
+  });
+
+  it("comes back as soon as a build struggles - with what it went through - and says each struggle once", async () => {
+    const registry = createJobRegistry();
+    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    let release!: () => void;
+    const started = registry.start({
+      kind: "render",
+      summary: "app.plain fs 2",
+      run: async () => {
+        await new Promise<void>((resolve) => (release = resolve));
+        return { report: "built" };
+      },
+    });
+    const job = registry.get(started.id)!;
+    job.stage = "app 2: unit tests not passing - fixing (round 6 of 20)";
+    job.transcript.push({ kind: "stage", text: "app 2: unit tests not passing - fixing (round 6 of 20)" });
+    job.tail = "AssertionError: expected 400, got 422 - the spec does not say which";
+
+    const first = text(await tool(tools, "watch_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
+    expect(first).toContain("1 build is struggling:");
+    expect(first).toContain("sent back 6 times of at most 20");
+    expect(first).toContain("expected 400, got 422");
+
+    // Said once: watching again waits for the build to end instead.
+    setTimeout(() => release(), 50);
+    const next = text(await tool(tools, "watch_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
+    expect(next).toContain("Every build queued since this run started has finished");
+  });
+
+  it("stops a struggling build so it is rendered again from the clarified spec", async () => {
+    const registry = createJobRegistry();
+    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const started = registry.start({ kind: "render", summary: "app.plain fs 2", run: async ({ signal } = {} as never) => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: String(signal) }) });
+    const said = text(await tool(tools, "stop_job").execute("id", { job_id: started.id, reason: "the spec now says a duplicate email is refused with 409" }, undefined, undefined, {} as never));
+    expect(said).toContain(`Stopped job ${started.id}`);
+    expect(registry.get(started.id)!.status).toBe("stopped");
+    expect(registry.get(started.id)!.note).toContain("a duplicate email is refused with 409");
+  });
+
+  it("knows the goal: the spec fully rendered - built from the spec as it stands, nothing running, its last builds passing", async () => {
+    const { specStatusOf } = await import("../src/temper-tools.ts");
+    writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
+    expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("nothing is built yet");
+    const { recordBuiltFunctionality } = await import("../src/render/state.ts");
+    const tree = plainFileParser("app.plain", [dir])[1];
+    recordBuiltFunctionality(buildDir(), tree, "1");
+    expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("functionalities not built from the spec as it stands: 2 (never built)");
+    recordBuiltFunctionality(buildDir(), tree, "2");
+    writeFileSync(join(buildDir(), "app.py"), "print('hi')\n");
+    const failed = { id: "f1", kind: "render_spec_diff_conformance", summary: "app.plain spec diff conformance", status: "failed", sequence: 1, details: { passed: false } };
+    expect(specStatusOf(join(dir, "app.plain"), dir, [failed as never]).text).toContain("did not pass");
+    const status = specStatusOf(join(dir, "app.plain"), dir, []);
+    expect(status).toMatchObject({ done: true });
+    expect(status.text).toContain("app.plain is fully rendered: all 2 functionalities");
   });
 });

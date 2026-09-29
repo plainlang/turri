@@ -8,7 +8,8 @@ import { modulesRoot, projectDirOf } from "./render/paths.ts";
 import type { RenderQueue } from "./render/queue.ts";
 import { snapshotSpec } from "./render/spec-change.ts";
 import { diffSpecText, layoutOf, reachedByRendering, sameSpec, serializeTree } from "./render/spec-steps.ts";
-import { readBuiltTree } from "./render/state.ts";
+import { pendingFrids, readBuiltTree } from "./render/state.ts";
+import { getFrids } from "./plain/spec.ts";
 
 /**
  * The tools a skill that tempers a spec works with: build what the spec holds, wait for the builds,
@@ -89,6 +90,87 @@ function jobLine(job: Job): string {
   return `- job ${job.id} · ${job.summary} · ${job.status}${job.status === "running" || job.status === "queued" ? "" : ` after ${formatDuration(job)}`}${flags ? ` · ${flags}` : ""}${said ? ` - ${said.slice(0, 200)}` : ""}`;
 }
 
+/** Why a build is struggling: a key for what kind of struggle it is - handed out once each - and what it says. */
+export interface Struggle {
+  key: string;
+  why: string;
+}
+
+/** Setbacks a build reports as it goes: its stages that say a run failed, a review sent tests back, a judge found something wrong. */
+const SETBACK = /not passing|NOT passing|the review found|is wrong|found the|failed|a spec conflict|contradicts|stuck|cannot|still leave|trying it once more/;
+
+/** How long a build may run before it counts as struggling on its length alone. */
+export const LONG_BUILD_MS = 30 * 60_000;
+
+/**
+ * Whether a running build is struggling, and how: sent back four times or more in one loop, five
+ * setbacks or more, a spec conflict raised, a failure being run again, or running far longer than a
+ * build should. Each kind comes once per build - a round count again only every four rounds more.
+ */
+export function struggling(job: Job, now = Date.now()): Struggle | undefined {
+  if (job.status !== "running") return undefined;
+  const stages = job.transcript.filter((entry) => entry.kind === "stage").map((entry) => entry.text);
+  if (stages.some((stage) => /a spec conflict|contradicts itself/.test(stage))) return { key: "conflict", why: "a spec conflict was raised: two functional specs that may not both hold" };
+  if (stages.some((stage) => /trying it once more/.test(stage))) return { key: "retry", why: "it failed once and is being run again" };
+  const round = /round (\d+) of (\d+)/.exec(job.stage ?? "");
+  if (round !== null && Number(round[1]) >= 4) {
+    const bucket = Math.floor((Number(round[1]) - 4) / 4);
+    return { key: `rounds-${bucket}`, why: `sent back ${round[1]} times of at most ${round[2]}: ${job.stage}` };
+  }
+  const setbacks = stages.filter((stage) => SETBACK.test(stage));
+  if (setbacks.length >= 5) return { key: `setbacks-${Math.floor(setbacks.length / 5)}`, why: `${setbacks.length} setbacks so far - the last: ${setbacks.at(-1)}` };
+  if (now - job.startedAt > LONG_BUILD_MS) return { key: `long-${Math.floor((now - job.startedAt) / LONG_BUILD_MS)}`, why: `running for ${formatDuration(job)}` };
+  return undefined;
+}
+
+/** A struggling build, for the skill to judge: why, its last stages, and the end of what it printed. */
+function describeStruggle(job: Job, struggle: Struggle): string {
+  const stages = job.transcript.filter((entry) => entry.kind === "stage").map((entry) => entry.text).slice(-12);
+  return [
+    `job ${job.id} · ${job.summary} · ${struggle.why}`,
+    job.diff !== undefined ? `<its change>\n${job.diff.trim().slice(0, 3000)}\n</its change>` : "",
+    `<its last stages>\n${stages.map((stage) => `- ${stage}`).join("\n")}\n</its last stages>`,
+    job.tail.trim() !== "" ? `<the end of its output>\n${job.tail.trim().slice(-2500)}\n</the end of its output>` : "",
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+}
+
+/**
+ * Whether a module's spec is fully rendered - the goal of a tempering run: its code built from the
+ * spec as it stands, nothing queued or running for it, and the last build of each kind on its
+ * codebase passing.
+ */
+export function specStatusOf(plainFile: string, cwd: string, jobs: Job[]): { done: boolean; text: string } {
+  const spec = snapshotSpec(plainFile, { cwd });
+  const tip = spec.chain.at(-1)!;
+  const built = readBuiltTree(tip.buildDir);
+  const name = basename(plainFile);
+  const missing: string[] = [];
+  const frids = [...getFrids(spec.tree)];
+  if (built === null) missing.push("nothing is built yet");
+  else {
+    const pending = pendingFrids(spec.tree, tip.buildDir);
+    if (pending.length > 0) missing.push(`functionalities not built from the spec as it stands: ${pending.map((entry) => `${entry.frid} (${entry.reason})`).join(", ")}`);
+    else if (!sameSpec(built, spec.tree)) missing.push("the code is built from an earlier spec - a definition, a req or a section changed since");
+  }
+  // The builds of this codebase: by the module each is for - its summary starts with its .plain file.
+  const mineOf = jobs.filter((job) => spec.chain.some((entry) => job.summary.startsWith(basename(entry.plainFile))));
+  const busy = mineOf.filter((job) => job.status === "running" || job.status === "queued");
+  if (busy.length > 0) missing.push(`${busy.length} build${busy.length === 1 ? " is" : "s are"} still running or queued: ${busy.map((job) => job.id).join(", ")}`);
+  const last = new Map<string, Job>();
+  for (const job of [...mineOf].sort((a, b) => a.sequence - b.sequence)) if (job.status !== "running" && job.status !== "queued") last.set(job.kind, job);
+  const failing = [...last.values()].filter((job) => job.status === "failed" || (job.details as { passed?: boolean } | undefined)?.passed === false);
+  if (failing.length > 0) missing.push(`the last ${failing.map((job) => `${job.kind} (job ${job.id})`).join(" and ")} did not pass`);
+  const done = missing.length === 0 && frids.length > 0;
+  return {
+    done,
+    text: done
+      ? `${name} is fully rendered: all ${frids.length} functionalities built from the spec as it stands, nothing queued, and its last builds passing.`
+      : `${name} is not fully rendered yet:\n${missing.map((item) => `- ${item}`).join("\n")}`,
+  };
+}
+
 export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
   const startedAt = options.startedAt ?? new Date();
   const mine = () => options.jobs.list().filter((job) => job.queuedAt >= startedAt.getTime());
@@ -103,7 +185,7 @@ export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegist
       "Queue the build of everything a module's spec holds that its code is not built from: functionality by " +
       "functionality when only new functional specs were added - or nothing is built yet - and otherwise one spec diff " +
       "from what the code is built from to the spec as it is. For a module that requires another, render the one it " +
-      "requires first. Returns the jobs it queued; wait for them with wait_for_jobs.",
+      "requires first. Returns the jobs it queued; watch them with watch_jobs.",
     promptSnippet: "render_spec: queue the build of what a module's spec holds that is not built",
     parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
     async execute(_id, params) {
@@ -132,33 +214,91 @@ export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegist
     },
   });
 
-  const waitForJobs = defineTool({
-    name: "wait_for_jobs",
-    label: "Wait for the builds",
+  /** The struggles already handed out, by job and what they were - each reported once, again only when it grows. */
+  const flagged = new Set<string>();
+
+  const watchJobs = defineTool({
+    name: "watch_jobs",
+    label: "Watch the builds",
     description:
-      "Wait until every build queued since this run started has finished - or `minutes` have passed - and say how each " +
-      "one ended. Call it again when some are still running.",
-    promptSnippet: "wait_for_jobs: wait for the queued builds and say how each ended",
+      "Watch the builds queued since this run started, and come back as soon as one is struggling - sent back again and " +
+      "again, setback after setback, a spec conflict raised, a failure being run again, running far too long - or when " +
+      "every one has finished, or when `minutes` have passed. For a struggling build it gives what it has been through: its " +
+      "last stages and the end of its output. Says how every build stands.",
+    promptSnippet: "watch_jobs: watch the builds, and come back when one struggles or all are done",
     parameters: Type.Object({
-      minutes: Type.Optional(Type.Number({ description: "The longest to wait, in minutes. Default 20" })),
+      minutes: Type.Optional(Type.Number({ description: "The longest to watch, in minutes. Default 20" })),
     }),
     async execute(_id, params, signal) {
       const limit = Math.max(1, Math.min(120, params.minutes ?? 20)) * 60_000;
       const deadline = Date.now() + limit;
       const pending = () => mine().filter((job) => job.status === "running" || job.status === "queued");
-      while (pending().length > 0 && Date.now() < deadline && signal?.aborted !== true) {
+      const newStruggles = () =>
+        mine()
+          .map((job) => ({ job, struggle: struggling(job) }))
+          .filter((item): item is { job: Job; struggle: Struggle } => item.struggle !== undefined && !flagged.has(`${item.job.id}|${item.struggle.key}`));
+      let found = newStruggles();
+      while (found.length === 0 && pending().length > 0 && Date.now() < deadline && signal?.aborted !== true) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
+        found = newStruggles();
       }
+      for (const item of found) flagged.add(`${item.job.id}|${item.struggle.key}`);
       const all = mine().sort((a, b) => a.sequence - b.sequence);
       const left = pending();
       const text = [
-        left.length === 0 ? `Every build queued since this run started has finished (${all.length}).` : `${left.length} of ${all.length} builds are still running or queued - call wait_for_jobs again.`,
+        found.length > 0
+          ? `${found.length} build${found.length === 1 ? " is" : "s are"} struggling:`
+          : left.length === 0
+            ? `Every build queued since this run started has finished (${all.length}).`
+            : `No build is struggling; ${left.length} of ${all.length} are still running or queued - call watch_jobs again.`,
+        ...found.flatMap(({ job, struggle }) => ["", describeStruggle(job, struggle)]),
         "",
+        "Every build:",
         ...all.map(jobLine),
         "",
-        "Read what the builds had to decide themselves with spec_findings.",
+        "Read what the builds had to decide themselves with spec_findings; see how far the spec is built with spec_status.",
       ].join("\n");
-      return { content: [{ type: "text" as const, text }], details: { pending: left.length } };
+      return { content: [{ type: "text" as const, text }], details: { pending: left.length, struggling: found.map((item) => item.job.id) } };
+    },
+  });
+
+  const stopJob = defineTool({
+    name: "stop_job",
+    label: "Stop a build",
+    description:
+      "Stop a build - one struggling on something the spec did not settle, once the spec says it: a queued one never starts, " +
+      "a running one has its agent stopped, and what it wrote and did not commit is put back by the next build of its module. " +
+      "Its functionality counts as not built; render_spec builds it again, from the spec as it now is.",
+    promptSnippet: "stop_job: stop a struggling build, to render it again from the clarified spec",
+    parameters: Type.Object({ job_id: Type.String(), reason: Type.String({ description: "What the spec now says that it did not" }) }),
+    async execute(_id, params) {
+      const job = mine().find((candidate) => candidate.id.startsWith(params.job_id.trim()));
+      const say = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
+      if (job === undefined) return say(`No build ${params.job_id} queued by this run.`);
+      if (job.status !== "running" && job.status !== "queued") return say(`Job ${job.id} is already ${job.status}.`);
+      options.jobs.stop(job.id);
+      job.note = `Stopped by temper-plain: ${params.reason}. It is rendered again from the spec as it now says it.`;
+      try {
+        await options.jobs.wait(job.id);
+      } catch {
+        // Stopped is what it was asked to be.
+      }
+      return say(`Stopped job ${job.id} (${job.summary}). Render it again with render_spec once the spec says what it needed.`);
+    },
+  });
+
+  const specStatus = defineTool({
+    name: "spec_status",
+    label: "How far the spec is built",
+    description:
+      "Whether a module's spec is fully rendered: every functionality built from the spec as it stands, the code's record the " +
+      "spec itself, nothing queued or running for it, and its last builds - conformance included - passing. Says what is not, " +
+      "when it is not.",
+    promptSnippet: "spec_status: is the spec fully rendered, and if not, what is missing",
+    parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
+    async execute(_id, params) {
+      const status = specStatusOf(resolve(options.cwd, params.plain_file), options.cwd, options.jobs.list());
+      return { content: [{ type: "text" as const, text: status.text }], details: { done: status.done } };
     },
   });
 
@@ -196,9 +336,9 @@ export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegist
     },
   });
 
-  return [renderSpec, waitForJobs, specFindings];
+  return [renderSpec, watchJobs, stopJob, specStatus, specFindings];
 }
 
 /** The names of the tempering tools, as a skill's allowed-tools names them. */
-export const TEMPER_TOOLS = ["render_spec", "wait_for_jobs", "spec_findings"];
+export const TEMPER_TOOLS = ["render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"];
 

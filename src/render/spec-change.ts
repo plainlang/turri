@@ -348,11 +348,18 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     lastFrid !== undefined ? getSpecificationsForFrid(tree, lastFrid)[0] : { ...sections, [FUNCTIONAL_REQUIREMENTS]: [] };
   const required = getInheritedFunctionalSpecs(tree);
   stage("mapping the codebase and writing the prompt");
+  // The agent is given the spec the code is built from - the state before the change - and the change: the spec
+  // before it, plus the diff, is the spec after it. Read from the codebase as it is now, code copied up from a
+  // required module included; with nothing built, there is no spec before, and the change is all of it.
+  const builtNow = readBuiltTree(buildDir) ?? {};
+  const builtFrids = [...getFrids(builtNow)];
+  const specificationsBefore: Specifications =
+    builtFrids.length > 0 ? getSpecificationsForFrid(builtNow, builtFrids.at(-1)!)[0] : { ...sectionsOf(builtNow), [FUNCTIONAL_REQUIREMENTS]: [] };
   const prompt = buildSpecDiffPrompt({
     moduleName,
     diff: options.diff,
-    specifications,
-    required,
+    specifications: specificationsBefore,
+    required: getInheritedFunctionalSpecs(builtNow),
     linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
     codebase: codebaseMap(buildDir),
     empty: listFiles(buildDir).length === 0,

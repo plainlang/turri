@@ -50,9 +50,10 @@ declares gates today.
 `write_spec_diff` otherwise refuses a new change until the user has answered a question since the
 last one - one answer, one change, as an interview writes them. `spark-plain` is unpaced.
 
-A skill that lists no `allowed-tools` is not restricted, as the Agent Skills spec has it: it gets the
-file tools - `read`, `write`, `edit`, `bash`, `ls`, `grep`, `find`. One that lists `[]` gets none.
-The tools plainwright provides - `write_spec_diff` and the ones below - come only when listed.
+A skill gets the tools its `allowed-tools` names, and nothing else: one that names none has none. So
+every skill here names its own - the file tools (`read`, `write`, `edit`, `bash`, `ls`, `grep`, `find`)
+for the ones that write specs, resources or scripts, only the reading ones for those that analyse
+and report, and plainwright's own (`write_spec_diff` and the ones below) where a skill uses them.
 
 What a run changed is part of its result: every file of the project it added, changed or removed -
 its specs, resources, scripts; not the built code - or that it changed none, which is said as such,
@@ -60,11 +61,15 @@ so a run that wrote nothing is never reported as done. A skill without gates say
 reviewed. A `.plain` file a skill edited with the file tools is not rendered by it: the result says
 so, for the conversation to render the change.
 
-A skill that lists `render_spec`, `wait_for_jobs` and `spec_findings` in `allowed-tools` - as
-`temper-plain` does - can build what a module's spec holds (functionality by functionality, or the
-difference as one spec diff), wait for its builds with a time limit, and read back, numbered and each
-once, what the builds recorded since the run started: the assumptions and pitfalls in every
-codebase's working notes, a failed job's diagnosis, a spec that contradicts itself.
+A skill that lists `render_spec`, `watch_jobs`, `stop_job`, `spec_status` and `spec_findings` in
+`allowed-tools` - as `temper-plain` does - can build what a module's spec holds (functionality by
+functionality, or the difference as one spec diff); watch its builds, coming back as soon as one
+struggles - sent back four times or more, five setbacks, a spec conflict, a failure run again, over
+half an hour - with what it went through; stop one, to render it again from a clarified spec; check
+whether a module is fully rendered - built from the spec as it stands, nothing running, its last
+builds passing; and read back, numbered and each once, what the builds recorded since the run
+started: the assumptions and pitfalls in every codebase's working notes, a failed job's diagnosis, a
+spec that contradicts itself.
 
 Each step is told where its skill's files are, so a path it names - `references/intent.md` - and a
 skill it says to follow - `implement-unit-testing-script` - are found without searching.

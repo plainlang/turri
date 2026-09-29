@@ -8,6 +8,7 @@ description: >-
   several specs in one pass. Bulk-writing or hand-authoring functional
   specs without invoking this skill is forbidden; for adding a single spec,
   use add-functional-spec instead.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Functional Specs

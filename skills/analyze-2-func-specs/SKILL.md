@@ -5,6 +5,7 @@ description: >-
   conflict. Use when the user wants to check whether two specific functional
   requirements are compatible, or when debugging a suspected conflict between
   two specs.
+allowed-tools: [read, ls, grep, find]
 ---
 
 # Analyze Two Functional Specs

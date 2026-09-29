@@ -5,6 +5,7 @@ description: >-
   The resulting modules are connected via a requires chain so that functionality
   is 100% preserved. Use when a module has grown too large and its functional
   specs span multiple distinct concerns that would be clearer as separate modules.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Refactor Module

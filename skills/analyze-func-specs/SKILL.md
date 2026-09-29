@@ -5,6 +5,7 @@ description: >-
   which pairs conflict. Replaces the pair-by-pair `analyze-2-func-specs` flow
   when a caller wants to check many specs at once (e.g. a new spec against
   every existing spec, or a freshly inserted batch against itself).
+allowed-tools: [read, ls, grep, find]
 ---
 
 # Analyze Functional Specs

@@ -5,6 +5,7 @@ description: >-
   implementation reqs, and test reqs for other modules to import. Use when
   the user wants to create a new .plain file that contains only definitions,
   implementation reqs, and/or test reqs — no functional specs.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Create Import Module

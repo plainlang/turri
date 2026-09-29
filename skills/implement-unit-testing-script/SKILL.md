@@ -7,6 +7,7 @@ description: >-
   wants to add a testing script for a new language (Python, Node.js, Go, Rust,
   etc.) to a ***plain project, or wants to regenerate / adapt the existing
   Java runner.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Implement Unit Testing Script

@@ -9,6 +9,7 @@ description: >-
   skill or `add-functional-specs` (the bulk variant for adding multiple specs
   in one pass); hand-authoring functional specs without invoking one of these
   skills is forbidden.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Functional Spec

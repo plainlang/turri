@@ -302,3 +302,25 @@ describe("the state file is not part of the codebase", () => {
     expect(listFiles(build)).toEqual(["app.py"]);
   });
 });
+
+describe("the record, as the harness last committed it", () => {
+  it("is what a render builds on - a change an agent's shell made to the file is not carried on", async () => {
+    const { mkdtempSync, writeFileSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { recordHistory } = await import("../../src/render/history.ts");
+    const { recordBuiltFunctionality, readBuiltTree, writeBuiltTree, STATE_FILE } = await import("../../src/render/state.ts");
+    const code = join(mkdtempSync(join(tmpdir(), "plainwright-record-")), "plain_modules", "app", "code");
+    const spec = (items: string[]) => ({ "implementation reqs": [{ markdown: "- Python." }], "functional specs": items.map((markdown) => ({ markdown })) });
+    writeBuiltTree(code, spec(["- Say hello."]) as never);
+    writeFileSync(join(code, "app.py"), "print('hello')\n");
+    recordHistory(code, "render app fs 1");
+    // An agent's shell rewrites the record mid-render: it claims a functionality nobody built.
+    writeFileSync(join(code, STATE_FILE), JSON.stringify(spec(["- Say hello.", "- Launch the rockets."])));
+    recordBuiltFunctionality(code, spec(["- Say hello.", "- Say goodbye."]) as never, "2");
+    const specs = (readBuiltTree(code)!["functional specs"] as Array<{ markdown: string }>).map((item) => item.markdown);
+    expect(specs).toEqual(["- Say hello.", "- Say goodbye."]);
+    expect(readFileSync(join(code, STATE_FILE), "utf8")).not.toContain("rockets");
+  });
+});
+

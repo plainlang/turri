@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
+import { STATE_FILE } from "./state.ts";
 import { modulesRootOf } from "./paths.ts";
 import { truncateOutput } from "./testing.ts";
 import {
@@ -105,8 +106,13 @@ function refuse(path: string, roots: string[], verb: string): never {
   );
 }
 
-/** The working notes are written through update_notes, a line at a time - never as a file. */
+/** The working notes are written through update_notes, a line at a time - never as a file. And the record of what the code is built from is the harness's alone. */
 function refuseNotes(path: string): void {
+  if (basename(path) === STATE_FILE) {
+    throw new ConfinementError(
+      `${STATE_FILE} is the harness's record of what the code is built from: it writes it when work lands, and no agent does.`,
+    );
+  }
   if (basename(path) !== NOTES_FILE) return;
   throw new ConfinementError(
     `${NOTES_FILE} is not written as a file. Call update_notes to add, change or remove its lines.`,

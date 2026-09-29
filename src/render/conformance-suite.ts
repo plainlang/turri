@@ -4,6 +4,7 @@ import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsR
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
 import { findCodebaseTip, requiredFunctionalSpecs, resolveRequiresChain, type ChainEntry } from "./requires.ts";
 import { plainFileParser } from "../plain/parser.ts";
+import type { PinnedSpec } from "./render.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { findTestScripts, projectRootFor } from "./test-scripts.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
@@ -92,6 +93,8 @@ export interface ConformanceSuiteResult {
 
 export interface ConformanceSuiteOptions extends ConformanceSelection {
   plainFile: string;
+  /** The spec of `plainFile`'s module as it was when the tests were asked for: what they are written from. */
+  pinned?: PinnedSpec;
   templateDirs?: string[];
   buildDir?: string;
   /** The codebase to test in, when modules built on this one branch. */
@@ -119,6 +122,10 @@ export async function renderConformanceSuite(
   const treeFor = (entry: ChainEntry) => {
     const cached = trees.get(entry.moduleName);
     if (cached !== undefined) return cached;
+    if (options.pinned !== undefined && entry.moduleName === options.pinned.moduleName) {
+      trees.set(entry.moduleName, options.pinned.tree);
+      return options.pinned.tree;
+    }
     const dirs = resolveTemplateDirs(entry.plainFile, options.templateDirs);
     const [, tree] = plainFileParser(entry.plainFile.split("/").pop()!, dirs);
     trees.set(entry.moduleName, tree);
@@ -161,6 +168,7 @@ export async function renderConformanceSuite(
         conformanceDir: conformanceDirFor(holder, conformanceRoot),
         model: options.model,
         judgeModel: options.judgeModel,
+        ...(options.pinned !== undefined && target.moduleName === options.pinned.moduleName ? { spec: options.pinned } : {}),
         onDelta: options.onDelta,
       });
 

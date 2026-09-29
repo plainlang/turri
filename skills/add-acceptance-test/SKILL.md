@@ -4,6 +4,7 @@ description: >-
   Add acceptance tests under a functional spec in a ***plain spec file. Use
   when the user wants to add verification criteria for a specific functional
   spec, or after adding a functional spec that needs testable success criteria.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Acceptance Test

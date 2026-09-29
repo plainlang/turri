@@ -5,6 +5,7 @@ description: >-
   file. Use when the user wants to specify conformance testing instructions
   like test frameworks, execution methods, or testing constraints in a .plain
   file.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Add Test Requirement

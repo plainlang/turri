@@ -230,6 +230,22 @@ export function abandonWork(start: WorkStart | undefined, moduleName: string, wh
   }
 }
 
+/**
+ * A file of a module as its last commit has it - `file` relative to `dir`, its build or its tests
+ * folder - or undefined when there is no history, no commit, or the file is not in it.
+ */
+export function committedText(dir: string, file: string): string | undefined {
+  try {
+    const moduleDir = moduleDirOf(dir);
+    if (!existsSync(join(moduleDir, HISTORY_DIR))) return undefined;
+    const path = [basename(dir), file].join("/");
+    const shown = git(moduleDir, ["show", `HEAD:${path}`]);
+    return shown.status === 0 ? shown.stdout : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The current commit of a module's history, if it has one. */
 export function head(dir: string): string | undefined {
   const moduleDir = moduleDirOf(dir);

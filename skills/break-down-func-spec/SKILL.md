@@ -4,6 +4,7 @@ description: >-
   Break down a functional spec that is too complex into smaller specs that
   each imply ≤ 200 lines of code. Use when analyze-if-func-spec-too-complex
   flags a spec as TOO COMPLEX, or when a spec is suspected of being too large.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Break Down Functional Spec

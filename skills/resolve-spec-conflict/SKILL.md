@@ -5,6 +5,7 @@ description: >-
   when conformance tests for a previously passing spec start failing after a new
   spec is rendered, or when a potential conflict is detected while adding a new
   functional spec (via `add-functional-spec` or `add-functional-specs`).
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Resolve Spec Conflict

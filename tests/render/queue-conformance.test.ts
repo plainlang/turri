@@ -6,6 +6,8 @@ import type { SpecSnapshot } from "../../src/render/spec-change.ts";
 
 /** Everything the queue ran, in order, and whether each render passes. */
 const ran: string[] = [];
+/** Whether the functionality conformance suite passes. */
+let conformancePasses = true;
 let renderPasses = true;
 const conformanceLaterSeen: Array<boolean | undefined> = [];
 /** What each render was told about conformance: false, off. */
@@ -50,7 +52,7 @@ vi.mock("../../src/render/conformance-suite.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/render/conformance-suite.ts")>();
   return {
     ...actual,
-    renderConformanceSuite: async (options: { frids?: string[] }) => (ran.push(`conformance ${options.frids?.join(",")}`), { passed: true }),
+    renderConformanceSuite: async (options: { frids?: string[]; regression?: boolean }) => (ran.push(`conformance ${options.frids?.join(",")}${options.regression === true ? " + suite" : ""}`), { passed: conformancePasses }),
     describeConformanceSuite: () => "suite passes",
   };
 });
@@ -67,6 +69,7 @@ beforeEach(() => {
   conformanceSeen.length = 0;
   holdNext = false;
   releaseSlow = undefined;
+  conformancePasses = true;
   renderedDiffs.length = 0;
   renderPasses = true;
 });
@@ -126,13 +129,6 @@ describe("a functionality's conformance tests", () => {
     expect(conformance.summary).toBe("app.plain conformance, functionality 1");
     await registry.wait(conformance.id);
     expect(ran).toEqual(["render 1", "conformance 1"]);
-  });
-
-  it("are not queued for a regeneration, which brings its own tests in line", () => {
-    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
-    const { registry, queue: q } = queue(async () => ({ report: "built", details: { landed: true } }));
-    q.enqueue({ plainFile: "app.plain", frid: "1", regenerate: true });
-    expect(registry.list().some((job) => job.kind === "render_functionality_conformance")).toBe(false);
   });
 
   it("can be queued on their own, for functionalities already built", async () => {
@@ -395,5 +391,166 @@ describe("the queue master", () => {
     releaseSlow!();
     await draining;
     expect(registry.get(backend.jobId)!.status).not.toBe("running");
+  });
+
+  it("stacks renders and spec diffs: each render builds the spec as it was when it was queued, and the spec diff between them its own change - never re-taken", async () => {
+    const { recordBuiltFunctionality } = await import("../../src/render/state.ts");
+    const { plainFileParser } = await import("../../src/plain/parser.ts");
+    const { resolveTemplateDirs } = await import("../../src/render/render.ts");
+    const buildDir = join(dir, "plain_modules", "app", "code");
+    const file = (definition: string, specs: string[]) =>
+      `***definitions***\n\n- :Greeting: is ${definition}.\n\n***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n${specs.map((spec) => `- ${spec}`).join("\n\n")}\n`;
+    const built: Array<{ frid: string; greeting: string }> = [];
+    const registry = createJobRegistry();
+    const q = createRenderQueue({
+      registry,
+      cwd: dir,
+      queueMaster: false,
+      // A render as the real one lands: it builds and records the spec it was given.
+      run: async (request) => {
+        const tree = request.pinned!.tree;
+        built.push({ frid: request.frid, greeting: (tree["definitions"] as Array<{ markdown: string }>)[0]!.markdown });
+        recordBuiltFunctionality(buildDir, tree, request.frid);
+        return { report: "built", details: { passed: true, landed: true } };
+      },
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "app.plain")), run: async () => (await held, { report: "" }) });
+
+    writeFileSync(join(dir, "app.plain"), file("a word of welcome", ["Say a :Greeting:."]));
+    const first = q.enqueue({ plainFile: "app.plain", frid: "1" });
+    // The definition changes after the render was queued: a spec diff of its own, behind it.
+    writeFileSync(join(dir, "app.plain"), file("a word of welcome, in the user's language", ["Say a :Greeting:."]));
+    const [, afterTree] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
+    const change = "-- :Greeting: is a word of welcome.\n+- :Greeting: is a word of welcome, in the user's language.";
+    const diff = q.enqueueSpecDiff({ plainFile: "app.plain", diff: change, applied: "already applied", spec: { moduleName: "app", plainFile: join(dir, "app.plain"), tree: afterTree, chain: [{ moduleName: "app", plainFile: join(dir, "app.plain"), buildDir }] } as unknown as SpecSnapshot });
+    writeFileSync(join(dir, "app.plain"), file("a word of welcome, in the user's language", ["Say a :Greeting:.", "Say goodbye."]));
+    const second = q.enqueue({ plainFile: "app.plain", frid: "2" });
+    release();
+    for (const id of [first.jobId, diff.jobId, second.jobId]) await registry.wait(id);
+
+    // The first render built the definition as it was when it was queued - not the change queued after it.
+    expect(built[0]).toEqual({ frid: "1", greeting: "- :Greeting: is a word of welcome." });
+    // The spec diff rendered its own change, as written: nothing it expected was missing, so nothing was re-taken.
+    expect(renderedDiffs).toEqual([change]);
+    expect(registry.get(diff.jobId)!.note ?? "").not.toContain("Rebased");
+    // The render after it built from the spec with the change in.
+    expect(built[1]).toEqual({ frid: "2", greeting: "- :Greeting: is a word of welcome, in the user's language." });
+  });
+
+  describe("functionality renders, reworked by the queue master", () => {
+    const file = (specs: string[]) => `***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- pytest.\n\n***functional specs***\n\n${specs.map((spec) => `- ${spec}`).join("\n\n")}\n`;
+    const setup = async (master: unknown) => {
+      const rendered: string[] = [];
+      const registry = createJobRegistry();
+      const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never, run: async (request) => (rendered.push(request.frid), { report: "built", details: { passed: true, landed: true } }) });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "app.plain")), run: async () => (await held, { report: "" }) });
+      return { rendered, registry, q, release };
+    };
+    const snapshotOf = async () => {
+      const { plainFileParser } = await import("../../src/plain/parser.ts");
+      const { resolveTemplateDirs } = await import("../../src/render/render.ts");
+      const [, tree] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
+      return { moduleName: "app", plainFile: join(dir, "app.plain"), tree, chain: [{ moduleName: "app", plainFile: join(dir, "app.plain"), buildDir: join(dir, "plain_modules", "app", "code") }] } as unknown as SpecSnapshot;
+    };
+    const deleteEmpty = async (_input: unknown, tools: { draft(): Array<{ jobId?: string; changes: string[] }>; deleteJob(job: string, reason: string): string; commit(summary: string): { ok: boolean; problems: string[] } }) => {
+      for (const job of tools.draft()) if (job.changes.length === 0) tools.deleteJob(job.jobId!, "undone");
+      expect(tools.commit("Reworked the queue.").problems).toEqual([]);
+    };
+
+    it("takes out a queued render the new change undoes - its conformance job with it - and the rest render as asked", async () => {
+      writeFileSync(join(dir, "app.plain"), file(["Users sign up."]));
+      const { rendered, registry, q, release } = await setup(deleteEmpty);
+      const signUp = q.enqueue({ plainFile: "app.plain", frid: "1" });
+      writeFileSync(join(dir, "app.plain"), file(["Users sign up.", "Users have a profile page."]));
+      const profile = q.enqueue({ plainFile: "app.plain", frid: "2" });
+      writeFileSync(join(dir, "app.plain"), file(["Users sign up."]));
+      const drop = q.enqueueSpecDiff({ plainFile: "app.plain", diff: "-- Users have a profile page.", applied: "already applied", spec: await snapshotOf() });
+      const said = await q.afterRework(drop.jobId);
+      release();
+      await q.drain();
+
+      expect(said).toContain(`Taken out, never to run: job ${profile.jobId}`);
+      expect(registry.get(profile.jobId)!.status).toBe("stopped");
+      expect(rendered).toEqual(["1"]);
+      expect(renderedDiffs).toEqual([]);
+      expect(registry.get(signUp.jobId)!.status).toBe("succeeded");
+    });
+
+    it("renders a queued render the new change edits as a spec diff in its place - the spec as it now is - and stops its conformance job", async () => {
+      writeFileSync(join(dir, "app.plain"), file(["Users sign up.", "Users have a profile page."]));
+      const { rendered, registry, q, release } = await setup(deleteEmpty);
+      q.enqueue({ plainFile: "app.plain", frid: "1" });
+      const profile = q.enqueue({ plainFile: "app.plain", frid: "2" });
+      const profileConformance = q.status().find((entry) => entry.what === "conformance: functionality 2")!.jobId;
+      writeFileSync(join(dir, "app.plain"), file(["Users sign up.", "Users have a profile page with their sessions."]));
+      const edit = q.enqueueSpecDiff({ plainFile: "app.plain", diff: "-- Users have a profile page.\n+- Users have a profile page with their sessions.", applied: "already applied", spec: await snapshotOf() });
+      await q.afterRework(edit.jobId);
+      release();
+      await q.drain();
+
+      // Functionality 1 as asked; functionality 2 as a spec diff of the page as it now is - the edit folded into it.
+      expect(rendered).toEqual(["1"]);
+      expect(renderedDiffs).toHaveLength(1);
+      expect(renderedDiffs[0]).toContain("Users have a profile page with their sessions.");
+      expect(registry.get(profile.jobId)!.status).toBe("succeeded");
+      expect(registry.get(profileConformance)!.status).toBe("stopped");
+      expect(registry.get(profileConformance)!.note).toContain("was reworked into a spec diff");
+      expect(registry.get(edit.jobId)!.status).toBe("stopped");
+    });
+  });
+
+  it("takes back a render whose conformance tests fail for good - its code and its record - so it counts as not built", async () => {
+    const { recordBuiltFunctionality, readBuiltTree } = await import("../../src/render/state.ts");
+    const { recordHistory } = await import("../../src/render/history.ts");
+    const { existsSync } = await import("node:fs");
+    const buildDir = join(dir, "plain_modules", "app", "code");
+    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
+    const registry = createJobRegistry({ retries: 1, diagnose: async () => undefined });
+    const q = createRenderQueue({
+      registry,
+      cwd: dir,
+      queueMaster: false,
+      // A render as the real one lands: its code, and the record of what it is built from, committed.
+      run: async (request) => {
+        writeFileSync(join(buildDir, "hello.py"), "print('hello')\n");
+        recordBuiltFunctionality(buildDir, request.pinned!.tree, request.frid);
+        recordHistory(buildDir, `render app fs ${request.frid}`);
+        return { report: "built", details: { passed: true, landed: true } };
+      },
+    });
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(buildDir, { recursive: true });
+    writeFileSync(join(buildDir, "README.md"), "app\n");
+    recordHistory(buildDir, "the module as plainwright found it");
+    conformancePasses = false;
+
+    const render = q.enqueue({ plainFile: "app.plain", frid: "1" });
+    const conformance = q.status().find((entry) => entry.what === "conformance: functionality 1")!.jobId;
+    await registry.wait(conformance);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(registry.get(conformance)!.status).toBe("failed");
+    // Back where it started: the render's code and its record are gone.
+    expect(existsSync(join(buildDir, "hello.py"))).toBe(false);
+    expect(readBuiltTree(buildDir)).toBeNull();
+    expect(registry.get(render.jobId)!.note).toContain("Undone: its conformance tests");
+  });
+
+  it("gives a regeneration its conformance job behind it, as a render has - its tests brought in line, then the whole suite", async () => {
+    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
+    const asked: Array<{ frid: string; regenerate?: boolean; conformanceLater?: boolean }> = [];
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false, run: async (request) => (asked.push({ frid: request.frid, regenerate: request.regenerate, conformanceLater: request.conformanceLater }), { report: "rebuilt", details: { passed: true, landed: true, conformanceLater: true } }) });
+    const queued = q.enqueue({ plainFile: "app.plain", frid: "1", regenerate: true });
+    expect(queued.conformanceJobId).toBeDefined();
+    expect(q.status().map((entry) => entry.what)).toEqual(["functionality 1 (rebuild)", "conformance: functionality 1 (rebuild)"]);
+    await registry.wait(queued.conformanceJobId!);
+    // It landed on its unit tests; the job behind it wrote its tests and ran the whole suite.
+    expect(asked).toEqual([{ frid: "1", regenerate: true, conformanceLater: true }]);
+    expect(ran).toEqual(["conformance 1 + suite"]);
   });
 });

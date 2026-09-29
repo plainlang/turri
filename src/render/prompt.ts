@@ -341,20 +341,21 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
     "",
     input.empty
       ? "Nothing is built yet: the working directory is empty, and the change is the whole specification."
-      : "The working directory holds the code built so far, from the specs as they were before the change.",
-    "<spec change> shows the change as a diff; the specs as they now stand follow. Your task is to make the",
-    "code do what the specs say now - everything the change adds, changes and removes - and nothing else.",
+      : "The working directory holds the code built so far, from the specs below - the specs before the change.",
+    "The specs the code is built from follow, and then <spec change>, the change to them as a diff: the specs",
+    "below with the change applied are the specs the code has to do once you are done. Your task is to apply",
+    "the change to the code - everything it adds, changes and removes - and nothing else.",
     "",
     section(DEFINITIONS, specifications[DEFINITIONS]),
     section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
     all.length === 0
       ? null
-      : `<functional specs as they now stand>\n${functionalitiesByModule(all, input.moduleName)}\n</functional specs as they now stand>`,
+      : `<functional specs before the change - what the code is built from>\n${functionalitiesByModule(all, input.moduleName)}\n</functional specs before the change>`,
     input.codebase ? `<codebase>\n${input.codebase}\n</codebase>` : null,
     linkedResourcesSection(input.linkedResources),
     `<spec change>\n${input.diff.trim()}\n</spec change>`,
     "",
-    "Make the code match the specs as they now stand.",
+    "Make the code do what the specs above do once <spec change> is applied to them.",
     "",
     "- Implement what the change adds. Update what it changes. Remove what it removes - its code and its",
     "  unit tests - where nothing that remains still needs it.",
@@ -362,8 +363,6 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
     "  written after you, from the spec, in the module's tests folder.",
     "- A change to a definition or a req reaches every functional spec that relies on it. Follow it there.",
     "- Everything the change does not touch must keep working, and its tests passing.",
-    "- If the specs as they now stand hold changes that are not in <spec change>, those are later changes,",
-    "  rendered on their own after this one. Leave them.",
     ...workingRules(Boolean(input.codebase)),
     "- Report what you changed and the final test result.",
   ];

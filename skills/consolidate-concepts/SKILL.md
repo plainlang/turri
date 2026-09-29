@@ -5,6 +5,7 @@ description: >-
   shared import module in template/. Removes the moved definitions from the
   original modules and adds the new import to their frontmatter. Use when
   concepts are duplicated or spread across modules and should be centralized.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Consolidate Concepts

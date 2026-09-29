@@ -8,6 +8,7 @@ description: >-
   (optionally) the conformance testing script under `test_scripts/`. Does NOT run `check_plain`. Use when the user wants a
   quick project skeleton to start writing functional specs against, without
   the full forge-plain interview.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Init Plain Project

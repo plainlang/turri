@@ -5,6 +5,7 @@ description: >-
   the build chain. Use when the user wants to create a new .plain file that
   builds on top of a previously built module, inheriting its functional specs
   and generated code as a starting point.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Create Requires Module

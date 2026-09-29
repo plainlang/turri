@@ -5,6 +5,7 @@ description: >-
   code in plain_modules/, tracing the issue back to the specs, and fixing only
   the .plain files. Generated code is never modified. Use when the user reports
   unexpected behavior, visual glitches, crashes, or incorrect logic in the app.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Debug Specs

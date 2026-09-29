@@ -2,6 +2,7 @@
 name: resolve-section-ownership
 description: >-
   Route every fact in a .plain bullet, section, or file to the section that owns it — splitting a bullet that carries several kinds of fact, and moving a misplaced one to where the renderer will read it. Use when a bullet answers more than one of what it is / what it does / how it is built / how it is tested, when a requirement looks like it is in the wrong section, or when auditing a file for section ownership. Not for a spec that is merely too large (use break-down-func-spec) or for two specs that contradict each other (use resolve-spec-conflict).
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Resolve Section Ownership

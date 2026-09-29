@@ -134,32 +134,33 @@ describe("spark-plain, forge-plain's quick twin", () => {
 });
 
 describe("a skill's tools", () => {
-  it("are the file tools when it names none - as the Agent Skills spec has it - and none when it says none", async () => {
+  it("are the ones its frontmatter names, and none when it names none", async () => {
     const { mkdtempSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const { DEFAULT_SKILL_TOOLS } = await import("../../src/skill.ts");
-    expect(loadSkill("skills/add-implementation-requirement").allowedTools).toEqual(DEFAULT_SKILL_TOOLS);
-    expect(DEFAULT_SKILL_TOOLS).toEqual(expect.arrayContaining(["read", "write", "edit", "bash"]));
+    expect(loadSkill("skills/add-implementation-requirement").allowedTools).toEqual(["read", "write", "edit", "bash", "ls", "grep", "find"]);
     const dir = mkdtempSync(join(tmpdir(), "plainwright-skill-"));
-    writeFileSync(join(dir, "SKILL.md"), "---\nname: none\ndescription: nothing\nallowed-tools: []\n---\n\nDo nothing.\n");
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: none\ndescription: nothing\n---\n\nDo nothing.\n");
     expect(loadSkill(dir).allowedTools).toEqual([]);
   });
 
-  it("every skill here has what it needs to read and write the project", () => {
-    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+  it("every skill here names its tools - the ones that only read and report can only read", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
     for (const name of readdirSync("skills")) {
-      const skill = loadSkill(`skills/${name}`);
-      expect(skill.allowedTools, name).toEqual(expect.arrayContaining(["read", "write", "edit"]));
+      expect(readFileSync(`skills/${name}/SKILL.md`, "utf8"), name).toMatch(/^allowed-tools: \[/m);
+      const tools = loadSkill(`skills/${name}`).allowedTools;
+      expect(tools, name).toContain("read");
+      if (name.startsWith("analyze-")) expect(tools, name).not.toContain("write");
+      else if (name !== "check-plain-env") expect(tools, name).toEqual(expect.arrayContaining(["write", "edit"]));
     }
   });
 });
 
 describe("temper-plain", () => {
-  it("renders a rough spec, reads back what the builds had to decide, and writes it in - with the tools to wait and to read", () => {
+  it("renders a rough spec until it is fully rendered, on its own - with the tools to watch, stop, check the goal and read what the builds decided", () => {
     const skill = loadSkill("skills/temper-plain");
-    expect(skill.steps.map((step) => step.name)).toEqual(["intake", "render", "temper", "report"]);
-    expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "render_spec", "wait_for_jobs", "spec_findings"]));
+    expect(skill.steps.map((step) => step.name)).toEqual(["intake", "temper", "report"]);
+    expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"]));
     expect(skill.paced).toBe(false);
   });
 });

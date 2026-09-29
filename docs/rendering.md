@@ -192,6 +192,14 @@ differently, change its spec first - the spec is what persists.
 When specs change, only the functionalities whose own spec changed are queued for regeneration -
 not everything after them.
 
+The agent is given the functionality's spec as it was built beside its spec now, and every other
+functional spec in the codebase. Its unit tests are run by the harness and reviewed, as a render's
+are. In a conversation it joins the render queue and works as a render and a spec diff do: it lands
+on its unit tests, and its conformance tests - brought in line with the new spec - and the whole
+suite follow as a job of its own right behind it; when that job fails for good, the regeneration is
+undone. Asked to wait, on the command line, or with a build folder or a codebase named, it does all
+of it in one job.
+
 ### The testing scripts
 
 Whether something is done is never the agent's call, and never a command it chose. It is the
@@ -285,9 +293,22 @@ last 100 are kept.
 
 `render_spec_diff` takes a change to the specs as a git diff of the `.plain` files - any section,
 across any number of files, from scratch included. The diff is applied with git (or accepted as
-already applied), and the spec is parsed with it in. One agent, given the diff and every relevant
-spec as they now stand, makes the code match; then the conformance tests are brought in line, the
-whole suite runs with repairs, and try-it is worked out and checked.
+already applied), and the spec is parsed with it in. One agent makes the code match - given the
+spec the code is built from, as its record says when the job starts, and the diff: the state before
+the change, and the change that takes it to the state after, never the state after with the change
+beside it. Then the conformance tests are brought in line - from the spec after the change, which is
+what they check - the whole suite runs with repairs, and try-it is worked out and checked.
+
+### Functionality renders and spec diffs, stacked
+
+A queue can hold both, in any order - three functionality renders, a spec diff, three more - and
+each builds the spec as it was when it was queued. A spec diff is parsed when it is written; a
+functionality render is pinned the same way: the spec as it is when it is queued is what it builds
+and records, and its conformance job writes its tests from, whatever is written to the file by the
+time its turn comes. So a change queued after a render is rendered after it, by its own job, and
+never recorded as built by the render ahead of it. Each job, render or spec diff, also knows the
+spec the code will be built from when it starts - what the job ahead of it leaves - so a spec diff
+behind renders takes its diff as written.
 
 In a conversation, rendering and conformance are separate jobs in the render queue. A render spec
 diff job - forge-plain's, `render_spec_diff`'s, or one of the spec diffs `render_module` brings a
@@ -338,7 +359,12 @@ which come with their code.
 ### The queue master
 
 Spec diffs queued for one codebase can overlap: a later change can undo, redo or rewrite what an
-earlier one still waiting in the queue would render. Whenever a spec diff job is submitted while at
+earlier one still waiting in the queue would render. Functionality renders are part of the queue it
+reworks: each is the work of adding its functionality, from the spec ahead of it to its pinned
+spec. One it leaves as it was runs as the render it was asked for; one it changes, merges into or
+moves runs as a spec diff in its place - the spec as it now is - and writes its conformance tests
+itself, its functionality conformance job stopped with a note. On a codebase with nothing built
+yet, the work is measured from nothing. Whenever a spec diff job is submitted while at
 least one other is waiting, the queue master reworks the waiting ones. The harness works out the net
 change - from the spec the code is built from (or the one the running spec diff lands) to the spec
 as it now is - as numbered changes, and a proposal: each waiting job keeps the changes of its own
@@ -654,6 +680,15 @@ commit, putting back whatever an interrupted run left; a module with no commit y
 first. When it does not pass, the module goes back to that commit: its changes, the files it added
 and any commit it made on the way are gone, with the tree they came with. Installed dependencies
 and caches stay. So the code, its tests and the tree they were built from never disagree.
+
+In the chat, a render's or a spec diff's conformance tests are a job of their own, right behind it.
+The render lands first - its code, committed with the tree - and counts as built only once they
+pass: when that conformance job fails for good, the module goes back to the commit the render
+started from, its code, tests and tree with it, before anything behind it could run.
+
+The record is the harness's alone. No agent writes it: the file tools refuse it, and what the
+harness records next is built on the record as its last commit has it, not the file on disk - so a
+change an agent's shell made to it is never carried on.
 
 A record written by an earlier version of plainwright is read as the tree it describes, up to the
 first functionality that did not build; the next build writes the tree.

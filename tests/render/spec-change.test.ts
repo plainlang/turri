@@ -137,6 +137,19 @@ describe("the change agent's prompt", () => {
 });
 
 describe("rendering a spec diff", () => {
+  it("gives the agent the spec the code is built from - the state before the change - and the change, never the spec after it", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });
+    prompts.length = 0;
+    const diff = diffOf(plain(["- One."]), plain(["- One, loudly.", "- Two."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+    expect(prompts[0]).toContain('<functional specs before the change - what the code is built from>');
+    expect(prompts[0]).toContain('<functionality module="app" id="1">\n- One.');
+    expect(prompts[0]).not.toContain('<functionality module="app" id="2">');
+    expect(prompts[0]).not.toContain("- One, loudly.\n</functionality>");
+    expect(prompts[0]).toContain(`<spec change>\n${diff.trim()}\n</spec change>`);
+  });
+
   it("from scratch: applies the diff, renders it, and records the specs as they now stand", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
@@ -147,7 +160,9 @@ describe("rendering a spec diff", () => {
     expect(result.passed).toBe(true);
     expect(result.buildDir).toBe(join(dir, "plain_modules", "app", "code"));
     expect(prompts[0]).toContain("<spec change>");
-    expect(prompts[0]).toContain('<functionality module="app" id="2">\n- Two.');
+    // Nothing is built: there is no spec before the change - the change is all of it.
+    expect(prompts[0]).toContain("Nothing is built yet");
+    expect(prompts[0]).not.toContain("<functional specs before the change");
     // What the code is built from: the spec with the change in, and nothing else in the file.
     expect(readBuiltTree(result.buildDir)).toEqual(parsed());
     expect(Object.keys(JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"))).sort()).toEqual(["functional specs", "implementation reqs"]);

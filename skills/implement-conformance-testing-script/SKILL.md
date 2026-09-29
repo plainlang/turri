@@ -8,6 +8,7 @@ description: >-
   suite against it. Use when the user wants to add a conformance-test runner for
   a new language (Node.js, Go, Rust, Flutter, etc.) to a ***plain project, or
   wants to regenerate / adapt one of the existing runners.
+allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
 # Implement Conformance Testing Script

@@ -94,8 +94,19 @@ export interface RenderFunctionalityOptions {
   };
   /** Review the unit tests once they pass - that they test what the spec says. Default true. */
   unitReview?: boolean;
+  /**
+   * The spec as it was when the build was asked for - a queued render builds that, not the file as it
+   * is by the time its turn comes, which may hold later changes queued after it. Default: the file now.
+   */
+  pinned?: PinnedSpec;
   /** The unit test review's model. Default: the project's judge-model, else `model`. */
   judgeModel?: string;
+}
+
+/** A module's spec as it was at one moment: its name and its parsed tree. */
+export interface PinnedSpec {
+  moduleName: string;
+  tree: MarshalledPlainSource;
 }
 
 export interface RenderFunctionalityResult {
@@ -169,7 +180,7 @@ export async function renderFunctionality(
   }
 
   const templateDirs = resolveTemplateDirs(options.plainFile, options.templateDirs);
-  const [moduleName, tree] = plainFileParser(basename(options.plainFile), templateDirs);
+  const [moduleName, tree] = options.pinned !== undefined ? [options.pinned.moduleName, options.pinned.tree] : plainFileParser(basename(options.plainFile), templateDirs);
 
   const frids = [...getFrids(tree)];
   const frid = options.frid ?? frids[0];

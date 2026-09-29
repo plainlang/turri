@@ -99,13 +99,16 @@ its own:
 | `forge-plain` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
 | `spark-plain` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs the queue master reworks the queue around |
 
-`temper-plain` starts from a spec you already have, rough or hand-written: it renders it, waits for
-the builds, and reads back what they had to decide on their own - the coding agents' assumptions,
-their pitfalls, the diagnosis of a build that failed, a spec that contradicts itself. What a user,
-a caller or a test can see goes into the spec as a spec diff - as the build assumed it, unless that
-is not what was meant - and only what it changes is rendered again; a conflict, or a choice that
-matters to the user, is asked. Round after round, until one finds nothing new, at most five; the
-report says what went in, what was asked, and what was left out and why.
+`temper-plain` starts from a spec you already have, rough or hand-written, and runs on its own until
+it is fully rendered - every functionality built from the spec as it stands, its tests passing. It
+renders what is not built and watches the agents building it; when one struggles on something the
+spec leaves open or unclear - sent back again and again, the judge going back and forth, a spec
+conflict - it writes what the spec should say as a spec diff, stops that build, and renders it again.
+What the builds had to decide themselves - their assumptions, pitfalls, a failed build's diagnosis -
+goes into the spec the same way, when a user, a caller or a test can see it. It never asks: it takes
+the reading that fits the rest of the spec, and marks each such decision in its report. It leaves
+code, environment and plainwright problems to the builds, and stops when a functionality keeps
+struggling after the spec was clarified, when two cycles change nothing, or after twenty.
 
 For an existing project, `add-feature` works the same way, scoped to one feature: intent → scope →
 product → review. After a short feature-intent interview it asks product questions one at a time -
