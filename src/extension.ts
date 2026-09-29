@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -43,7 +43,7 @@ import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
 import { defaultBuildDir } from "./render/paths.ts";
 import { describeUsage, type SpecConflict } from "./render/activity.ts";
 import { describeSpecConflict } from "./render/stop-report.ts";
-import { inheritThinkingLevel } from "./pi.ts";
+import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
 import { moduleLanes } from "./render/lanes.ts";
 import { findCodebaseTip } from "./render/requires.ts";
 import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from "./render/spec-change.ts";
@@ -292,6 +292,15 @@ export default function (pi: ExtensionAPI) {
 
   // Sub-agents think as hard as the conversation that started them, not pi's default.
   inheritThinkingLevel(() => pi.getThinkingLevel());
+  // And reach the providers its extensions registered - a company's own gateway - which they load none of.
+  let conversationModels: ModelRegistry | undefined;
+  pi.on("session_start", (_event, ctx) => {
+    conversationModels = ctx.modelRegistry;
+  });
+  pi.on("before_agent_start", (_event, ctx) => {
+    conversationModels = ctx.modelRegistry;
+  });
+  inheritProviders(() => conversationModels);
 
   registerBranding(pi, rules.length, discoveredSkills);
   registerInterviewLog(pi);

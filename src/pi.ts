@@ -6,6 +6,7 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   ModelRegistry,
+  ModelRuntime,
   SessionManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -48,6 +49,49 @@ function inheritedThinkingLevel(): ThinkingLevel | undefined {
     // a worse guess than the conversation's level, but a far better one than a failed build.
     return undefined;
   }
+}
+
+let providerSource: (() => ModelRegistry | undefined) | undefined;
+
+/**
+ * Where sub-agents take the providers pi's extensions registered from: the conversation that started them.
+ *
+ * A sub-agent is started without extensions (see subAgentResources), so its models are only what pi's own
+ * configuration has - models.json and auth.json. A provider an extension registers - a company's own LLM
+ * gateway, say - is in the conversation's model registry and nowhere else: the conversation could use its
+ * models and a render or skill agent told to use them could not find them. So every sub-agent's model
+ * runtime is given the providers the conversation's registry holds when the agent starts - the provider,
+ * not the extension that registered it.
+ */
+export function inheritProviders(source: () => ModelRegistry | undefined): void {
+  providerSource = source;
+}
+
+/** A model runtime for a sub-agent: pi's configuration, with the providers the conversation's extensions registered. */
+async function subAgentModelRuntime(): Promise<ModelRuntime> {
+  const agentDir = getAgentDir();
+  const runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json") });
+  let source: ModelRegistry | undefined;
+  try {
+    source = providerSource?.();
+  } catch {
+    // The conversation it came from is gone: pi's own configuration is what there is.
+  }
+  if (source === undefined) return runtime;
+  const registry = new ModelRegistry(runtime);
+  for (const id of source.getRegisteredProviderIds()) {
+    const native = source.getRegisteredNativeProvider(id);
+    const config = source.getRegisteredProviderConfig(id);
+    try {
+      if (native !== undefined) registry.registerProvider(native);
+      else if (config !== undefined) registry.registerProvider(id, config);
+    } catch {
+      // One provider that will not register leaves the others, and pi's own, usable.
+    }
+  }
+  // Its models are listed as the registrations land; the agent's model is looked up right after.
+  await runtime.refresh({ allowNetwork: false });
+  return runtime;
 }
 
 const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge", "rules");
@@ -472,6 +516,7 @@ export async function createExecutor(opts: {
       : SessionManager.create(opts.cwd, sessionsDir(projectRootOf(opts.cwd)));
   const { session } = await createAgentSession({
     cwd: opts.cwd,
+    modelRuntime: await subAgentModelRuntime(),
     tools: opts.tools,
     customTools: guardRepeats(opts.customTools, () => session, opts.budget),
     sessionManager,

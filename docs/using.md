@@ -175,6 +175,14 @@ id in other words ("gpt 5.5" is `openai/gpt-5.5`, not `gpt-5.5-pro`). Anything e
 a short list and the agent asks you which one; a model whose provider has no credentials is never
 picked.
 
+A provider a pi extension registers - your company's own LLM gateway, say - works for every agent
+the conversation starts, not only for the conversation. Those agents load no extensions (they would
+load a second copy of plainwright), so each is given the providers the conversation's extensions
+registered, as they are when it starts. An unattended run - `plainwright module`, `render` and the
+rest, outside the chat - has no conversation to take them from: there, only the providers in pi's
+own configuration (`~/.pi/agent/models.json` and `auth.json`) are there, so a gateway those runs use
+has to be set up in `models.json`.
+
 To change pi's own default, in `~/.pi/agent/settings.json`:
 
 ```json
