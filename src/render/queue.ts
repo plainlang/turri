@@ -563,24 +563,28 @@ export function createRenderQueue(options: {
         before = step.tree;
         continue;
       }
-      const changed = work.diff !== step.textDiff;
+      // Changed is what it builds: from another spec, or to another. Its diff as text is no measure - the one the
+      // plan rebuilds from the trees reads differently from the one it was queued with, for the same change.
+      const sameTree = (a: MarshalledPlainSource | null | undefined, b: MarshalledPlainSource | null | undefined) => serializeTree(a ?? {}) === serializeTree(b ?? {});
+      const changed = !sameTree(work.spec.tree, step.tree) || (work.before !== undefined && !sameTree(work.before, before));
       if (changed) rewritten.push(work.jobId!);
       // Not renamed by the master: named for what it now renders, not for what it was queued with.
       work.title = planned.title === work.title && changed ? summarizeDiff(step.textDiff) : planned.title;
-      work.diff = step.textDiff;
+      // Unchanged, it keeps the diff it was queued with.
+      if (changed) work.diff = step.textDiff;
       work.applied = "already applied";
       work.spec = { ...work.spec, tree: step.tree };
       work.before = before;
       before = step.tree;
       const job = options.registry.get(work.jobId!);
       if (job !== undefined) {
-        job.diff = step.textDiff;
+        job.diff = work.diff;
         if (from !== "") job.note = `Now renders "${planned.title}"${from}, by ${by}. ${plan.summary}`;
         else if (changed) job.note = `Reworked by ${by}: ${planned.title}. ${plan.summary}`;
       }
       if (work.conformanceJobId !== undefined) {
         const conformance = options.registry.get(work.conformanceJobId);
-        if (conformance !== undefined) conformance.diff = step.textDiff;
+        if (conformance !== undefined) conformance.diff = work.diff;
       }
       // Its conformance tests, as the plan has them: a conformance job cancelled, or the tests written in its own render.
       const how = conformanceOf(work);

@@ -332,6 +332,32 @@ describe("the queue master", () => {
     expect(renderedDiffs).toHaveLength(2);
   });
 
+  it("leaves the jobs a queue master keeps as they are - their diffs as queued, and no word that it reworked them", async () => {
+    const { writeBuiltTree } = await import("../../src/render/state.ts");
+    const buildDir = join(dir, "plain_modules", "frontend", "code");
+    const specs = (items: string[]) => ({ "functional specs": items.map((markdown) => ({ markdown })) });
+    writeBuiltTree(buildDir, specs(["- Sign up."]) as never);
+    writeFileSync(join(dir, "frontend.plain"), "***functional specs***\n\n- Sign up.\n- The nav bar.\n- The feed.\n");
+    const snapshot = (items: string[]) => ({ moduleName: "frontend", plainFile: join(dir, "frontend.plain"), tree: specs(items), chain: [{ moduleName: "frontend", plainFile: join(dir, "frontend.plain"), buildDir }] }) as unknown as SpecSnapshot;
+    // Asked to rework the queue, it finds nothing to change and commits it as it is.
+    const master = async (_input: unknown, tools: { commit(summary: string): { ok: boolean; problems: string[] } }) => void tools.commit("Committed the queue unchanged.");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const registry = createJobRegistry();
+    registry.start({ kind: "render", summary: "ahead", lanes: moduleLanes(join(dir, "frontend.plain")), run: async () => (await held, { report: "" }) });
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never });
+    const navDiff = "diff --git a/frontend.plain b/frontend.plain\n@@ -2 +2,2 @@\n - Sign up.\n+- The nav bar.";
+    const navJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: navDiff, applied: "already applied", spec: snapshot(["- Sign up.", "- The nav bar."]) });
+    const feedJob = q.enqueueSpecDiff({ plainFile: "frontend.plain", diff: "+- The feed.", applied: "already applied", spec: snapshot(["- Sign up.", "- The nav bar.", "- The feed."]) });
+
+    await q.rework(join(dir, "frontend.plain"), "check the queue");
+    for (const id of [navJob.jobId, feedJob.jobId]) expect(registry.get(id)!.note ?? "").not.toContain("Reworked");
+    expect(registry.get(navJob.jobId)!.diff).toBe(navDiff);
+    release();
+    await registry.wait(feedJob.jobId);
+    expect(renderedDiffs[0]).toBe(navDiff);
+  });
+
   it("cancels the conformance jobs when asked - every one of them - and the spec diffs they followed render on their unit tests alone", async () => {
     const { writeBuiltTree } = await import("../../src/render/state.ts");
     const buildDir = join(dir, "plain_modules", "app", "code");
