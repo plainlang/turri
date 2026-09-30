@@ -11,6 +11,8 @@ import { diffSinceSnapshot, workDiff, workSnapshot } from "./history.ts";
 import { REVIEWER_COMPACTION } from "./compaction.ts";
 import { describeAccounts, SUBMIT_AFTER_REVIEW, unanswered, unansweredPrompt, type WorkLedger } from "./submit-work.ts";
 import { ARBITER_AFTER, arbitrateReview, dismissedNote, problemLine, REVIEW_LIMIT } from "./arbiter.ts";
+import { codeReviewCasesBlock } from "./cases.ts";
+import type { JobCases } from "./work.ts";
 import { TEST_FILE_PATTERN } from "./testing.ts";
 
 /**
@@ -71,7 +73,10 @@ export function unitReviewTask(options: {
   spec: string;
   /** The work is a spec change, not a functionality. */
   forChange?: boolean;
+  /** What the work does to each functional spec (work.ts): each part held to its own case. */
+  cases?: JobCases;
 }): string {
+  const mechanical = options.cases?.mechanical === true;
   return [
     `You review the work on ${options.what}, each time its unit tests pass: passing tests prove only what they`,
     "check - a test that checks next to nothing passes whatever the code does, and code no test reaches is not checked",
@@ -97,35 +102,41 @@ export function unitReviewTask(options: {
     options.spec.trim(),
     "</specification>",
     "",
-    "Check that the code does what the specification states for this work:",
-    "- Every behaviour, edge case, validation rule and error it states is implemented, and implemented as it says -",
-    "  the values, the messages, the order, the limits. Nothing is left as a stub, a placeholder, a TODO or a",
-    "  hard-coded answer that passes a test and nothing else.",
-    "- It keeps to the implementation reqs, and does not break what the code already implements.",
-    "- When the work wrote no code at all, or none for a behaviour, that behaviour is not implemented: raise it.",
-    "",
-    "Check that every behaviour the specification states for this work is tested, and tested well:",
-    "- Each behaviour, edge case, validation rule and error the specification states has a test, and the test",
-    "  asserts the outcome the specification says - the exact value returned, the state stored, the error raised",
-    "  and its message or code - not only that something came back.",
-    "- A test fails when the behaviour it is named for breaks. Weak: it only checks that a function, a route, a",
-    "  file or a field exists; that a result is not null, is truthy, has a type or a length; that a status is 200",
-    "  and nothing about the body; `assert True`, an empty or skipped test, an exception caught and swallowed, an",
-    "  assertion so loose any answer passes, an expected value computed the way the code computes it.",
-    "- It tests the code, not a stand-in: what is outside the unit - a network service, a clock, a database the",
-    "  unit does not own - may be replaced; the unit under test itself never is, and a test that asserts only",
-    "  what a mock was told to return tests the mock.",
-    "- Deterministic: no real network, no sleeping, no dependence on the time of day or the order tests run in.",
-    ...(options.forChange === true
-      ? [
-          "This work is the <spec change> in <new in this work>, section by section: what it adds or changes is what needs",
-          "testing, and the tests it changed still have to test the rest as they did. A change that adds no behaviour - a",
-          "description, a renamed concept, a reworded spec - needs no new test.",
-          "Behaviour is what a functional spec, an acceptance test or an implementation req states. A definition says what",
-          "a word means: a page, a component or a record that only <definitions> name, and no functional spec or",
-          "implementation req of this codebase asks for, has no code yet, and a test for it is not missing.",
-        ]
-      : []),
+    ...(options.cases !== undefined ? [...codeReviewCasesBlock(options.cases), ""] : []),
+    // A job that touches no functional spec is held only to that: the checks of behaviour are not its.
+    ...(mechanical ? [] : ["Check that the code does what the specification states for this work:"]),
+    ...(mechanical
+      ? []
+      : [
+          "- Every behaviour, edge case, validation rule and error it states is implemented, and implemented as it says -",
+          "  the values, the messages, the order, the limits. Nothing is left as a stub, a placeholder, a TODO or a",
+          "  hard-coded answer that passes a test and nothing else.",
+          "- It keeps to the implementation reqs, and does not break what the code already implements.",
+          "- When the work wrote no code at all, or none for a behaviour, that behaviour is not implemented: raise it.",
+          "",
+          "Check that every behaviour the specification states for this work is tested, and tested well:",
+          "- Each behaviour, edge case, validation rule and error the specification states has a test, and the test",
+          "  asserts the outcome the specification says - the exact value returned, the state stored, the error raised",
+          "  and its message or code - not only that something came back.",
+          "- A test fails when the behaviour it is named for breaks. Weak: it only checks that a function, a route, a",
+          "  file or a field exists; that a result is not null, is truthy, has a type or a length; that a status is 200",
+          "  and nothing about the body; `assert True`, an empty or skipped test, an exception caught and swallowed, an",
+          "  assertion so loose any answer passes, an expected value computed the way the code computes it.",
+          "- It tests the code, not a stand-in: what is outside the unit - a network service, a clock, a database the",
+          "  unit does not own - may be replaced; the unit under test itself never is, and a test that asserts only",
+          "  what a mock was told to return tests the mock.",
+          "- Deterministic: no real network, no sleeping, no dependence on the time of day or the order tests run in.",
+          ...(options.forChange === true
+            ? [
+                "This work is the <spec change> in <new in this work>, section by section: what it adds or changes is what needs",
+                "testing, and the tests it changed still have to test the rest as they did. A change that adds no behaviour - a",
+                "description, a renamed concept, a reworded spec - needs no new test.",
+                "Behaviour is what a functional spec, an acceptance test or an implementation req states. A definition says what",
+                "a word means: a page, a component or a record that only <definitions> name, and no functional spec or",
+                "implementation req of this codebase asks for, has no code yet, and a test for it is not missing.",
+              ]
+            : []),
+        ]),
     "Only what this work's specification asks for: a test of something it does not state, or of how the code",
     "works inside rather than what it does, is not a problem to raise; nor is code written another way than you",
     "would have, as long as it does what the specification says.",
@@ -200,6 +211,8 @@ export interface UnitReviewer {
  * instructions; its work is compacted as it grows.
  */
 export async function createUnitReviewer(options: {
+  /** What the work does to each functional spec (work.ts): the reviewer holds each part to its own case. */
+  cases?: JobCases;
   buildDir: string;
   what: string;
   spec: string;
@@ -301,6 +314,8 @@ export function unitReviewFeedbackPrompt(problems: UnitReviewProblem[]): string 
  * Only unit tests that no longer pass after a round of fixes do.
  */
 export async function untilUnitTestsReviewed(options: {
+  /** What the work does to each functional spec (work.ts): the reviewer holds each part to its own case. */
+  cases?: JobCases;
   buildDir: string;
   /** The code folder's files when the work started, to see which unit tests it added or changed. */
   atStart: Map<string, string>;

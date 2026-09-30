@@ -2,9 +2,9 @@
 
 How plainwright decides what to build next. This page is the design, agreed before the work started,
 and the stages it is being built in; each stage updates it, and when the last lands it is folded into
-[rendering](rendering.md) and removed. Stages 1 to 3 have landed: the code track and the conformance track
-run on it, and [rendering](rendering.md) describes them. The prompt for each case and the cleanup are
-still to come.
+[rendering](rendering.md) and removed. Stages 1 to 4 have landed: the code track and the conformance track
+run on it, their agents told what to do by each job's cases, and [rendering](rendering.md) describes them.
+The cleanup is still to come.
 
 ## Why
 

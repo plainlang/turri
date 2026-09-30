@@ -9,6 +9,8 @@ import {
 } from "../plain/spec.ts";
 import type { LoadedResource } from "./resources.ts";
 import { acceptanceLabel, acceptanceText, conformanceLabel } from "./test-kinds.ts";
+import { codeCasesBlock, conformanceCasesBlock } from "./cases.ts";
+import type { JobCases } from "./work.ts";
 import type { RequiredSpec } from "./state.ts";
 import type { SpecChange } from "./spec-steps.ts";
 
@@ -291,8 +293,8 @@ function linkedResourcesSection(resources: LoadedResource[]): string | null {
   return `<linked resources>\n${rendered.join("\n\n")}\n</linked resources>`;
 }
 
-/** How to work, for any agent writing code in this codebase from a spec. */
-function workingRules(hasCodebase: boolean): string[] {
+/** How to work, for any agent writing code in this codebase from a spec. `mechanical`: the job writes no new tests. */
+function workingRules(hasCodebase: boolean, mechanical = false): string[] {
   return [
     ...(hasCodebase
       ? [
@@ -300,8 +302,7 @@ function workingRules(hasCodebase: boolean): string[] {
           "  files this functionality touches instead of listing or searching the whole directory.",
         ]
       : []),
-    "- Write the implementation first, then unit tests covering it.",
-    "- Your tests are unit tests, in the code.",
+    ...(mechanical ? [] : ["- Write the implementation first, then unit tests covering it.", "- Your tests are unit tests, in the code."]),
     "- Honour every implementation req.",
     "- Keep the build's identity as it is: its name, coordinates, version, package and main class. Change one only",
     "  when the specification asks you to - other builds and the conformance tests point at them.",
@@ -328,6 +329,8 @@ export interface SpecDiffPromptInput {
   codebase?: string | null;
   /** Nothing is built yet: the change is the whole spec. */
   empty: boolean;
+  /** What the job does to each functional spec (work.ts): the agent is told case by case. Not given: in general. */
+  cases?: JobCases;
 }
 
 /**
@@ -519,11 +522,15 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
       ? specChangeBlock(describeSpecChange(input.changes))
       : `<spec change>\n${RAW_CHANGE_NOTE}\n\n${input.diff.trim()}\n</spec change>`,
     "",
-    "- Implement what the change adds. Update what it changes. Remove what it removes - its code and its",
-    "  unit tests - where nothing that remains still needs it.",
-    "- A change to a definition or an implementation req reaches every functional spec that relies on it. Follow it there.",
+    ...(input.cases !== undefined
+      ? codeCasesBlock(input.cases)
+      : [
+          "- Implement what the change adds. Update what it changes. Remove what it removes - its code and its",
+          "  unit tests - where nothing that remains still needs it.",
+          "- A change to a definition or an implementation req reaches every functional spec that relies on it. Follow it there.",
+        ]),
     "- Everything the change does not touch must keep working, and its tests passing.",
-    ...workingRules(Boolean(input.codebase)),
+    ...workingRules(Boolean(input.codebase), input.cases?.mechanical === true),
   ];
   return parts.filter((part): part is string => part !== null).join("\n");
 }
@@ -632,6 +639,8 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
 
 
 export interface ConformancePromptInput {
+  /** What the job does to each functional spec (work.ts): the agent is told case by case. Not given: in general. */
+  cases?: JobCases;
   moduleName: string;
   /** The functionality under test; for a spec change, the last there is - none before the first is written. */
   frid?: string;
@@ -776,11 +785,15 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           "The specs were changed as in <spec change>, and the code has been updated to match. Bring the",
           "conformance tests in line with the specs as they now stand.",
           "",
-          "- Add tests for behaviour the change adds, change the tests of behaviour it changes, and remove the",
-          "  tests of behaviour it removes. Leave the tests of everything the change does not touch as they are.",
-          "- The change is tested whatever it touches: a definition, an implementation req, the test reqs, as",
-          "  well as a functional spec. Where it changes what built software must do or how the tests reach it,",
-          "  the tests check that - with or without a functional spec that uses it yet.",
+          ...(input.cases !== undefined
+            ? conformanceCasesBlock(input.cases)
+            : [
+                "- Add tests for behaviour the change adds, change the tests of behaviour it changes, and remove the",
+                "  tests of behaviour it removes. Leave the tests of everything the change does not touch as they are.",
+                "- The change is tested whatever it touches: a definition, an implementation req, the test reqs, as",
+                "  well as a functional spec. Where it changes what built software must do or how the tests reach it,",
+                "  the tests check that - with or without a functional spec that uses it yet.",
+              ]),
           "- A test is removed only because the spec no longer asks for what it checks. Say which, and why.",
         ]
       : [

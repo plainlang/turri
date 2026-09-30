@@ -8,6 +8,8 @@ import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { ERROR_CAUSE_RULES, fixMethod, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
+import { conformanceReviewCasesBlock } from "./cases.ts";
+import type { JobCases } from "./work.ts";
 import { REVIEW_LESSON } from "./notes.ts";
 import { CODER_COMPACTION, REVIEWER_COMPACTION } from "./compaction.ts";
 import { SUBMIT_AFTER_REVIEW } from "./submit-work.ts";
@@ -412,6 +414,8 @@ export interface TestReviewer {
  * run wrote first, what changed since after - and the conformance agent's account of it.
  */
 export async function createTestReviewer(options: {
+  /** What the work does to each functional spec (work.ts): a mechanical job is held only to that. */
+  cases?: JobCases;
   buildDir: string;
   conformanceDir: string;
   spec: SpecContext;
@@ -498,6 +502,8 @@ function problemText(problem: ReviewProblem): string {
 
 /** The reviewer's task, for its instructions: word for word through every review of the run. */
 export function testReviewTask(options: {
+  /** What the work does to each functional spec (work.ts): a mechanical job is held only to that. */
+  cases?: JobCases;
   buildDir: string;
   conformanceDir: string;
   spec: SpecContext;
@@ -527,7 +533,7 @@ export function testReviewTask(options: {
     "check it against the diff and the files. A problem it says is fixed that the tests do not fix is still a problem;",
     "one it declined, weigh its reason - it may be right.",
     "",
-    "Check every test the run added or changed:",
+    ...(options.cases !== undefined && options.cases.mechanical ? [...conformanceReviewCasesBlock(options.cases), "", "And, of every test the run changed:"] : ["Check every test the run added or changed:"]),
     "- Black box: it reaches the software only the way the test reqs have it - its API, its command, its public",
     "  classes where the test reqs say so - and never mocks, stubs or replaces any part of the software under test:",
     "  no mocked beans, services or clients of its own. A real external service the test reqs say not to mock is",

@@ -21,6 +21,7 @@ import { reportActivity, reportSpec, reportStage, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { abandonWork, diffSinceSnapshot, moduleDirOf, recordHistory, startWork, workDiff, workSnapshot, type WorkStart } from "./history.ts";
 import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unansweredPrompt } from "./submit-work.ts";
+import type { JobCases } from "./work.ts";
 import { CONFORMANCE_COMPACTION } from "./compaction.ts";
 import { notesForSession, readNotes, reflectOnReview, withNotes } from "./notes.ts";
 import { labelsPrompt, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
@@ -91,6 +92,8 @@ export function conformanceDirFor(moduleName: string, root?: string): string {
 }
 
 export interface RenderConformanceTestsOptions {
+  /** What the job does to each functional spec (work.ts): its agents are told case by case. */
+  cases?: JobCases;
   plainFile: string;
   frid?: string;
   templateDirs?: string[];
@@ -241,6 +244,7 @@ export async function renderConformanceTests(
   const linkedResources = loadLinkedResources(tree, forChange ? null : frid!, templateDirs);
   const required = getInheritedFunctionalSpecs(tree);
   const prompt = withTestingScripts(buildConformancePrompt({
+    ...(options.cases !== undefined ? { cases: options.cases } : {}),
     moduleName,
     frid,
     specifications,
@@ -357,6 +361,7 @@ export async function renderConformanceTests(
   reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
   const agentPrompt = withTestingScripts(
     buildConformancePrompt({
+      ...(options.cases !== undefined ? { cases: options.cases } : {}),
       moduleName,
       frid,
       specifications,
@@ -712,6 +717,7 @@ export async function renderConformanceTests(
         stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_LIMIT}): black box, and the acceptance tests doing what the spec says`);
         // One reviewer for the run, made the first time the tests are reviewed.
         reviewer ??= await createTestReviewer({
+          ...(options.cases !== undefined ? { cases: options.cases } : {}),
           buildDir,
           conformanceDir,
           spec: specContext,

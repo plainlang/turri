@@ -341,6 +341,12 @@ describe("the work loop rendering spec diffs", () => {
     expect(changes[1]).toContain("Two.");
     expect(changes[2]).toContain("Three.");
     expect(changes[2]).not.toContain("loudly");
+    // Each coding agent is told its job's case: the changed functional spec changed in place, the new ones built.
+    const tasks = prompts.filter((prompt) => prompt.includes("<spec change>"));
+    expect(tasks[0]).toContain("Changed - its text, or a concept it uses: fs 1 (Say one number, loudly.)");
+    expect(tasks[0]).toContain("Do not build it again from scratch.");
+    expect(tasks[1]).toContain("New - build each, and write its unit tests: fs 2 (Two.)");
+    expect(tasks[2]).toContain("New - build each, and write its unit tests: fs 3 (Three.)");
     // Each job that landed code says it can be tried.
     const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
     const reports = registry.list().map((job) => job.report ?? "");

@@ -24,6 +24,7 @@ import { modulesRoot, projectDirOf } from "./paths.ts";
 import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec } from "./prompt.ts";
 import { abandonWork, recordHistory, startWork } from "./history.ts";
 import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
+import type { JobCases } from "./work.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
@@ -246,6 +247,8 @@ export interface RenderSpecDiffOptions {
    * included, are not run here: conformance is a track of its own (docs/work-model.md). Default: they are.
    */
   regression?: false;
+  /** What the job does to each functional spec (work.ts): its agents are told case by case. Not given: in general. */
+  cases?: JobCases;
   /** The unit test review's model. Default: the project's judge-model, else `model`. */
   judgeModel?: string;
   onDelta?: (delta: string) => void;
@@ -375,6 +378,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
     codebase: codebaseMap(buildDir),
     empty: listFiles(buildDir).length === 0,
+    ...(options.cases !== undefined ? { cases: options.cases } : {}),
   });
 
   const digestsBefore = digestFiles(buildDir);
@@ -471,6 +475,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         // As the coding agent had it: the spec the code was built from, and the change.
         spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: codingText ?? changeText ?? options.diff }),
         forChange: true,
+        ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
         send: async (next) => {

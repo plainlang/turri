@@ -690,6 +690,7 @@ const defaultConformanceRunner: JobRunner = async (job, onDelta) => {
     cwd: job.cwd,
     applied: "already applied",
     spec: job.spec,
+    cases: job.planned.cases,
     ...(job.model !== undefined ? { model: job.model } : {}),
     onDelta,
   });
@@ -710,6 +711,7 @@ const defaultRunner: JobRunner = async (job, onDelta) => {
     spec: job.spec,
     conformance: false,
     regression: false,
+    cases: job.planned.cases,
     ...(job.model !== undefined ? { model: job.model } : {}),
     onDelta,
   });

@@ -377,6 +377,16 @@ definition is itself by its concept: one reworded or moved is shown as changed, 
 Test reqs and acceptance tests are for conformance only: the code record holds neither, and no coding
 agent is shown them.
 
+It is told, too, what to do with each functional spec the job touches, by its case (`src/render/cases.ts`,
+[the work model](work-model.md#prompts)): a fresh project is set up first, with its unit tests where the unit
+testing script runs them; a new functional spec is built and unit tested; a changed one - its text, or a concept
+it uses - is changed in place, its code and tests to match, never built again from scratch; one taken out has its
+code and the tests only it had removed. A job holding several cases has a line for each. A job that touches no
+functional spec - implementation reqs, or definitions none uses - is mechanical: the code adapts, no new test is
+written, and an existing one may change only mechanically, never what it asserts. The unit test review holds each
+part to its case, and a mechanical job only to its reqs and to no test removed or weakened. A conformance job's
+agent and its reviewer are told the same, for the tests.
+
 A job lands once its unit tests pass and are reviewed: the code record becomes the spec the job ends on,
 committed with the code. Its conformance tests are not the code job's: they are a track of their own
 ([conformance tests in the work loop](#conformance-tests-in-the-work-loop)).

@@ -196,7 +196,8 @@ describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () =>
     const run = withActivity(quiet, () => runCommand(code, "sleep 300"));
     setTimeout(() => stop.abort(), 1500);
     await expect(run).rejects.toThrow("aborted");
-    expect(Date.now() - started).toBeLessThan(15_000);
+    // Well short of the command's 300s: at once, even with the other test files' VMs taking the machine (alone, 2-3s).
+    expect(Date.now() - started).toBeLessThan(30_000);
     expect((await sh("ps -o stat,args | grep -v ' Z ' | grep -c 'sleep 300$' || true")).output.trim()).toBe("0");
   });
 

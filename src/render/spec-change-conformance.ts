@@ -1,4 +1,5 @@
 import { relative, resolve } from "node:path";
+import type { JobCases } from "./work.ts";
 import { getFrids, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
@@ -32,6 +33,8 @@ import { findTestScripts, projectRootFor, requireTestScripts } from "./test-scri
  */
 
 export interface RenderSpecDiffConformanceOptions {
+  /** What the job does to each functional spec (work.ts): its agents are told case by case. */
+  cases?: JobCases;
   /** A .plain file of the module the change is for. */
   plainFile: string;
   /** The change, as a git diff of the .plain files. */
@@ -109,6 +112,7 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
     conformanceDir,
     diff: options.diff,
     ...(options.change !== undefined ? { change: options.change } : {}),
+    ...(options.cases !== undefined ? { cases: options.cases } : {}),
     spec: { moduleName, tree },
     model: options.model,
     onDelta: options.onDelta,
