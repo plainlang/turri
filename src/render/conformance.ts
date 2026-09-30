@@ -735,7 +735,7 @@ export async function renderConformanceTests(
             lastReview = undefined;
             verified = true;
           };
-          // From the third review that sends them back, the arbiter weighs it: only what it upholds goes to the conformance agent.
+          // From the second review that sends them back, the arbiter weighs it: only what it upholds goes to the conformance agent.
           if (failedReviews >= REVIEW_ROUNDS) {
             stage(`the review sent the tests back ${failedReviews} times - the arbiter weighs what it found`);
             const ruling = await arbitrateReview({

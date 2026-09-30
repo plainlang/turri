@@ -159,20 +159,21 @@ describe("the unit test review", () => {
     expect(forgot[1]).toContain("You worked on what the review found, but left no lesson in the notes");
   });
 
-  it("has the arbiter weigh the third review that sends the tests back - and approve them when it finds the reviewer picky", async () => {
+  it("has the arbiter weigh the second review that sends the tests back - and approve them when it finds the reviewer picky", async () => {
     for (let i = 0; i < UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [better] });
     rulings.push([{ problem: 1, uphold: false, why: "a nitpick: the error is already tested" }]);
     const sent: string[] = [];
     const result = await loop(sent);
     expect(result.passed).toBe(true);
     expect(result.waived).toEqual([better]);
-    // Two reviews went to the coding agent; the third went to the arbiter, which let it go.
+    // The first review went to the coding agent; the second went to the arbiter, which let it go.
+    expect(UNIT_REVIEW_ROUNDS).toBe(2);
     expect(sent).toHaveLength(UNIT_REVIEW_ROUNDS - 1);
     expect(arbiterPrompts).toHaveLength(1);
     expect(arbiterPrompts[0]).toContain("You are the arbiter");
     expect(arbiterPrompts[0]).toContain("1. BAD · test_app.py: could check the error message too");
-    expect(arbiterPrompts[0]).toContain("review 2:");
-    expect(arbiterPrompts[0]).not.toContain("review 3:");
+    expect(arbiterPrompts[0]).toContain("review 1:");
+    expect(arbiterPrompts[0]).not.toContain("review 2:");
     // The same spec and code the reviewer read.
     expect(arbiterPrompts[0]).toContain('<new in this work>\n<functionality module="app" id="1">');
     expect(arbiterPrompts[0]).toContain("+def register(email): return {'email': email}");
@@ -257,7 +258,7 @@ describe("the unit test review", () => {
     for (let i = 0; i < UNIT_REVIEW_LIMIT; i += 1) rulings.push([{ problem: 1, uphold: true, why: "untested" }]);
     const sent: string[] = [];
     const result = await loop(sent);
-    expect(UNIT_REVIEW_LIMIT).toBe(10);
+    expect(UNIT_REVIEW_LIMIT).toBe(3);
     expect(result.passed).toBe(true);
     expect(result.waived).toEqual([weak]);
     expect(sent).toHaveLength(UNIT_REVIEW_LIMIT);

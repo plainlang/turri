@@ -182,7 +182,7 @@ again, and the next review checks those problems first rather than starting over
 leaves a behaviour of the spec not implemented, implemented wrong or untested - no test, or one that
 cannot fail - is **blocking** and worked on first.
 
-From the third review that sends the work back, **the arbiter** weighs each one before it reaches
+From the second review that sends the work back, **the arbiter** weighs each one before it reaches
 the coding agent: the distinguished engineer, on the judge model, read-only, given the same spec and
 code diff as the reviewer, the tests and every review so far. It rules on each problem. It upholds a problem when a behaviour the spec states for this work is
 not implemented, implemented other than the spec says, or untested, or when a test cannot fail: the
@@ -191,7 +191,7 @@ nitpick: the test already tests the behaviour, it is another case of one already
 matter of style, or the code is written another way but does what the spec says. Only what it
 upholds goes back. What it dismisses is let go, with why, in the working notes' pitfalls. When it
 upholds nothing, the work is approved as it is. The review optimises the code and its tests; it never stops the work - whether it is done is the
-unit testing script's to say. After ten reviews, whatever is still found is let go the same way, and
+unit testing script's to say. After three reviews, whatever is still found is let go the same way, and
 the work goes on. For a spec change the review
 is given the change section by section, and told that behaviour is what a functional spec, an
 acceptance test or a req states: a page or a component only a definition names has no code yet. The
@@ -620,12 +620,12 @@ the exacting developer, as the unit tests' is, and marks each problem blocking o
 functionality is not yet tested black box - a test or an acceptance test missing, cut down or skipping
 what it checks, the software mocked or not reached from outside, a test that cannot fail.
 
-From the third review that sends the tests back, the arbiter weighs each one first, as it does the unit
+From the second review that sends the tests back, the arbiter weighs each one first, as it does the unit
 tests' (see [the code and its unit tests are reviewed](#the-code-and-its-unit-tests-are-reviewed)): it upholds what leaves the
 functionality not tested black box, and dismisses what is out of scope or a nitpick. Only what it
 upholds goes back to the conformance agent; when it upholds nothing, the tests are approved as they
 are, and what it let go is kept in the result and the notes' pitfalls. The review optimises the tests,
-it does not stop the run: after ten reviews, whatever is still found is let go the same way. All
+it does not stop the run: after three reviews, whatever is still found is let go the same way. All
 three passing is done.
 
 A spec diff's conformance run holds its tests to the same bar. The functionalities the change touches -

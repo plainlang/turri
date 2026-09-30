@@ -6,7 +6,7 @@ import { REVIEWER_CALLS } from "./conformance-agents.ts";
 
 /**
  * The arbiter: the third voice in a review. The coding agent writes the tests; the reviewer - exacting,
- * opinionated, hard to satisfy - sends them back with everything it finds; from the third review that sends
+ * opinionated, hard to satisfy - sends them back with everything it finds; from the second review that sends
  * them back, the arbiter weighs what it found before any of it goes back. It is the distinguished engineer
  * who balances the trade-offs: the tests have to be good, and time lost chasing perfect ones is lost too. It
  * upholds a problem when the reviewer is right - a behaviour the spec states is untested, or a test cannot
@@ -15,9 +15,9 @@ import { REVIEWER_CALLS } from "./conformance-agents.ts";
  */
 
 /** From the how-manieth review that sends the tests back the arbiter weighs each one. */
-export const ARBITER_AFTER = 3;
+export const ARBITER_AFTER = 2;
 /** How many reviews at most: past them, whatever is still found is let go, and the work goes on. */
-export const REVIEW_LIMIT = 10;
+export const REVIEW_LIMIT = 3;
 
 /** A problem a review raised: in the unit tests or the conformance tests alike. */
 export interface ReviewedProblem {

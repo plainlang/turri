@@ -366,7 +366,7 @@ async function reviewLoop(
       return waived.length > 0 ? { passed: true, waived, reviews: reviews + 1 } : { passed: true, reviews: reviews + 1 };
     }
     let problems = review.problems;
-    // From the third review that sends them back, the arbiter weighs it first: only what it upholds goes to the coding agent.
+    // From the second review that sends them back, the arbiter weighs it first: only what it upholds goes to the coding agent.
     if (reviews + 1 >= UNIT_REVIEW_ROUNDS) {
       options.stage(`the review sent the work back ${reviews + 1} times - the arbiter weighs what it found`);
       const ruling = await arbitrateReview({
