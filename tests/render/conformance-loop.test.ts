@@ -18,6 +18,8 @@ let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason:
 let testedFrid = "1";
 /** What the stubbed test reviewer says. */
 let reviewSays: () => Record<string, unknown> = () => ({ pass: true, problems: [] });
+/** What the stand-in arbiter rules on each review it weighs; nothing: it gives no ruling, and the review stands. */
+let arbiterRules: (() => Array<{ problem: number; uphold: boolean; why: string }>) | undefined;
 /** When set, the stubbed conformance agent writes nothing at all - it only looks. */
 let writesNothing = false;
 /** When set, each time the tests are sent back, the stub's test fails the other way: A, B, A, B - as the artifact ping-pong did. */
@@ -53,6 +55,10 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
       if (session.role === "reviewer") {
         await tool("submit_review").execute("id", reviewSays());
         return "Done.";
+      }
+      if (session.role === "arbiter") {
+        if (arbiterRules !== undefined) await tool("submit_ruling").execute("id", { rulings: arbiterRules() });
+        return "Ruled.";
       }
       if (session.role === "judge") {
         await tool("submit_verdict").execute("id", judgeSays());
@@ -127,6 +133,7 @@ beforeEach(() => {
   pingPong = 0;
   writesNothing = false;
   reviewSays = () => ({ pass: true, problems: [] });
+  arbiterRules = undefined;
 });
 afterEach(async () => {
   await closeAllVms();
@@ -310,12 +317,12 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), diff });
     expect(result.passed).toBe(true);
     const writer = asked.find((turn) => turn.role === "conformance agent")!;
-    expect(writer.prompt).toContain("<acceptance tests of the functionalities the change touches>");
+    expect(writer.prompt).toContain("The acceptance tests of the functional specs the change touches:\n<acceptance tests>\n");
     expect(writer.prompt).toContain("Running the app prints hello and exits 0.");
     // Its first tests leave the acceptance test out: sent back to label it, as a functionality's own run does.
     expect(asked.some((turn) => turn.role === "conformance agent" && turn.prompt.includes("they are not labelled"))).toBe(true);
     const review = asked.find((turn) => turn.role === "reviewer")!.prompt;
-    expect(review).toContain("the functionalities the change touches (1)");
+    expect(review).toContain("the functionalities of module `app` the change touches (1)");
     expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
   });
 
@@ -348,23 +355,31 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toContain("were never written and labelled");
   });
 
-  it("never lets go of tests that do not yet test the functionality black box - however many reviews it takes", async () => {
-    reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test skips the backup it checks.", blocking: true }] });
-    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), maxRounds: 8 });
-    expect(result.passed).toBe(false);
-    expect(asked.filter((turn) => turn.role === "reviewer").length).toBeGreaterThan(5);
-    expect(result.reviewWaived).toBeUndefined();
+  it("sends the conformance agent what the arbiter upholds - a functionality not tested black box - and goes on after ten reviews all the same", async () => {
+    const missing = { file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test skips the backup it checks.", blocking: true };
+    reviewSays = () => ({ pass: false, problems: [missing] });
+    arbiterRules = () => [{ problem: 1, uphold: true, why: "the acceptance test skips what it checks" }];
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), maxRounds: 15 });
+    // An optimiser, not a gate: after the last review the run goes on, and what it still found is kept.
+    expect(result.passed).toBe(true);
+    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(10);
+    expect(asked.filter((turn) => turn.role === "arbiter")).toHaveLength(8);
+    expect(result.reviewWaived).toEqual([missing]);
     const feedback = asked.filter((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better")).at(-1)!;
     expect(feedback.prompt).toContain("- BLOCKING · MISSING · test_acceptance_hello.py: The acceptance test skips the backup it checks.");
+    expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("the conformance tests went on after 10 reviews");
   });
 
-  it("passes after five failed reviews - the suite and unit tests pass, and what the review last found is kept, not sent back again", async () => {
+  it("approves the tests at the third failed review when the arbiter finds the reviewer picky - what it let go is kept in the notes", async () => {
     reviewSays = () => ({ pass: false, problems: [{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more.", blocking: false }] });
+    arbiterRules = () => [{ problem: 1, uphold: false, why: "a nitpick: logging is not what the spec states" }];
     const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
     expect(result.passed).toBe(true);
-    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(5);
+    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(3);
+    expect(asked.filter((turn) => turn.role === "arbiter")).toHaveLength(1);
+    expect(asked.find((turn) => turn.role === "arbiter")!.prompt).toContain("You are the arbiter of the conformance tests of functionality 1");
     expect(result.reviewWaived).toEqual([{ file: "test_acceptance_hello.py", kind: "bad", what: "It could log more.", blocking: false }]);
-    expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("optimised as far as 5 reviews could take them");
+    expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("the arbiter let go what the conformance test review raised");
   });
 
   it("stops with what the review last found when the tests never pass it", async () => {

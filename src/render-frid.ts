@@ -1,6 +1,7 @@
 import { configForSpec, modelSpec, projectModels } from "./config.ts";
 import { listFrids, renderFunctionality } from "./render/render.ts";
 import { describeStop } from "./render/stop-report.ts";
+import { tryItCommand } from "./render/delivery.ts";
 
 const c = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -18,7 +19,6 @@ const USAGE = `usage: npm run render -- <file.plain> [frid] [options]
   --list                 list the functionality IDs and exit
   --dry-run              print the prompt without starting an agent
   --model <provider/id>  model for the agent, e.g. google/gemini-2.5-pro
-  --no-try-it            skip working out how to try it once it is built
 
   PLAIN_TEMPLATE_DIRS    colon-separated template directories, searched before plainwright's standard library`;
 
@@ -28,7 +28,6 @@ function parseArgs(argv: string[]) {
   let buildDir: string | undefined;
   let list = false;
   let dryRun = false;
-  let tryIt = true;
   let model: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -38,7 +37,6 @@ function parseArgs(argv: string[]) {
     else if (arg === "--list") list = true;
     else if (arg === "--dry-run") dryRun = true;
     else if (arg === "--model") model = argv[++i];
-    else if (arg === "--no-try-it") tryIt = false;
     else if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
@@ -48,7 +46,7 @@ function parseArgs(argv: string[]) {
     } else positional.push(arg);
   }
 
-  return { plainFile: positional[0], frid: positional[1], templateDirs, buildDir, list, dryRun, model, tryIt };
+  return { plainFile: positional[0], frid: positional[1], templateDirs, buildDir, list, dryRun, model };
 }
 
 async function main() {
@@ -73,7 +71,6 @@ async function main() {
     dryRun: args.dryRun,
     // The project's config.yaml gives the default.
     model: args.model ?? modelSpec(projectModels(configForSpec(args.plainFile)).coding),
-    tryIt: args.tryIt,
     onDelta: (delta) => process.stdout.write(delta),
     onRun: (command, exitCode) =>
       console.log(
@@ -108,6 +105,7 @@ async function main() {
     console.log(c.dim("  the agent was challenged on each; its justification is in the report above"));
   }
 
+  if (result.passed) console.log(`\n${tryItCommand(args.plainFile)}`);
   if (!result.passed) {
     console.log(`\n${describeStop({ moduleName: result.moduleName, frid: result.frid, at: "unit tests", runs: result.runs, attempts: result.attempts })}`);
   }

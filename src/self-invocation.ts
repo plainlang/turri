@@ -16,6 +16,7 @@ const TOOL_FOR: Record<string, string> = {
   regenerate: "regenerate_functionality",
   conformance: "render_functionality_conformance",
   skill: "run_skill",
+  deploy: "deploy",
   forge: "run_skill",
   chat: "nothing - you are the conversation already",
   ask: "nothing - you are the conversation already",
@@ -39,6 +40,7 @@ const ENTRY: Record<string, string> = {
   "regenerate-frid": "regenerate",
   "conformance-frid": "conformance",
   run: "skill",
+  "deploy-cli": "deploy",
 };
 
 /** Where a command starts: the start of the string, or after a separator. */
@@ -50,9 +52,9 @@ const AT_COMMAND = String.raw`(?:^|[\s;&|()\x60$])`;
  * agent - and neither are setup, doctor and vm-image.
  */
 export function selfInvocation(command: string): string | undefined {
-  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?plainwright\\s+(render|module|regenerate|conformance|skill|chat)\\b`).exec(command);
+  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?plainwright\\s+(render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
   if (cli) return cli[1];
-  const launcher = new RegExp(`(?:bin/plainwright\\.mjs|src/cli\\.ts)\\s+(render|module|regenerate|conformance|skill|chat)\\b`).exec(command);
+  const launcher = new RegExp(`(?:bin/plainwright\\.mjs|src/cli\\.ts)\\s+(render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
   if (launcher) return launcher[1];
   const npm = new RegExp(`${AT_COMMAND}npm\\s+run\\s+(${Object.values(NPM_SCRIPT).join("|")})\\b`).exec(command);
   if (npm) return npm[1];
@@ -82,7 +84,7 @@ export function askedForCommandLine(message: string): boolean {
   const text = message.toLowerCase();
   return (
     /\b(headless|command[ -]line|cli|terminal|shell|in bash|via bash|through bash|npm run|nohup)\b/.test(text) ||
-    /\bplainwright\s+(render|module|regenerate|conformance|skill|chat)\b/.test(text) ||
+    /\bplainwright\s+(render|module|regenerate|conformance|skill|chat|deploy)\b/.test(text) ||
     /(^|\s)pi\s+-p\b/.test(text)
   );
 }
@@ -105,8 +107,9 @@ export const TOOLS_NOT_CLI = [
   "<plainwright-tools>",
   "In this conversation, plainwright's work is done with its tools - render_functionality, render_module,",
   "regenerate_functionality, render_spec_diff, render_functionality_conformance, run_skill and the rest - which run as",
-  "background jobs the user can watch and stop. Never run plainwright's command line (plainwright render,",
-  "module, regenerate, conformance, skill, chat; npm run render and the like) or start another pi through bash:",
+  "background jobs the user can watch and stop. To try what is built, deploy - never by hand in plain_modules. Never",
+  "run plainwright's command line (plainwright render, module, regenerate, conformance, skill, chat, deploy; npm run",
+  "render and the like) or start another pi through bash:",
   "that is a separate headless run the user cannot see or stop. Only when the user explicitly asks for the",
   "command line, run it. Configuring pi itself - pi install, update, list, config, auth, or its settings files -",
   "is fine; it starts no agent.",

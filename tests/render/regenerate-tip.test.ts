@@ -185,7 +185,7 @@ describe("the regeneration prompt", () => {
       moduleName: "base", frid: "2", specifications, linkedResources: [], added: true, codebaseOf: "top", implemented: [],
     });
     expect(prompt).toContain("was added to the `base` specification after this codebase was built");
-    expect(prompt).toContain("Implement functionality 2 and its unit tests.");
+    expect(prompt).toContain("Implement functionality 2 of module `base` and its unit tests.");
     expect(prompt).not.toContain('version="as built"');
   });
 });

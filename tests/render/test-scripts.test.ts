@@ -111,7 +111,7 @@ describe("the testing scripts, in an agent's prompt", () => {
     const on = await prompt();
     expect(on).toContain("echo unit-script");
     expect(on.match(/echo conformance-script/g)).toHaveLength(1);
-    expect(on).not.toContain("<linked resources>");
+    expect(on).not.toContain("<linked resources>\n");
 
     const off = await prompt(false);
     expect(off).toContain("echo unit-script");

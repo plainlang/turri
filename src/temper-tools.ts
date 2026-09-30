@@ -152,7 +152,7 @@ export function specStatusOf(plainFile: string, cwd: string, jobs: Job[]): { don
   else {
     const pending = pendingFrids(spec.tree, tip.buildDir);
     if (pending.length > 0) missing.push(`functionalities not built from the spec as it stands: ${pending.map((entry) => `${entry.frid} (${entry.reason})`).join(", ")}`);
-    else if (!sameSpec(built, spec.tree)) missing.push("the code is built from an earlier spec - a definition, a req or a section changed since");
+    else if (!sameSpec(built, spec.tree)) missing.push("the code is built from an earlier spec - a definition, an implementation req or a section changed since");
   }
   // The builds of this codebase: by the module each is for - its summary starts with its .plain file.
   const mineOf = jobs.filter((job) => spec.chain.some((entry) => job.summary.startsWith(basename(entry.plainFile))));

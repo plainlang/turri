@@ -22,14 +22,14 @@ function slowSession() {
 }
 
 describe("an agent's turn", () => {
-  it("is told its time, and ended where it is when the time is up - then the harness takes it from there", async () => {
+  it("is ended where it is when the time is up - without being told its time - then the harness takes it from there", async () => {
     const { session, prompts, aborted } = slowSession();
     timeTurns(session);
     const started = Date.now();
     const reply = await ask(session, "Fix the failing test.");
     expect(Date.now() - started).toBeLessThan(5000);
     expect(aborted()).toBe(1);
-    expect(prompts[0]).toContain("Fix the failing test.\n\nYou have 1 second for this turn: when it is up, your turn ends where it is");
+    expect(prompts[0]).toBe("Fix the failing test.");
     expect(reply).toContain("[the turn was stopped: its 1 second were up]");
   });
 

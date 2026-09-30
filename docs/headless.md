@@ -32,8 +32,8 @@ plainwright module app.plain --model anthropic/claude-sonnet-5
 
 That builds every functionality in order - code and unit tests, then conformance tests when the
 module has `***test reqs***`, then every conformance test so far - and advances only when they
-pass. A module that `requires` others builds them first, bottom up. Try-it steps are off: nobody
-is there to try them.
+pass. A module that `requires` others builds them first, bottom up. When it is done it prints
+`To try it: plainwright deploy <spec>` - see [deploy](deploy.md).
 
 Keep it running when the terminal closes and the laptop would sleep, and keep the log:
 
@@ -73,11 +73,15 @@ Useful options - `plainwright module --help` lists all of them:
 | --- | --- |
 | `--model <provider/id>` | the model every agent runs on (`--coding-model` too), with `:level` for its thinking (`provider/id:high`); default, `config.yaml`'s `coding-model`, then its `harness-model`, then pi's configured model |
 | `--judge-model <provider/id>` | `conformance`: the model of the judge and the test review; default, `config.yaml`'s `judge-model`, then the coding model |
-| `--no-conformance` | skip conformance tests - faster, weaker |
-| `--from <frid>`, `--to <frid>` | build a range of functionalities |
+| `--to <frid>` | queue functionalities only up to this one |
 | `--only` | build just this module, not the ones it requires |
-| `--max-regression-rounds <n>` | repair attempts when earlier tests break (default 20) |
-| `--try-it` | work out and check how to try the last functionality built |
+| `--build-dir <dir>` | where the code goes; default `plain_modules/<module>/code` |
+
+`plainwright module` queues the jobs the chat's `render_module` does - a spec diff that brings what
+is built in line, when it no longer matches the spec, then one render functionality job per
+functional spec not built, each with its conformance job - and runs them all to the end, the queue
+master reworking them as in the chat (see [a whole module](rendering.md#a-whole-module)).
+Conformance tests follow `conformance-tests:` in `config.yaml`.
 
 ## In the morning
 
@@ -120,8 +124,9 @@ in: when later modules are built on top of this one, the furthest-built of them 
 picks one when there are several). It exits `0` when everything passes, and refuses when there is
 no code yet - build it with `module` first.
 
-Several changed functionalities do not need one command each: after editing the spec, re-running
-`plainwright module` rebuilds exactly the ones whose own spec changed.
+Several changes do not need one command each: after editing the spec, re-running `plainwright module`
+brings the code up to it - one spec diff for what changed in what is built, then the functional
+specs not built yet.
 
 ## Asking in words instead
 

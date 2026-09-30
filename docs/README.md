@@ -34,6 +34,7 @@ pages go into each part.
 | which skill does what | [authoring \*\*\*plain](authoring-plain.md#the-skills) |
 | what happens when a spec changes | [rendering](rendering.md#a-spec-change-as-a-diff) |
 | why a test was not allowed to be deleted | [rendering](rendering.md#the-tests-must-actually-pass) |
+| how to try what is built, and what deploy may install | [deploy](deploy.md) |
 | what the agents can and cannot reach | [the sandbox](sandbox.md) |
 | how skill review gates and judges work | [skills and gates](skills-and-gates.md) |
 | how the parser matches the reference implementation | [the \*\*\*plain parser](parser.md) |
@@ -46,6 +47,7 @@ pages go into each part.
 | [Installation](installation.md) | setup and doctor, building the VM image, the stock image's limits, plainwright in every `pi`, environment variables |
 | [Using plainwright](using.md) | the conversation, the tools, background jobs, choosing a model, module history, the command line |
 | [The project config](config.md) | `config.yaml` and `config.<module>.yaml`: where they are read from, every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
+| [Deploy](deploy.md) | trying what is built: dist/<module>, the last commit, starting it on your machine, asking before installing, `plainwright deploy` |
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |
 | [Rendering](rendering.md) | where things go, one functionality, a whole module, spec diffs, conformance tests, what the code is built from |

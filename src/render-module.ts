@@ -1,69 +1,66 @@
+import { resolve } from "node:path";
+import { projectDirOf } from "./render/paths.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, readProjectConfig, modelSpec, projectModels } from "./config.ts";
-import { c, reportEvent } from "./module-report.ts";
-import { renderChain, describeChainStop } from "./render/module.ts";
-import { describeChain } from "./render/requires.ts";
+import { c } from "./module-report.ts";
+import { PACKAGE_ROOT } from "./environment.ts";
+import { createJobRegistry, type Job } from "./render/jobs.ts";
+import { createRenderQueue, describeBroughtUp } from "./render/queue.ts";
+import { tryItCommand } from "./render/delivery.ts";
+import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
 
-const USAGE = `usage: npm run module -- [file.plain] [options]
+const USAGE = `usage: plainwright module [file.plain] [options]
 
-Builds the module and everything it requires, bottom first. A required module's code is
-copied into the build before this module starts, so it is finished first.
-
-Within each module, a functionality advances only when its unit tests pass, its own
-conformance tests pass, and every earlier functionality's conformance tests still pass
-alongside it.
+Builds the module and everything it requires, bottom first, as jobs in the render queue - as the
+chat does: for each module, one render functionality job per functional spec not built yet, each
+followed by its conformance tests when they are on, and - when what is built no longer matches the
+spec - one render spec diff job first that brings it in line. The queue master reworks them like
+any queued job. It runs them all to the end, then says how each went.
 
 The project's config.yaml, in the current directory, gives the defaults: module (the file to
-build when none is given), model, and conformance-tests (true or false). Options given here
-win over it.
+build when none is given), coding-model, and conformance-tests (true or false).
 
-  --no-conformance         skip conformance tests (they need test reqs)
-  --conformance            require conformance tests, failing if there are no test reqs
   --only                   build just this module, ignoring what it requires
-  --force                  rebuild modules that are already complete
-  --from <frid>            start here, treating earlier functionalities as already built
-  --to <frid>              stop after this functionality
+  --to <frid>              queue functionalities of this module only up to this id
   --build-dir <dir>        default: plain_modules/<module>/code
-  --conformance-root <dir> default: plain_modules
-  --template-dir <dir>     extra template directory (repeatable)
   --model <provider/id>    model for the agents
-  --try-it                 say how to try the last functionality built (off: long runs are unattended)
-  --max-regression-rounds  repair attempts per regression failure (default 20)
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
+/** Options of the build this replaced, and what to do instead. */
+const GONE: Record<string, string> = {
+  force: "to build a functionality again, use plainwright regenerate",
+  from: "every functionality not built is queued; built ones are skipped",
+  "conformance-root": "conformance tests are in plain_modules/<module>/tests",
+  "max-regression-rounds": "each functionality's conformance job runs the whole suite so far",
+  "try-it": "run plainwright deploy to try what is built",
+  conformance: `set conformance-tests: in ${CONFIG_FILE}`,
+  "no-conformance": `set conformance-tests: false in ${CONFIG_FILE}`,
+  "template-dir": "set PLAIN_TEMPLATE_DIRS",
+};
+
 function parseArgs(argv: string[]) {
   const positional: string[] = [];
-  const templateDirs: string[] = [];
   const options: Record<string, string | undefined> = {};
-
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
-    if (arg === "--template-dir") templateDirs.push(argv[++i]!);
-    else if (arg === "-h" || arg === "--help") {
+    if (arg === "-h" || arg === "--help") {
       console.log(USAGE);
       process.exit(0);
-    } else if (
-      arg === "--only" ||
-      arg === "--force" ||
-      arg === "--conformance" ||
-      arg === "--no-conformance" ||
-      arg === "--try-it"
-    ) {
-      options[arg.slice(2)] = "yes";
-    }
+    } else if (["--only", "--force", "--conformance", "--no-conformance", "--try-it"].includes(arg)) options[arg.slice(2)] = "yes";
     else if (arg.startsWith("--")) options[arg.slice(2)] = argv[++i];
     else positional.push(arg);
   }
-
-  return { positional, templateDirs, options };
+  return { positional, options };
 }
 
 async function main() {
-  const { positional, templateDirs, options } = parseArgs(process.argv.slice(2));
-  // The project's defaults - what to build, on which model, with or without conformance.
+  const { positional, options } = parseArgs(process.argv.slice(2));
+  for (const [name, instead] of Object.entries(GONE)) {
+    if (options[name] !== undefined) console.log(c.dim(`--${name} is no longer an option: ${instead}.`));
+  }
   const config = readProjectConfig(process.cwd());
-  const plainFile = positional[0] ?? config.module;
-  if (!plainFile) {
+  const named = positional[0] ?? config.module;
+  if (!named) {
     const stacks = modulesWithConfig(process.cwd());
     console.error(
       stacks.length > 0
@@ -72,69 +69,47 @@ async function main() {
     );
     process.exit(1);
   }
-  // The rest from the spec's own project - which may be a folder below this one.
-  const project = { ...config, ...Object.fromEntries(Object.entries(configForSpec(plainFile)).filter(([, v]) => v !== undefined)) };
+  const plainFile = resolve(named);
+  const project = { ...config, ...Object.fromEntries(Object.entries(configForSpec(plainFile)).filter(([, value]) => value !== undefined)) };
+  const model = options.model ?? modelSpec(projectModels(project).coding);
+  const projectDir = projectDirOf(plainFile);
 
-  const result = await renderChain({
-    plainFile,
-    templateDirs,
-    force: options.force !== undefined,
-    skipRequires: options.only !== undefined,
-    tryIt: options["try-it"] !== undefined,
-    conformance:
-      // config.yaml turns them off, or leaves them to the test reqs - `true` included, as in the chat: a module
-      // without test reqs has none to write, and is not stopped for it.
-      options["no-conformance"] !== undefined ? false : options.conformance !== undefined ? true : project.conformanceTests === false ? false : undefined,
-    onChainEvent: (event) => {
-      if (event.type === "chain") {
-        console.log(`\n${c.bold("build chain")}\n${describeChain(event.chain)}`);
-      } else if (event.type === "module_start") {
-        console.log(`\n${c.bold(c.cyan(`══ ${event.module}`))} ${c.dim(`(${event.index}/${event.total})`)}`);
-      } else if (event.type === "module_skipped") {
-        console.log(`\n${c.dim(`── ${event.module}: already built, skipping`)}`);
-      } else if (event.type === "copied") {
-        console.log(c.dim(`   copied ${event.files} files from ${event.from}`));
-      } else if (event.type === "module_done") {
-        console.log(event.passed ? c.green(`   ${event.module} complete`) : c.red(`   ${event.module} incomplete`));
-      }
+  // Each job as it starts and as it ends - the transcript of each is in .plainwright/jobs/.
+  const seen = new Map<string, string>();
+  const registry = createJobRegistry({
+    // As in the chat: a job that fails is run once more; failing again, it and every job behind it fail, and why is worked out.
+    retries: 1,
+    diagnose: async (job, failures, jobLog) => {
+      const diagnosis = await diagnoseFailure({ job, failures, projectDir, harnessDir: PACKAGE_ROOT, jobLog, model: modelSpec(projectModels(project).harness) ?? model });
+      return diagnosis !== undefined ? describeDiagnosis(diagnosis) : undefined;
     },
-    from: options.from,
-    to: options.to,
-    buildDir: options["build-dir"],
-    conformanceRoot: options["conformance-root"],
-    model: options.model ?? modelSpec(projectModels(project).coding),
-    maxRegressionRounds: options["max-regression-rounds"]
-      ? Number(options["max-regression-rounds"])
-      : undefined,
-    onDelta: (delta) => process.stdout.write(delta),
-    onEvent: reportEvent,
+    onChange: (job: Job) => {
+      const line = job.status === "running" ? `${job.stage ?? "started"}` : job.status;
+      if (seen.get(job.id) === line) return;
+      seen.set(job.id, line);
+      if (job.status === "running") console.log(`${c.cyan(`▶ ${job.id}`)} ${job.summary}${job.stage !== undefined ? c.dim(` - ${job.stage}`) : ""}`);
+    },
+    onFinish: (job: Job) => {
+      const mark = job.status === "succeeded" ? c.green("✓") : job.status === "stopped" ? c.dim("■") : c.red("✗");
+      console.log(`${mark} ${job.id} ${job.summary} - ${job.status}`);
+      if (job.status !== "succeeded") console.log(c.dim((job.announce ?? job.report ?? job.error ?? "").trim()));
+    },
   });
+  const queue = createRenderQueue({ registry, cwd: process.cwd(), ...(options["build-dir"] !== undefined ? { buildDir: resolve(options["build-dir"]) } : {}), ...(model !== undefined ? { model } : {}) });
+  const brought = queue.bringUpTo(plainFile, {
+    ...(options.to !== undefined ? { to: options.to } : {}),
+    ...(options.only !== undefined ? { only: true } : {}),
+    ...(model !== undefined ? { model } : {}),
+  });
+  console.log(describeBroughtUp(brought, named));
+  await queue.drain();
 
-  console.log(
-    `\n\n${result.passed ? c.green(c.bold("chain complete")) : c.red(c.bold("chain incomplete"))}`,
-  );
-  for (const outcome of result.outcomes) {
-    if (outcome.skipped) {
-      console.log(c.dim(`  ${outcome.module}: already built`));
-      continue;
-    }
-    const inner = outcome.result;
-    const detail = inner?.specSteps !== undefined
-      ? `${inner.specSteps.filter((step) => step.result.passed).length}/${inner.specSteps.length} spec diffs`
-      : inner
-      ? `${inner.completed.length}/${inner.frids.length} functionalities` +
-        (outcome.copied > 0 ? `, ${outcome.copied} files copied in` : "")
-      : "not started";
-    console.log(
-      `  ${outcome.module}: ${inner?.passed ? c.green("done") : c.red("incomplete")} ${c.dim(detail)}`,
-    );
-  }
-
-  // Where it stopped, why, and what to do about it.
-  const stop = describeChainStop(result);
-  if (stop !== undefined) console.log(`\n${stop}`);
-
-  process.exit(result.passed ? 0 : 1);
+  const ended = registry.list();
+  const failed = ended.filter((job) => job.status === "failed");
+  console.log(`\n${failed.length === 0 ? c.green(c.bold("all jobs done")) : c.red(c.bold(`${failed.length} job${failed.length === 1 ? "" : "s"} failed`))}`);
+  for (const job of ended) console.log(`  ${job.id} ${job.summary}: ${job.status}`);
+  if (ended.some((job) => job.status === "succeeded")) console.log(`\n${tryItCommand(plainFile)}`);
+  process.exit(failed.length === 0 ? 0 : 1);
 }
 
 main().catch((error) => {

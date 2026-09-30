@@ -58,8 +58,8 @@ durable part. The code is a disposable artefact, rebuilt from them whenever they
    changed are rebuilt, and everything built before is tested again.
 
 A bug is fixed in the spec; a new behaviour goes into the spec; and the next regeneration carries
-it. When a build is done, **plainwright** tells you how to try it, with steps it ran first and marked
-with whether they worked.
+it. When a build is done, ask to try it: **plainwright** puts what is built in `dist/<module>` and
+starts it on your machine - an app, and it tells you where to open your browser.
 
 A spec looks like this:
 
@@ -94,7 +94,7 @@ npm link              # puts `plainwright` on your PATH
 plainwright setup     # checks the machine and fixes what it can, asking first
 ```
 
-`setup` checks for Node 22.18+, QEMU (which the sandbox VM runs on), a model provider for pi, and
+`setup` checks for Node 22.19+, QEMU (which the sandbox VM runs on), a model provider for pi, and
 the VM image - and offers to build the image, which takes about 7 minutes. It ends by starting a
 VM for real. `plainwright doctor` runs the same checks later without changing anything.
 
@@ -119,8 +119,9 @@ specs, and builds each one as it is written. While it works:
 
 - the **panel** above the input shows every build - its stage, what its agents are doing, its
   model and cost - and the queue behind it;
-- the **side panel** (`ctrl+j`), on the right, shows the whole queue, how to try what was built,
-  and each build's agents at work, one agent at a time if you like (`/watch` opens it on a build);
+- ask to try it at any time - "let me try it" - and **`deploy`** puts what is built so far in
+  `dist/<module>` and starts it, asking before it installs anything;
+- the **side panel** (`ctrl+j`), on the right, shows the whole queue and each build's agents at work, one agent at a time if you like (`/watch` opens it on a build);
 - **`/jobs`** lists every build, **`/stop`** stops one, **`/history`** shows what a module's
   builds changed.
 
@@ -157,6 +158,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [Installation](docs/installation.md) | setup and doctor, the VM image, **plainwright** in every `pi`, environment variables |
 | [Using **plainwright**](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
 | [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
+| [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
 | [Rendering](docs/rendering.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, what the code is built from |

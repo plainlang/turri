@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { NOTES_FILE } from "./notes.ts";
+import { STATE_FILE } from "./state.ts";
 import { listFiles } from "./testing.ts";
 
 /**
@@ -40,6 +42,12 @@ export function diffFiles(
   }
   const removed = [...before.keys()].filter((file) => !after.has(file));
   return { added: added.sort(), changed: changed.sort(), removed: removed.sort() };
+}
+
+/** Whether the work has written nothing in `root` since `atStart` - its working notes and the build record aside. */
+export function wroteNothing(root: string, atStart: Map<string, string>): boolean {
+  const { added, changed, removed } = diffFiles(atStart, digestFiles(root));
+  return [...added, ...changed, ...removed].every((file) => file === NOTES_FILE || file === STATE_FILE);
 }
 
 /** Beyond this, the tree is summarised by directory rather than listed file by file. */

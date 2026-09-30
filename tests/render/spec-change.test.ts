@@ -122,7 +122,9 @@ describe("the change agent's prompt", () => {
       linkedResources: [],
       empty: false,
     });
-    expect(prompt).toContain("<spec change>\n+- Two.\n</spec change>");
+    // Not told section by section: the raw diff, with which tag each ***heading*** in it is.
+    expect(prompt).toContain("+- Two.\n</spec change>");
+    expect(prompt).toContain("***implementation reqs*** is\n<implementation reqs>");
     expect(prompt.indexOf('module="base" id="1"')).toBeLessThan(prompt.indexOf('module="app" id="2"'));
     expect(prompt).toContain("Implement what the change adds. Update what it changes. Remove what it removes");
   });
@@ -143,11 +145,14 @@ describe("rendering a spec diff", () => {
     prompts.length = 0;
     const diff = diffOf(plain(["- One."]), plain(["- One, loudly.", "- Two."]));
     await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
-    expect(prompts[0]).toContain('<functional specs before the change - what the code is built from>');
-    expect(prompts[0]).toContain('<functionality module="app" id="1">\n- One.');
+    expect(prompts[0]).toContain('<already implemented>\n<module name="app" role="current">');
+    expect(prompts[0]).toContain('<functionality module="app" id="1" status="implemented">\n- One.');
     expect(prompts[0]).not.toContain('<functionality module="app" id="2">');
     expect(prompts[0]).not.toContain("- One, loudly.\n</functionality>");
-    expect(prompts[0]).toContain(`<spec change>\n${diff.trim()}\n</spec change>`);
+    // The change section by section - functionality 1 reworded, 2 added - not the raw diff.
+    expect(prompts[0]).toContain('<spec change>\n<functional specs change="1 added, 1 changed">');
+    expect(prompts[0]).toContain("  functionality 1\n    before:\n      - One.\n    now:\n      - One, loudly.");
+    expect(prompts[0]).toContain("Added:\n  functionality 2:\n  - Two.");
   });
 
   it("from scratch: applies the diff, renders it, and records the specs as they now stand", async () => {
@@ -162,7 +167,7 @@ describe("rendering a spec diff", () => {
     expect(prompts[0]).toContain("<spec change>");
     // Nothing is built: there is no spec before the change - the change is all of it.
     expect(prompts[0]).toContain("Nothing is built yet");
-    expect(prompts[0]).not.toContain("<functional specs before the change");
+    expect(prompts[0]).not.toContain("<already implemented>\n");
     // What the code is built from: the spec with the change in, and nothing else in the file.
     expect(readBuiltTree(result.buildDir)).toEqual(parsed());
     expect(Object.keys(JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"))).sort()).toEqual(["functional specs", "implementation reqs"]);
@@ -243,7 +248,7 @@ describe("rendering a spec diff before any functional spec exists", () => {
     const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
 
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(after);
-    expect(prompts.at(-1)).toContain("+- :User: is a person.");
+    expect(prompts.at(-1)).toContain('<definitions change="1 added">\nAdded:\n  - :User: is a person.\n</definitions>');
     expect(result.passed).toBe(true);
     expect(readBuiltTree(result.buildDir)).toEqual({
       definitions: [{ markdown: "- :User: is a person." }],
@@ -279,7 +284,8 @@ describe("conformance for a spec change", () => {
     expect(result.conformance).toBeDefined();
     expect(result.conformance!.passed).toBe(true);
     const conformancePrompt = prompts.find((prompt) => prompt.includes("You are writing conformance tests"))!;
-    expect(conformancePrompt).toContain("+- :User: is a person.");
+    // The conformance agent is shown the change section by section, as the coding agent was.
+    expect(conformancePrompt).toContain('<definitions change="1 added">\nAdded:\n  - :User: is a person.\n</definitions>');
     expect(conformancePrompt).toContain("The change is tested whatever it touches");
     expect(conformancePrompt).toContain('"conformance tests of the spec"');
     expect(result.passed).toBe(true);

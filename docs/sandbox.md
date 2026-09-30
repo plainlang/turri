@@ -40,7 +40,7 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 
 `bash` is the case no argument check can cover - one string, and no way to read where it will
 read or write. So it does not run on the host at all. Every command an agent runs - its `bash`, the
-try-it checks - runs in a
+testing scripts - runs in a
 [Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux). A module has two:
 
 - **Its code's**, holding `plain_modules/<module>/code`: where code is rendered - the coding agent's
@@ -106,6 +106,14 @@ the code talks to on this machine, the agent reaches with its commands in the VM
 DuckDuckGo is used without a key through its Lite page, which is not an official API: it rate-limits,
 and a search that is turned away tells the agent to wait or fetch a page it knows instead.
 
+## Outside the sandbox: deploy
+
+What `deploy` starts is the one thing that runs on your machine, not in a VM: you asked to try the
+software, with your toolchains, in your browser. It runs from `dist/<module>`, a copy of the last
+commit outside `plain_modules`, so no rendering agent reaches it. Nothing is installed there without
+your say-so - every command that would install or download is put to you first, and the chat's shell
+refuses the rest. See [deploy](deploy.md).
+
 ## What the VM needs beside the code
 
 It lives in `plain_modules/.plainwright`, which ignores itself in git:
@@ -114,7 +122,6 @@ It lives in `plain_modules/.plainwright`, which ignores itself in git:
 | --- | --- |
 | `cache/` | package caches - pip, npm, cargo, Maven, Gradle, Go, apk - so a dependency downloads once per project |
 | `runs/` | the throwaway copies conformance runs happen in, emptied after each run |
-| `try/` | the copies try-it steps are checked in, and where you try a build yourself |
 | `system-packages.json` | the system packages the agents installed |
 
 ## Installing what the image lacks

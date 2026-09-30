@@ -61,9 +61,17 @@ linked resources, and the one functionality to build now with its acceptance tes
 <already implemented> … </already implemented>
 <codebase> … </codebase>
 <linked resources> … </linked resources>
-<functionality id="1"> - Display "hello, world" </functionality>
+<functionality module="hello" id="1"> - Display "hello, world" </functionality>
 <acceptance tests> … </acceptance tests>
 ```
+
+Every section has one name, its tag's, in every prompt: how to read the spec introduces each one as
+`<definitions>`, `<implementation reqs>`, `<test reqs>`, `<functional specs>` (each functional spec
+a `<functionality module="…" id="…">`), `<acceptance tests>`, `<linked resources>` and
+`<spec change>`, and the prompts' own words call each section by that name. The `***definitions***`
+headings of a `.plain` file appear only where a spec change could not be told section by section
+and the agent is given the raw diff: it is then told which tag each heading is. A spec in full -
+the queue master's, the spec-steps agent's, the conformance agents' - is laid out in the same tags.
 
 A module that `requires` another inherits its functional specs; one that `import`s another
 inherits its definitions, implementation reqs and test reqs.
@@ -104,31 +112,72 @@ runs the unit testing script itself**, and only that run counts (see
   that test and then the whole suite, the run that counts; and leave the cause and the fix in the notes.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
+- **It wrote nothing.** A turn can end with the agent having only thought the problem through, and
+  the code folder as it found it (notes aside). That leaves nothing to test or review. So before the
+  tests run, the agent is told to stop planning and write a draft: its best guess at what the spec
+  asks, the code and its unit tests, with any assumption put in the notes. A draft that is wrong
+  comes back from the tests and the review; nothing written cannot. A functionality is asked twice.
+  A spec change or a regeneration is asked once, to write the change or say why it needs no code:
+  one that only rewords a spec may need none. After that, the turn is taken as what it did.
 
 A test may go only when it asserts nothing meaningful - it cannot fail, exactly duplicates
 another, or tests something the spec does not require. Inconvenient, slow or failing are not
 grounds. Justified removals are reported, not silent. The baseline is taken before the agent
 starts, so breaking an earlier functionality's test is caught too.
 
-### The unit tests are reviewed
+### The code and its unit tests are reviewed
 
 Passing unit tests prove only what they check, and a coding agent is quick to write tests that check
-next to nothing - that a function exists, that a result is not empty, that a status is 200. So once
-the unit testing script passes, a reviewer on the judge model reads the unit tests the work added or
-changed, beside the code and the spec, and changes nothing. It checks that every behaviour, edge
-case and error the spec states for this work has a test asserting the exact outcome the spec says,
-that fails when it breaks; that no test only checks something exists, asserts nothing, is skipped or
-swallows a failure; that the unit under test is never mocked - only what is outside it; and that
-the tests are deterministic. For a spec change, what it adds or changes is what needs testing, and a
-change that adds no behaviour needs no new test.
+next to nothing - that a function exists, that a result is not empty, that a status is 200 - or code
+that no test reaches. So once the unit testing script passes, a reviewer on the judge model reads
+what the work wrote, beside the spec, and changes nothing. It reviews both halves.
 
-Its problems go back to the coding agent, the unit testing script has to pass again, and the next
-review checks those problems first rather than starting over. A problem that leaves a behaviour of
-the spec untested - no test, or one that cannot fail - is **blocking** and never let go: after eight
-reviews with one still there, the work stops and is undone. The rest, ways to make tests that
-already test it better, are let go after five reviews - the tests cannot be optimised further - and
-what the last review suggested goes into the working notes. The conformance tests are reviewed the
-same way, as black-box tests (see [conformance tests](#conformance-tests)).
+- **The code.** Every behaviour, edge case, validation rule and error the spec states for this work
+  is implemented as the spec says it, with nothing left as a stub, a placeholder or a hard-coded
+  answer. The code keeps to the implementation reqs and does not break what was already built. A
+  behaviour with no code for it is raised as not implemented. Such a problem is of kind `wrong`.
+- **The unit tests.** Every behaviour, edge
+case and error the spec states for this work has a test asserting the exact outcome the spec says,
+  that fails when it breaks; that no test only checks something exists, asserts nothing, is skipped
+  or swallows a failure; that the unit under test is never mocked - only what is outside it; and that
+  the tests are deterministic. A test that is not there is `missing`, a weak one is `bad`.
+
+For a spec change, what it adds or changes is what needs code and tests, and a change that adds no
+behaviour needs neither. Code written another way than the reviewer would have written it is not a
+problem, as long as it does what the spec says.
+
+The review is told what to inspect, so it does not have to guess. It gets:
+
+- **The spec as the coding agent had it**, laid out the same way: how to read a spec,
+  `<definitions>`, `<implementation reqs>` and `<already implemented>`. What this work built is
+  apart, in `<new in this work>`: for a functionality, its `<functionality module="m" id="N">` with
+  its `<acceptance tests>`; for a spec change, the `<spec change>`, section by section.
+- **The code the work wrote**: a diff of the code folder from the module's last commit, where every
+  unit of work starts. It covers code and tests, and new files are shown whole. Lockfiles and the
+  harness's own files are left out. The diff is worked out again before every review, since the
+  coding agent changes the code between reviews. Past 80,000 characters it is cut, and the files
+  left out are named, to be read whole.
+
+The reviewer is the exacting developer, opinionated about everything: it raises every problem it
+finds, however small. Its problems go back to the coding agent, the unit testing script has to pass
+again, and the next review checks those problems first rather than starting over. A problem that
+leaves a behaviour of the spec not implemented, implemented wrong or untested - no test, or one that
+cannot fail - is **blocking** and worked on first.
+
+From the third review that sends the work back, **the arbiter** weighs each one before it reaches
+the coding agent: the distinguished engineer, on the judge model, read-only, given the same spec and
+code diff as the reviewer, the tests and every review so far. It rules on each problem. It upholds a problem when a behaviour the spec states for this work is
+not implemented, implemented other than the spec says, or untested, or when a test cannot fail: the
+reviewer is right, and the coding agent fixes it. It dismisses a problem that is out of scope or a
+nitpick: the test already tests the behaviour, it is another case of one already covered, it is a
+matter of style, or the code is written another way but does what the spec says. Only what it
+upholds goes back. What it dismisses is let go, with why, in the working notes' pitfalls. When it
+upholds nothing, the work is approved as it is. The review optimises the code and its tests; it never stops the work - whether it is done is the
+unit testing script's to say. After ten reviews, whatever is still found is let go the same way, and
+the work goes on. For a spec change the review
+is given the change section by section, and told that behaviour is what a functional spec, an
+acceptance test or a req states: a page or a component only a definition names has no code yet. The
+conformance tests are reviewed as black-box tests (see [conformance tests](#conformance-tests)).
 
 Every time a review sends tests back, the agent that fixes them also leaves the lesson in the
 working notes' pitfalls: not the fix, but the kind of test the review found weak or missing and how
@@ -142,41 +191,52 @@ time - so the reviews of the next functionalities have less to send back, and fi
 Once the unit tests pass: the conformance tests already in the codebase are run and kept passing
 (repairing the code if needed), the functional spec goes into the tree the code is built from, and a
 commit is made to the module's history. A render that does not pass is undone instead - see
-[below](#what-the-code-is-built-from). When someone is there to try it, the agent is also asked how to try the functionality:
-a few plain steps - a command to paste or a thing to click, and what you should see - at most
-five, one line each, and only commands that work in your own terminal. The harness runs every
-command first, in a fresh copy (`plain_modules/.plainwright/try/`): a server is started, checked
-to stay up, and the steps after it run against it before it is stopped. A step that does not work
-goes back to the agent, up to three times; one that still does not is shown marked as not working.
+[below](#what-the-code-is-built-from). A render that lands ends its report with the offer to try it -
+"Want to try it? Just ask me" in the chat, `plainwright deploy <spec>` on the command line - and
+trying it is [deploy](deploy.md)'s, not the render's. When the render's conformance tests follow as
+a job of their own, the offer comes at the very end, from that job, once they pass too. Spec diffs,
+conformance jobs and regenerations that land make the same offer.
 
 ## A whole module
 
 ```bash
 plainwright module <file.plain>
-plainwright module <file.plain> --from 3 --to 5
+plainwright module <file.plain> --to 5
 ```
 
-For each functionality in order: render the code and unit tests, write its conformance tests,
-then run **every** conformance test in the codebase as one suite, and the unit testing script with
-it. It advances only when both are green - a suite that passes on code whose unit tests fail is not
-done. When it goes red, a repair agent works on the code with the module's spec and the
-failure; the suite runs again after each repair, up to `--max-regression-rounds` (default 20). The
-repair agent is not allowed to change the tests: the harness photographs them before it starts,
-and puts back anything it changed before sending it to fix the code instead. A functionality is finished when it passes alongside
-everything before it.
+Rendering a module - `render_module` in a conversation, `plainwright module` on the command line -
+is not a job of its own: it queues the jobs that bring the code up to the spec as it is now, in the
+render queue, where the queue master sees and reworks them like any others. For each module of the
+`requires` chain, bottom first, starting from what the queue will leave it - what is built, and
+the jobs already queued for it:
 
-That is when the spec has only grown since the code was built: new functional specs at the end, and
-nothing else - the definitions, the implementation and test reqs and the inherited functional specs
-as they were built. When it has moved on in any other way - a functional spec changed in place, an
-acceptance test changed, a definition or a req added or changed, a spec inserted or removed -
-rendering the new ones would miss it. Then the tree the code is built
-from is compared with the spec, and the changes are ordered into steps by an agent, checked to add
-up to the spec and to hold together at every step (`src/render/spec-steps.ts`). Each step is
-rendered as a spec diff, from the spec as that step leaves it, in order, up to the first that does
-not pass. In a conversation each step is queued as a render spec diff job of its own, exactly as
-forge-plain queues an answer: behind the module job, one after another, each shown in the panel
-with its diff and read in full in `/watch`. On the command line they are rendered in turn, each
-diff printed in full as it starts. `--from`, `--to` and `--force` always build functionality by functionality, as asked.
+- **a spec diff**, when what is built or queued no longer matches the spec - a definition, a req,
+  an acceptance test, a functional spec already built worded differently: one render spec diff job
+  that brings it in line. The functional specs it covers are every one up to the last that is built
+  or queued word for word;
+- **then a render functionality job per functional spec after that**, pinned to the spec as it is
+  now, each followed by its conformance job when conformance tests are on.
+
+A module already built from the spec as it is gets nothing. A render is a spec diff that adds one
+functionality: when the queue master reworks the queue around a change - a req changed ahead of
+it - a render whose only change is still adding its own functionality to what is built runs as
+that render, on the spec as it now is; one it gives more to runs as a spec diff.
+
+Each functionality's conformance job writes its tests and then runs every conformance test in the
+codebase as one suite, with the unit testing script: a functionality that breaks one built before
+it is found at its own job, sent back, or undone there. On the command line, `plainwright module`
+runs the whole queue to the end, one line as each job starts and ends, and exits 1 when any failed.
+
+### When the spec changes
+
+A spec change is a notice, not a diff to run: **`spec_changed`**, after the spec was edited by any
+means - the file tools, a skill, you in an editor - brings the queue up to the spec as it is now in
+exactly the same way, from what the queue will leave each module, and the queue master reworks the
+queue around what it queued, stopping the job running when the change undoes it. Say a module of
+50 functionalities is rendering and the spec changes while functionality 25 builds: the
+functionalities up to 25 are aligned by one spec diff, and 26 to 50 go on as renders of the spec as
+it now is. `render_spec_diff` and forge-plain's `write_spec_diff` are ways to make an edit and give
+the notice in one call.
 
 ### Regenerating after a spec change
 
@@ -277,14 +337,23 @@ spec the code will be built from when it starts - what the job ahead of it leave
 behind renders takes its diff as written.
 
 In a conversation, rendering and conformance are separate jobs in the render queue. A render spec
-diff job - forge-plain's, `render_spec_diff`'s, or one of the spec diffs `render_module` brings a
-spec in as - lands the change on its unit tests, and a render spec diff conformance job is queued
+diff job - forge-plain's, `render_spec_diff`'s, `spec_changed`'s, or the one `render_module` queues to
+bring what is built in line - lands the change on its unit tests, and a render spec diff conformance job is queued
 right behind it, which brings the tests in line and runs the whole suite with repairs. It runs only
 if the render landed. A functionality rendered through the queue is followed the same way by a
 render functionality conformance job for it, and both conformance tools queue their jobs there too.
 With conformance off, or no test reqs, no conformance job is queued and the render keeps the
 existing tests passing itself. A call that waits - `wait: true`, or pi's print mode - still does it
 all in one.
+
+The agent that renders a spec diff is given the spec the code is built from - its functional specs
+in `<already implemented>`, as a render's are - and the change to it, in `<spec change>`, section by
+section - not the raw diff: each of `<definitions>`, `<implementation reqs>` and `<functional specs>`
+in its own tag, `<definitions change="1 added, 2 changed">`, saying what is added, what changed with
+its text before and now, and what is removed,
+measured from what is built to the spec the job ends on. A definition is itself by its concept: one
+reworded or moved is shown as changed, not as removed and added. Test reqs are left out of it; they
+are the conformance tests', and reach the conformance job.
 
 When it passes, the tree the code is built from becomes the spec as parsed when the diff went in -
 every section, not only the functional specs - and the diff is committed with it. A diff queued
@@ -301,17 +370,14 @@ a common module, reqs reordered, specs moved between modules of the chain, only 
 description changed - nothing is rendered: the spec is recorded as it is now laid out and
 committed, with no agent, no testing script and no conformance job. In the queue such a job is
 named "spec restructured - nothing to render" from the start, and the queue master leaves it be.
-`render_module` takes a spec that is only restructured the same way.
+A spec that is only restructured needs no job at all: `render_module` and `spec_changed` find it the same.
 
 Moving specs into a module the code was not built on is different: a module required now - a new
 module the specs were split into, or an existing one required for the first time - whose code the
 codebase does not hold. No change to the code brings that in, so it is not a spec diff. The queue
 starts the chain's build instead: the new module is built, and every built module above it starts
 again from scratch on its code - its code, conformance tests and record removed and committed, so
-what was there stays in its history. `render_module` does the same whenever it finds a built
-module that was not built on the whole chain below it (its record does not list a module as
-inherited, or, with nothing inherited on record, its history never started from it).
-`render_spec_diff` refuses such a change and says to render the module.
+what was there stays in its history. `render_spec_diff` refuses such a change and says to render the module.
 
 A change to several modules lands where each module's code lives. When a diff changes two modules
 of a chain and the one above is not built yet, those are two codebases, so the queue cuts it into
@@ -336,12 +402,19 @@ change - from the spec the code is built from (or the one the running spec diff 
 as it now is - as numbered changes, and a proposal: each waiting job keeps the changes of its own
 still in the net change, the rest going to the newest. An agent (the judge model, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
 every waiting job's diff, the spec before and after the new change and the `.plain` file itself, and
-may delete, merge, reorder, rewrite and insert jobs, or ask the person when it is not sure. It commits
+may delete, merge, reorder, rewrite and insert jobs, or ask the person when it is not sure. Every change
+it is given - the running job's, the new one, each waiting job's - is told section by section, as the
+coding agents are told it, and its prompt says how to read each block. It commits
 a queue of jobs, each a set of the numbered changes, and the harness holds it to where the queue has
 to end: every change in exactly one job, no job without a change, the spec consistent after every job
 (nothing used before it is defined), and the last job ending exactly on the `.plain` file as it is
 now. A queue that does not check is refused with why; when the agent never commits one that does,
 the harness takes its own proposal, and failing that the whole net change as one job.
+
+In the job panel a reworked job says what it now renders: its note is "Reworked by the queue master -
+it now renders …", its one-line title what it adds - or, when it only takes lines out, what it takes
+out - and a functionality render that moved because one before it was taken out is named by where
+it is now, `fs 8 (was 10)`. What the whole turn did is said once, in the conversation.
 
 A change that only adds on top - every queued job's changes still there as queued, the new job's
 all that is left, as when `spark-plain` writes feature after feature - has nothing to rework, and
@@ -391,7 +464,10 @@ out of the `.plain` files, so a spec diff that starts after one ahead of it did 
 or failed - takes its diff again, from what the code is built from to the spec it leaves, and says
 so: what it records is always what it built. On a module nothing is built on yet, what the code is
 built from is the empty spec: the job behind a first scaffold that did not land builds the scaffold
-too, and the queue master can stop a first build and start it again as it can any other.
+too, and the queue master can stop a first build and start it again as it can any other. A spec diff
+whose spec holds functional specs that are not built and not in its own change - queued while a
+module build was still running, which then stopped before them - is taken again the same way when
+it starts, so it builds them rather than recording them as built.
 
 `render_spec_diff_conformance` is its conformance half, on its own - what `render_functionality_conformance`
 is to `render_functionality`. It takes the same diff, applies it unless it already is, and has one
@@ -477,15 +553,18 @@ when it does not, the conformance agent gets exactly what is missing and what is
 the round goes again. The first review is asked for every problem at once; each after it is given what
 the last one found, checks that first, and raises something new only when it is serious - a test that
 cannot fail, mocks the software, or leaves out what the spec asks for. It asks only for what can be seen
-from outside: where the spec says one part calls another, the outcome, never the call. What matters is
-found in the first few reviews - the review optimises the tests, and after that they cannot be optimised
-further - so after five that still found something, the tests are taken as they are: the run passes,
-and what the last review suggested is kept in the result and the notes' pitfalls. Except a blocking
-problem - the functionality not yet tested black box: a test or an acceptance test missing, cut down or
-skipping what it checks, the software mocked or not reached from outside, a test that cannot fail. The
-review marks each problem blocking or not, and a blocking one is never let go: the tests go back until
-it is fixed. All three passing
-is done.
+from outside: where the spec says one part calls another, the outcome, never the call. The reviewer is
+the exacting developer, as the unit tests' is, and marks each problem blocking or not: blocking when the
+functionality is not yet tested black box - a test or an acceptance test missing, cut down or skipping
+what it checks, the software mocked or not reached from outside, a test that cannot fail.
+
+From the third review that sends the tests back, the arbiter weighs each one first, as it does the unit
+tests' (see [the code and its unit tests are reviewed](#the-code-and-its-unit-tests-are-reviewed)): it upholds what leaves the
+functionality not tested black box, and dismisses what is out of scope or a nitpick. Only what it
+upholds goes back to the conformance agent; when it upholds nothing, the tests are approved as they
+are, and what it let go is kept in the result and the notes' pitfalls. The review optimises the tests,
+it does not stop the run: after ten reviews, whatever is still found is let go the same way. All
+three passing is done.
 
 A spec diff's conformance run holds its tests to the same bar. The functionalities the change touches -
 a line of their functional spec, or of one of their acceptance tests, added or removed - are worked
@@ -622,7 +701,7 @@ the activity log says so.
 The notes are disposable - delete the file and nothing breaks; the next agent just explores a little
 more. They live in the code folder, so they are committed with it, reset with it after an
 interrupted run, and copied up with it to a module that requires this one. They are not part of the
-codebase: they are left out of the code map, the file lists and the try-it copies.
+codebase: they are left out of the code map, the file lists and what `deploy` puts in `dist/`.
 
 ## What the code is built from
 

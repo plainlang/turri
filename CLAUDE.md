@@ -28,7 +28,7 @@ skipped silently on a machine without them. `tests/setup.ts` closes every VM whe
 
 ## TypeScript runs unbuilt
 
-`bin/plainwright.mjs` checks for Node >= 22.18 and imports `src/cli.ts` directly. Node's own type
+`bin/plainwright.mjs` checks for Node >= 22.19 and imports `src/cli.ts` directly. Node's own type
 stripping runs the sources and nothing compiles them. So:
 
 - imports use explicit `.ts` extensions;
@@ -76,13 +76,19 @@ is reported as pending, not dropped.
 
 - `render.ts` renders one functionality. `prompt.ts` builds the only thing the agent sees; it can't
   read `.plain` files. The agent works, then the harness runs the project's unit testing script
-  itself and inventories test files to catch deleted tests, sending the agent back up to 20 times.
-  Once they pass, `unit-review.ts` has a read-only reviewer check the unit tests it added test what
-  the spec says (blocking problems never waived; the rest after five reviews), as spec changes do too.
+  itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
+  Once they pass, `unit-review.ts` has a read-only reviewer check, from a diff of what the work wrote,
+  that the code does what the spec says and its unit tests test it - an optimiser, not a gate: from the third review that sends them back an arbiter
+  agent weighs each one and passes on only what it upholds, and after ten all is let go - as spec
+  changes do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
-  labelled and checked by label. `module.ts` covers whole-module builds, the regression gate (a
-  repair agent that may not touch tests), and regeneration. `spec-change.ts` and
+  labelled and checked by label. `module.ts` covers regeneration, the regression gate (a repair
+  agent that may not touch tests) and the older in-process chain build. `spec-change.ts` and
   `spec-change-conformance.ts` render a spec change given as a git diff.
+- Rendering a module is not a job: `queue.ts` `bringUpTo` queues, per module of the chain, one spec
+  diff for what changed in what is built or queued, then one render per functional spec after it -
+  `render_module`, `plainwright module` and `spec_changed` all go through it, and the queue master
+  reworks the result. A render is a spec diff that adds one functionality.
 - `spec-steps.ts`: when the spec changed in ways other than appending functional specs, it diffs
   the built tree against the current one and has an agent order the changes into spec-diff steps.
 - `state.ts`: `code/.plainwright.json` holds only the marshalled tree the code was built from. A
@@ -98,10 +104,17 @@ is reported as pending, not dropped.
 
 **Sandbox.** `confine.ts` rebuilds pi's file tools with a path check (argument and resolved path,
 symlinks resolved) that fences agents to `plain_modules`. `vm.ts` runs every command (agent `bash`,
-test scripts, try-it checks) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
+test scripts) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
 and shut down when idle or when the project moves to another module. There is no host fallback,
-except testing scripts under `run-testing-scripts-in: host`. plainwright turns off `AGENTS.md`/`CLAUDE.md`
+except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. plainwright turns off `AGENTS.md`/`CLAUDE.md`
 loading for every agent it starts (`noContextFiles` in `src/pi.ts`).
+
+**Deploy (`render/deploy.ts`, `deploy-tools.ts`, `deploy-cli.ts`).** Trying what is built: `deploy`
+exports the tip module's last `.plaingit` commit (`git archive` of `code/`) to `<project>/dist/<module>`
+and the chat model - or `plainwright deploy`'s one-off agent on `harness-model` - starts it on the
+host. `installsSoftware` tells installs apart; they run only through `propose_setup`, which asks the
+person, and the chat's `bash` refuses them once something is deployed. `start_deployed` owns what
+keeps running, stopped on redeploy, `/stop deploy <name>` and exit.
 
 **Jobs and progress.** In the TUI, render tools start background jobs (`queue.ts`, `jobs.ts`).
 `lanes.ts` gives each job its spec's whole `requires` chain as lanes, so jobs whose chains overlap

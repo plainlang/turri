@@ -100,7 +100,7 @@ describe("jobs that write the same module", () => {
     expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(3);
     // Expanded, the help says how to collapse, and how to find your way around the side panel.
     expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+j inspect the jobs");
-    expect(lines.at(-1)).toContain("in the side panel: tab switches jobs · try it · trace · a follows one agent · j the next job");
+    expect(lines.at(-1)).toContain("in the side panel: tab switches jobs · trace · a follows one agent · j the next job");
     expect(lines.at(-1)).toContain("esc back to the chat · ctrl+j closes it");
   });
 });

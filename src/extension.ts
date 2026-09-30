@@ -30,12 +30,14 @@ import type { RenderConformanceTestsResult } from "./render/conformance.ts";
 import { regenerateFunctionality, renderChain, type RenderModuleResult, describeChainStop, describeRegenerationStop } from "./render/module.ts";
 import { describeChain } from "./render/requires.ts";
 import { createProgressTracker } from "./render/progress.ts";
-import { describeDelivery } from "./render/delivery.ts";
+import { describeDelivery, withTryItLine } from "./render/delivery.ts";
+import { runningDeployed, stopDeployed } from "./render/deploy.ts";
+import { createDeployState, createDeployTools, refuseInstall } from "./deploy-tools.ts";
 import { vmSummary } from "./render/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
-import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
-import { createRenderQueue, type RenderQueue } from "./render/queue.ts";
+import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
+import { createRenderQueue, describeBroughtUp, type RenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createSidePanel, type PanelView } from "./render/side-panel.ts";
 import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
@@ -312,9 +314,11 @@ export default function (pi: ExtensionAPI) {
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
+  registerSpecChanged(pi, cwd, jobs);
   registerBuildVmImage(pi, cwd, jobs);
   registerRenderSpecDiffConformance(pi, cwd, jobs);
   registerRenderModels(pi);
+  registerDeploy(pi, cwd);
 
   const { skills, pending } = discoveredSkills;
   if (skills.length === 0) return;
@@ -502,7 +506,7 @@ export default function (pi: ExtensionAPI) {
       const specsChanged = changes.filter((path) => path.endsWith(".plain"));
       const unrendered =
         specsChanged.length > 0 && !skill.allowedTools.includes("write_spec_diff")
-          ? `${specsChanged.join(", ")} changed, and nothing renders that yet: render the change - render_spec_diff with its git diff, or render_module.`
+          ? `${specsChanged.join(", ")} changed, and nothing renders that yet: call spec_changed for it, and the queue brings the code up to the spec.`
           : "";
       const gated = skill.steps.some((step) => step.gate !== undefined);
       const text = result.ok
@@ -563,13 +567,6 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
       build_dir: Type.Optional(
         Type.String({ description: "Where the agent works. Default: plain_modules/<module>/code" }),
       ),
-      try_it: Type.Optional(
-        Type.Boolean({
-          description:
-            "Work out and check how the user can try the functionality asked for. Default true - they " +
-            "asked for this one. Never done for the prerequisites built on the way.",
-        }),
-      ),
       conformance: CONFORMANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
@@ -609,7 +606,6 @@ function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobReg
             to: params.frid,
             buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
             model,
-            tryIt: params.try_it ?? true,
             conformance: conformanceOption(params.conformance, params.plain_file),
             onDelta,
           });
@@ -647,7 +643,6 @@ function deliveryReport(result: RenderModuleResult): string | undefined {
       runs: last.render.runs,
       conformanceRuns: last.conformance?.runs,
       passed: last.stoppedAt === null,
-      tryIt: last.render.tryIt,
     }),
     removals.length > 0 ? `\nTests were removed and challenged: ${removals.map((r) => r.file).join(", ")}.` : "",
   ]
@@ -776,45 +771,28 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     name: "render_module",
     label: "Render module",
     description:
-      "Build a .plain module and everything it requires. A required module's code is copied into the " +
-      "build before this module starts, so the chain is built bottom first and modules already complete " +
-      "are skipped. Within each module every functionality is built in order: code and unit tests, then " +
-      "black-box conformance tests, then the conformance tests of every functionality so far together - " +
-      "advancing only when that whole suite passes. Use this instead of calling render_functionality " +
-      "repeatedly.",
-    promptSnippet: "render_module: build every functionality of a .plain specification in order",
+      "Build a .plain module and everything it requires, as jobs in the render queue: for each module, bottom of " +
+      "the requires chain first, one render functionality job per functional spec not built yet - each followed by " +
+      "its conformance tests when they are on - and, when what is built no longer matches the spec, one render spec " +
+      "diff job first that brings it in line. The queue master sees and reworks them like any queued job, and a spec " +
+      "changed while they run is worked in around them. Modules already built from the spec as it is get nothing.",
+    promptSnippet: "render_module: queue a job per functionality of a .plain module, and its requires chain",
     promptGuidelines: [
-      "Prefer render_module over looping render_functionality yourself: it enforces the regression gate between functionalities.",
-      "Pass conformance: false when the user asks to render without conformance tests, true when they ask for them; otherwise leave it out, and the project's config.yaml decides.",
-      "Report which functionalities completed and where it stopped. Do not describe an incomplete module as finished.",
-      "render_module takes a long time and runs in the background. Report the job id, keep talking, and check_job when the user asks.",
+      "Prefer render_module over calling render_functionality for each functionality yourself: it queues them all, in order, in one call.",
+      "render_module returns at once with the jobs it queued. Report them, keep talking, and check_job or list_jobs when the user asks; the jobs themselves report when they finish.",
+      "When the spec changes while its jobs run - by any means - call spec_changed: the queue master works the change in; never stop and re-queue the jobs yourself.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(
         Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" }),
       ),
       working_dir: WORKING_DIR_PARAM,
-      from: Type.Optional(Type.String({ description: "Start at this functionality id" })),
-      to: Type.Optional(Type.String({ description: "Stop after this functionality id" })),
-      only: Type.Optional(
-        Type.Boolean({ description: "Build just this module, ignoring what it requires" }),
-      ),
-      force: Type.Optional(
-        Type.Boolean({ description: "Rebuild modules that are already complete" }),
-      ),
-      conformance: CONFORMANCE_PARAM,
-      build_dir: Type.Optional(Type.String({ description: "Default: plain_modules/<module>/code" })),
-      try_it: Type.Optional(
-        Type.Boolean({
-          description:
-            "Work out and check how the user can try the last functionality built. Default false: a " +
-            "module build usually runs unattended for a long time. Set it when the user is waiting.",
-        }),
-      ),
+      to: Type.Optional(Type.String({ description: "Queue functionalities of this module only up to this id" })),
+      only: Type.Optional(Type.Boolean({ description: "Queue just this module, not the modules it requires" })),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, given, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, _onUpdate, ctx) {
       // No file named: the project's config.yaml says which module.
       const located = fromWorkingDir(cwd, given);
       const named = located.plain_file ?? readProjectConfig(located.base).module;
@@ -826,126 +804,36 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
             : `Name the .plain file to build, or set module: in ${CONFIG_FILE}.`,
         );
       }
-      const params = { ...located, plain_file: resolve(located.base, named) };
-      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
-      return deliver(jobs, {
-        kind: "render_module",
-        summary: `${basename(params.plain_file)} module${params.from ? ` from fs ${params.from}` : ""}${params.to ? ` to fs ${params.to}` : ""}`,
-        model,
-        wait: params.wait,
-        mode: ctx.mode,
-        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
-        onUpdate,
-        run: async (onDelta) => {
-          // A render runs in the background, so the tool result is long gone before the
-          // work is. The widget is what the person actually watches.
-          const progress = createProgressTracker();
-          // A component rather than lines: pi cuts a list of lines off at ten, and a chain can
-          // be far longer. It lays itself out on every render - compact, or every module while
-          // ctrl+o has tool output expanded - so it never loses the end of the chain.
-          let tui: { requestRender(): void } | undefined;
-          let mounted = false;
-          // Its own: two modules building side by side each keep their progress, and one ending clears only its own.
-          const widgetKey = `plainwright-render:${randomUUID().slice(0, 8)}`;
-          const show = () => {
-            if (!ctx.hasUI) return;
-            try {
-              if (!mounted) {
-                mounted = true;
-                const ui = ctx.ui;
-                type ComponentWidget = Extract<Parameters<typeof ui.setWidget>[1], (...args: never[]) => unknown>;
-                const widget: ComponentWidget = (next, theme) => {
-                  tui = next;
-                  // A spec diff being brought in is coloured as the job panel colours one.
-                  const diffStyle = {
-                    added: (text: string) => theme.fg("toolDiffAdded", text),
-                    removed: (text: string) => theme.fg("toolDiffRemoved", text),
-                  };
-                  return {
-                    render: (width: number) =>
-                      (ui.getToolsExpanded() ? progress.lines(diffStyle) : progress.compactLines(diffStyle)).map((line) =>
-                        truncateToWidth(line, width),
-                      ),
-                    invalidate() {},
-                  };
-                };
-                ui.setWidget(widgetKey, widget, { placement: "aboveEditor" });
-              } else {
-                tui?.requestRender();
-              }
-              ctx.ui.setStatus(widgetKey, progress.summary());
-            } catch {
-              // The widget is a convenience; losing it must not fail the render.
-            }
-          };
-
-          try {
-            // In the background, a spec that moved on is brought in as forge-plain brings in its
-            // answers: each spec diff a render spec diff job of its own, queued behind this one.
-            const specDiffQueue = shouldWait(ctx.mode, params.wait) ? undefined : renderQueueFor(jobs, cwd, ctx);
-            const result = await renderChain({
-              queueSpecDiffs: specDiffQueue
-                ? (steps) =>
-                    steps.map(
-                      (step) =>
-                        specDiffQueue.enqueueSpecDiff({ plainFile: step.plainFile, diff: step.diff, applied: "already applied", spec: step.spec }).jobId,
-                    )
-                : undefined,
-              plainFile: resolve(cwd, params.plain_file),
-              from: params.from,
-              to: params.to,
-              buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-              skipRequires: params.only,
-              force: params.force,
-              model,
-              tryIt: params.try_it === true,
-              conformance: conformanceOption(params.conformance, params.plain_file),
-              onDelta,
-              onChainEvent: (event) => {
-                progress.onChainEvent(event);
-                if (event.type === "module_done") {
-                  recordMilestone(pi, {
-                    module: event.module,
-                    text: event.passed ? "built" : "stopped before finishing",
-                  });
-                }
-                show();
-              },
-              onEvent: (event) => {
-                progress.onModuleEvent(event);
-                if (event.type === "functionality_done") {
-                  recordMilestone(pi, { module: progress.summary(), text: `functionality ${event.frid} done` });
-                }
-                show();
-              },
-            });
-            return {
-              report: chainReport(result),
-              announce: chainAnnouncement(result),
-              details: {
-                passed: result.passed,
-                modules: result.outcomes.map((o) => o.module),
-                // The spec diffs it planned and queued, when the spec had moved on in more than new functional specs.
-                ...(result.outcomes.at(-1)?.result?.queuedSpecDiffs !== undefined ? { planned: result.outcomes.at(-1)!.result!.queuedSpecDiffs } : {}),
-              },
-            };
-          } finally {
-            if (ctx.hasUI) {
-              try {
-                ctx.ui.setWidget(widgetKey, undefined);
-                ctx.ui.setStatus(widgetKey, undefined);
-              } catch {
-                /* nothing to clean up */
-              }
-            }
-          }
-        },
+      const plainFile = resolve(located.base, named);
+      const model = jobModel(ctx, "functionalities", located.model, plainFile);
+      const brought = renderQueueFor(jobs, cwd, ctx).bringUpTo(plainFile, {
+        ...(located.to !== undefined ? { to: located.to } : {}),
+        ...(located.only === true ? { only: true } : {}),
+        ...(model !== undefined ? { model } : {}),
       });
+      const text = describeBroughtUp(brought, basename(plainFile));
+      // In print, json and rpc modes the process ends with the answer: wait for the jobs there.
+      if (shouldWait(ctx.mode, located.wait)) {
+        for (const id of brought.jobIds) {
+          try {
+            await jobs.wait(id);
+          } catch {
+            // A failed job reports itself below.
+          }
+        }
+        const ended = brought.jobIds.map((id) => jobs.get(id)).filter((job): job is Job => job !== undefined);
+        return {
+          content: [{ type: "text" as const, text: [text, "", ...ended.map((job) => `- job ${job.id} · ${job.summary}: ${job.status}`)].join("\n") }],
+          details: { jobIds: brought.jobIds, statuses: ended.map((job) => job.status) },
+        };
+      }
+      return { content: [{ type: "text" as const, text }], details: { jobIds: brought.jobIds } };
     },
   });
 }
 
-/** For the person: how to try what was built, or where the chain stopped, why, and what to do. */
+
+/** For the person: what was built and that it can be tried, or where the chain stopped, why, and what to do. */
 function chainAnnouncement(result: Awaited<ReturnType<typeof renderChain>>): string {
   const stop = describeChainStop(result);
   if (stop !== undefined) return stop;
@@ -1051,6 +939,50 @@ function moduleReport(result: RenderModuleResult): string {
  * Render a change to the specs, given as a git diff of the .plain files: one agent makes the
  * code match it, then conformance, the whole suite and the record, in that order.
  */
+/**
+ * The spec changed - however it was changed: the file tools, a skill, the person in an editor. Not a diff to
+ * render: a notice. The queue is brought up to the spec as it is now, from what it will leave each module -
+ * one spec diff for what changed in what is built or queued, a render per functional spec after it - and the
+ * queue master reworks the queue around it, stopping what is running when the change undoes it.
+ */
+function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "spec_changed",
+    label: "Spec changed",
+    description:
+      "Tell the render queue that a .plain spec changed - by any means: the file tools, a skill, the user in an " +
+      "editor. It takes no diff. The queue is brought up to the spec as it is now, from what it will leave each " +
+      "module: one render spec diff job for what changed in what is built or queued, and a render functionality job " +
+      "for each functional spec after that; the queue master then reworks the queue around it, and may stop the job " +
+      "running when the change undoes it. Nothing to do when the queue already ends on the spec.",
+    promptSnippet: "spec_changed: tell the render queue a .plain spec changed, so it ends on the spec as it is now",
+    promptGuidelines: [
+      "Call spec_changed after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: the harness compares what the queue will leave with the spec now.",
+      "Never stop jobs and re-queue them yourself to follow a spec change: spec_changed has the queue master do it.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "A .plain file of the module whose spec changed" }),
+      working_dir: WORKING_DIR_PARAM,
+      model: MODEL_PARAM,
+    }),
+    async execute(_id, given, _signal, _onUpdate, ctx) {
+      const located = fromWorkingDir(cwd, given);
+      const plainFile = resolve(located.base, located.plain_file);
+      const check = checkPlainFile(plainFile);
+      if (!check.ok) throw new Error(`${located.plain_file} does not parse, so the queue cannot follow it yet: ${check.error}`);
+      const queue = renderQueueFor(jobs, cwd, ctx);
+      const model = jobModel(ctx, "spec_changes", located.model, plainFile);
+      const brought = queue.bringUpTo(plainFile, model !== undefined ? { model } : {});
+      const reworked = await queueReworkOf(
+        queue,
+        brought.modules.flatMap((module) => (module.specDiff !== undefined ? [{ jobId: module.specDiff, what: "render" }] : [])),
+      );
+      const text = [describeBroughtUp(brought, basename(plainFile)), ...(reworked !== undefined ? ["", reworked] : [])].join("\n");
+      return { content: [{ type: "text" as const, text }], details: { jobIds: brought.jobIds } };
+    },
+  });
+}
+
 function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "render_spec_diff",
@@ -1075,13 +1007,6 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       in_module: Type.Optional(
         Type.String({ description: "The codebase to render in, when modules built on this one branch" }),
       ),
-      try_it: Type.Optional(
-        Type.Boolean({
-          description:
-            "Work out and check how the user can try what the change built. Default true. Pass false for " +
-            "long unattended runs.",
-        }),
-      ),
       conformance: CONFORMANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
@@ -1105,7 +1030,6 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
           cwd: params.base,
           inModule: params.in_module,
           model,
-          tryIt: params.try_it ?? true,
           conformance: conformanceOption(params.conformance, params.plain_file),
         });
         // The queue master reworks the queue around it first: what it made of it is what to tell the user.
@@ -1141,12 +1065,11 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
             inModule: params.in_module,
             applied,
             spec,
-            tryIt: params.try_it ?? true,
             conformance: conformanceOption(params.conformance, params.plain_file),
             model,
             onDelta,
           });
-          return { report: describeSpecDiff(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
+          return { report: withTryItLine(describeSpecDiff(result), result.passed && result.restructured !== true), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
         },
       });
     },
@@ -2047,18 +1970,27 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   pi.registerCommand("stop", {
-    description: "Stop a queued or running background job: /stop [job id]",
+    description: "Stop a queued or running background job, or what deploy started: /stop [job id | deploy <name>]",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const live = jobs.list().filter((job) => job.status === "running" || job.status === "queued");
+      const deployed = runningDeployed();
       let id = args.trim();
       if (id === "") {
-        if (live.length === 0) return ctx.ui.notify("Nothing is running or queued.", "info");
+        if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is running or queued.", "info");
         const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${job.summary}`;
-        const picked = await ctx.ui.select("Stop which job?", live.map(label));
+        const labels = [...live.map(label), ...deployed.map((item) => deployedLabel(item.name, item.url ?? item.command))];
+        const picked = await ctx.ui.select("Stop which job?", labels);
         const job = live.find((candidate) => picked !== undefined && label(candidate) === picked);
-        if (job === undefined) return;
-        id = job.id;
+        const server = deployed.find((item) => picked !== undefined && deployedLabel(item.name, item.url ?? item.command) === picked);
+        if (server !== undefined) id = `deploy ${server.name}`;
+        else if (job !== undefined) id = job.id;
+        else return;
+      }
+      const name = /^deploy\s+(.+)$/.exec(id)?.[1]?.trim();
+      if (name !== undefined) {
+        const stopped = await stopDeployed({ name });
+        return ctx.ui.notify(stopped.length > 0 ? `Stopped ${stopped.join(", ")}.` : `Nothing deploy started is running as ${name}.`, "info");
       }
       ctx.ui.notify(stopJob(jobs, id), "info");
     },
@@ -2100,7 +2032,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // The side panel: the job queue, how to try what was built, and the agents' traces - on the right,
+  // The side panel: the job queue and the agents' traces - on the right,
   // beside the conversation. Alt+O opens it with the keyboard in it; esc goes back to the chat and
   // leaves it open and live; alt+O again takes the keyboard back to it, and closes it from there.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
@@ -2178,7 +2110,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   pi.registerShortcut(PANEL_KEY, {
-    description: "Open the side panel - the job queue, try it, the agents' traces - or go back to it",
+    description: "Open the side panel - the job queue and the agents' traces - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
       openPanel(ctx);
@@ -2266,9 +2198,20 @@ async function chooseJob(
 }
 
 /** Every job, in the order it was started, with what a queued one is waiting for. */
+/** What deploy started, as /stop offers it. */
+function deployedLabel(name: string, what: string): string {
+  return `deploy ${name}  running  ${what}`;
+}
+
 function listJobs(jobs: JobRegistry): string {
   const all = [...jobs.list()].reverse();
-  if (all.length === 0) return "No jobs have been started.";
+  const deployed = runningDeployed().map((item) => `deploy ${item.name}  running  ${item.moduleName}: ${item.url ?? item.command}  (pid ${item.pid}, output in ${relative(process.cwd(), item.log) || item.log})`);
+  const listed = deployed.length > 0 ? `\n\nRunning from dist - /stop deploy <name> stops one:\n${deployed.join("\n")}` : "";
+  if (all.length === 0) return `No jobs have been started.${listed}`;
+  return `${jobLines(all)}${listed}`;
+}
+
+function jobLines(all: Job[]): string {
   return all
     .map((job) => {
       const time = job.status === "queued" ? "waiting" : formatDuration(job);
@@ -2360,6 +2303,35 @@ function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
   // The web, for the conversation too - a library's documentation, an API, an error; curl is its
   // bash. Run here, like the rendering agents' (see render/web.ts).
   for (const tool of createWebTools()) pi.registerTool(tool);
+}
+
+/**
+ * Deploy: the conversation puts what is built out in dist/<module> and starts it on this machine (see
+ * render/deploy.ts). Once something is deployed, the conversation's shell installs nothing: a command
+ * that would is refused, and goes to the person through propose_setup instead. What it started is
+ * stopped when the session ends.
+ */
+function registerDeploy(pi: ExtensionAPI, cwd: string) {
+  const state = createDeployState();
+  const tools = createDeployTools({
+    cwd,
+    state,
+    approve: async (title, body, ctx) => {
+      const ui = ctx as { hasUI?: boolean; ui?: { confirm(title: string, message: string): Promise<boolean> } } | undefined;
+      return ui?.hasUI === true && ui.ui !== undefined ? ui.ui.confirm(title, body) : undefined;
+    },
+    defaultPlainFile: () => readProjectConfig(cwd).module,
+  });
+  for (const tool of tools) pi.registerTool(tool);
+  pi.on("tool_call", (event) => {
+    if (state.current === undefined || event.toolName !== "bash") return undefined;
+    const command = (event.input as { command?: unknown }).command;
+    const refused = typeof command === "string" ? refuseInstall(command) : undefined;
+    return refused !== undefined ? { block: true, reason: refused } : undefined;
+  });
+  pi.on("session_shutdown", async () => {
+    await stopDeployed();
+  });
 }
 
 /** check_plain, for the conversation and for the skills that write specs alike. */

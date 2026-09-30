@@ -24,7 +24,7 @@ It checks, in order, and says exactly what to run for anything missing:
 
 | what | why | if it is missing |
 | --- | --- | --- |
-| Node 22.18+ | plainwright runs its `.ts` sources directly | install a newer Node |
+| Node 22.19+ | plainwright runs its `.ts` sources directly, and pi needs 22.19 | install a newer Node |
 | QEMU | every command an agent runs, runs in a sandbox VM on it | `setup` offers `brew install qemu`; on Linux, `apt install qemu-system-arm` / `qemu-system-x86` |
 | the VM image | the full image has Python, Node, Java, Go, Rust, C/C++ and git | `setup` offers to build it (about 7 minutes, 2 GB) - see [Building the VM image](#building-the-vm-image) |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |

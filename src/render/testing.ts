@@ -191,6 +191,35 @@ export function removalChallengePrompt(removals: TestRemoval[], subject: string)
 
 
 
+/**
+ * How many times a coding agent that ended its turn having written nothing is asked for a draft. Thinking a
+ * problem through and ending the turn with nothing written leaves nothing to test or review; a best guess does.
+ * A spec change is asked once: one that only rewords or describes may need no code, and the agent says so.
+ */
+export const DRAFT_ASKS = { functionality: 2, change: 1 } as const;
+
+/** For a coding agent that has written nothing yet: write a best-guess draft now. */
+export function draftPrompt(forChange: boolean): string {
+  return [
+    "You have not written anything yet: the code folder is as it was when you started.",
+    "",
+    ...(forChange
+      ? [
+          "If the change needs code - anything it adds to or changes in a functional spec, an implementation req or an",
+          "acceptance test - stop planning and write it now: your best guess at what the change asks, the code and its",
+          "unit tests, as a draft. If you are sure it needs no code at all - it only rewords, describes or renames - say so",
+          "in one line, and why.",
+        ]
+      : [
+          "Stop planning and write it now: your best guess at what the specification asks, the code and its unit tests, as",
+          "a draft. It does not have to be right the first time - the unit tests run on it and it is reviewed, and what is",
+          "wrong comes back to you. Nothing written cannot be tested, reviewed or fixed.",
+        ]),
+    "Where the specification leaves something open, pick the most likely reading, write it, and note the assumption",
+    "with update_notes. Then run the unit tests.",
+  ].join("\n");
+}
+
 export type UnitVerdict =
   | { ok: true; command: string }
   | { ok: false; command?: string; prompt: string };

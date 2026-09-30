@@ -15,15 +15,13 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, createExecutor } from "../pi.ts";
-import { reportActivity, reportStage, reportTryIt, unitOf } from "./activity.ts";
-import { codebaseMap, diffFiles, digestFiles } from "./codebase.ts";
+import { reportActivity, reportStage, unitOf } from "./activity.ts";
+import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
-import { modulesRoot, specChangeTryDirFor, projectDirOf } from "./paths.ts";
-import { describeTryIt } from "./delivery.ts";
-import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
-import { buildSpecDiffPrompt } from "./prompt.ts";
+import { modulesRoot, projectDirOf } from "./paths.ts";
+import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec } from "./prompt.ts";
 import { abandonWork, recordHistory, startWork } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
@@ -43,7 +41,7 @@ import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } fro
 import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { readBuiltTree, sectionsOf, writeBuiltTree } from "./state.ts";
-import { sameSpec } from "./spec-steps.ts";
+import { changesBetween, sameSpec, serializeTree } from "./spec-steps.ts";
 import { untilUnitTestsReviewed } from "./unit-review.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
 import {
@@ -55,6 +53,8 @@ import {
   type TestRemoval,
   type TestRun,
   verifyUnitSuite,
+  draftPrompt,
+  DRAFT_ASKS,
 } from "./testing.ts";
 
 /**
@@ -236,11 +236,6 @@ export interface RenderSpecDiffOptions {
   applied?: "applied" | "already applied";
   /** The spec as parsed with the diff in. Taken now, after applying it, when not given. */
   spec?: SpecSnapshot;
-  /**
-   * Once the unit tests pass, ask how the person can try what changed, and check the steps.
-   * On when someone is there to try it; off for long unattended runs.
-   */
-  tryIt?: boolean;
   model?: string;
   /** Review the unit tests once they pass - that they test what the change says. Default true. */
   unitReview?: boolean;
@@ -250,6 +245,8 @@ export interface RenderSpecDiffOptions {
 }
 
 export interface RenderSpecDiffResult {
+  /** The change section by section, as its agents were shown it - for the conformance job after it. */
+  change?: string;
   /** The codebase the change was rendered in. */
   moduleName: string;
   buildDir: string;
@@ -262,8 +259,6 @@ export interface RenderSpecDiffResult {
   files: { added: string[]; changed: string[]; removed: string[] };
   conformance?: RenderConformanceTestsResult;
   regression?: RegressionResult;
-  /** How to try it, as checked. Only when asked for and the unit tests passed. */
-  tryIt?: TryIt;
   passed: boolean;
   stoppedAt: "unit tests" | "conformance" | "regression" | null;
   /** Conformance was left to a job of its own, which should run now. */
@@ -352,12 +347,18 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // before it, plus the diff, is the spec after it. Read from the codebase as it is now, code copied up from a
   // required module included; with nothing built, there is no spec before, and the change is all of it.
   const builtNow = readBuiltTree(buildDir) ?? {};
+  // The change as it is to the code - from what it is built from to the spec this job records - section by section:
+  // what every agent of this change is shown, in place of the raw diff.
+  const changes = changesBetween(serializeTree(builtNow), serializeTree(tree));
+  const changeText = changes.length > 0 ? describeSpecChange(changes) : undefined;
   const builtFrids = [...getFrids(builtNow)];
   const specificationsBefore: Specifications =
     builtFrids.length > 0 ? getSpecificationsForFrid(builtNow, builtFrids.at(-1)!)[0] : { ...sectionsOf(builtNow), [FUNCTIONAL_REQUIREMENTS]: [] };
   const prompt = buildSpecDiffPrompt({
     moduleName,
     diff: options.diff,
+    // The change as it is to the code: from what it is built from to the spec this job records, section by section.
+    changes,
     specifications: specificationsBefore,
     required: getInheritedFunctionalSpecs(builtNow),
     linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
@@ -368,7 +369,6 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const digestsBefore = digestFiles(buildDir);
   const runs: TestRun[] = [];
   const fence = confinedTools({ workdir: buildDir });
-  let tryIt: TryIt | undefined;
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
@@ -376,11 +376,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     customTools: [
       notes.tool,
       ...createWebTools(),
-      createTryItTool((submitted) => (tryIt = submitted)),
       createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs }),
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests", "describe_how_to_try_it", "update_notes", ...WEB_TOOLS],
+    tools: [...fence.names, "run_unit_tests", "update_notes", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
     system: fence.note,
@@ -392,6 +391,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   let followUp = 0;
   /** The harness's runs of the unit testing script: each is an attempt it judged. */
   let attempts = 0;
+  /** How many times the agent, having written nothing, was asked for a draft. */
+  let draftAsks = 0;
   const testRemovals: TestRemoval[] = [];
   try {
     stage("plainwright is implementing the spec change");
@@ -424,6 +425,14 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           response = await ask(executor, misplacedTestsPrompt(misplaced, buildDir), options.onDelta);
           continue;
         }
+        // Nothing written - a turn spent planning - leaves nothing to test or review: ask for a best-guess draft, or why none.
+        if (draftAsks < DRAFT_ASKS.change && wroteNothing(buildDir, digestsBefore)) {
+          draftAsks += 1;
+          stage("the coding agent has changed nothing yet - asking for a best-guess draft, or why the change needs no code");
+          response = await ask(executor, draftPrompt(true), options.onDelta);
+          continue;
+        }
+
         stage(`running the unit testing script (attempt ${attempts + 1})`);
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
@@ -444,9 +453,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       const reviewed = await untilUnitTestsReviewed({
         buildDir,
         atStart: digestsBefore,
-        what: "the spec change",
-        specText: specTextOf(specifications),
-        diff: options.diff,
+        what: `the spec change to module \`${moduleName}\``,
+        // As the coding agent had it: the spec the code was built from, and the change.
+        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: changeText ?? options.diff }),
+        forChange: true,
         label: `${moduleName} spec change`,
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
         send: async (next) => {
@@ -460,25 +470,6 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       if (!reviewed.passed) unitReviewStopped = true;
     }
 
-    // Asked only once the tests pass: instructions for software that does not work yet would
-    // be instructions for something else.
-    if (options.tryIt === true && verified) {
-      tryIt = await settleTryIt({
-        buildDir,
-        tryDir: specChangeTryDirFor(buildDir, moduleName),
-        prompt: tryItPrompt("The spec change"),
-        ask: async (next) => {
-          tryIt = undefined;
-          await ask(executor, next, options.onDelta);
-          return tryIt;
-        },
-        stage,
-      });
-      // Working out how to try it may have touched the code: the harness checks again, and a run
-      // that fails goes back to the agent like any other - it does not end the change.
-      if (tryIt !== undefined) reportTryIt({ tryIt, buildDir });
-      if (tryIt !== undefined) verified = await untilPassing();
-    }
     stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
   } finally {
@@ -488,7 +479,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // Passing means the harness's own run of the unit testing script passed, last.
   const unitPassed = verified;
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
-  const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files, tryIt };
+  const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files, ...(changeText !== undefined ? { change: changeText } : {}) };
 
   /** The change landed: what the code is built from is now the spec with the change in, committed with it. */
   const land = () => {
@@ -536,6 +527,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     buildDir,
     conformanceDir: conformanceDirFor(moduleName, conformanceRoot),
     diff: options.diff,
+    ...(changeText !== undefined ? { change: changeText } : {}),
     spec: { moduleName, tree },
     // The implementation of the change is not committed yet: it is committed with the record.
     continuing: true,
@@ -563,16 +555,6 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   });
   if (regression.passed) land();
   return { ...base, conformance, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
-}
-
-/** The specification a spec change is rendered from, as its unit test review reads it. */
-function specTextOf(specifications: Specifications): string {
-  const section = (heading: string, items: string[]) => (items.length > 0 ? [`***${heading}***`, "", ...items, ""] : []);
-  return [
-    ...section("definitions", specifications[DEFINITIONS] ?? []),
-    ...section("implementation reqs", specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? []),
-    ...section("functional specs", specifications[FUNCTIONAL_REQUIREMENTS] ?? []),
-  ].join("\n");
 }
 
 /** What a rendered spec change did, for the agent and the person. */
@@ -604,9 +586,6 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
         : "Conformance tests are NOT passing.",
     repairs > 0 ? `${repairs} regression repair(s) changed the code beyond the change itself.` : "",
     result.testRemovals.length > 0 ? `Unit tests removed and justified: ${result.testRemovals.map((r) => r.file).join(", ")}.` : "",
-    // Instructions for software that is not working would send the person after something
-    // that does not exist yet.
-    ...(result.passed && result.tryIt !== undefined ? describeTryIt(result.tryIt, result.buildDir) : []),
     "",
     "<agent report>",
     result.response,

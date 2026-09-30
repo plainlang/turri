@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path";
 import { basename } from "node:path";
 import { plainFileParser } from "../plain/parser.ts";
 import { pendingFrids, staleFrids } from "./state.ts";
-import { describeDelivery } from "./delivery.ts";
+import { describeDelivery, withTryItLine } from "./delivery.ts";
 import { defaultBuildDir, modulesRoot, projectDirOf } from "./paths.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { configForSpec } from "../config.ts";
@@ -27,7 +27,7 @@ import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { abandonWork, markWork, resetToLastCommit, type WorkStart } from "./history.ts";
-import { llmQueueMaster, reworkQueue, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
+import { llmQueueMaster, netChanges, reworkQueue, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
 import { readBuiltTree, withBuiltFunctionality } from "./state.ts";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 
@@ -92,7 +92,7 @@ export interface RenderQueue {
    * Bring the conformance tests in line with a spec change, as a job of its own. With `after`, it
    * is the conformance half of that render: it runs only if the render landed and left it to run.
    */
-  enqueueSpecDiffConformance(request: Omit<SpecDiffRequest, "tryIt" | "conformance"> & { after?: string }): { jobId: string; position: number };
+  enqueueSpecDiffConformance(request: Omit<SpecDiffRequest, "conformance"> & { after?: string }): { jobId: string; position: number };
   /**
    * Write and run conformance tests for functionalities that are built, as a job of its own. With
    * `after`, it is the conformance half of that render, run only if the render landed.
@@ -109,6 +109,14 @@ export interface RenderQueue {
    * restart, whose queue did not survive it. Returns what it queued.
    */
   catchUp(plainFile: string, buildDir?: string): QueuedRender[];
+  /**
+   * Bring the queue up to the spec as the .plain files have it now - for the module and every module it
+   * requires, bottom first: from what the queue leaves each (what is built, and the jobs queued for it), one
+   * spec diff for what changed in that - its sections, and the functional specs built or queued - and then a
+   * render per functional spec after them. Rendering a module is this, and so is being told the spec changed:
+   * the queue master reworks the queue around the spec diff, as around any change. Says what it queued.
+   */
+  bringUpTo(plainFile: string, options?: { to?: string; only?: boolean; model?: string }): BroughtUp;
   /** The entry for a functionality that is queued or building right now, if there is one. */
   inFlight(plainFile: string, frid: string): QueuedRender | undefined;
   /** What has been queued, in order, with each job's current state. */
@@ -128,6 +136,58 @@ export interface RenderQueue {
    * Nothing when it left the queue as it was.
    */
   afterRework(jobId: string, timeoutMs?: number): Promise<string | undefined>;
+}
+
+/** Whether all that `after` adds to `built` is its functional spec `frid` - nothing changed, removed or added besides. */
+export function addsOnlyFunctionality(built: MarshalledPlainSource | null, after: MarshalledPlainSource, frid: string): boolean {
+  const changes = netChanges(built ?? {}, after);
+  return changes.length === 1 && changes[0]!.kind === "add" && changes[0]!.section === FUNCTIONAL_REQUIREMENTS && changes[0]!.position === Number(frid);
+}
+
+/** What bringing the queue up to the spec queued, module by module: nothing, when it already ends there. */
+export interface BroughtUp {
+  modules: Array<{ module: string; specDiff?: string; renders: Array<{ frid: string; jobId: string }>; upToDate: boolean }>;
+  /** Every job it queued, spec diffs and renders, in the order they run. */
+  jobIds: string[];
+}
+
+/** What bringing the queue up to a spec queued, module by module, for the conversation to report. */
+export function describeBroughtUp(brought: BroughtUp, file: string): string {
+  if (brought.jobIds.length === 0) return `${file}: everything is built from the spec as it is - nothing to queue.`;
+  const lines = [`Queued ${brought.jobIds.length} job${brought.jobIds.length === 1 ? "" : "s"} for ${file}, in the order they run:`];
+  for (const module of brought.modules) {
+    if (module.upToDate) {
+      lines.push(`- ${module.module}: built from the spec as it is - nothing to do.`);
+      continue;
+    }
+    if (module.specDiff !== undefined) lines.push(`- ${module.module}: job ${module.specDiff} brings what is built in line with the spec.`);
+    if (module.renders.length > 0) {
+      const frids = module.renders.map((render) => render.frid);
+      lines.push(
+        `- ${module.module}: functionalit${frids.length === 1 ? "y" : "ies"} ${frids.length === 1 ? frids[0] : `${frids[0]} to ${frids.at(-1)}`}, one job each - ${module.renders.map((render) => render.jobId).join(", ")}.`,
+      );
+    }
+  }
+  lines.push("", "The queue master sees these like any queued job: a spec changed while they run is worked in around them.");
+  return lines.join("\n");
+}
+
+/**
+ * The functional specs at the start of `now` that the code will have been built from once the queue ahead lands -
+ * its tree `ahead` - however they are worded now: every one up to the last that `ahead` has word for word, or, when
+ * none is, as many as `ahead` has.
+ */
+export function coveredPrefix(ahead: MarshalledPlainSource | null, now: MarshalledPlainSource): number {
+  const specs = (tree: MarshalledPlainSource | null) => ((tree?.[FUNCTIONAL_REQUIREMENTS] as Array<{ markdown: string }> | undefined) ?? []).map((item) => item.markdown.trim());
+  const had = specs(ahead);
+  const has = specs(now);
+  if (had.length === 0) return 0;
+  const known = new Set(had);
+  let last = -1;
+  has.forEach((spec, index) => {
+    if (known.has(spec)) last = index;
+  });
+  return last >= 0 ? last + 1 : Math.min(had.length, has.length);
 }
 
 /**
@@ -176,8 +236,6 @@ export interface SpecDiffRequest {
   inModule?: string;
   /** Default: the queue's model for spec changes. */
   model?: string;
-  /** Work out and check how to try it. Default true: queued from an interview, the person is there. */
-  tryIt?: boolean;
   /** false: no conformance tests for it, and no conformance job after it. */
   conformance?: false;
   /**
@@ -219,7 +277,7 @@ export function createRenderQueue(options: {
   rebuild?: RebuildRunner;
 }): RenderQueue {
   const modelOf = (work: RenderWork, plainFile?: string) => (options.modelFor ? options.modelFor(work, plainFile) : options.model);
-  const runner: RenderRunner = options.run ?? defaultRunner(options);
+  const runRender: RenderRunner = options.run ?? defaultRunner(options);
   const queued: QueuedRender[] = [];
   // Everything asked for, in order: a spec diff's render is not a functionality's, but it waits its turn all the same.
   const shown: Array<Omit<QueueEntry, "position" | "status">> = [];
@@ -310,12 +368,13 @@ export function createRenderQueue(options: {
       model: work.model,
       applied: work.applied,
       spec: work.spec,
-      // Queued from an interview: the person is there, trying each change as it lands.
-      tryIt: work.tryIt ?? true,
       onDelta,
     });
+    // The change as its agents were shown it: its conformance job shows theirs the same.
+    if (result.change !== undefined) work.changeText = result.change;
     return {
-      report: describeSpecDiff(result),
+      // Landed code, it can be tried - once its conformance job, when one follows, has passed too.
+      report: withTryItLine(describeSpecDiff(result), result.passed && result.conformanceLater !== true && result.restructured !== true),
       details: { passed: result.passed, stoppedAt: result.stoppedAt, landed: result.passed, conformanceLater: result.conformanceLater === true },
     };
   };
@@ -359,7 +418,10 @@ export function createRenderQueue(options: {
     if (work.before === undefined) return;
     const built = readBuiltTree(work.codebase) ?? {};
     const before = work.before ?? {};
-    if (serializeTree(built) === serializeTree(before) || sameSpec(built, before)) return;
+    // Functional specs it would record as built that nothing builds: not built, and not in its own change - queued
+    // behind a module build that stopped before them, say, which the queue does not follow.
+    const carried = unbuiltNotInDiff(work, built);
+    if (carried.length === 0 && (serializeTree(built) === serializeTree(before) || sameSpec(built, before))) return;
     let layout;
     try {
       layout = layoutOf(readFileSync(work.plainFile, "utf8"));
@@ -372,8 +434,26 @@ export function createRenderQueue(options: {
     const job = options.registry.get(jobId);
     if (job !== undefined) {
       job.diff = diff;
-      job.note = `${job.note !== undefined ? `${job.note} ` : ""}Rebased when it started: the job ahead of it did not land, so it renders everything from what the code is built from to its spec - that job's change as well.`;
+      job.note =
+        `${job.note !== undefined ? `${job.note} ` : ""}` +
+        (carried.length > 0
+          ? `Rebased when it started: its spec holds ${carried.length === 1 ? "a functional spec" : `${carried.length} functional specs`} not built and not in its change - ${carried.map((spec) => `"${spec.slice(0, 60)}"`).join(", ")} - so it renders everything from what the code is built from to its spec, ${carried.length === 1 ? "that one" : "those"} as well.`
+          : "Rebased when it started: the job ahead of it did not land, so it renders everything from what the code is built from to its spec - that job's change as well.");
     }
+  };
+
+  /**
+   * The functional specs a spec diff's pinned spec holds that the code is not built from and its own change does not
+   * bring: it would record them as built, and nothing would have built them. Their first lines.
+   */
+  const unbuiltNotInDiff = (work: SpecDiffWork, built: MarshalledPlainSource): string[] => {
+    const specs = (tree: MarshalledPlainSource) => ((tree[FUNCTIONAL_REQUIREMENTS] as Array<{ markdown: string }> | undefined) ?? []).map((item) => item.markdown.trim());
+    const have = new Set(specs(built));
+    const changed = work.diff.split("\n").filter((line) => line.startsWith("+")).map((line) => line.slice(1).trim()).join("\n");
+    return specs(work.spec.tree)
+      .filter((spec) => !have.has(spec))
+      .map((spec) => spec.split("\n")[0]!.replace(/^- /, "").trim())
+      .filter((first) => first !== "" && !changed.includes(first));
   };
 
   /** How a spec diff's conformance tests are run: by its conformance job, still to run; in its own render; or not at all. */
@@ -559,7 +639,7 @@ export function createRenderQueue(options: {
         rewritten.push(jobId);
         started.set(planned, jobId);
         const job = options.registry.get(jobId);
-        if (job !== undefined) job.note = `${from === "" ? "Inserted" : "Moved here"} by ${by}: ${planned.title}${from}. ${plan.summary}`;
+        if (job !== undefined) job.note = `${from === "" ? "Inserted" : "Moved here"} by ${by}: ${planned.title}${from}.`;
         before = step.tree;
         continue;
       }
@@ -579,8 +659,14 @@ export function createRenderQueue(options: {
       const job = options.registry.get(work.jobId!);
       if (job !== undefined) {
         job.diff = work.diff;
-        if (from !== "") job.note = `Now renders "${planned.title}"${from}, by ${by}. ${plan.summary}`;
-        else if (changed) job.note = `Reworked by ${by}: ${planned.title}. ${plan.summary}`;
+        // What it renders now, in a line of its own: what the whole turn did is said once, in the conversation.
+        if (from !== "") job.note = `Now renders "${planned.title}"${from}, by ${by}.`;
+        else if (changed) job.note = `Reworked by ${by} - it now renders ${work.title}.`;
+        // A functionality render moved in the list - one before it taken out - is named by where it is now.
+        if (work.render !== undefined) {
+          const position = ((step.tree[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? []).length;
+          if (position > 0 && String(position) !== work.render.frid) job.summary = `${basename(work.plainFile)} fs ${position} (was ${work.render.frid})`;
+        }
       }
       if (work.conformanceJobId !== undefined) {
         const conformance = options.registry.get(work.conformanceJobId);
@@ -720,14 +806,13 @@ export function createRenderQueue(options: {
         spec: { moduleName: pinned.moduleName, plainFile: request.plainFile, tree: after, chain },
         model,
         requestModel: request.model,
-        tryIt: true,
         off,
         conformanceLater: false,
         codebase,
         started: false,
         before,
         turnAt: turns.get(codebase)?.count ?? 0,
-        render: { original: serializeTree(after), off },
+        render: { original: serializeTree(after), off, frid: request.frid },
       };
     } catch {
       // A functionality the pinned spec does not have fails in the render, with its own error.
@@ -771,7 +856,6 @@ export function createRenderQueue(options: {
       inModule: request.inModule,
       model,
       requestModel: request.model,
-      tryIt: request.tryIt,
       off,
       // A restructuring changes nothing its tests check.
       conformanceLater: !off && !restructure && hasTestReqs(part.spec),
@@ -856,6 +940,7 @@ export function createRenderQueue(options: {
           const result = await renderSpecDiffConformance({
             plainFile,
             diff: follows?.diff ?? request.diff,
+            ...(follows?.changeText !== undefined ? { change: follows.changeText } : {}),
             cwd: request.cwd ?? options.cwd,
             inModule: request.inModule,
             applied: follows !== undefined ? "already applied" : request.applied,
@@ -863,7 +948,7 @@ export function createRenderQueue(options: {
             model,
             onDelta,
           });
-          return { report: describeSpecDiffConformance(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
+          return { report: withTryItLine(describeSpecDiffConformance(result), result.passed), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
         },
       });
       jobs.set(job.id, job);
@@ -889,7 +974,7 @@ export function createRenderQueue(options: {
           if (skipped !== undefined) return { report: skipped, details: { passed: false, skipped: true } };
           if (conformanceOff(plainFile)) return { report: offNote, details: { passed: false, skipped: true } };
           const result = await renderConformanceSuite({ ...suite, plainFile, model, onDelta });
-          return { report: describeConformanceSuite(result), details: { passed: result.passed } };
+          return { report: withTryItLine(describeConformanceSuite(result), result.passed), details: { passed: result.passed } };
         },
       });
       jobs.set(job.id, job);
@@ -924,14 +1009,19 @@ export function createRenderQueue(options: {
           // Where it started, for its conformance job to take it back to.
           const landsIn = work?.codebase ?? codebase;
           if (landsIn !== undefined) landStarts.set(jobRef.id, markWork([landsIn]));
-          if (work === undefined) return runner(asRequested, onDelta);
+          if (work === undefined) return runRender(asRequested, onDelta);
           // The queue master may be reworking the queue: it decides what this job renders, or whether it runs at all.
           await gateOf(work.codebase);
           if (work.superseded !== undefined) return { report: work.superseded, details: { passed: false, skipped: true, landed: false } };
           work.started = true;
-          // As queued: the render it was asked for. Reworked - its change is not adding that one functionality any more -
-          // it renders as a spec diff, and writes its conformance tests itself.
-          if (serializeTree(work.spec.tree) === work.render!.original && work.off === work.render!.off) return runner(asRequested, onDelta);
+          // As queued: the render it was asked for. A render is a spec diff that adds one functionality: reworked onto
+          // another spec - a req changed ahead of it - but still only adding its own functionality to what is built, it
+          // is still that render, on the spec as it now is. Anything more, and it renders as a spec diff, and writes its
+          // conformance tests itself.
+          if (serializeTree(work.spec.tree) === work.render!.original && work.off === work.render!.off) return runRender(asRequested, onDelta);
+          if (work.off === work.render!.off && addsOnlyFunctionality(readBuiltTree(work.codebase), work.spec.tree, request.frid)) {
+            return runRender({ ...asRequested, pinned: { moduleName: asRequested.pinned?.moduleName ?? work.spec.moduleName, tree: work.spec.tree } }, onDelta);
+          }
           if (work.conformanceJobId !== undefined && isPending(options.registry.get(work.conformanceJobId)?.status)) {
             const note = `Not run: the render it follows, job ${work.jobId}, was reworked into a spec diff, which writes its conformance tests itself.`;
             options.registry.stop(work.conformanceJobId);
@@ -1023,6 +1113,56 @@ export function createRenderQueue(options: {
         .filter((entry) => entry.reason === "never built" && this.inFlight(file, entry.frid) === undefined)
         .map((entry) => this.enqueue({ plainFile: file, frid: entry.frid }));
       return [...regenerated, ...fresh];
+    },
+
+    bringUpTo(plainFile, bring = {}) {
+      const file = resolve(options.cwd, plainFile);
+      const chain = resolveRequiresChain(file, [], options.buildDir, { allowNoFunctionalities: true });
+      const entries = bring.only === true ? chain.slice(-1) : chain;
+      const brought: BroughtUp = { modules: [], jobIds: [] };
+      for (const entry of entries) {
+        const pinned = pinSpec(entry.plainFile);
+        if (pinned === undefined) continue;
+        const codebase = entry.buildDir;
+        const ahead = treeAhead(codebase);
+        const now = pinned.tree;
+        const covered = coveredPrefix(ahead, now);
+        const nowSpecs = (now[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? [];
+        const module: BroughtUp["modules"][number] = { module: entry.moduleName, renders: [], upToDate: false };
+        // What is built or queued, brought in line with the spec as it is now: its sections, and those functional specs.
+        if (ahead !== null) {
+          const target = { ...now, [FUNCTIONAL_REQUIREMENTS]: nowSpecs.slice(0, covered) } as MarshalledPlainSource;
+          if (serializeTree(target) !== serializeTree(ahead) && !sameSpec(ahead, target)) {
+            let layout;
+            try {
+              layout = layoutOf(readFileSync(entry.plainFile, "utf8"));
+            } catch {
+              /* the layout is only for how the diff reads */
+            }
+            const diff = diffSpecText(serializeTree(ahead), serializeTree(target), relative(options.cwd, entry.plainFile), layout);
+            const queuedDiff = queue.enqueueSpecDiff({
+              plainFile: entry.plainFile,
+              diff,
+              applied: "already applied",
+              spec: { moduleName: entry.moduleName, plainFile: entry.plainFile, tree: target, chain: chain.slice(0, chain.indexOf(entry) + 1) },
+              ...(bring.model !== undefined ? { model: bring.model } : {}),
+            });
+            module.specDiff = queuedDiff.jobId;
+            brought.jobIds.push(...queuedDiff.parts.map((part) => part.jobId));
+          }
+        }
+        // Then every functional spec after them, one render each, pinned to the spec as it is now.
+        const last = bring.to !== undefined && entry === entries.at(-1) ? Math.min(Number(bring.to), nowSpecs.length) : nowSpecs.length;
+        for (let index = covered; index < last; index += 1) {
+          const frid = String(index + 1);
+          const queued = queue.enqueue({ plainFile: entry.plainFile, frid, pinned, ...(bring.model !== undefined ? { model: bring.model } : {}) });
+          module.renders.push({ frid, jobId: queued.jobId });
+          brought.jobIds.push(queued.jobId);
+        }
+        module.upToDate = module.specDiff === undefined && module.renders.length === 0;
+        brought.modules.push(module);
+      }
+      return brought;
     },
 
     inFlight(plainFile, frid) {
@@ -1147,7 +1287,6 @@ interface SpecDiffWork {
   model?: string;
   /** The model the request named, for its conformance job. */
   requestModel?: string;
-  tryIt?: boolean;
   off: boolean;
   conformanceLater: boolean;
   /** The codebase it renders into: its build folder. */
@@ -1165,6 +1304,8 @@ interface SpecDiffWork {
    * from anything else - that job stopped or failed - its diff is taken again from what is built.
    */
   before?: MarshalledPlainSource | null;
+  /** The change section by section, as its render's agents were shown it - for its conformance job. */
+  changeText?: string;
   /** How many turns of the queue master had changed its codebase's queue when it was queued. */
   turnAt?: number;
   /** Stopped by the queue master while running, it finished before the stop took, and landed. */
@@ -1173,15 +1314,15 @@ interface SpecDiffWork {
    * A functionality render, not a spec diff: the spec it leaves as queued, and whether conformance was off. Left as
    * it was, it runs as the render it was asked for; reworked, it runs as a spec diff.
    */
-  render?: { original: string; off: boolean };
+  render?: { original: string; off: boolean; frid: string };
 }
 
 /** Build a chain again: the module now required, then the ones above it from scratch - `renderChain` sees to that. */
 const defaultRebuild: RebuildRunner = async (request, onDelta) => {
-  const result = await renderChain({ plainFile: request.plainFile, model: request.model, conformance: request.conformance, tryIt: true, onDelta });
+  const result = await renderChain({ plainFile: request.plainFile, model: request.model, conformance: request.conformance, onDelta });
   const modules = result.chain.map((entry) => entry.moduleName).join(" → ");
   return {
-    report: describeChainStop(result) ?? (result.passed ? `Built ${modules}, the codebase again from scratch on the module it now requires.` : `The rebuild of ${modules} did not finish.`),
+    report: describeChainStop(result) ?? (result.passed ? withTryItLine(`Built ${modules}, the codebase again from scratch on the module it now requires.`, true) : `The rebuild of ${modules} did not finish.`),
     details: { passed: result.passed, landed: result.passed },
   };
 };
@@ -1251,7 +1392,9 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
     // Queued from an interview: the person is there, trying each spec as it lands. The
     // functionality and the whole suite passing with it are one unit, undone whole.
     const unit = markWork([target]);
-    const result = await renderFunctionality({ ...common, tryIt: true });
+    // Its conformance tests follow as a job of their own: it can be tried once that job passes, and that job says so.
+    const later = request.conformanceLater === true;
+    const result = await renderFunctionality(common);
 
     // The conformance tests already in this codebase - its own, and those carried up from
     // the modules below - are kept passing, even though none are written here.
@@ -1276,7 +1419,7 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
     } else if (regression !== undefined && regression.repairs.length > 0) {
       prerequisites.push(`${regression.repairs.length} regression repair(s) changed the code so the existing conformance tests pass.`);
     }
-    // A build that stopped says where, why and what to do; one that landed, how to try it.
+    // A build that stopped says where, why and what to do; one that landed, that it can be tried.
     const stopped: StopPoint | undefined = !result.passed ? "unit tests" : regression !== undefined && !regression.passed ? "regression" : undefined;
     const delivery =
       stopped !== undefined
@@ -1296,11 +1439,16 @@ function defaultRunner(options: { buildDir?: string; model?: string; cwd: string
             added: result.added,
             runs: result.runs,
             passed: result.passed,
-            tryIt: result.tryIt,
+            offerTry: !later,
           });
     return {
       report: prerequisites.length > 0 ? `${delivery}\n\n${prerequisites.map((p) => `Note: ${p}`).join("\n")}` : delivery,
-      details: { passed: result.passed, landed: stopped === undefined, files: result.files, prerequisites: missing.map((entry) => entry.frid) },
+      details: {
+        passed: result.passed,
+        landed: stopped === undefined,
+        files: result.files,
+        prerequisites: missing.map((entry) => entry.frid),
+      },
     };
   };
 }

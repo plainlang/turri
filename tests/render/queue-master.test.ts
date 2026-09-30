@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
-import { checkDraft, findJob, netChanges, propose, reworkQueue, untouched, type MasterInput, type QueueMasterAgent } from "../../src/render/queue-master.ts";
+import { checkDraft, findJob, masterPrompt, netChanges, propose, reworkQueue, untouched, type MasterInput, type QueueMasterAgent } from "../../src/render/queue-master.ts";
+import { summarizeDiff } from "../../src/render/job-panel.ts";
 import { serializeTree } from "../../src/render/spec-steps.ts";
 
 const item = (markdown: string) => ({ markdown });
@@ -249,3 +250,25 @@ describe("the queue master", () => {
     expect(asked).toEqual(["Should the profile page go, or only move?"]);
   });
 });
+
+describe("the queue master's prompt", () => {
+  const prompt = masterPrompt(story(), propose(story()));
+
+  it("says how to read each block that follows", () => {
+    expect(prompt).toContain("How to read what follows.");
+    for (const block of ["<the new change>", "<the queue>", "<the changes>", "<the draft>", "<the spec now>"]) expect(prompt).toContain(`- ${block}:`);
+  });
+
+  it("tells the new change and every queued job section by section, as the coding agents are told, not as raw diffs", () => {
+    expect(prompt).toContain('<the new change - the spec before it to the spec now>\n<functional specs change="1 removed">\nRemoved:\n  - Users have a profile page.\n</functional specs>');
+    expect(prompt).toContain('job 1 (job1) · comments · no conformance tests\n<functional specs change="1 added">\nAdded:\n  functionality 2:\n  - Users comment on sessions.\n</functional specs>');
+    expect(prompt).not.toContain("+- Users comment on sessions.");
+  });
+});
+
+describe("a job's one-line title", () => {
+  it("says what a change that only takes lines out takes out", () => {
+    expect(summarizeDiff("--- a/app.plain\n+++ b/app.plain\n@@ -3,2 +3,0 @@\n-- :ProfilePage: is the page at `/u/<handle>`.\n-")).toBe("app.plain +0 −2 · removes: :ProfilePage: is the page at `/u/<handle>`.");
+  });
+});
+

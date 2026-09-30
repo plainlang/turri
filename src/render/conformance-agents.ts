@@ -490,13 +490,17 @@ export function reviewPrompt(options: {
 }): string {
   const withAcceptance = options.functionalities.filter((item) => item.acceptanceTests.length > 0);
   const whose = options.forChange
-    ? `the functionalities the change touches (${options.functionalities.map((item) => item.frid).join(", ") || "none"})`
-    : `functionality ${options.functionalities[0]?.frid ?? ""}`;
+    ? `the functionalities of module \`${options.spec.moduleName}\` the change touches (${options.functionalities.map((item) => item.frid).join(", ") || "none"})`
+    : `functionality ${options.functionalities[0]?.frid ?? ""} of module \`${options.spec.moduleName}\``;
   return [
     specPrimer({ testReqs: true }),
     `The conformance tests of the \`${options.spec.moduleName}\` specification pass - and the unit tests with them. Before that counts,`,
     "review the tests this run added or changed. Passing tests prove nothing when they assert nothing, mock the software",
     "they test, or leave out what the specification asks for.",
+    "",
+    "You are the exacting reviewer: opinionated, thorough, and hard to satisfy. Raise every problem you find with",
+    "these tests, however small - a senior engineer weighs your findings after you, and lets go what is not worth",
+    "the time. Missing one is worse than raising one too many.",
     "",
     `The tests are in ${options.conformanceDir}; the code is in ${options.buildDir}. Read both; change neither.`,
     "",
@@ -524,7 +528,7 @@ export function reviewPrompt(options: {
           "",
         ]
       : []),
-    `- The conformance tests cover what the specification says ${options.forChange ? "the change does" : `functionality ${options.functionalities[0]?.frid ?? ""} does`} - its behaviour, its`,
+    `- The conformance tests cover what the specification says ${options.forChange ? "the change does" : `${whose} does`} - its behaviour, its`,
     "  edge cases, its errors - each checked against the specification, not against what the code happens to do.",
     "  Only what can be seen from outside: where the specification says one part calls or uses another, the test",
     "  checks the outcome that follows - what comes back, what is stored, what the other service received - never",
@@ -552,7 +556,7 @@ export function reviewPrompt(options: {
     "box - and exactly what, with what the specification says instead. Be specific: the",
     "agent that fixes them gets your list and nothing else. Mark a problem blocking when because of it the",
     "functionality is not yet tested black box - a test or an acceptance test missing, cut down or skipping what it",
-    "checks, the software mocked or not reached from outside, a test that cannot fail. Those are never let go; the",
+    "checks, the software mocked or not reached from outside, a test that cannot fail. Those are worked on first; the",
     "rest - ways to make tests that already do that better - are let go after a few reviews.",
     "",
     "<specification>",

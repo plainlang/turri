@@ -268,3 +268,40 @@ export function historyShow(dir: string, commit: string): string {
   const result = git(moduleDir, ["show", "--stat", "--patch", "--format=%h %ad%n%n%B", "--date=format:%Y-%m-%d %H:%M", commit]);
   return result.status === 0 ? result.stdout : result.stderr.trim() || `No commit ${commit}.`;
 }
+
+/** Kept out of a work's diff: the harness's own files, and lockfiles - long, generated, and nothing to review. */
+const NOT_REVIEWED = /(^|\/)(\.plainwright\.json|\.plainwright-notes\.md|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|uv\.lock|poetry\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|composer\.lock|Gemfile\.lock)$/;
+
+/** How much of a work's diff is shown whole; past it, the rest is named, to be read from the files. */
+const WORK_DIFF_MAX = 80_000;
+
+/**
+ * What the work under way changed in `dir` - the code folder, or the tests folder - since the module's last
+ * commit: a unified diff of every file changed, and every new file whole. Every unit of work starts from that
+ * commit, so this is exactly what its agents wrote. Lockfiles and the harness's own files are left out. Empty when
+ * there is no history, or nothing changed.
+ */
+export function workDiff(dir: string): string {
+  const moduleDir = moduleDirOf(dir);
+  if (!existsSync(join(moduleDir, HISTORY_DIR))) return "";
+  const folder = basename(dir);
+  // Paths relative to `dir`, where the agent reading the diff works.
+  const within = (path: string) => (path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path);
+  const changed = git(moduleDir, ["diff", "HEAD", "--no-color", "--name-only", "--", folder]).stdout.split("\n").filter(Boolean).map(within);
+  const added = git(moduleDir, ["ls-files", "--others", "--exclude-standard", "--", folder]).stdout.split("\n").filter(Boolean).map(within);
+  const parts: string[] = [];
+  for (const file of changed.filter((path) => !NOT_REVIEWED.test(path))) {
+    parts.push(git(moduleDir, ["diff", "HEAD", "--no-color", `--relative=${folder}`, "--", `${folder}/${file}`]).stdout.trimEnd());
+  }
+  // A new file, whole: git diff of it against nothing.
+  for (const file of added.filter((path) => !NOT_REVIEWED.test(path))) {
+    parts.push(spawnSync("git", ["diff", "--no-index", "--no-color", "--", "/dev/null", file], { cwd: dir, encoding: "utf8" }).stdout.trimEnd());
+  }
+  const diff = parts.filter(Boolean).join("\n");
+  if (diff.length <= WORK_DIFF_MAX) return diff;
+  const shown = diff.slice(0, WORK_DIFF_MAX);
+  const cut = shown.lastIndexOf("\ndiff --git ");
+  const kept = cut > 0 ? shown.slice(0, cut) : shown;
+  const rest = [...changed, ...added].filter((path) => !NOT_REVIEWED.test(path) && !kept.includes(` b/${path}\n`));
+  return `${kept}\n\n(the diff goes on past what is shown: read these files whole - ${rest.join(", ")})`;
+}

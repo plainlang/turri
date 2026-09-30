@@ -16,8 +16,8 @@ import {
   type MarshalledPlainSource,
   type SpecificationItem,
 } from "../plain/spec.ts";
-import { reportActivity, reportSpec, reportStage, reportTryIt, type BuildingSpec, unitOf } from "./activity.ts";
-import { codebaseMap, digestFiles } from "./codebase.ts";
+import { reportActivity, reportSpec, reportStage, type BuildingSpec, unitOf } from "./activity.ts";
+import { codebaseMap, digestFiles, wroteNothing } from "./codebase.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
 import { untilUnitTestsReviewed, type UnitReviewProblem } from "./unit-review.ts";
 import { abandonWork, recordHistory, startFromLastCommit, type WorkStart } from "./history.ts";
@@ -27,9 +27,9 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { requiredFunctionalSpecs } from "./requires.ts";
 import { confinedTools } from "./confine.ts";
-import { defaultBuildDir, tryDirFor, projectDirOf } from "./paths.ts";
+import { defaultBuildDir, projectDirOf } from "./paths.ts";
 import { readBuiltTree, recordBuiltFunctionality, recordBuiltRequiredFunctionality, STATE_FILE, type RequiredSpec } from "./state.ts";
-import { buildRegeneratePrompt, buildRenderPrompt } from "./prompt.ts";
+import { buildRegeneratePrompt, buildRenderPrompt, reviewedSpec } from "./prompt.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import {
@@ -41,8 +41,9 @@ import {
   type TestRemoval,
   type TestRun,
   verifyUnitSuite,
+  draftPrompt,
+  DRAFT_ASKS,
 } from "./testing.ts";
-import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.ts";
 
 /** Tools the coding agent gets. Scoped to the build directory by the session's cwd. */
 /**
@@ -50,7 +51,7 @@ import { createTryItTool, settleTryIt, tryItPrompt, type TryIt } from "./try-it.
  * enforce it, a sandboxed shell. See `confine.ts`: `cwd` alone is a starting point, not a
  * boundary, and this agent has no business anywhere but the module it is building.
  */
-const EXTRA_CODING_TOOLS = ["run_unit_tests", "describe_how_to_try_it"];
+const EXTRA_CODING_TOOLS = ["run_unit_tests"];
 
 /** How many times the harness will send the agent back before giving up. */
 const DEFAULT_MAX_FOLLOW_UPS = ATTEMPTS["unit tests"];
@@ -73,12 +74,6 @@ export interface RenderFunctionalityOptions {
   onRun?: (command: string, exitCode: number) => void;
   /** "provider/model-id". Omitted: whatever pi is configured to use. */
   model?: string;
-  /**
-   * Work out how a person tries it, and check those steps, once the tests pass. Off unless
-   * asked for: it is an extra agent turn or two, worth it when someone is waiting to try
-   * the result and pure cost on a long unattended run.
-   */
-  tryIt?: boolean;
   /**
    * Whether conformance tests are written for this build - so the conformance testing script is
    * in the agent's prompt too. Default: when the module has test reqs.
@@ -130,8 +125,6 @@ export interface RenderFunctionalityResult {
   attempts?: number;
   /** Tests that went missing mid-run and had to be justified. */
   testRemovals: TestRemoval[];
-  /** How a person runs it and sees this functionality, checked by the harness. */
-  tryIt?: TryIt;
   /** What the unit test review said, when it did not simply pass: let go as it was, or still finding untested behaviour. */
   unitReview?: { passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[] };
 }
@@ -282,12 +275,11 @@ export async function renderFunctionality(
   // The build directory is the whole world for this agent: it reads and writes there and
   // nowhere else. Nothing above `plain_modules` is reachable, including this repo.
   const fence = confinedTools({ workdir: buildDir });
-  let tryIt: TryIt | undefined;
   const notes = notesForSession(buildDir, `${moduleName} ${frid}`);
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   const executor = await createExecutor({
     cwd: buildDir,
-    customTools: [runTests, createTryItTool((submitted) => (tryIt = submitted)), notes.tool, ...createWebTools(), ...fence.tools],
+    customTools: [runTests, notes.tool, ...createWebTools(), ...fence.tools],
     tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} ${frid} coding agent`,
@@ -310,6 +302,8 @@ export async function renderFunctionality(
     let followUp = 0;
     /** The harness's runs of the unit testing script: each is an attempt it judged. */
     let attempts = 0;
+    /** How many times the agent, having written nothing, was asked for a draft. */
+    let draftAsks = 0;
     // Back and forth until the harness's run of the unit testing script passes - whatever the
     // agent ran, and whether it ran anything - or the rounds run out. Picks up where it left off
     // when called again.
@@ -336,6 +330,15 @@ export async function renderFunctionality(
           continue;
         }
 
+        // Nothing written - a turn spent planning - leaves nothing to test or review: ask for a best-guess draft.
+        const forChange = options.regenerate !== undefined;
+        if (draftAsks < DRAFT_ASKS[forChange ? "change" : "functionality"] && wroteNothing(buildDir, codeAtStart)) {
+          draftAsks += 1;
+          stage("the coding agent has written nothing yet - asking for a best-guess draft");
+          response = await ask(executor, draftPrompt(forChange), options.onDelta);
+          continue;
+        }
+
         stage(`running the unit testing script (attempt ${attempts + 1})`);
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit!);
@@ -356,8 +359,8 @@ export async function renderFunctionality(
       const reviewed = await untilUnitTestsReviewed({
         buildDir,
         atStart: codeAtStart,
-        what: `functionality ${frid}`,
-        specText: specTextOf(specifications, frid),
+        what: `functionality ${frid} of module \`${moduleName}\``,
+        spec: reviewedSpec({ moduleName, specifications, required, frid }),
         label: `${moduleName} ${frid}`,
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(options.plainFile).judgeModel, splitModelSpec(options.model))),
         send: async (next) => {
@@ -371,25 +374,6 @@ export async function renderFunctionality(
       if (!reviewed.passed || reviewed.waived !== undefined) unitReview = reviewed;
     }
 
-    // Asked only once the tests pass: instructions for software that does not work yet
-    // would be instructions for something else.
-    if (options.tryIt === true && verified) {
-      tryIt = await settleTryIt({
-        buildDir,
-        tryDir: tryDirFor(buildDir, moduleName, frid),
-        prompt: tryItPrompt(`Functionality ${frid}`),
-        ask: async (next) => {
-          tryIt = undefined;
-          await ask(executor, next, options.onDelta);
-          return tryIt;
-        },
-        stage,
-      });
-      // Working out how to try it may have touched the code: the harness checks again, and a run
-      // that fails goes back to the agent like any other - it does not end the build.
-      if (tryIt !== undefined) reportTryIt({ tryIt, buildDir });
-      if (tryIt !== undefined) verified = await untilPassing();
-    }
     stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
     const files = listFiles(buildDir);
@@ -431,24 +415,12 @@ export async function renderFunctionality(
       attempts,
       passed,
       testRemovals,
-      tryIt,
       ...(unitReview !== undefined ? { unitReview } : {}),
     };
   } finally {
     executor.dispose();
   }
 }
-
-/** The specification a functionality is built from, as its unit test review reads it. */
-function specTextOf(specifications: Specifications, frid: string): string {
-  const section = (heading: string, items: string[]) => (items.length > 0 ? [`***${heading}***`, "", ...items, ""] : []);
-  return [
-    ...section("definitions", specifications[DEFINITIONS] ?? []),
-    ...section("implementation reqs", specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? []),
-    ...section(`functional specs - the last one, functionality ${frid}, is what this work built; the ones before it were built already`, specifications[FUNCTIONAL_REQUIREMENTS] ?? []),
-  ].join("\n");
-}
-
 
 /**
  * What an update is made against: every other functional spec in the codebase, the spec

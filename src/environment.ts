@@ -15,7 +15,7 @@ export const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 export const AGENT_DIR = join(homedir(), ".pi", "agent");
 
 /** The oldest Node that runs .ts files by itself, which is how plainwright runs. */
-export const MIN_NODE = [22, 18] as const;
+export const MIN_NODE = [22, 19] as const;
 
 export function nodeVersionOk(version: string = process.versions.node): boolean {
   const [major = 0, minor = 0] = version.split(".").map(Number);

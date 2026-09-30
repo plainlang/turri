@@ -1,6 +1,5 @@
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { describeUsage } from "./activity.ts";
-import { describeTryIt } from "./delivery.ts";
 import { jobPanelLines } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 import { agentsOf, diffLines, roleOf, transcriptLines, type TranscriptStyle } from "./transcript-view.ts";
@@ -8,18 +7,17 @@ import { agentsOf, diffLines, roleOf, transcriptLines, type TranscriptStyle } fr
 /**
  * The side panel: what the jobs are doing, beside the conversation rather than instead of it.
  *
- * Three views. Jobs: the whole queue - what runs, what waits and on what, what finished. Try it:
- * how to try what a job built, as the harness checked it. Trace: a job's agents at work - every
+ * Two views. Jobs: the whole queue - what runs, what waits and on what, what finished. Trace: a
+ * job's agents at work - every
  * prompt, reply, thought and tool call, each agent's turn headed by who it is - all of them, or one
  * agent at a time. It scrolls on its own, by keys and by the wheel, and follows the newest line while
  * at the bottom.
  */
 
-export type PanelView = "jobs" | "tryit" | "trace";
+export type PanelView = "jobs" | "trace";
 
 const VIEWS: Array<{ view: PanelView; title: string }> = [
   { view: "jobs", title: "Jobs" },
-  { view: "tryit", title: "Try it" },
   { view: "trace", title: "Trace" },
 ];
 
@@ -67,28 +65,6 @@ function pick(jobs: Job[], id: string | undefined): Job | undefined {
   return ordered.find((job) => job.id === id) ?? ordered.find((job) => job.status === "running") ?? ordered[0];
 }
 
-/**
- * The Try it view: how to try what each job built, as the harness checked it - every job that has
- * steps, newest first, each under what it built. A render or a spec change works them out once its
- * tests pass; conformance jobs never do.
- */
-export function tryItLines(jobs: Job[], width: number, style: TranscriptStyle): string[] {
-  const withSteps = newestFirst(jobs).filter((job) => job.tryIt !== undefined);
-  const lines = withSteps.flatMap((job, index) => [
-    ...(index > 0 ? [""] : []),
-    style.heading(`── ${job.summary}  (job ${job.id})`),
-    ...describeTryIt(job.tryIt!.tryIt, job.tryIt!.buildDir)
-      .slice(2)
-      .flatMap((line) => (line === "" ? [""] : wrapTextWithAnsi(line, Math.max(10, width)))),
-  ]);
-  const coming = newestFirst(jobs).filter((job) => job.tryIt === undefined && (job.status === "running" || job.status === "queued") && /render|regenerate/.test(job.kind) && !/conformance/.test(job.kind));
-  const pending = coming.map((job) => style.muted(`  ${job.summary} - ${job.status === "queued" ? "not started yet" : `still at: ${job.stage ?? "starting"}`}; its steps come once its tests pass`));
-  if (lines.length === 0 && pending.length === 0) {
-    return [style.muted("(no try-it steps yet: a render or a spec change works them out once its tests pass)")];
-  }
-  return [...lines, ...(pending.length > 0 ? [...(lines.length > 0 ? [""] : []), style.muted("── still to come"), ...pending] : [])];
-}
-
 export function createSidePanel(options: SidePanelOptions) {
   const style = options.style;
   let view: PanelView = options.jobId !== undefined ? "trace" : "jobs";
@@ -96,7 +72,7 @@ export function createSidePanel(options: SidePanelOptions) {
   /** The agent the trace follows, or every agent. */
   let agent: string | undefined;
   /** Lines scrolled up from the bottom, per view. Zero: following. */
-  const fromBottom: Record<PanelView, number> = { jobs: 0, tryit: 0, trace: 0 };
+  const fromBottom: Record<PanelView, number> = { jobs: 0, trace: 0 };
   let lastBodyHeight = 10;
 
   const current = () => pick(options.jobs(), jobId);
@@ -139,7 +115,6 @@ export function createSidePanel(options: SidePanelOptions) {
         ]);
       return [...live, ...(finished.length > 0 ? ["", style.heading("── finished"), ...finished] : [])];
     }
-    if (view === "tryit") return tryItLines(options.jobs(), width, style);
     if (job === undefined) return [style.muted("(no job yet)")];
     return transcriptLines(job, width, style, agent);
   };
@@ -157,7 +132,7 @@ export function createSidePanel(options: SidePanelOptions) {
 
       const tabs = VIEWS.map(({ view: item, title }) => (item === view ? style.heading(`[${title}]`) : style.muted(` ${title} `))).join(" ");
       const about =
-        view === "jobs" || view === "tryit"
+        view === "jobs"
           ? ""
           : job === undefined
             ? ""
@@ -199,7 +174,6 @@ export function createSidePanel(options: SidePanelOptions) {
         jobId = jobs[(at + 1) % Math.max(1, jobs.length)]?.id;
         agent = undefined;
         fromBottom.trace = 0;
-        fromBottom.tryit = 0;
       } else if (matchesKey(data, Key.up)) scroll(1);
       else if (matchesKey(data, Key.down)) scroll(-1);
       else if (matchesKey(data, Key.pageUp)) scroll(page);

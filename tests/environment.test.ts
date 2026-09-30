@@ -3,8 +3,9 @@ import { nodeVersionOk, qemuBinary, qemuInstallHint } from "../src/environment.t
 import { vmSummary, vmSupported } from "../src/render/vm.ts";
 
 describe("the Node plainwright runs on", () => {
-  it("is 22.18 or newer, which runs .ts files itself", () => {
-    expect(nodeVersionOk("22.18.0")).toBe(true);
+  it("is 22.19 or newer - it runs .ts files itself, and pi needs 22.19", () => {
+    expect(nodeVersionOk("22.19.0")).toBe(true);
+    expect(nodeVersionOk("22.18.0")).toBe(false);
     expect(nodeVersionOk("23.1.0")).toBe(true);
     expect(nodeVersionOk("26.8.2")).toBe(true);
     expect(nodeVersionOk("22.17.1")).toBe(false);

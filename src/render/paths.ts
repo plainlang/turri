@@ -91,7 +91,7 @@ export function modulesRootOf(dir: string): string {
 
 /**
  * `.plainwright` inside the modules root: what the VM needs beside the code - the package
- * caches, the copies test runs and try-it checks happen in, the system packages installed.
+ * caches, the copies test runs happen in, the system packages installed.
  * Inside the root because the VM holds nothing else; ignored by the project's history.
  */
 export function vmScratchDir(dir: string): string {
@@ -103,24 +103,15 @@ export function ensureInVmScratch(dir: string, path: string): string {
   return ensureInScratch(vmScratchDir(dir), path);
 }
 
-/**
- * Where a person tries one functionality: `plain_modules/.plainwright/try/<module>/fs-<frid>`.
- *
- * A copy of the build, not the build itself, so trying functionality 2 cannot disturb the
- * render of functionality 3 going on in the build directory - and each functionality keeps
- * its own, so an earlier one can still be tried after later ones land. Inside `plain_modules`
- * because the steps are checked in the VM, which holds nothing else.
- */
-export function tryDirFor(buildDir: string, moduleName: string, frid: string): string {
-  return join(vmScratchDir(buildDir), "try", moduleName, `fs-${frid}`);
-}
+/** Where the project keeps what `deploy` puts out: `dist/`, beside `plain_modules`. */
+export const DIST_DIR = "dist";
 
 /**
- * Where a person tries what the latest spec change built: one copy per module, replaced by
- * each change, beside the per-functionality ones.
+ * Where a person tries a module: `<project>/dist/<module>`, the module's code as its last commit has
+ * it. Outside `plain_modules`, so no agent can reach it, and replaced whole by every deploy.
  */
-export function specChangeTryDirFor(buildDir: string, moduleName: string): string {
-  return join(vmScratchDir(buildDir), "try", moduleName, "spec-change");
+export function distDirFor(projectDir: string, moduleName: string): string {
+  return join(projectDir, DIST_DIR, moduleName);
 }
 
 /**

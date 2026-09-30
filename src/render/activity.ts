@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { TryIt } from "./try-it.ts";
 
 /**
  * What a background job is doing right now.
@@ -34,8 +33,6 @@ export interface ActivitySink {
   specConflict?(conflict: SpecConflict): void;
   /** The functional spec being built now, or nothing when none is. */
   spec?(spec: BuildingSpec | undefined): void;
-  /** How the person can try what was built, as the harness checked it - once the tests pass. */
-  tryIt?(steps: { tryIt: TryIt; buildDir: string }): void;
 }
 
 /** A functional spec as it is being built: where it sits, and its text as the spec has it. */
@@ -125,11 +122,6 @@ export interface UsageReport {
   cost: number;
 }
 
-/** How the person can try what was just built, as the harness checked it. */
-export function reportTryIt(steps: { tryIt: TryIt; buildDir: string }): void {
-  store.getStore()?.tryIt?.(steps);
-}
-
 /**
  * What a stage is about, said so the person knows what the name is: "module backend", or "module
  * backend, functionality 2". A stage leads with it: `${unitOf(moduleName, frid)}: running the tests`.
@@ -209,8 +201,6 @@ export function describeToolCall(name: string, args: Record<string, unknown> | u
     case "run_unit_tests":
     case "run_conformance_tests":
       return `▶ ${name === "run_unit_tests" ? "unit tests" : "conformance tests"}: the project's script`;
-    case "describe_how_to_try_it":
-      return "  wrote the try-it steps";
     default:
       return `  ${name}`;
   }

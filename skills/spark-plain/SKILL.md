@@ -127,6 +127,6 @@ file.
 End with the handover, in a few lines: the features in build order, the jobs they were queued as,
 that conformance tests are off unless they were asked for (turning them on later is one line in
 `config.yaml`, `conformance-tests: true`, with the test reqs and the script added in the
-conversation), and what the user can do now - try each feature as its build lands (the side panel's Try it view,
-on ctrl+j), and ask for any change in the conversation. A feature added, changed or dropped is one
+conversation), and what the user can do now - try each feature as its build lands (ask to try it, and the chat
+deploys it), and ask for any change in the conversation. A feature added, changed or dropped is one
 spec diff, and the queue master reworks the builds still queued around it.

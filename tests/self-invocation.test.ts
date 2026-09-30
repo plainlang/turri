@@ -12,6 +12,7 @@ describe("a shell command that runs plainwright again", () => {
     expect(selfInvocation("npx tsx src/render-frid.ts app.plain 1")).toBe("render");
     expect(selfInvocation('pi -p "build it"')).toBe("pi");
     expect(selfInvocation("plainwright chat -p 'render the module'")).toBe("chat");
+    expect(selfInvocation("plainwright deploy app.plain")).toBe("deploy");
   });
 
   it("lets pi configure and describe itself, and catches it starting an agent", () => {
@@ -35,6 +36,7 @@ describe("a shell command that runs plainwright again", () => {
 
   it("is refused with the tool to use instead", () => {
     expect(refusal("module")).toContain("Use render_module instead.");
+    expect(refusal("deploy")).toContain("Use deploy instead.");
     expect(refusal("pi")).toContain("Do not start another agent");
   });
 });

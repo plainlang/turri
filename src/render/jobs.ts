@@ -1,4 +1,3 @@
-import type { TryIt } from "./try-it.ts";
 import { randomUUID } from "node:crypto";
 import { withVmLease } from "./vm.ts";
 import { JobStoppedError, withActivity, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
@@ -51,8 +50,6 @@ export interface Job {
   usage: UsageReport;
   /** The whole conversation of its agents, oldest dropped first past a size limit. */
   transcript: TranscriptEntry[];
-  /** How the person can try what it built, as the harness checked it - once its tests passed. */
-  tryIt?: { tryIt: TryIt; buildDir: string };
   /** It failed, and failed again when retried - or a job ahead of it did: the queue behind it fails too. */
   failedForGood?: boolean;
   /** Why it failed for good, and what to do, as the diagnosis found. */
@@ -249,10 +246,6 @@ export function createJobRegistry(options?: {
           while (transcriptChars > MAX_TRANSCRIPT_CHARS && job.transcript.length > 1) {
             transcriptChars -= job.transcript.shift()!.text.length;
           }
-        },
-        tryIt(steps: { tryIt: TryIt; buildDir: string }) {
-          job.tryIt = steps;
-          changed();
         },
         activity(line: string) {
           job.activity = [...job.activity, line].slice(-ACTIVITY_LINES);

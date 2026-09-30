@@ -35,7 +35,12 @@ vi.mock("../../src/render/spec-change.ts", async (importOriginal) => {
       // Landing, it records the spec it was given - as the real one does.
       const buildDir = options.spec?.chain?.at(-1)?.buildDir;
       if (renderPasses && buildDir !== undefined) (await import("../../src/render/state.ts")).writeBuiltTree(buildDir, options.spec!.tree as never);
-      return { passed: renderPasses, stoppedAt: renderPasses ? null : "unit tests", conformanceLater: options.conformanceLater };
+      return {
+        passed: renderPasses,
+        stoppedAt: renderPasses ? null : "unit tests",
+        conformanceLater: options.conformanceLater,
+        buildDir: buildDir ?? "",
+      };
     },
     describeSpecDiff: () => "rendered",
   };
@@ -229,6 +234,40 @@ describe("the queue master", () => {
     for (const id of [profileJob.jobId, removal.jobId]) expect(registry.get(id)!.status).toBe("stopped");
   });
 
+  it("offers to try a spec diff at the very end - in its conformance job, once that passes - not when the render lands", async () => {
+    const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
+    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    const queued = q.enqueueSpecDiff({ plainFile: "app.plain", diff: "+- Say hello.", applied: "already applied", spec: spec(true) });
+    await registry.wait(queued.jobId);
+    const conformance = queued.parts[0]!.conformanceJobId!;
+    await registry.wait(conformance);
+    expect(registry.get(queued.jobId)!.report).not.toContain(TRY_IT_LINE);
+    expect(registry.get(conformance)!.report).toContain(TRY_IT_LINE);
+  });
+
+  it("offers to try a spec diff when it lands, when no conformance job follows it", async () => {
+    const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
+    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    const queued = q.enqueueSpecDiff({ plainFile: "app.plain", diff: "+- Say hello.", applied: "already applied", spec: spec(true), conformance: false });
+    await registry.wait(queued.jobId);
+    expect(registry.get(queued.jobId)!.report).toContain(TRY_IT_LINE);
+  });
+
+  it("offers nothing to try when a spec diff does not land", async () => {
+    const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
+    renderPasses = false;
+    writeFileSync(join(dir, "app.plain"), WITH_TEST_REQS);
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    const queued = q.enqueueSpecDiff({ plainFile: "app.plain", diff: "+- Say hello.", applied: "already applied", spec: spec(true), conformance: false });
+    await registry.wait(queued.jobId);
+    expect(registry.get(queued.jobId)!.report ?? "").not.toContain(TRY_IT_LINE);
+  });
+
   it("takes a spec diff's change again from what is built when the job ahead of it was stopped - so what it records is what it built", async () => {
     const { writeBuiltTree } = await import("../../src/render/state.ts");
     const buildDir = join(dir, "plain_modules", "backend", "code");
@@ -251,6 +290,31 @@ describe("the queue master", () => {
     expect(renderedDiffs[0]).toContain("Users comment on sessions.");
     expect(renderedDiffs[0]).toContain("Users give kudos.");
     expect(registry.get(kudos.jobId)!.note).toContain("Rebased when it started");
+  });
+
+  it("renders a spec diff queued behind a module build the queue does not track from what that build really landed - its unbuilt functionalities as well", async () => {
+    const { writeBuiltTree } = await import("../../src/render/state.ts");
+    const buildDir = join(dir, "plain_modules", "backend", "code");
+    const specs = (items: string[]) => ({ "functional specs": items.map((markdown) => ({ markdown })) });
+    // The module build has landed sign-up; comments is in the spec but not built when it stops.
+    writeBuiltTree(buildDir, specs(["- Users sign up."]) as never);
+    writeFileSync(join(dir, "backend.plain"), "***functional specs***\n\n- Users sign up.\n- Users comment on sessions.\n- Users give kudos.\n");
+    const snapshot = (items: string[]) => ({ moduleName: "backend", plainFile: join(dir, "backend.plain"), tree: specs(items), chain: [{ moduleName: "backend", plainFile: join(dir, "backend.plain"), buildDir }] }) as unknown as SpecSnapshot;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const registry = createJobRegistry();
+    const build = registry.start({ kind: "render_module", summary: "backend.plain module build", lanes: moduleLanes(join(dir, "backend.plain")), run: async () => (await held, { report: "" }) });
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: false });
+    // Queued while the build runs, pinned to the whole spec - comments included - with only its own change as its diff.
+    const kudos = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users give kudos.", applied: "already applied", spec: snapshot(["- Users sign up.", "- Users comment on sessions.", "- Users give kudos."]) });
+    registry.stop(build.id);
+    release();
+    await registry.wait(kudos.jobId);
+
+    expect(renderedDiffs).toHaveLength(1);
+    expect(renderedDiffs[0]).toContain("Users comment on sessions.");
+    expect(renderedDiffs[0]).toContain("Users give kudos.");
+    expect(registry.get(kudos.jobId)!.note).toContain("not built and not in its change");
   });
 
   it("takes a first build's change again from nothing when the scaffold ahead of it was stopped - nothing built is the empty spec", async () => {

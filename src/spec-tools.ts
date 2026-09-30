@@ -58,7 +58,7 @@ export function createSpecDiffTools(options: {
     description:
       "Apply a change to the ***plain specs, given as a git diff of the .plain files, and start building it in " +
       "the background. The diff is applied with git; if the specs no longer parse, it is undone and nothing is " +
-      "built. Any section may change - definitions, reqs, functional specs, added, changed or removed - and " +
+      "built. Any section may change - definitions, implementation reqs, functional specs, added, changed or removed - and " +
       "every change is built, whatever it touches.",
     promptSnippet: "write_spec_diff: apply a git diff of the .plain specs and start building it",
     promptGuidelines: [

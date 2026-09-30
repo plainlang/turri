@@ -149,11 +149,6 @@ export interface RenderModuleOptions {
    */
   conformance?: boolean;
   maxRegressionRounds?: number;
-  /**
-   * Say how to try the last functionality this run builds. Only the last: the ones before
-   * it are steps on the way, and a long run is usually one nobody is watching.
-   */
-  tryIt?: boolean;
   onDelta?: (delta: string) => void;
   onEvent?: (event: ModuleEvent) => void;
   /** Orders the changes into spec diffs when it takes them. The planning agent, by default. */
@@ -450,7 +445,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
         (entry) => allFrids.indexOf(entry.frid) >= fromIndex,
       );
   const toBuild = new Set(pending.map((entry) => entry.frid));
-  const lastToBuild = pending.at(-1)?.frid;
   // Read once for the module: the required modules do not change while this one builds.
   const required = getInheritedFunctionalSpecs(tree);
 
@@ -510,7 +504,6 @@ export async function renderModule(options: RenderModuleOptions): Promise<Render
       templateDirs: options.templateDirs,
       buildDir,
       model: options.model,
-      tryIt: options.tryIt === true && frid === lastToBuild,
       onDelta: options.onDelta,
       onRun: (cmd, exitCode) => options.onEvent?.({ type: "run", command: cmd, exitCode }),
     });
@@ -661,7 +654,6 @@ async function renderAsSpecDiffs(
       spec: { ...snapshot, tree: step.tree },
       conformance: options.conformance,
       model: options.model,
-      tryIt: options.tryIt === true && index === plan.steps.length - 1,
       onDelta: options.onDelta,
     });
     outcomes.push({ title: step.title, reason: step.reason, sections: step.sections, result });
@@ -1023,8 +1015,6 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
       ...options,
       plainFile: entry.plainFile,
       buildDir: entry.buildDir,
-      // Required modules are built on the way to the one asked for; only that one is tried.
-      tryIt: options.tryIt === true && index === chain.length - 1,
     });
 
     outcomes.push({ module: entry.moduleName, skipped: false, copied, result, regenerated });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeDelivery } from "../../src/render/delivery.ts";
+import { describeDelivery, TRY_IT_LINE, tryItCommand, withTryItLine } from "../../src/render/delivery.ts";
 
 const base = {
   moduleName: "greeter",
@@ -12,14 +12,6 @@ const base = {
     { command: "python3 -m unittest discover", exitCode: 0 },
   ],
   passed: true,
-  tryIt: {
-    setup: ["pip install -r requirements.txt"],
-    steps: [
-      { do: "python3 greeter.py Ana", expect: 'prints "Hello, Ana!"', kind: "command" as const, exitCode: 0 },
-      { do: "python3 server.py", expect: "listens on port 8000", kind: "long_running" as const },
-      { do: "open http://localhost:8000/?name=Ana", expect: "the page says Hello, Ana!", kind: "manual" as const },
-    ],
-  },
 };
 
 describe("the notification when a functionality lands", () => {
@@ -30,48 +22,43 @@ describe("the notification when a functionality lands", () => {
     expect(text).toContain("- Accept an optional name and greet it.");
   });
 
-  it("says how to run it, from where, with setup first", () => {
-    const text = describeDelivery(base);
-    expect(text).toContain("$ cd build/greeter");
-    expect(text.indexOf("Set up once:")).toBeLessThan(text.indexOf("pip install"));
-    expect(text.indexOf("pip install")).toBeLessThan(text.indexOf("python3 greeter.py Ana"));
-    expect(text).toContain('You should see: prints "Hello, Ana!"');
+  it("ends by offering to set it up for the person to try", () => {
+    expect(describeDelivery(base).split("\n").at(-1)).toBe(TRY_IT_LINE);
   });
 
-  it("numbers the steps, marks the ones the harness ran, and says how each kind is used", () => {
-    const text = describeDelivery(base);
-    expect(text).toContain("  1. $ python3 greeter.py Ana   ✓");
-    expect(text).toContain("  2. Start it - it keeps running, so do the next steps in a second terminal:");
-    expect(text).toContain("  3. open http://localhost:8000/?name=Ana");
-  });
-
-  it("says when a step did not work when checked", () => {
-    const steps = [{ ...base.tryIt.steps[0]!, exitCode: 1 }];
-    const text = describeDelivery({ ...base, tryIt: { setup: [], steps } });
-    expect(text).toContain("✗ did not work when checked");
-    expect(text).toContain("Some of these did not work when checked");
-  });
-
-  it("admits when the build did not say how to run it", () => {
-    expect(describeDelivery({ ...base, tryIt: undefined })).toContain("how to try it was not worked out");
+  it("leaves the offer to the conformance job that follows, when one does", () => {
+    const text = describeDelivery({ ...base, offerTry: false });
+    expect(text).not.toContain(TRY_IT_LINE);
+    expect(text).toContain("greeter: functionality 2 is built - its conformance tests come next.");
   });
 
   it("keeps the tests to a footnote, with the command that actually passed", () => {
-    const text = describeDelivery(base);
-    const last = text.split("\n").at(-1)!;
-    expect(last).toContain("unit tests pass (python3 -m unittest discover)");
-    expect(last).toContain("2 new files (greeter.py, tests/test_greeter.py)");
-    expect(text).not.toContain("python -m unittest discover)");
+    const lines = describeDelivery(base).split("\n");
+    const footnote = lines.at(-3)!;
+    expect(footnote).toContain("unit tests pass (python3 -m unittest discover)");
+    expect(footnote).toContain("2 new files (greeter.py, tests/test_greeter.py)");
+    expect(lines.join("\n")).not.toContain("python -m unittest discover)");
   });
 
-  it("offers no instructions when the tests are not passing", () => {
+  it("offers nothing to try when the tests are not passing", () => {
     const text = describeDelivery({ ...base, passed: false });
     expect(text).toContain("its tests are not passing");
-    expect(text).not.toContain("Try it");
+    expect(text).not.toContain(TRY_IT_LINE);
   });
 
   it("shortens a long file list", () => {
     const added = Array.from({ length: 20 }, (_, i) => `file${i}.py`);
     expect(describeDelivery({ ...base, added })).toContain("20 new files (file0.py, file1.py, file2.py, …)");
+  });
+});
+
+describe("the offer to try what a job built", () => {
+  it("ends a report that landed, and leaves one that did not as it was", () => {
+    expect(withTryItLine("Rendered the spec change.", true)).toBe(`Rendered the spec change.\n\n${TRY_IT_LINE}`);
+    expect(withTryItLine("Conformance tests are NOT passing.", false)).toBe("Conformance tests are NOT passing.");
+  });
+
+  it("names the command on the command line, which has no one to ask", () => {
+    expect(tryItCommand(`${process.cwd()}/app.plain`)).toBe("To try it: plainwright deploy app.plain");
   });
 });

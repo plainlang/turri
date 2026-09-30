@@ -18,6 +18,7 @@ import {
 import { validateConcepts } from "../plain/concepts.ts";
 import { sectionsOf, specStateFor } from "./state.ts";
 import { ask, createExecutor } from "../pi.ts";
+import { sectionTag } from "./prompt.ts";
 
 /**
  * The steps from one spec to another: a sequence of spec diffs that, rendered one after the
@@ -403,19 +404,25 @@ function itemText(line: string): string {
   const tests = item[ACCEPTANCE_TESTS] ?? [];
   return [
     item.markdown ?? line,
-    ...(tests.length > 0 ? ["  ***acceptance tests***", ...tests.map((test) => `  ${(test.markdown ?? "").replace(/\n/g, "\n  ")}`)] : []),
+    ...(tests.length > 0 ? ["  <acceptance tests>", ...tests.map((test) => `  ${(test.markdown ?? "").replace(/\n/g, "\n  ")}`), "  </acceptance tests>"] : []),
   ].join("\n");
 }
 
 /** A serialized tree as a person reads it, section by section. */
 export function treeText(serialized: string): string {
   const out: string[] = [];
+  // Each section in its tag, as every agent is shown a spec (see specPrimer).
+  let open: string | undefined;
   for (const line of serialized.split("\n")) {
     if (line === "") continue;
     const header = headerOf(line);
-    if (header !== undefined) out.push("", `***${header.key}***`, "");
-    else out.push(itemText(line));
+    if (header !== undefined) {
+      if (open !== undefined) out.push(`</${open}>`, "");
+      open = sectionTag(header.key);
+      out.push(`<${open}>`);
+    } else out.push(itemText(line));
   }
+  if (open !== undefined) out.push(`</${open}>`);
   return out.join("\n").trim();
 }
 

@@ -71,7 +71,7 @@ describe("buildRenderPrompt", () => {
       linkedResources: [],
     });
 
-    expect(prompt).not.toContain("<test reqs>");
+    expect(prompt).not.toContain("<test reqs>\n");
     expect(prompt).not.toContain("- Tests use unittest.");
   });
 
@@ -86,14 +86,14 @@ describe("buildRenderPrompt", () => {
     expect(prompt).toContain("<definitions>");
     expect(prompt).toContain("<implementation reqs>");
     expect(prompt).toContain("<acceptance tests>\n- It should exit 0.\n</acceptance tests>");
-    expect(prompt).toContain("Implement functionality 3 and its unit tests - only functionality 3.");
+    expect(prompt).toContain("Implement functionality 3 of module `demo` and its unit tests - only functionality 3 of module `demo`.");
   });
 
   it("says which functionalities are already implemented and that only the new one is the task", () => {
     const prompt = buildRenderPrompt({ moduleName: "demo", frid: "3", specifications, linkedResources: [] });
 
-    expect(prompt).toContain("Functionalities 1 and 2 are already implemented");
-    expect(prompt).toContain("Your task is functionality 3, and only functionality 3.");
+    expect(prompt).toContain("Functionalities 1 and 2 of module `demo` are already implemented");
+    expect(prompt).toContain("Your task is functionality 3 of module `demo`, and only functionality 3 of module `demo`.");
     expect(prompt).toContain("Do not implement them again");
   });
 
@@ -105,7 +105,7 @@ describe("buildRenderPrompt", () => {
       linkedResources: [],
     });
 
-    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 is its first.");
+    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 of module `demo` is its first.");
     expect(prompt).not.toContain("Do not implement");
   });
 
@@ -128,7 +128,7 @@ describe("buildRenderPrompt", () => {
     expect(b).toBeGreaterThan(c);
     expect(mine).toBeGreaterThan(b);
     expect(prompt).toContain("It builds on `c` and `b`, whose 2 functional specs are implemented in this codebase too");
-    expect(prompt).toContain("Functionality 1 and the functionalities of c and b exist. Do not implement them");
+    expect(prompt).toContain("Functionality 1 of module `demo` and the functionalities of c and b exist. Do not implement them");
   });
 
   it("tells the first functionality of a requiring module what it builds on", () => {
@@ -139,7 +139,7 @@ describe("buildRenderPrompt", () => {
       linkedResources: [],
       required: [{ module: "b", frid: "1", spec: "- From b." }],
     });
-    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 is its first. It builds on `b`");
+    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 of module `demo` is its first. It builds on `b`");
     expect(prompt).toContain("The functionalities of b exist. Do not implement them again");
   });
 
@@ -156,10 +156,11 @@ describe("buildRenderPrompt", () => {
       linkedResources: [],
     });
 
-    expect(prompt).not.toContain("<definitions>");
-    expect(prompt).not.toContain("<test reqs>");
-    expect(prompt).not.toContain("<already implemented>");
-    expect(prompt).not.toContain("<acceptance tests>");
+    // The primer names every section's tag; an empty section's own tag is not there.
+    expect(prompt).not.toContain("<definitions>\n");
+    expect(prompt).not.toContain("<test reqs>\n");
+    expect(prompt).not.toContain("<already implemented>\n");
+    expect(prompt).not.toContain("<acceptance tests>\n");
   });
 
   it("embeds linked resource contents", () => {
@@ -246,7 +247,7 @@ describe("what the other agents are told is already implemented", () => {
     expect(inOrder(prompt)).toBe(true);
     expect(prompt).toContain('<functionality module="demo" id="2">\n- Mine two.\n</functionality>');
     expect(prompt).not.toContain('module="demo" id="2" status="implemented"');
-    expect(prompt).toContain("Test functionality 2 only.");
+    expect(prompt).toContain("Test functionality 2 of module `demo` only.");
   });
 
   it("the regression repairer: every functionality in the code, required modules included", () => {
@@ -270,10 +271,15 @@ describe("how to read the specification", () => {
     expect(prompt.startsWith("<how to read the specification>")).toBe(true);
     expect(prompt).toContain(":Implementation: - the system that implements :plainFunctionality:.");
     expect(prompt).toContain("They carry the same authority as the");
-    expect(prompt).toContain("defined in the definitions, or predefined");
+    expect(prompt).toContain("defined in <definitions>, or predefined");
+    // Every section is named by its tag, one name each: never by its ***heading*** as well.
+    for (const tag of ["<definitions>", "<implementation reqs>", "<test reqs>", "<functional specs>", "<acceptance tests>", "<linked resources>", "<spec change>"]) {
+      expect(specPrimer({ testReqs: false })).toContain(`- ${tag}: `);
+    }
+    expect(specPrimer({ testReqs: false })).not.toMatch(/\*\*\*(definitions|implementation reqs|test reqs|functional specs|acceptance tests)\*\*\*/);
     expect(prompt).toContain("mock or stub the system under test to hide a failure");
     // The coding agent is told the test reqs exist, and that they are not its.
-    expect(specPrimer({ testReqs: false })).toContain("They are not given\n  to you");
+    expect(specPrimer({ testReqs: false })).toContain("They are not given to you");
     expect(specPrimer({ testReqs: true })).not.toContain("They are not given");
   });
 });

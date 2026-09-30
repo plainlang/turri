@@ -311,12 +311,10 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // For the agent's log: the whole prompt and how the turn ended; the session streams the rest.
   const debug = debugLogOf(session);
   const turnStarted = Date.now();
-  // A timed turn is told its time, and ended where it is when the time is up.
+  // A timed turn is ended where it is when the time is up. The agent is not told: a turn cut short is taken up again
+  // by the harness, and a clock in the prompt only hurries the work.
   const timed = timedSessions.has(session) && TURN_LIMIT_MS > 0;
-  const prompt = timed
-    ? `${text}\n\nYou have ${formatLimit(TURN_LIMIT_MS)} for this turn: when it is up, your turn ends where it is and the harness ` +
-      "takes it from there - so do the one thing asked, check it, and finish."
-    : text;
+  const prompt = text;
   let outOfTime = false;
   const timer = timed
     ? setTimeout(() => {

@@ -64,6 +64,7 @@ const COMMANDS: Record<string, { module: string; blurb: string }> = {
   regenerate: { module: "./regenerate-frid.ts", blurb: "rebuild a functionality after its spec changed" },
   "spec-diff": { module: "./spec-diff-cli.ts", blurb: "render a change to the specs, given as a git diff" },
   check: { module: "./check-cli.ts", blurb: "validate a ***plain spec without rendering" },
+  deploy: { module: "./deploy-cli.ts", blurb: "put what is built in dist/<module> and start it on this machine" },
   skill: { module: "./run.ts", blurb: "run a gated skill" },
 };
 

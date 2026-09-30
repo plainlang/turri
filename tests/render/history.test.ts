@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { abandonWork, head, historyLog, historyShow, markWork, recordHistory, resetToLastCommit, startWork } from "../../src/render/history.ts";
+import { abandonWork, head, historyLog, historyShow, markWork, recordHistory, resetToLastCommit, startWork, workDiff } from "../../src/render/history.ts";
 import { copyRequiredCode } from "../../src/render/requires.ts";
 
 let root: string;
@@ -190,5 +190,28 @@ describe("a unit of work", () => {
     abandonWork(start, "app", "it failed");
     abandonWork(undefined, "app", "nothing started");
     expect(readFileSync(join(code, "app.py"), "utf8")).toBe("print('hi')\n");
+  });
+
+  it("gives the work's diff from the last commit - files changed and new ones whole, relative to the folder, lockfiles and its own files left out", () => {
+    writeFileSync(join(code, "app.py"), "print('before')\n");
+    writeFileSync(join(code, "old.py"), "gone = 1\n");
+    recordHistory(code, "render app fs 1");
+    writeFileSync(join(code, "app.py"), "print('after')\n");
+    rmSync(join(code, "old.py"));
+    mkdirSync(join(code, "src"));
+    writeFileSync(join(code, "src", "new.py"), "def added(): return 2\n");
+    writeFileSync(join(code, "package-lock.json"), "{}\n");
+    writeFileSync(join(code, ".plainwright-notes.md"), "notes\n");
+    const diff = workDiff(code);
+    expect(diff).toContain("diff --git a/app.py b/app.py");
+    expect(diff).toContain("-print('before')\n+print('after')");
+    expect(diff).toContain("-gone = 1");
+    expect(diff).toContain("b/src/new.py");
+    expect(diff).toContain("+def added(): return 2");
+    expect(diff).not.toContain("package-lock");
+    expect(diff).not.toContain("notes");
+    expect(diff).not.toContain("code/");
+    recordHistory(code, "render app fs 2");
+    expect(workDiff(code)).toBe("");
   });
 });

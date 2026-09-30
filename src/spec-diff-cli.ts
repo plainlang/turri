@@ -3,6 +3,7 @@ import { modelSpec, projectModels, configForSpec } from "./config.ts";
 import { projectDirOf } from "./render/paths.ts";
 import { describeSpecDiff, renderSpecDiff } from "./render/spec-change.ts";
 import { withActivity, type ActivitySink } from "./render/activity.ts";
+import { tryItCommand } from "./render/delivery.ts";
 
 const USAGE = `usage: plainwright spec-diff <file.plain> <diff-file> [options]
 
@@ -68,12 +69,12 @@ async function main() {
       inModule: args.inModule,
       // Off when asked, or when the spec's config turns it off.
       conformance: args.conformance ?? (configForSpec(plainFile).conformanceTests === false ? false : undefined),
-      tryIt: false,
       model: args.model ?? modelSpec(projectModels(configForSpec(plainFile)).coding),
     }),
   );
   console.log(`\n${describeSpecDiff(result)}`);
   console.log(`\n${result.passed ? "spec diff rendered" : "spec diff NOT rendered"} · ${elapsed()} · $${cost.toFixed(2)}`);
+  if (result.passed && result.restructured !== true) console.log(tryItCommand(plainFile));
   process.exit(result.passed ? 0 : 1);
 }
 

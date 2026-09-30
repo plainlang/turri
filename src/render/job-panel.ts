@@ -21,7 +21,7 @@ export const JOB_PANEL_KEY = "plainwright-jobs";
 
 /** How the side panel is found your way around, as the job panel says it. */
 export const PANEL_HELP =
-  "in the side panel: tab switches jobs · try it · trace · a follows one agent · j the next job · ↑↓ pgup pgdn or the wheel scroll · esc back to the chat · ctrl+j closes it";
+  "in the side panel: tab switches jobs · trace · a follows one agent · j the next job · ↑↓ pgup pgdn or the wheel scroll · esc back to the chat · ctrl+j closes it";
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -74,6 +74,7 @@ export function summarizeDiff(diff: string, style: DiffStyle = PLAIN_DIFF): stri
   let added = 0;
   let removed = 0;
   let first: string | undefined;
+  let firstRemoved: string | undefined;
   for (const line of diff.split("\n")) {
     const file = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
     if (file) {
@@ -87,9 +88,13 @@ export function summarizeDiff(diff: string, style: DiffStyle = PLAIN_DIFF): stri
       if (first === undefined && text !== "" && !/^\*\*\*.*\*\*\*$/.test(text)) first = text;
     } else if (line.startsWith("-")) {
       removed += 1;
+      const text = line.slice(1).replace(/^- /, "").trim();
+      if (firstRemoved === undefined && text !== "" && !/^\*\*\*.*\*\*\*$/.test(text)) firstRemoved = text;
     }
   }
-  return `${[...files].join(", ")} ${style.added(`+${added}`)} ${style.removed(`−${removed}`)}${first ? ` · ${first}` : ""}`;
+  // What it adds, when it adds anything; what it takes out, when that is all it does.
+  const what = first !== undefined ? ` · ${first}` : firstRemoved !== undefined ? ` · removes: ${firstRemoved}` : "";
+  return `${[...files].join(", ")} ${style.added(`+${added}`)} ${style.removed(`−${removed}`)}${what}`;
 }
 
 /** The lines of a diff worth reading in a panel: the hunks, not the headers. */
@@ -180,10 +185,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
   } else if (expanded) {
-    lines.push("  ctrl+o collapse · ctrl+j inspect the jobs in the side panel: the queue, try it, the agents' traces");
+    lines.push("  ctrl+o collapse · ctrl+j inspect the jobs in the side panel: the queue, the agents' traces");
     lines.push(`  ${PANEL_HELP}`);
   } else {
-    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ctrl+j inspect the jobs: the queue, try it, the agents' traces`);
+    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ctrl+j inspect the jobs: the queue, the agents' traces`);
   }
   return lines;
 }

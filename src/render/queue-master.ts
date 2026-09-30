@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 import { validateConcepts } from "../plain/concepts.ts";
 import { ask, createExecutor } from "../pi.ts";
+import { describeSpecChange } from "./prompt.ts";
 import {
   applyChanges,
   changesBetween,
@@ -421,8 +422,12 @@ export async function reworkQueue(options: {
 
 export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
   const net = netChanges(input.base, input.current);
-  const change = diffSpecText(serializeTree(input.previous), serializeTree(input.current), input.specFile, layoutOf(input.specText));
   const byId = new Map(net.map((item) => [item.id, item]));
+  // Every change in the prompt is told section by section - what it adds, changes and removes - not as a raw diff.
+  const told = (before: MarshalledPlainSource, after: MarshalledPlainSource) => {
+    const changes = changesBetween(serializeTree(before), serializeTree(after));
+    return changes.length === 0 ? "(no difference in the spec)" : describeSpecChange(changes);
+  };
   return [
     "You are the queue master of a codebase's render queue. Each spec change is written to the .plain files at once and",
     "queued as a job that renders it into the code; the jobs run one after the other. A new change has just been made. Work",
@@ -432,11 +437,25 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
     "change goes with it), reorder them (what another relies on goes first), rewrite one (its title, or which changes it",
     "makes), insert one. Ask the person when you are not sure what they meant. Then commit the queue.",
     "",
+    "How to read what follows. Every change in it is told section by section, each section in its tag - <definitions>,",
+    "<implementation reqs>, <test reqs>, <functional specs> - as what it adds, what it changes (before and now), and what",
+    "it removes. A spec in full is laid out in the same tags.",
+    "- <running now>: the job rendering at this moment, and what it changes. It is not in the queue.",
+    "- <the new change>: what was just changed in the .plain files, from the spec as it was to the spec now.",
+    "- <the queue>: the jobs waiting, in the order they run, each with what it changes from the spec the job before it",
+    "  leaves - as they were queued, before the new change.",
+    "- <the changes>: the harness's own account of all the work left - every difference between what the code will be",
+    "  built from once the running job lands and the spec now - one item each, numbered c1, c2, ... Each names its",
+    "  section, whether it adds, removes or changes an item, and the item's text. This is exactly what the queue must do.",
+    "- <the draft>: the harness's proposal: the queued jobs, each holding the changes still its own. A job with no",
+    "  changes left had its work undone by the new change; the new change's own job holds what no queued job does.",
+    "- <the spec now>: the whole spec, as the .plain files have it.",
+    "",
     ...(input.running !== undefined
       ? [
           "<running now - not in the queue; it lands before the queue's first job>",
           `job ${input.running.jobId} · ${input.running.title}`,
-          input.running.textDiff.trim(),
+          told(input.built ?? {}, input.running.tree),
           "</running now>",
           "",
           "It is left to finish unless you stop it with stop_running. Stop it only when the new change undoes or rewrites",
@@ -475,13 +494,13 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
         ]
       : []),
     "<the new change - the spec before it to the spec now>",
-    change.trim() === "" ? "(no difference in the spec)" : change.trim(),
+    told(input.previous, input.current),
     "</the new change>",
     "",
     "<the queue, in the order it runs - each job's change as it was queued>",
     ...input.queued.flatMap((job, index) => [
       `job ${index + 1} (${job.jobId}) · ${job.title} · ${job.conformanceJobId !== undefined ? `its conformance tests: job ${job.conformanceJobId}, right behind it` : job.conformance ? "its conformance tests: in its own render" : "no conformance tests"}`,
-      job.textDiff.trim(),
+      told(index === 0 ? input.base : input.queued[index - 1]!.tree, job.tree),
       "",
     ]),
     "</the queue>",

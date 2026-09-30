@@ -36,6 +36,8 @@ export interface RenderSpecDiffConformanceOptions {
   plainFile: string;
   /** The change, as a git diff of the .plain files. */
   diff: string;
+  /** That change section by section, as the render that landed it worked it out: shown to the agents in place of the diff. */
+  change?: string;
   /** Where the diff's paths are relative to. Default: the working directory. */
   cwd?: string;
   templateDirs?: string[];
@@ -106,6 +108,7 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
     buildDir,
     conformanceDir,
     diff: options.diff,
+    ...(options.change !== undefined ? { change: options.change } : {}),
     spec: { moduleName, tree },
     model: options.model,
     onDelta: options.onDelta,

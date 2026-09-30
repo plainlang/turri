@@ -54,10 +54,11 @@ import { resolveRequiresChain } from "./requires.ts";
 import { notesToRead, recordNote } from "./notes.ts";
 import { reportSpecConflict } from "./activity.ts";
 import { ATTEMPTS } from "./stop-report.ts";
+import { ARBITER_AFTER, arbitrateReview, dismissedNote, REVIEW_LIMIT } from "./arbiter.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
-import { buildConformancePrompt, functionalitiesByModule } from "./prompt.ts";
+import { buildConformancePrompt, functionalitiesByModule, section, specChangeBlock } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { buildingSpec, resolveTemplateDirs } from "./render.ts";
@@ -104,6 +105,8 @@ export interface RenderConformanceTestsOptions {
   dryRun?: boolean;
   /** Update the tests for a spec change, given as a diff, rather than for one functionality. */
   diff?: string;
+  /** That change section by section, as the agents are shown it in place of the diff. */
+  change?: string;
   /**
    * The spec as parsed when that change was written. A change rendered from a queue runs after
    * later ones went into the file, so the file is not what this change is about.
@@ -242,7 +245,7 @@ export async function renderConformanceTests(
     codeDir: buildDir,
     existingTests: listFiles(conformanceDir),
     required,
-    diff: options.diff,
+    diff: options.change ?? options.diff,
   }), scripts, ["conformance", "unit"], root);
 
   if (options.dryRun) {
@@ -278,7 +281,7 @@ export async function renderConformanceTests(
   // may read the code but writes only tests. An explorer reads the code first and writes down how the
   // software is invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
-  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.diff) };
+  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.change ?? options.diff) };
   // For a spec change: the functionalities it touches, whose acceptance tests are labelled, checked and reviewed.
   const touched = forChange ? touchedFunctionalities(tree, frids, options.diff!) : [];
   // Any functionality of the codebase - this module's, and those of the modules it requires. A
@@ -301,6 +304,8 @@ export async function renderConformanceTests(
   let lastReview: ReviewProblem[] | undefined;
   let failedReviews = 0;
   let reviewWaived: ReviewProblem[] | undefined;
+  /** What each review that sent the tests back found, oldest first: what the arbiter weighs the next one against. */
+  const reviewHistory: ReviewProblem[][] = [];
   let specConflict: RenderConformanceTestsResult["specConflict"];
   /**
    * One attempt at the failing run, written into the notes' pitfalls - what the next judge reads
@@ -349,7 +354,7 @@ export async function renderConformanceTests(
       manifest,
       existingTests: listFiles(conformanceDir),
       required,
-      diff: options.diff,
+      diff: options.change ?? options.diff,
       invocation,
       readCode: buildDir,
       manifests: buildManifests(buildDir),
@@ -689,7 +694,7 @@ export async function renderConformanceTests(
       const testChanges = diffFiles(testsAtStart, digestFiles(conformanceDir));
       const changedTests = [...testChanges.added, ...testChanges.changed];
       if (changedTests.length > 0) {
-        stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_ROUNDS}): black box, and the acceptance tests doing what the spec says`);
+        stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_LIMIT}): black box, and the acceptance tests doing what the spec says`);
         const review = await reviewTests({
           buildDir,
           conformanceDir,
@@ -704,40 +709,74 @@ export async function renderConformanceTests(
           onDelta: options.onDelta,
         });
         if (!review.pass) {
-          lastReview = review.problems;
           failedReviews += 1;
-          // What matters is found in the first few reviews; after that they are down to what hardly does.
-          // The suite and the unit tests pass: past this many, the review is let go, and what it last
-          // said is kept, not sent back again - unless the functionality is still not tested black box:
-          // a missing or cut-down test is never let go.
-          const blocking = review.problems.filter((problem) => problem.blocking === true);
-          if (failedReviews >= REVIEW_ROUNDS && blocking.length === 0) {
-            stage(`the tests cannot be optimised further after ${REVIEW_ROUNDS} reviews - done; what the last review suggested is in the notes`);
-            reviewWaived = review.problems;
+          let problems = review.problems;
+          const letGo = (why: string, waived: ReviewProblem[]) => {
+            stage(why);
+            reviewWaived = [...(reviewWaived ?? []), ...waived];
+            lastReview = undefined;
+            verified = true;
+          };
+          // From the third review that sends them back, the arbiter weighs it: only what it upholds goes to the conformance agent.
+          if (failedReviews >= REVIEW_ROUNDS) {
+            stage(`the review sent the tests back ${failedReviews} times - the arbiter weighs what it found`);
+            const ruling = await arbitrateReview({
+              subject: `the conformance tests of ${forChange ? `the spec change in module \`${moduleName}\`` : `functionality ${frid} of module \`${moduleName}\``}`,
+              workdir: conformanceDir,
+              read: [conformanceDir, buildDir],
+              uphold: [
+                "- uphold it when because of it the functionality is not tested black box - a test or an acceptance test",
+                "  the specification states missing, cut down or skipping what it checks, the software mocked or not reached",
+                "  from outside, a test that cannot fail. Then the reviewer is right, and the conformance agent fixes it.",
+              ],
+              changed: changedTests,
+              spec: `<specification>\n${specContext.text.trim()}\n</specification>`,
+              problems: review.problems,
+              history: reviewHistory,
+              label: `${label} conformance`,
+              ...(judgeModel !== undefined ? { model: judgeModel } : {}),
+              ...(options.onDelta !== undefined ? { onDelta: options.onDelta } : {}),
+            });
+            // No ruling: the review stands.
+            if (ruling !== undefined) {
+              if (ruling.dismissed.length > 0) recordNote(buildDir, "pitfalls", dismissedNote(ruling, "conformance test"), `${label} conformance`);
+              if (ruling.upheld.length === 0) {
+                letGo("the arbiter approved the tests as they are - what the review still raised is let go, and in the notes", ruling.dismissed.map((entry) => entry.problem));
+                break;
+              }
+              reviewWaived = [...(reviewWaived ?? []), ...ruling.dismissed.map((entry) => entry.problem)];
+              stage(`the arbiter upheld ${ruling.upheld.length} of the review's ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"} - the conformance agent fixes ${ruling.upheld.length === 1 ? "it" : "those"}`);
+              problems = ruling.upheld.map((entry) => entry.problem);
+            }
+          }
+          // An optimiser, not a gate: past the last review, what it still finds is noted, and the run goes on.
+          if (failedReviews >= REVIEW_LIMIT) {
             recordNote(
               buildDir,
               "pitfalls",
-              `the conformance tests were optimised as far as ${REVIEW_ROUNDS} reviews could take them; the last one still suggested: ${review.problems.map((problem) => `${problem.file}${problem.test ? ` ${problem.test}` : ""}: ${problem.what.trim()}`).join("; ").slice(0, 600)}`,
+              `the conformance tests went on after ${REVIEW_LIMIT} reviews that still found: ${problems.map((problem) => `${problem.file}${problem.test ? ` ${problem.test}` : ""}: ${problem.what.trim()}`).join("; ").slice(0, 600)}`,
               `${label} conformance`,
             );
-            lastReview = undefined;
-            verified = true;
+            letGo(`the review is still not satisfied after ${REVIEW_LIMIT} reviews - going on; what it last found is in the notes`, problems);
             break;
           }
-          reportActivity(`  the review found ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}: ${review.problems[0]!.what.slice(0, 140)}`);
+          reviewHistory.push(review.problems);
+          lastReview = problems;
+          const blocking = problems.filter((problem) => problem.blocking === true);
+          reportActivity(`  the review found ${problems.length} problem${problems.length === 1 ? "" : "s"}: ${problems[0]!.what.slice(0, 140)}`);
           stage(
             blocking.length > 0
-              ? `the review found the functionality not yet tested black box (${blocking.length} of ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"}) - the conformance agent completes the tests`
-              : `the review found ${review.problems.length} way${review.problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`,
+              ? `the review found the functionality not yet tested black box (${blocking.length} of ${problems.length} problem${problems.length === 1 ? "" : "s"}) - the conformance agent completes the tests`
+              : `the review found ${problems.length} way${problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`,
           );
           const pitfalls = readNotes(buildDir).pitfalls;
-          const fixed = await changing(() => askConformance(reviewFeedbackPrompt(review.problems), options.onDelta));
+          const fixed = await changing(() => askConformance(reviewFeedbackPrompt(problems), options.onDelta));
           // The lesson, left for the agents after it: the next functionality's conformance tests start from it.
           await reflectOnReview(buildDir, pitfalls, (prompt) => askConformance(prompt, options.onDelta));
           response = fixed.result;
           recordAttempt(
             rounds,
-            "passed, but the review found " + review.problems.map((problem) => `${problem.kind} ${problem.file}: ${problem.what}`).join("; ").slice(0, 220),
+            "passed, but the review found " + problems.map((problem) => `${problem.kind} ${problem.file}: ${problem.what}`).join("; ").slice(0, 220),
             "the tests",
             { who: "conformance agent", files: fixed.files },
           );
@@ -822,8 +861,8 @@ export function touchedFunctionalities(tree: MarshalledPlainSource, frids: strin
   });
 }
 
-/** How many times the tests may fail review before it is let go and they are taken as they are. */
-export const REVIEW_ROUNDS = 5;
+/** From the how-manieth review that sends the tests back the arbiter weighs each one (see arbiter.ts). */
+export const REVIEW_ROUNDS = ARBITER_AFTER;
 
 /** How many times the tests are sent back to be written and labelled before the run stops. */
 export const LABEL_ASKS = 3;
@@ -940,10 +979,11 @@ function specText(specifications: Specifications, moduleName: string, frids: str
           ),
         ]
       : items;
+  // Each section in its tag, as every agent is shown it (see specPrimer).
   const sections = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, FUNCTIONAL_REQUIREMENTS, ACCEPTANCE_TESTS]
     .map((key) => [key, (specifications as unknown as Record<string, string[] | undefined>)[key] ?? []] as const)
     .filter(([, items]) => items.length > 0)
-    .map(([key, items]) => `***${key}***\n\n${numbered(key, items).join("\n\n")}`);
-  if (diff !== undefined) sections.push(`<spec change>\n${diff.trim()}\n</spec change>`);
+    .map(([key, items]) => section(key, numbered(key, items))!);
+  if (diff !== undefined) sections.push(specChangeBlock(diff));
   return sections.join("\n\n");
 }

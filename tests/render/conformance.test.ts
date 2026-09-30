@@ -134,7 +134,7 @@ describe("renderConformanceTests", () => {
       expect(prompt).toContain('<functionality module="withreqs" id="1">\n- Simple functionality\n</functionality>');
       expect(prompt).toContain("<test reqs>");
       expect(prompt).toContain("- Simple implementation requirement");
-      expect(prompt).toContain("Write conformance tests for functionality 1.");
+      expect(prompt).toContain("Write conformance tests for functionality 1 of module `withreqs`.");
     });
   });
 });

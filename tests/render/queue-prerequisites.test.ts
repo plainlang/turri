@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const rendered: Array<{ frid: string; tryIt?: boolean }> = [];
+const rendered: Array<{ frid: string }> = [];
 
 vi.mock("../../src/render/render.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/render/render.ts")>();
   return {
     ...actual,
-    renderFunctionality: async (options: { frid: string; tryIt?: boolean; buildDir?: string }) => {
-      rendered.push({ frid: options.frid, tryIt: options.tryIt });
+    renderFunctionality: async (options: { frid: string; buildDir?: string }) => {
+      rendered.push({ frid: options.frid });
       return {
         moduleName: "app", frid: options.frid, buildDir: options.buildDir ?? "", prompt: "", response: "", files: [], added: [],
         functionality: "", runs: [{ command: "true", exitCode: 0 }], passed: true, testRemovals: [],
@@ -35,15 +35,15 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("a queued render whose earlier functionalities are not built", () => {
-  it("builds them first, in order, and asks for try-it only on the one queued", async () => {
-    const queue = createRenderQueue({ registry: createJobRegistry(), cwd: dir, buildDir: join(dir, "build") });
-    queue.enqueue({ plainFile: "app.plain", frid: "3" });
+  it("builds them first, in order, and offers to try only the one queued once it lands", async () => {
+    const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
+    const registry = createJobRegistry();
+    const queue = createRenderQueue({ registry, cwd: dir, buildDir: join(dir, "build") });
+    const { jobId } = queue.enqueue({ plainFile: "app.plain", frid: "3" });
     await queue.drain();
-    expect(rendered).toEqual([
-      { frid: "1", tryIt: undefined },
-      { frid: "2", tryIt: undefined },
-      { frid: "3", tryIt: true },
-    ]);
+    expect(rendered).toEqual([{ frid: "1" }, { frid: "2" }, { frid: "3" }]);
+    expect(registry.get(jobId)!.report).toContain(TRY_IT_LINE);
+    expect(registry.get(jobId)!.report!.split(TRY_IT_LINE)).toHaveLength(2);
   });
 
   it("builds only what is missing", async () => {

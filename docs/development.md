@@ -32,6 +32,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/render/queue-master.ts` | reworking the queued spec diffs around each new one, held to ending on the spec as it is |
 | `src/render/state.ts` | the tree the code is built from, `.plainwright.json` |
 | `src/render/history.ts` | module history in `.plaingit` |
+| `src/render/deploy.ts`, `src/deploy-tools.ts`, `src/deploy-cli.ts` | deploy: the last commit to `dist/<module>`, what installs software, what it starts on the host - see [deploy](deploy.md) |
 | `src/render/confine.ts`, `src/render/vm.ts` | the file-tool fence and the sandbox VM - see [sandbox](sandbox.md) |
 | `src/render/models.ts` | choosing and resolving render models |
 | `src/render/job-panel.ts`, `src/render/transcript-view.ts` | the job panel and `/watch` |

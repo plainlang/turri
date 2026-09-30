@@ -413,7 +413,7 @@ describe("planning the steps", () => {
     expect(first).toContain("c1: add to definitions, as item 2");
     expect(first).toContain("c3: change the text of item 2 of functional specs");
     expect(first).toContain("    - A :User: can log in, with a valid password.");
-    expect(first).toContain("***test reqs***");
+    expect(first).toContain("<test reqs>\n");
     const later = planPrompt({ current: serializeTree(from), target: serializeTree(to), changes, planned: [{ title: "First", reason: "" }], round: 2, feedback: "No step takes c3." });
     expect(later).toContain("This is round 2");
     expect(later).toContain("1. First");

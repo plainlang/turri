@@ -32,7 +32,8 @@ where it stopped.
 | tool | |
 | --- | --- |
 | `render_functionality` | build one functionality - code and unit tests - then keep the existing conformance tests passing |
-| `render_module` | build every functionality in order, each advancing only when every conformance test so far passes |
+| `render_module` | queue the jobs that bring a module and its chain up to the spec: a spec diff for what changed in what is built, then a render per functionality not built, each with its conformance job |
+| `spec_changed` | tell the queue a spec changed, by any means: it is brought up to the spec as it is now, and the queue master reworks it |
 | `regenerate_functionality` | rebuild just one functionality - after its spec changed, or as it is |
 | `render_spec_diff` | make the code match a change to the specs, given as a git diff |
 | `render_functionality_conformance` | write and run black-box tests for a functionality |
@@ -74,10 +75,9 @@ come waits for a free slot, and says so.
   its model, time and cost - and the queue. `ctrl+o` expands it.
 - **The side panel** (`ctrl+j`, which in plainwright replaces pi's own new-line key - `shift+enter` still
   inserts one; pi outside plainwright keeps it, and a `tui.input.newLine` of your own in
-  `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with three views - `tab`
+  `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with two views - `tab`
   switches between them:
   - **Jobs** - the whole queue: what runs, what waits and on what, what finished, with time and cost;
-  - **Try it** - how to try what a job built, as the harness checked it, once its tests pass;
   - **Trace** - a job's agents at work: every prompt, reply, thought and tool call, each agent's
     turn headed by who it is and the model it runs on. `a` follows one agent at a time, `j` switches
     job.
@@ -88,7 +88,8 @@ come waits for a free slot, and says so.
 - `plainwright chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the jobs redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
-- **`/jobs`** lists every job, **`/stop <id>`** stops one - a queued one never starts.
+- **`/jobs`** lists every job, and what `deploy` has running; **`/stop <id>`** stops one - a queued
+  one never starts - and **`/stop deploy <name>`** stops a server `deploy` started.
 - **A change that renders nothing** - definitions moved to a common module, specs moved between
   modules - is recorded, not rendered: the job says "spec restructured - nothing to render".
   Specs moved into a module the code was not built on start a rebuild instead: that module, then
@@ -107,9 +108,9 @@ come waits for a free slot, and says so.
   agent that can read the project's specs, code, tests, testing scripts and logs, and plainwright's
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
   environment, the code or plainwright itself, and exactly what to do.
-- **When a job finishes** it says what was built and how to try it, in a few numbered steps: what
-  to run or do, and what you should see. Every command was run first, in a fresh copy - servers
-  included - and carries a ✓ when it worked.
+- **When a job finishes** it says what was built, and - when it landed code - that you can try it:
+  ask ("let me try it"), and the chat deploys what is built to `dist/<module>` and starts it on your
+  machine, even while other jobs run. See [deploy](deploy.md).
 - **When a job stops** - a gate still failing after 20 attempts - it says where it stopped, why in
   plain words, and what to change in the spec - which section, and how.
   Running the same build again picks up from there.
@@ -262,6 +263,7 @@ plainwright module <file.plain>             # build every functionality
 plainwright regenerate <file.plain> 2       # rebuild after its spec changed
 plainwright conformance <file.plain> 1      # black-box tests for functionality 1
 plainwright skill skills/forge-plain        # run a gated skill directly
+plainwright deploy <file.plain>             # put what is built in dist/<module>, and start it here
 ```
 
 Each takes `--model provider/model-id`, `--build-dir` and `--template-dir` (repeatable); `render`
