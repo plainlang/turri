@@ -185,7 +185,7 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
       "Build everything a module's spec holds that its code is not built from, and every module it requires, bottom " +
       "first: the work is planned into jobs and the first starts. Returns what runs and what is planned; watch the " +
       "jobs with watch_jobs.",
-    promptSnippet: "render_spec: queue the build of what a module's spec holds that is not built",
+    promptSnippet: "queue the build of what a module's spec holds that is not built",
     parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
     async execute(_id, params) {
       const plainFile = resolve(options.cwd, params.plain_file);
@@ -206,7 +206,7 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
       "again, setback after setback, a spec conflict raised, a failure being run again, running far too long - or when " +
       "every one has finished, or when `minutes` have passed. For a struggling build it gives what it has been through: its " +
       "last stages and the end of its output. Says how every build stands.",
-    promptSnippet: "watch_jobs: watch the builds, and come back when one struggles or all are done",
+    promptSnippet: "watch the builds, and come back when one struggles or all are done",
     parameters: Type.Object({
       minutes: Type.Optional(Type.Number({ description: "The longest to watch, in minutes. Default 20" })),
     }),
@@ -250,7 +250,7 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
       "Stop a build - one struggling on something the spec did not settle, once the spec says it: a queued one never starts, " +
       "a running one has its agent stopped, and what it wrote and did not commit is put back by the next build of its module. " +
       "Its functionality counts as not built; render_spec builds it again, from the spec as it now is.",
-    promptSnippet: "stop_job: stop a struggling build, to render it again from the clarified spec",
+    promptSnippet: "stop a struggling build, to render it again from the clarified spec",
     parameters: Type.Object({ job_id: Type.String(), reason: Type.String({ description: "What the spec now says that it did not" }) }),
     async execute(_id, params) {
       const job = mine().find((candidate) => candidate.id.startsWith(params.job_id.trim()));
@@ -275,7 +275,7 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
       "Whether a module's spec is fully rendered: every functionality built from the spec as it stands, the code's record the " +
       "spec itself, nothing queued or running for it, and its last builds - conformance included - passing. Says what is not, " +
       "when it is not.",
-    promptSnippet: "spec_status: is the spec fully rendered, and if not, what is missing",
+    promptSnippet: "is the spec fully rendered, and if not, what is missing",
     parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
     async execute(_id, params) {
       const status = specStatusOf(resolve(options.cwd, params.plain_file), options.cwd, options.jobs.list());
@@ -290,7 +290,7 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
       "What the builds since this run started recorded where the spec left them to decide or went wrong: every " +
       "assumption and pitfall in the codebases' working notes, the diagnosis of every job that failed for good, and every " +
       "spec that contradicts itself - each numbered, and each given once: a finding already handed out is not repeated.",
-    promptSnippet: "spec_findings: where the builds had to guess, or failed on the spec",
+    promptSnippet: "where the builds had to guess, or failed on the spec",
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "A .plain file of the project to read; default the session's folder" })),
       all: Type.Optional(Type.Boolean({ description: "Every finding since the run started, not only the new ones" })),

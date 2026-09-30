@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJobRegistry } from "../../src/render/jobs.ts";
 import { createWorkLoop, type JobRunner } from "../../src/render/loop.ts";
-import { codeTree, readRecord, writeCodeRecord } from "../../src/render/records.ts";
+import { codeTree, readRecord, writeCodeRecord, writeTestsRecord } from "../../src/render/records.ts";
 import { recordHistory } from "../../src/render/history.ts";
 import { snapshotSpec } from "../../src/render/spec-change.ts";
 
@@ -251,6 +251,106 @@ describe("the work loop", () => {
       expect(ran.slice(2).map((job) => job.module)).toEqual(["base", "admin"]);
       expect(JSON.stringify(readRecord(codeDir("base")))).toContain("a verified email");
       expect(JSON.stringify(readRecord(codeDir("admin")))).toContain("a verified email");
+    });
+  });
+
+  describe("the conformance tests", () => {
+    const testsDir = (module = "app") => join(dir, "plain_modules", module, "tests");
+
+    /** A conformance job that records what it wrote the tests for, as the real one does - or does not pass. */
+    function conformanceRunner() {
+      const ran: Array<{ add: string[]; patch: string[] }> = [];
+      const gate = { pass: true };
+      const runConformance: JobRunner = async (job) => {
+        ran.push({ add: job.planned.cases.add.map((spec) => spec.frid), patch: job.planned.cases.patch.map((spec) => spec.frid) });
+        if (!gate.pass) return { landed: false, report: "the tests do not pass" };
+        mkdirSync(testsDir(job.moduleName), { recursive: true });
+        writeFileSync(join(testsDir(job.moduleName), "test_app.py"), "# conformance\n", { flag: "a" });
+        writeTestsRecord(testsDir(job.moduleName), job.planned.step.tree);
+        recordHistory(job.buildDir, `conformance: ${job.planned.title}`);
+        return { landed: true, report: "passed" };
+      };
+      return { ran, gate, runConformance };
+    }
+
+    it("are written after a job lands and before the next builds on it, with the config on - each functional spec's, as built", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const order: string[] = [];
+      const loop = createWorkLoop({
+        registry: createJobRegistry(),
+        cwd: dir,
+        planner: false,
+        conformanceOn: () => true,
+        run: async (job, onDelta) => (order.push(`code ${job.planned.cases.add.join(",")}`), code.run(job, onDelta)),
+        runConformance: async (job, onDelta) => (order.push(`tests ${job.planned.cases.add.map((spec) => spec.frid).join(",")}`), tests.runConformance(job, onDelta)),
+      });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(order.map((entry) => entry.split(" ")[0])).toEqual(["code", "tests", "code", "tests"]);
+      expect(tests.ran.map((job) => job.add)).toEqual([["1"], ["2"]]);
+      const tested = readRecord(testsDir())!;
+      expect(JSON.stringify(tested)).toContain("Say goodbye.");
+      expect(JSON.stringify(tested)).toContain("use pytest.");
+    });
+
+    it("are not written with the config off, until the conversation asks for them - then only for the functional specs it names", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(tests.ran).toEqual([]);
+      await loop.conformance("app.plain", { frids: ["2"] });
+      await loop.drain();
+      expect(tests.ran.map((job) => job.add)).toEqual([["2"]]);
+      expect(JSON.stringify(readRecord(testsDir()))).not.toContain("Say hello.");
+      // Nothing more to write: they are written for what was asked.
+      await loop.conformance("app.plain", { frids: ["2"] });
+      await loop.drain();
+      expect(tests.ran).toHaveLength(1);
+    });
+
+    it("rewrite a functional spec's tests once its changed code lands, and write none for what only changed its test reqs in the code", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      writeFileSync(join(dir, "app.plain"), app(["Say hello loudly."]));
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(tests.ran.at(-1)).toMatchObject({ patch: ["1"] });
+      // Only the test reqs: no code job, a conformance job with nothing but them - mechanical.
+      const codeJobs = code.ran.length;
+      writeFileSync(join(dir, "app.plain"), app(["Say hello loudly."]).replace("use pytest.", "use pytest, one file each."));
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(code.ran).toHaveLength(codeJobs);
+      expect(tests.ran.at(-1)).toMatchObject({ add: [], patch: [] });
+    });
+
+    it("halt on their own when they do not pass - the code goes on being built - until the spec or the code changes", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      tests.gate.pass = false;
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(tests.ran).toHaveLength(1);
+      expect(loop.status()[0]!.why).toMatch(/did not pass/);
+      // The code goes on: a new functional spec is built, and - the code changed - its tests are tried again.
+      tests.gate.pass = true;
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(code.ran).toHaveLength(2);
+      expect(tests.ran.length).toBeGreaterThan(1);
+      expect(JSON.stringify(readRecord(testsDir()))).toContain("Say goodbye.");
     });
   });
 });

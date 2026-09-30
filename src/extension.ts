@@ -146,7 +146,7 @@ export function chatAskUserTool() {
     ...tool,
     promptGuidelines: [
       ...(tool.promptGuidelines ?? []),
-      "When a question to the user has a handful of plausible answers - a choice, yes or no, which of these - ask it with ask_user and offer them as options, rather than in your reply.",
+      "When a question to the user has a handful of plausible answers - a choice, yes or no, which of these - ask it with ask_user rather than in your reply.",
     ],
     async execute(...args: Parameters<typeof tool.execute>) {
       conversation = args[4] as ExtensionContext;
@@ -307,6 +307,7 @@ export default function (pi: ExtensionAPI) {
   registerCheckPlain(pi, cwd);
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
+  registerRenderConformance(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
   registerSpecChanged(pi, cwd, jobs);
   registerBuildVmImage(pi, cwd, jobs);
@@ -329,13 +330,12 @@ export default function (pi: ExtensionAPI) {
       "judges are enforced by the harness, so a gated skill's result has already passed review when it comes back; a skill " +
       "without gates is not reviewed. Every result says which files the run changed in the project.\n\n" +
       `Available skills:\n${catalogue}${pendingNote}`,
-    promptSnippet: "run_skill: execute a gated project skill (steps and review gates enforced by the harness)",
+    promptSnippet: "execute a gated project skill (steps and review gates enforced by the harness)",
     promptGuidelines: [
       "When a request matches a skill listed in run_skill's description, call run_skill instead of doing the work yourself. Doing it by hand skips the review gates.",
       "run_skill returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
       "If run_skill fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
-      "Always pass `context` to run_skill, summarising what the user has already told you. The skill starts with an empty session and will re-ask everything you omit, which reads as it not having listened.",
-      "When the user wants to continue a skill that was interrupted - pi restarted, the process died - call run_skill with resume: true. It picks the run up in the step it was in, with its session as it was.",
+      "Always pass `context` to run_skill, summarising what the user has already told you.",
     ],
     parameters: Type.Object({
       skill: Type.String({
@@ -549,10 +549,10 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       "from what each module's code is built from to its spec as it is now - is planned into jobs, and they run one " +
       "after the other; a module built on another waits until that one is built. Modules already built from their " +
       "spec get nothing. A spec changed while it builds is followed by itself once spec_changed is called.",
-    promptSnippet: "render_module: build a .plain module and its requires chain",
+    promptSnippet: "build a .plain module and its requires chain",
     promptGuidelines: [
       "render_module returns at once with what runs and what is planned. Report it, keep talking, and check_job or list_jobs when the user asks; the jobs report when they finish.",
-      "When the spec changes while it builds - by any means - call spec_changed: the work is worked out again from the spec; never stop and re-queue jobs yourself.",
+      "When the spec changes while it builds - by any means - call spec_changed.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(
@@ -598,7 +598,7 @@ function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       "takes no diff. What is left to build is worked out again, from what each module's code is built from to the " +
       "spec as it is now, and planned into jobs; a job running that builds something the spec no longer wants is " +
       "stopped and rolled back. Nothing to do when the code is already built from the spec.",
-    promptSnippet: "spec_changed: tell the builds a .plain spec changed, so they build the spec as it is now",
+    promptSnippet: "tell the builds a .plain spec changed, so they build the spec as it is now",
     promptGuidelines: [
       "Call spec_changed after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: the harness compares what is built with the spec now.",
       "Never stop jobs and re-queue them yourself to follow a spec change: spec_changed does it.",
@@ -631,7 +631,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
       "added, changed or removed, in any section, across any number of them. The diff is applied with git unless it " +
       "already is; then, as after spec_changed, what is left to build is worked out from the spec as it now is, " +
       "planned into jobs, and built.",
-    promptSnippet: "render_spec_diff: apply a git diff of the .plain specs and build it",
+    promptSnippet: "apply a git diff of the .plain specs and build it",
     promptGuidelines: [
       "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
       "A change that takes something out of what is still to build - a page the user dropped, from every spec that names it - is one spec diff like any other: what is left to build is worked out again, and a job building what it takes out is stopped.",
@@ -661,6 +661,38 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
   });
 }
 
+function registerRenderConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "render_conformance",
+    label: "Render conformance",
+    description:
+      "Write and run the black-box conformance tests of a module's functional specs - the ones named, or every one - on " +
+      "the code as it is built, as jobs of their own: each writes its tests from the spec's test reqs and acceptance " +
+      "tests, runs them with the whole suite the module inherits, and, where one fails, fixes the test or the code, " +
+      "whichever is wrong. What they are written for is recorded apart from the code. For this session, whatever the " +
+      "config's conformance-tests says. Functional specs not built yet get theirs once they are.",
+    promptSnippet: "write and run a module's conformance tests, on the code as it is built",
+    promptGuidelines: [
+      "When the user asks for conformance tests - for a module, or some of its functional specs - call render_conformance. Never edit config.yaml for it, and never regenerate a functionality to get them.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "A .plain file of the module" }),
+      working_dir: WORKING_DIR_PARAM,
+      frids: Type.Optional(Type.Array(Type.String(), { description: "The functional specs to test, by id. Omitted: every one" })),
+      model: MODEL_PARAM,
+      wait: WAIT_PARAM,
+    }),
+    async execute(_id, given, _signal, _onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
+      const plainFile = resolve(params.base, params.plain_file);
+      const model = jobModel(ctx, "spec_changes", params.model, plainFile);
+      const loop = workLoopFor(jobs, cwd, ctx);
+      const statuses = await loop.conformance(plainFile, { ...(params.frids !== undefined ? { frids: params.frids } : {}), ...(model !== undefined ? { model } : {}) });
+      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
+    },
+  });
+}
+
 function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "regenerate_functionality",
@@ -669,9 +701,9 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       "Build one functionality of a module again - its spec changed, or the user wants it redone as it is. It is " +
       "taken out of what the module's code is recorded as built from, and the module is brought up to its spec: the " +
       "functionality is built again, in the module's own codebase.",
-    promptSnippet: "regenerate_functionality: build a functionality again",
+    promptSnippet: "build a functionality again",
     promptGuidelines: [
-      "A functionality whose spec changed is built again by itself once spec_changed is called: use regenerate_functionality when the user wants one redone whose spec did not change.",
+      "A functionality whose spec changed is built again by itself once spec_changed is called: use regenerate_functionality when the user wants one redone whose spec did not change. Never to get conformance tests: that is render_conformance.",
       "When the user wants it to come out differently, change its spec first - the spec is what persists - then call spec_changed.",
     ],
     parameters: Type.Object({
@@ -795,7 +827,7 @@ export function sandboxBlock(cwd: string): string {
   const installed = installedPackages(modulesRoot(cwd));
   return [
     "<sandbox VM>",
-    "Every command an agent runs - its shell, the builds, the tests - runs in a VM of this image (see the managing-vms rule).",
+    "The image the agents' VMs run (the managing-vms rule says how they work):",
     imageSources(undefined, plan).official
       ? `- Where it comes from: Alpine Linux ${imageSources().version}, from Alpine's own server - the base system and every package, from its main and community repositories (${imageSources().repositories.map((repository) => repository.url).join(", ")}); a mirror or other repositories can be set in the recipe. build_vm_image with plan: true lists each package a build downloads: its version, repository, project, licence and size, and what each toolchain costs.`
       : `- Where it comes from: Alpine Linux ${imageSources().version}, from the sources the recipe names in place of Alpine's own server - the base system and kernel from ${imageSources(undefined, plan).mirror}, packages from ${imageSources(undefined, plan).repositories.map((repository) => repository.url).join(", ")}; what a VM installs later comes from there too. build_vm_image with plan: true lists each package a build downloads, as those repositories have it.`,
@@ -1083,7 +1115,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
       "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Jobs already queued keep their model.",
-    promptSnippet: "set_render_model: choose the model that renders spec changes or functionalities",
+    promptSnippet: "choose the model that renders spec changes or functionalities",
     promptGuidelines: [
       "When the user says which model should render or build something, call set_render_model - once; it holds for the rest of the session.",
       "If set_render_model returns several candidates, ask the user which one with ask_user or in your reply, then call it again with the exact provider/model-id.",
@@ -1258,7 +1290,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     description:
       "Look at a background job: whether it is still running, its latest output, and its report once " +
       "it has finished.",
-    promptSnippet: "check_job: how is a background job doing",
+    promptSnippet: "how is a background job doing",
     parameters: Type.Object({
       job_id: Type.String({ description: "The id returned when the job started" }),
       wait: Type.Optional(
@@ -1299,7 +1331,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     name: "list_jobs",
     label: "List jobs",
     description: "List the background jobs started in this session, in the order they were started.",
-    promptSnippet: "list_jobs: what background work is running",
+    promptSnippet: "what background work is running",
     parameters: Type.Object({}),
     async execute() {
       const all = jobs.list();
@@ -1316,7 +1348,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       "Stop a background job: a queued one never starts, a running one has its agent stopped at once. Jobs " +
       "queued behind it move up. Code a running job already changed stays on disk; the functionality it " +
       "was building counts as not built.",
-    promptSnippet: "stop_job: stop a queued or running background job",
+    promptSnippet: "stop a queued or running background job",
     promptGuidelines: [
       "Stop a job only when the user asks. Name which one, and say which jobs were queued behind it - they will now run.",
     ],
@@ -1380,7 +1412,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       "Read a module's history: every render, regeneration, conformance run and spec change made to its code " +
       "and tests, as git commits. Without a commit, the log; with one, that commit in full - its message and " +
       "the change it made.",
-    promptSnippet: "module_history: what was rendered into a module, and when",
+    promptSnippet: "what was rendered into a module, and when",
     parameters: Type.Object({
       module: Type.String({ description: "The module's name" }),
       commit: Type.Optional(Type.String({ description: "A commit from the log, to see in full" })),
@@ -1606,7 +1638,7 @@ function registerBuildVmImage(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       `person's changes from ${userImageFile()} - or, with scope "project", the project's own, from its config.yaml's ` +
       "vm-image: over that, under a tag of its own. Every VM started after it runs the new image; one already running " +
       "keeps the one it started with. About 7 minutes and 2 GB with every toolchain, less with fewer.",
-    promptSnippet: "build_vm_image: build the sandbox VM image - the default one, or the project's own",
+    promptSnippet: "build the sandbox VM image - the default one, or the project's own",
     promptGuidelines: [
       "Write the recipe first - the person's image file, or the project's vm-image: in config.yaml - with the file tools, then build it with build_vm_image. Say what it will hold, and that it takes minutes, before you start it.",
     ],
@@ -1692,7 +1724,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
       "within the planner's limits, for the rest of the session. It changes nothing queued by itself: the next plan of the " +
       "module follows it - spec_changed makes one now. What the project's AGENTS.md says under a heading " +
       "naming the queue is followed too, with every plan.",
-    promptSnippet: "steer_queue: set how the render queue is planned, for the project or one module",
+    promptSnippet: "set how the render queue is planned, for the project or one module",
     promptGuidelines: [
       "When the user says how the work should be cut or ordered - 'build the batch worker's helpers with the worker', 'models first' - for more than one change, call steer_queue with it in their words. For one change only, pass it as the guidance of the tool that queues it.",
     ],
@@ -1770,10 +1802,9 @@ function checkPlainTool(cwd: string) {
       "Validate one or more .plain specifications without rendering: parses each file, resolves its " +
       "imports and required modules, and reports every syntax, concept and structure error with the " +
       "line it is on. Pass a directory to check every .plain file in it. Fast, free, and offline.",
-    promptSnippet: "check_plain: validate a .plain spec without rendering it",
+    promptSnippet: "validate a .plain spec without rendering it",
     promptGuidelines: [
-      "Use check_plain to verify a .plain file is valid. Never shell out to another renderer to do it, and never claim a spec is valid without running it.",
-      "Run check_plain after editing a .plain file, and before telling the user a spec is ready.",
+      "Run check_plain after editing a .plain file, and before telling the user a spec is valid or ready. Never shell out to another renderer to check one.",
     ],
     parameters: Type.Object({
       target: Type.String({ description: "A .plain file, or a directory holding .plain files" }),

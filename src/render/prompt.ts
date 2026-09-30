@@ -173,8 +173,8 @@ export function fixMethod(options: { what: "unit tests" | "conformance tests"; f
     `3. Reproduce it: ${runOne}. A failure you cannot reproduce, you cannot`,
     "   know you fixed. If it does not fail, find out why before you change anything.",
     `4. Fix the cause, in the ${options.fixes}: the change that makes ${options.fixes === "code" ? "the code do" : "the test check"} what the specification says. One cause at a time.`,
-    `5. Check the fix: run the failing test again and see it pass, then the whole suite with ${options.runTool} - the run`,
-    "   that counts. A fix that breaks another test is not a fix. If it still fails, go back to 1 with the new output:",
+    `5. Check the fix: run the failing test again and see it pass, then the whole suite with ${options.runTool}. A fix`,
+    "   that breaks another test is not a fix. If it still fails, go back to 1 with the new output:",
     "   it may be the next cause, now that this one is out of the way.",
     "6. Leave in your notes what the cause was and what fixed it, in a line, for whoever meets it next.",
   ];
@@ -278,7 +278,6 @@ export function buildRenderPrompt(input: PromptInput): string {
               `  ${alreadyBuilt.length === 1 ? "its behaviour and its" : "their behaviour and their"} tests passing.`,
             ]),
     ...workingRules(Boolean(input.codebase)),
-    "- Report what you created and the final test result.",
   );
 
   return parts.filter((part): part is string => part !== null).join("\n");
@@ -303,19 +302,13 @@ function workingRules(hasCodebase: boolean): string[] {
       : []),
     "- Write the implementation first, then unit tests covering it.",
     "- Your tests are unit tests, in the code.",
-    "- Honour every implementation req: <implementation reqs> say how the code and its unit tests must be built, and",
-    "  they constrain the whole codebase, not just this step.",
+    "- Honour every implementation req.",
     "- Keep the build's identity as it is: its name, coordinates, version, package and main class. Change one only",
     "  when the specification asks you to - other builds and the conformance tests point at them.",
-    "- Terms in `:ColonWrapped:` form are concepts: defined in <definitions>, or predefined (see <how to read the",
-    "  specification>). Use them as written.",
-    "- A `` `[resource]name` `` reference points at one of the files in <linked resources>.",
-    "- Run the tests however you like while you work - one file, one case, any configuration - with bash.",
-    "  Before you finish, call run_unit_tests: it runs the project's unit testing script exactly as the",
-    "  harness does to decide whether this is done, and that run is the only one that counts.",
-    "- Fix the cause of a failure. Never delete, skip or weaken a test to get a pass - that includes",
-    "  tests already in the working directory from earlier functionalities. A test may be removed",
-    "  only when it asserts nothing meaningful, and you must say which test and why.",
+    // How the tests are run, and which run counts, is the testing scripts' note (test-scripts.ts); how a failure is
+    // fixed, INTEGRITY_RULES. What is the coder's alone: which tests it may remove.
+    "- A test may be removed only when it asserts nothing meaningful - one from an earlier functionality too - and",
+    "  you say which test and why.",
     ...INTEGRITY_RULES,
     ...ERROR_CAUSE_RULES,
   ];
@@ -526,15 +519,11 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
       ? specChangeBlock(describeSpecChange(input.changes))
       : `<spec change>\n${RAW_CHANGE_NOTE}\n\n${input.diff.trim()}\n</spec change>`,
     "",
-    "Make the code do what the specification above says once <spec change> is applied to it.",
-    "",
     "- Implement what the change adds. Update what it changes. Remove what it removes - its code and its",
     "  unit tests - where nothing that remains still needs it.",
-    "- Your tests are unit tests, in the code.",
     "- A change to a definition or an implementation req reaches every functional spec that relies on it. Follow it there.",
     "- Everything the change does not touch must keep working, and its tests passing.",
     ...workingRules(Boolean(input.codebase)),
-    "- Report what you changed and the final test result.",
   ];
   return parts.filter((part): part is string => part !== null).join("\n");
 }
@@ -636,7 +625,6 @@ export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
       changed: "- Update the unit tests for this functionality to the new spec. Tests of anything else stay as they are.",
     }[mode],
     ...workingRules(Boolean(input.codebase)),
-    "- Report what you changed and the final test result.",
   ];
 
   return parts.filter((part): part is string => part !== null).join("\n");
@@ -962,11 +950,8 @@ export function buildRegressionFixPrompt(input: RegressionFixPromptInput): strin
     "- Do not special-case the test. Make the behaviour the specification describes actually true.",
     "- Keep the existing unit tests passing. Run any tests you like with bash; before you finish, call",
     "  run_conformance_tests and run_unit_tests - the project's scripts, run as the harness runs them.",
-    "- Never delete or weaken an existing test to get a pass.",
     ...INTEGRITY_RULES,
     ...ERROR_CAUSE_RULES,
-    "- If the failure does not show why the software failed, make it show first - log the error where the code",
-    "  catches it, with its whole trace - run the conformance tests to see it, then fix the cause.",
     "- Keep the build's identity as it is: its name, coordinates, version, package and main class. Change one only",
     "  when the specification asks you to - other builds and the conformance tests point at them.",
     "- Report what you changed and why.",

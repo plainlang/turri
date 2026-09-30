@@ -371,7 +371,8 @@ export function placePrompt(input: PlaceInput): string {
     ...steeringBlock(input.steering),
     ...input.groups.map((group) =>
       [
-        `<group number="${group.number}" title="${group.title}">`,
+        // A title that is only its first spec's first line is not said twice.
+        group.specs[0] !== undefined && group.specs[0].includes(group.title.trim().replace(/\.$/, "")) ? `<group number="${group.number}">` : `<group number="${group.number}" title="${group.title}">`,
         ...group.specs.map((spec) => `<functional spec>\n${spec.trim()}\n</functional spec>`),
         ...group.definitions.map((definition) => `<definition>\n${definition.trim()}\n</definition>`),
         "</group>",

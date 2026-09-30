@@ -271,7 +271,9 @@ describe("how to read the specification", () => {
     expect(prompt.startsWith("<how to read the specification>")).toBe(true);
     expect(prompt).toContain(":Implementation: - the system that implements :plainFunctionality:.");
     expect(prompt).toContain("They carry the same authority as the");
-    expect(prompt).toContain("defined in <definitions>, or predefined");
+    // What a concept is, the primer says once: the rules after it do not say it again.
+    expect(prompt).toContain("Predefined concepts - used in every specification without being defined in it:");
+    expect(prompt).not.toContain("defined in <definitions>, or predefined");
     // Every section is named by its tag, one name each: never by its ***heading*** as well.
     for (const tag of ["<definitions>", "<implementation reqs>", "<test reqs>", "<functional specs>", "<acceptance tests>", "<linked resources>", "<spec change>"]) {
       expect(specPrimer({ testReqs: false })).toContain(`- ${tag}: `);

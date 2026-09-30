@@ -58,7 +58,7 @@ describe("what the chat's agent is told about the sandbox VM", () => {
       writeFileSync(join(root, "game.plain"), "***implementation reqs***\n\n- :Implementation: is written in Zig.\n\n***functional specs***\n\n- Draw a square.\n");
       const block = sandboxBlock(root);
       expect(block).toContain("<sandbox VM>");
-      expect(block).toContain("see the managing-vms rule");
+      expect(block).toContain("the managing-vms rule says how they work");
       expect(block).toContain("then this project's vm-image: in config.yaml");
       expect(block).toMatch(/game: its implementation reqs need Zig \(zig\)/);
       expect(block).toContain("system-packages: in config.yaml - sqlite");

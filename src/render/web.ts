@@ -254,7 +254,7 @@ export function createWebTools() {
     description:
       "Search the web (DuckDuckGo) and get back the results: title, address and a snippet each. Use it for a library's " +
       "documentation, an API you are unsure of, or an error you have not seen. Read a result with web_fetch.",
-    promptSnippet: "web_search: search the web for documentation, APIs and errors",
+    promptSnippet: "search the web for documentation, APIs and errors",
     parameters: Type.Object({
       query: Type.String({ description: "What to search for, as you would type it into a search engine" }),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "How many results, 8 by default" })),
@@ -275,7 +275,7 @@ export function createWebTools() {
     description:
       "Fetch a page from the public web and get it back as readable text - an HTML page without its markup, or a " +
       "text, JSON or XML file as it is. Long pages come in parts: call again with the offset it gives to read on.",
-    promptSnippet: "web_fetch: read a web page, such as documentation, as text",
+    promptSnippet: "read a web page, such as documentation, as text",
     parameters: Type.Object({
       url: Type.String({ description: "The page's full address, starting with https://" }),
       offset: Type.Optional(Type.Integer({ minimum: 0, description: "Where to start reading, for the next part of a long page" })),

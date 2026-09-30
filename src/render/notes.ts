@@ -121,10 +121,8 @@ export function withNotes(prompt: string, buildDir: string): string {
         formatNotes(notes).trimEnd(),
         "</notes from earlier agents>",
         "",
-        "Earlier agents on this codebase wrote these down, to spare you exploring from scratch. They may be",
-        "out of date: the code and the specification are the truth. Each line says when and by which step it was",
-        "written; where two disagree, the later one is right. Build on the assumptions unless the code or the",
-        "specification shows one wrong. The pitfalls include what earlier reviews sent tests back for: write your",
+        "Earlier agents on this codebase wrote these down, to spare you exploring from scratch; they may be out of",
+        "date - how to weigh them is below. The pitfalls include what earlier reviews sent tests back for: write your",
         "tests so they would pass those reviews the first time.",
       ].join("\n");
   return `${earlier}\n\n${prompt}\n\n${GUIDANCE}`;
@@ -270,7 +268,7 @@ export function createNotesTool(
       "true, remove one that is wrong - in its sections: where things are, how to build, run and test, " +
       "assumptions made where the specification is silent, and pitfalls. Never requirements: the specification " +
       "is never an assumption.",
-    promptSnippet: "update_notes: leave the next agent what you learned and assumed about this codebase",
+    promptSnippet: "leave the next agent what you learned and assumed about this codebase",
     parameters: Type.Object({
       changes: Type.Array(
         Type.Object({

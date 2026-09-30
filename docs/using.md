@@ -35,6 +35,7 @@ where it stopped.
 | `steer_queue` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
 | `spec_changed` | say a spec changed, by any means: what is left to build is worked out again from the spec as it is now, and a job building what the spec no longer wants is stopped |
 | `regenerate_functionality` | build one functionality again, as it is |
+| `render_conformance` | write and run a module's conformance tests - or some functional specs' - on the code as built, whatever the config says |
 | `render_spec_diff` | apply a change to the specs, given as a git diff, and build it |
 | `check_plain` | validate a spec without rendering |
 | `set_render_model` | choose the model renders run on - see [below](#choosing-a-model) |
@@ -122,8 +123,13 @@ come waits for a free slot, and says so.
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new
   module is to start from it. Specs moved into a module the code was not built on stop the codebase:
   its code has to be started again on it.
-- **Conformance tests are off** in the conversation until they are a track of their own
-  ([the work model](work-model.md#stages)): a job lands once its unit tests pass and are reviewed.
+- **Conformance tests are a track of their own.** A code job lands once its unit tests pass and are
+  reviewed. Then, before the next one builds on it, a conformance job writes and runs the tests of what it
+  built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one
+  fails, fixes the test or the code, whichever is wrong; what they are written for is recorded in
+  `tests/.plainwright.json`. With `conformance-tests: false` none is written until you ask -
+  `render_conformance`, for a module or some of its functional specs. A conformance job that does not pass
+  is undone whole and halts the conformance tests alone: the code goes on being built.
 - **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
   stops, and so does every job queued behind it on the same module, without running - the other
   modules' jobs go on. The harness then works out why: an

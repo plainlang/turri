@@ -95,7 +95,10 @@ is reported as pending, not dropped.
   (`stillWanted`). `render_module`, `spec_changed`, `render_spec_diff`, `write_spec_diff` and
   `plainwright module` all go through `bringUp`. Steering (`render/steering.ts`: `steer_queue`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. `queue-master.ts` is left only for the
-  pure helpers the planner uses.
+  pure helpers the planner uses. Conformance is a second track in the loop: from `tests/.plainwright.json`
+  to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
+  spec diff's conformance run, the whole suite with it - before the module's next code job; `render_conformance`
+  turns it on for the session over `conformance-tests: false`.
 - `spec-steps.ts`: when the spec changed in ways other than appending functional specs, it diffs
   the built tree against the current one and has an agent order the changes into spec-diff steps.
 - `state.ts`: `code/.plainwright.json` holds only the marshalled tree the code was built from. A

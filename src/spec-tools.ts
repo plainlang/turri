@@ -45,7 +45,7 @@ export function createSpecDiffTools(options: {
       "the background. The diff is applied with git; if the specs no longer parse, it is undone and nothing is " +
       "built. Any section may change - definitions, implementation reqs, functional specs, added, changed or removed - and " +
       "every change is built, whatever it touches.",
-    promptSnippet: "write_spec_diff: apply a git diff of the .plain specs and start building it",
+    promptSnippet: "apply a git diff of the .plain specs and start building it",
     promptGuidelines: [
       "Every change to a .plain file in the product phase goes through write_spec_diff, as a git diff with paths relative to the project root. It writes the change and starts its build in one step.",
       "One change per answer, and a new one only after the user has answered a question about it. Set fixes_earlier to correct something already written.",

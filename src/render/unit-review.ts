@@ -10,7 +10,6 @@ import { readNotes, recordNote, reflectOnReview, REVIEW_LESSON } from "./notes.t
 import { diffSinceSnapshot, workDiff, workSnapshot } from "./history.ts";
 import { REVIEWER_COMPACTION } from "./compaction.ts";
 import { describeAccounts, SUBMIT_AFTER_REVIEW, unanswered, unansweredPrompt, type WorkLedger } from "./submit-work.ts";
-import { INTEGRITY_RULES } from "./prompt.ts";
 import { ARBITER_AFTER, arbitrateReview, dismissedNote, problemLine, REVIEW_LIMIT } from "./arbiter.ts";
 import { TEST_FILE_PATTERN } from "./testing.ts";
 
@@ -82,16 +81,11 @@ export function unitReviewTask(options: {
     "the code and its tests, however small - a senior engineer weighs your findings after you, and lets go what is",
     "not worth the time. Missing one is worse than raising one too many.",
     "",
-    `The code and its unit tests are in ${options.buildDir}. Read them; change nothing.`,
-    "",
-    "You review the same work more than once. The first time you are shown everything it wrote; each time after, what",
-    "it changed since your last review, and what the coding agent says it did about each problem you raised.",
+    `The code and its unit tests are in ${options.buildDir}.`,
     "",
     "How to read it:",
-    "- <specification> is the specification exactly as the coding agent had it: <definitions>, <implementation reqs>,",
-    "  <already implemented> - what the code already does - and <new in this work>: what this work built, a",
-    "  <functionality> with its <acceptance tests>, or a <spec change>. Review the work against <new in this work>; the",
-    "  rest is there so you know what the words mean and what was there before.",
+    "- <specification> is the specification exactly as the coding agent had it. Review the work against <new in this",
+    "  work>; the rest is there so you know what the words mean and what was there before.",
     "- The diff you are shown is exactly what changed in the code folder - code and tests - new files whole. It is",
     "  taken by the harness, not by the agent: start from it, and read a file whole where the diff shows too little of",
     "  it, or to see how the new code fits what was there. Do not guess what the code does - it is all there.",
@@ -136,10 +130,10 @@ export function unitReviewTask(options: {
     "works inside rather than what it does, is not a problem to raise; nor is code written another way than you",
     "would have, as long as it does what the specification says.",
     "",
-    "The first review finds every problem, in that one review: the tests go back once with all of them. A review after",
-    "it checks each problem you raised last first - fixed, or still there - and raises a new one only when it is a",
-    "behaviour not implemented or implemented wrong, a behaviour untested, or a test that cannot fail: it is not done",
-    "again from the start.",
+    "You review the same work more than once. The first time you are shown everything it wrote, and find every problem",
+    "in that one review: the work goes back once with all of them. Each time after, you are shown what it changed since",
+    "and what the coding agent says it did about each problem: check each one you raised first - fixed, or still there -",
+    "and raise a new one only when it would be blocking (below). It is not done again from the start.",
     "",
     "Each review ends with submit_review, once: pass when the code does what the specification says and nothing is",
     'missing or weak; otherwise every problem - the file, the test or the function, its kind - "wrong" for code that does',
@@ -181,8 +175,9 @@ export function unitReviewRequest(options: {
     "<the coding agent's account>",
     options.account,
     "</the coding agent's account>",
+    // The problems it raised last are its own submit_review, in its session: named, not sent again.
     ...(again && options.earlier!.length > 0
-      ? ["", "The problems of your last review the coding agent was given:", ...options.earlier!.map((problem, index) => `${index + 1}. ${problemLine(problem)}`)]
+      ? ["", options.earlier!.length === 1 ? "Check first the problem your last review raised." : `Check first each of the ${options.earlier!.length} problems your last review raised.`]
       : []),
     ...(options.letGo !== undefined && options.letGo.length > 0
       ? ["", "The arbiter weighed your last review and let these go - they are settled, do not raise them again:", ...options.letGo.map((problem) => `- ${problemLine(problem)}`)]
@@ -292,10 +287,8 @@ export function unitReviewFeedbackPrompt(problems: UnitReviewProblem[]): string 
     "",
     "Fix every one: make the code WRONG names do what the specification says, write the tests that are missing, and",
     "make the weak ones assert what the specification says - the exact outcome, so they fail when it breaks. Then run",
-    "the unit tests. Never loosen a test, delete one, or mock the unit under test to make it pass. One you are sure the",
-    "review is wrong about, decline, and say why.",
+    "the unit tests. One you are sure the review is wrong about, decline, and say why.",
     ...SUBMIT_AFTER_REVIEW,
-    ...INTEGRITY_RULES,
     ...REVIEW_LESSON,
   ].join("\n");
 }
@@ -368,7 +361,7 @@ async function reviewLoop(
     let problems = review.problems;
     // After the first UNIT_REVIEW_ROUNDS reviews that send them back, the arbiter weighs each first: only what it upholds goes to the coding agent.
     if (reviews >= UNIT_REVIEW_ROUNDS) {
-      options.stage(`the review sent the work back ${reviews + 1} times - the arbiter weighs what it found`);
+      options.stage(`the review sent the work back ${reviews + 1 === 1 ? "once" : `${reviews + 1} times`} - the arbiter weighs what it found`);
       const ruling = await arbitrateReview({
         subject: `the code and unit tests of ${options.what}`,
         workdir: options.buildDir,

@@ -378,8 +378,8 @@ Test reqs and acceptance tests are for conformance only: the code record holds n
 agent is shown them.
 
 A job lands once its unit tests pass and are reviewed: the code record becomes the spec the job ends on,
-committed with the code. Conformance tests are not written or run in the conversation's jobs until they
-are a track of their own ([the work model](work-model.md#stages)).
+committed with the code. Its conformance tests are not the code job's: they are a track of their own
+([conformance tests in the work loop](#conformance-tests-in-the-work-loop)).
 
 A change that renders nothing - definitions moved to a common module, reqs reordered, specs moved between
 modules of the chain - is recorded, not rendered: the spec is recorded as it is now laid out and committed,
@@ -401,6 +401,26 @@ It refuses to start before the functionality has been rendered. Conformance is o
 the module has `***test reqs***`, and can be turned off. Once a codebase has conformance tests,
 they are always run and kept passing, whether or not the current render writes new ones, and they
 are carried up to the modules built on top of it.
+
+### Conformance tests in the work loop
+
+In the work loop, conformance is a track beside the code's. What the conformance tests are written for is
+recorded apart - `tests/.plainwright.json`: the functional specs they test, as built, with their acceptance
+tests, the definitions and implementation reqs they were written against, and the test reqs they follow -
+and the work is from that record to what they are to be: of the functional specs the code is built from,
+those chosen - every one, or those `render_conformance` names - as the spec has them, with its test reqs. A
+functional spec whose code is behind the spec keeps its tests until the code lands. The work is cut into jobs
+as the code's is, anchored on functional specs, and a conformance job runs on the module's lane before its
+next code job: after a job lands, the tests of what it built come before anything is built on it.
+
+A conformance job is a spec diff's conformance run: the tests of its change written, changed or taken out,
+a failure judged - the test or the code wrong - and fixed, then the whole suite with the unit tests, the
+tests the module inherits with them. Passing, the tests record is written and committed with the tests;
+otherwise all of it - code fixes included - is rolled back, and the module's conformance tests halt until
+the spec or the code changes, or `render_conformance` asks again. The code goes on being built meanwhile.
+With `conformance-tests: false` none is written unless the conversation asks with `render_conformance`, for
+the session. A module built on another starts with an empty tests record: the tests it inherits are the
+module below's, and none of its own is written yet.
 
 ### Conformance tests and acceptance tests, kept apart
 

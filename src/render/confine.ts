@@ -333,7 +333,7 @@ function installSystemPackagesTool(dir: string): AnyTool {
       "library or tool (e.g. ruby, php83, openjdk17, dotnet8-sdk, sqlite-dev). They stay installed for every later " +
       "render of this project. Use it for what the project's own package manager cannot provide; project " +
       "dependencies still go in the project's manifest.",
-    promptSnippet: "install_system_packages: install a missing language, compiler or system library in the VM",
+    promptSnippet: "install a missing language, compiler or system library in the VM",
     parameters: Type.Object({
       packages: Type.Array(Type.String(), { description: "Alpine package names, e.g. [\"ruby\", \"ruby-dev\"]" }),
     }),

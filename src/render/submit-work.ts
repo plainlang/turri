@@ -54,7 +54,7 @@ export function createWorkLedger(): WorkLedger {
     description:
       "Hand your work over for review, last in a turn: a short summary of what you did, and for each problem a review " +
       "raised, by its number - fixed, or declined and why, and the files. The reviewer checks it against the diff.",
-    promptSnippet: "submit_work: hand the work over for review - what you did, and your answer to each problem raised",
+    promptSnippet: "hand the work over for review - what you did, and your answer to each problem raised",
     parameters: Type.Object({
       summary: Type.String({ description: "What you did in this turn and why, in a few sentences" }),
       answers: Type.Optional(

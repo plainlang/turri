@@ -109,7 +109,9 @@ describe("the unit test review", () => {
     expect(reviewPrompts[0]).toContain("<unit tests added or changed by the work>\ntest_app.py\n</unit tests added or changed by the work>");
     expect(reviewerTasks[0]).toContain("A visitor registers with an email");
     // The next review checks what the last one found, first - the same reviewer, which read the work already.
-    expect(reviewPrompts[1]).toContain("The problems of your last review the coding agent was given:\n1. BLOCKING · BAD · test_app.py");
+    // Its own problems are its last submit_review, in its session: named, not sent again.
+    expect(reviewPrompts[1]).toContain("Check first the problem your last review raised.");
+    expect(reviewPrompts[1]).not.toContain("BLOCKING · BAD · test_app.py");
     expect(reviewerTasks).toHaveLength(1);
   });
 

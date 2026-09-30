@@ -564,12 +564,9 @@ export function scriptFailure(run: ScriptRun, what: string): string {
             fixes: what === "unit testing" ? "code" : "tests",
             runTool: what === "unit testing" ? "run_unit_tests" : "run_conformance_tests",
           }),
-          "",
-          "Do not remove or weaken a test to get a pass.",
         ].join("\n");
   return [
-    `The harness ran the project's ${what} script, \`${run.command}\`, and it failed (exit ${run.exitCode}). That run is what`,
-    "decides whether this is done - the script is at the top of your prompt, so you can see what it does.",
+    `The harness ran the project's ${what} script, \`${run.command}\`, and it failed (exit ${run.exitCode}).`,
     "",
     run.output.trimEnd(),
     "",

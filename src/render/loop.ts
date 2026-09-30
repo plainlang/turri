@@ -1,14 +1,19 @@
-import { readFileSync } from "node:fs";
-import { basename, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
-import { FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, type MarshalledPlainSource } from "../plain/spec.ts";
+import { FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { llmChunkAgents, planChunks, type ChunkAgents } from "./chunk-plan.ts";
 import { recordHistory, resetToLastCommit } from "./history.ts";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
 import { stepsOf, type MasterInput, type Steering } from "./queue-master.ts";
-import { chainTree, codeTree, inheritedRecord, readRecord, writeCodeRecord } from "./records.ts";
+import { chainTree, codeTree, conformanceTarget, inheritedRecord, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "./records.ts";
+import { describeSpecDiffConformance, renderSpecDiffConformance } from "./spec-change-conformance.ts";
+import { conformanceDirFor } from "./conformance.ts";
+import { modulesRoot } from "./paths.ts";
+import { configForSpec } from "../config.ts";
+import { describeSpecChange } from "./prompt.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, type ChainEntry } from "./requires.ts";
 import { withTryItLine } from "./delivery.ts";
@@ -47,7 +52,12 @@ export interface PlannedJob {
   reason: string;
   cases: JobCases;
   step: SpecStep;
+  /** What it builds: the code, or the conformance tests of what the code is built from. */
+  track: Track;
 }
+
+/** The two things a codebase is brought up in: its code, and - on the code as built - its conformance tests. */
+export type Track = "code" | "conformance";
 
 /** What renders a job. Injectable, so the loop can be tested without a model. */
 export type JobRunner = (
@@ -62,7 +72,7 @@ export interface ModuleStatus {
   /** The job running now, if one is. */
   running?: { jobId: string; title: string };
   /** The jobs planned after it, in order. */
-  planned: Array<{ title: string; cases: JobCases }>;
+  planned: Array<{ title: string; cases: JobCases; track: Track }>;
   /** Why nothing runs there, when nothing does. */
   why?: string;
 }
@@ -75,7 +85,16 @@ interface ModuleState {
   model?: string;
   guidance: string[];
   plan?: { specKey: string; from: string; jobs: PlannedJob[] };
+  /** The conformance tests' plan, apart from the code's: planned from what they are written for. */
+  conformancePlan?: { specKey: string; from: string; jobs: PlannedJob[] };
   running?: { jobId: string; planned: PlannedJob; from: MarshalledPlainSource; after: MarshalledPlainSource; stopping?: boolean };
+  /**
+   * Conformance tests asked for in the conversation - over a config that has them off - and for which functional
+   * specs: none named, every one. Not asked: as the config says.
+   */
+  conformance?: { chosen?: Set<string> };
+  /** The conformance tests halted, the code going on: until the spec or the code changes from `key`, or they are asked for again. */
+  conformanceHalted?: { why: string; key: string };
   /** Nothing runs here until the spec changes from `specKey`, or it is asked for again. */
   halted?: { why: string; specKey: string };
   /** Why the last look started nothing here. */
@@ -98,6 +117,12 @@ export interface WorkLoop {
    * their spec.
    */
   regenerate(plainFile: string, frid: string, options?: { model?: string }): Promise<ModuleStatus[]>;
+  /**
+   * Write and run the conformance tests of a spec's module - of the functional specs named, or of every one - on the
+   * code as it is built, in the codebases where its code lives: for this session, whatever the config says. Asked
+   * again, it clears a halt. Says what it planned.
+   */
+  conformance(plainFile: string, options?: { frids?: string[]; model?: string }): Promise<ModuleStatus[]>;
   /** Every codebase the loop looks after, bottom of each chain first. */
   status(): ModuleStatus[];
   /**
@@ -157,10 +182,16 @@ export function createWorkLoop(options: {
   steering?: (plainFile: string) => Steering[];
   /** Renders a job. Default: a spec diff render that lands on its unit tests. */
   run?: JobRunner;
+  /** Writes and runs a conformance job's tests. Default: a spec diff's conformance run, the whole suite with it. */
+  runConformance?: JobRunner;
+  /** Whether the config has a module's conformance tests on. Default: its `conformance-tests:`, on unless false. */
+  conformanceOn?: (plainFile: string) => boolean;
 }): WorkLoop {
   const modules = new Map<string, ModuleState>();
   const order: string[] = [];
   const run: JobRunner = options.run ?? defaultRunner;
+  const runConformance: JobRunner = options.runConformance ?? defaultConformanceRunner;
+  const configConformance = options.conformanceOn ?? ((plainFile: string) => configForSpec(plainFile).conformanceTests !== false);
   // One tick at a time: each reads the records and the spec, and decides.
   let ticking: Promise<void> = Promise.resolve();
 
@@ -177,6 +208,31 @@ export function createWorkLoop(options: {
     return source === null ? {} : codeTree(inheritedRecord(source, below!.moduleName));
   };
 
+  /** Where a codebase's conformance tests are: the module's tests folder. */
+  const testsDirOf = (state: ModuleState) => {
+    const tip = tipEntry(state);
+    return conformanceDirFor(tip.moduleName, modulesRoot(projectDirOf(tip.plainFile)));
+  };
+
+  /** What the conformance tests are written for, by their record - nothing, when there is none. */
+  const testedOf = (state: ModuleState): MarshalledPlainSource => readRecord(testsDirOf(state)) ?? {};
+
+  /** What the conformance tests are to be written for now: of what the code is built from, what is chosen, with the test reqs as the spec has them. */
+  const conformanceOf = (state: ModuleState, spec: SpecSnapshot): MarshalledPlainSource => {
+    const chosen = state.conformance?.chosen;
+    return conformanceTarget(readRecord(tipEntry(state).buildDir), readRecord(testsDirOf(state)), spec.tree, chosen === undefined ? undefined : (frid) => chosen.has(frid));
+  };
+
+  /** Whether a codebase's conformance tests are written: asked for, or on in the config - with test reqs to write them from, and code to test. */
+  const conformanceWanted = (state: ModuleState, spec: SpecSnapshot): boolean =>
+    (state.conformance !== undefined || configConformance(tipEntry(state).plainFile)) &&
+    ((spec.tree[TEST_REQUIREMENTS] as unknown[] | undefined) ?? []).length > 0 &&
+    readRecord(tipEntry(state).buildDir) !== null;
+
+  /** The work of a track, from where it is built from to what it is to be. */
+  const workOf = (track: Track, from: MarshalledPlainSource, state: ModuleState, spec: SpecSnapshot) =>
+    track === "code" ? codeWork(from, spec.tree) : changesBetween(serializeTree(from), serializeTree(conformanceOf(state, spec)));
+
   /** The codebases brought up in this look: one left behind is never waited for. */
   let looking = new Set<ModuleState>();
 
@@ -191,9 +247,9 @@ export function createWorkLoop(options: {
     return undefined;
   };
 
-  const plan = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource): Promise<PlannedJob[]> => {
+  const plan = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track = "code"): Promise<PlannedJob[]> => {
     const tip = tipEntry(state);
-    const current = codeTree(spec.tree);
+    const current = track === "code" ? codeTree(spec.tree) : conformanceOf(state, spec);
     const specFile = relative(options.cwd, tip.plainFile);
     let specText = "";
     try {
@@ -208,21 +264,22 @@ export function createWorkLoop(options: {
     const input: MasterInput = { base: from, previous: from, current, queued: [], specFile, specText, steering };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
-    reportStage(`${tip.moduleName}: planning the work into jobs`);
+    reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into jobs`);
     const draft = await planChunks(input, agents);
-    const fresh = tip.requires === null && !started(tip);
+    const fresh = tip.requires === null && (track === "code" ? !started(tip) : readRecord(testsDirOf(state)) === null);
     return stepsOf(input, draft).map((job, index) => {
       // Its cases from its own change: the spec before it to the spec after it - the plan's changes are numbered from where the plan starts.
       const cases = casesOf(parseTree(job.step.before), changesBetween(job.step.before, job.step.after), { fresh: fresh && index === 0 });
-      return { title: job.title, reason: job.reason, cases, step: job.step };
+      return { title: job.title, reason: job.reason, cases, step: job.step, track };
     });
   };
 
   const startJob = (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, planned: PlannedJob) => {
     const tip = tipEntry(state);
+    const conformance = planned.track === "conformance";
     const job: Job = options.registry.start({
-      kind: "render_spec_diff",
-      summary: `${basename(tip.plainFile)} ${planned.title}`,
+      kind: conformance ? "render_spec_diff_conformance" : "render_spec_diff",
+      summary: `${basename(tip.plainFile)} ${conformance ? "conformance: " : ""}${planned.title}`,
       diff: planned.step.textDiff,
       ...(state.model !== undefined ? { model: state.model } : {}),
       lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
@@ -231,10 +288,15 @@ export function createWorkLoop(options: {
         if (tip.requires !== null && !started(tip)) {
           const below = state.chain.find((entry) => entry.moduleName === tip.requires);
           const source = below === undefined ? null : readRecord(below.buildDir);
-          if (below !== undefined && source !== null) copyRequiredCode(below.buildDir, tip.buildDir, tip.moduleName, below.moduleName, undefined, inheritedRecord(source, below.moduleName));
+          if (below !== undefined && source !== null) {
+            copyRequiredCode(below.buildDir, tip.buildDir, tip.moduleName, below.moduleName, undefined, inheritedRecord(source, below.moduleName));
+            // Its conformance tests come with the code, the ones below's: none of its own is written yet.
+            if (existsSync(join(testsDirOf(state), RECORD_FILE))) writeTestsRecord(testsDirOf(state), {});
+          }
         }
-        const result = await run(
-          { plainFile: tip.plainFile, moduleName: tip.moduleName, buildDir: tip.buildDir, spec: { ...spec, tree: planned.step.tree }, planned, model: state.model, cwd: options.cwd },
+        // A conformance job is shown the spec whole - its test reqs and acceptance tests are its to write from.
+        const result = await (conformance ? runConformance : run)(
+          { plainFile: tip.plainFile, moduleName: tip.moduleName, buildDir: tip.buildDir, spec: conformance ? spec : { ...spec, tree: planned.step.tree }, planned, model: state.model, cwd: options.cwd },
           onDelta,
         );
         return { report: result.report, details: { passed: result.landed, landed: result.landed } };
@@ -253,7 +315,15 @@ export function createWorkLoop(options: {
     const running = state.running;
     state.running = undefined;
     const landed = settled?.status === "succeeded" && (settled.details as { landed?: boolean } | undefined)?.landed === true;
-    if (running !== undefined && !landed) {
+    if (running !== undefined && !landed && running.planned.track === "conformance") {
+      // Conformance tests that did not pass - nor the code fixes they made - are gone, and they halt: the code goes on.
+      resetToLastCommit(tipEntry(state).buildDir);
+      state.conformancePlan = undefined;
+      if (running.stopping !== true) {
+        const why = settled?.status === "stopped" ? `job ${running.jobId} was stopped` : `conformance job ${running.jobId} ("${running.planned.title}") did not pass`;
+        state.conformanceHalted = { why: `${why} - its conformance tests are written again once the spec or the code changes, or they are asked for again`, key: conformanceKey(state) };
+      }
+    } else if (running !== undefined && !landed) {
       // What it wrote and never committed is gone: code, tests and record agree again.
       resetToLastCommit(tipEntry(state).buildDir);
       state.plan = undefined;
@@ -267,11 +337,23 @@ export function createWorkLoop(options: {
         const why = settled?.status === "stopped" ? `job ${running.jobId} was stopped` : `job ${running.jobId} ("${running.planned.title}") did not land`;
         state.halted = { why: `${why} - it runs again once the spec changes, or the module is asked for again`, specKey: key };
       }
-    } else if (state.plan !== undefined) {
-      state.plan.jobs.shift();
-      if (running !== undefined) state.plan.from = serializeTree(running.after);
+    } else {
+      const own = running?.planned.track === "conformance" ? state.conformancePlan : state.plan;
+      if (own !== undefined) {
+        own.jobs.shift();
+        if (running !== undefined) own.from = serializeTree(running.after);
+      }
     }
     void tick();
+  };
+
+  /** What a conformance halt holds for: the spec and what the code is built from, as they are. */
+  const conformanceKey = (state: ModuleState): string => {
+    try {
+      return `${serializeTree(chainSpec(state.chain).tree)}\n${serializeTree(readRecord(tipEntry(state).buildDir) ?? {})}`;
+    } catch {
+      return "";
+    }
   };
 
   /** Look at every codebase once, bottom of each chain first, and start what can start. */
@@ -325,8 +407,9 @@ export function createWorkLoop(options: {
     if (state.running !== undefined) {
       if (state.running.stopping === true) return;
       // The stop rule: every change the running job makes is still part of the work, measured from the same record.
+      const track = state.running.planned.track;
       const own = changesBetween(serializeTree(state.running.from), serializeTree(state.running.after));
-      if (!stillWanted(own, codeWork(state.running.from, spec.tree))) {
+      if (!stillWanted(own, workOf(track, state.running.from, state, spec))) {
         state.running.stopping = true;
         state.why = `job ${state.running.jobId} was stopped: the spec no longer wants what it was building`;
         reportActivity(`  ${tip.moduleName}: ${state.why}`);
@@ -334,10 +417,15 @@ export function createWorkLoop(options: {
         return;
       }
       // Still wanted: what comes after it is planned now, from what it will land - not once it has.
-      if (state.plan === undefined || state.plan.specKey !== specKey) {
+      const planOf = track === "code" ? state.plan : state.conformancePlan;
+      if (planOf === undefined || planOf.specKey !== specKey) {
         const running = state.running;
-        const rest = codeWork(running.after, spec.tree).length === 0 ? [] : await plan(state, spec, running.after);
-        if (state.running === running) state.plan = { specKey, from: serializeTree(running.from), jobs: [running.planned, ...rest] };
+        const rest = workOf(track, running.after, state, spec).length === 0 ? [] : await plan(state, spec, running.after, track);
+        const next = { specKey, from: serializeTree(running.from), jobs: [running.planned, ...rest] };
+        if (state.running === running) {
+          if (track === "code") state.plan = next;
+          else state.conformancePlan = next;
+        }
       }
       return;
     }
@@ -359,10 +447,28 @@ export function createWorkLoop(options: {
       state.why = `waiting for ${below}: the code it is built on is not built yet`;
       return;
     }
+    // The conformance tests of what the code is built from, first: after a job lands, before the next one builds on it.
+    if (state.conformanceHalted !== undefined && state.conformanceHalted.key !== conformanceKey(state)) state.conformanceHalted = undefined;
+    if (conformanceWanted(state, spec) && state.conformanceHalted === undefined) {
+      const tested = testedOf(state);
+      if (workOf("conformance", tested, state, spec).length > 0) {
+        const testedKey = serializeTree(tested);
+        const existing = state.conformancePlan;
+        if (existing === undefined || existing.specKey !== specKey || existing.from !== testedKey || existing.jobs.length === 0) {
+          state.conformancePlan = { specKey, from: testedKey, jobs: await plan(state, spec, tested, "conformance") };
+        }
+        const next = state.conformancePlan!.jobs[0];
+        if (next !== undefined) {
+          state.why = undefined;
+          startJob(state, spec, tested, next);
+          return;
+        }
+      } else state.conformancePlan = undefined;
+    }
     const from = builtOf(state);
     if (codeWork(from, spec.tree).length === 0) {
       state.plan = undefined;
-      state.why = "built from the spec as it is";
+      state.why = state.conformanceHalted?.why ?? "built from the spec as it is";
       return;
     }
     const fromKey = serializeTree(from);
@@ -379,13 +485,16 @@ export function createWorkLoop(options: {
   };
 
   const statusOf = (state: ModuleState): ModuleStatus => {
-    const planned = state.plan?.jobs ?? [];
+    // What runs next: the conformance tests' jobs, then the code's - the running job at the head of its own.
+    const running = state.running?.planned;
+    const own = (jobs: PlannedJob[] | undefined) => (jobs ?? []).filter((job) => job !== running);
+    const planned = [...(running !== undefined ? [running] : []), ...own(state.conformancePlan?.jobs), ...own(state.plan?.jobs)];
     const tip = tipEntry(state);
     return {
       module: tip.moduleName,
       plainFile: tip.plainFile,
       ...(state.running !== undefined ? { running: { jobId: state.running.jobId, title: state.running.planned.title } } : {}),
-      planned: (state.running !== undefined ? planned.slice(1) : planned).map((job) => ({ title: job.title, cases: job.cases })),
+      planned: (state.running !== undefined ? planned.slice(1) : planned).map((job) => ({ title: job.title, cases: job.cases, track: job.track })),
       ...(state.running === undefined && state.why !== undefined ? { why: state.why } : {}),
     };
   };
@@ -443,6 +552,23 @@ export function createWorkLoop(options: {
       if (taken === 0) throw new Error(`${module} has no functional spec ${frid} built anywhere, so there is nothing to build again.`);
       return loop.bringUp(plainFile, request);
     },
+    async conformance(plainFile, request = {}) {
+      const file = resolve(options.cwd, plainFile);
+      asked.set(file, { ...asked.get(file), ...(request.model !== undefined ? { model: request.model } : {}) });
+      const states = withParseCache(() =>
+        chainsFor(file).flatMap((chain) => toBuild(chain).map((entry) => track(chain.slice(0, chain.indexOf(entry) + 1), file, request))),
+      );
+      const tip = states.at(-1);
+      for (const state of states) {
+        // The functional specs named are the module's own: they are chosen in its codebase, the rest as they were.
+        const named = state === tip && request.frids !== undefined && request.frids.length > 0 ? new Set(request.frids) : undefined;
+        state.conformance = { ...(named !== undefined ? { chosen: named } : {}) };
+        state.conformanceHalted = undefined;
+        state.halted = undefined;
+      }
+      await tick();
+      return [...new Set(states)].map(statusOf);
+    },
     status() {
       return order.map((key) => statusOf(modules.get(key)!));
     },
@@ -491,7 +617,7 @@ export function createWorkLoop(options: {
         return status.planned.map((job, index): Job => {
           const planned = row(
             `planned-${tip.moduleName}-${index + 1}`,
-            `${basename(tip.plainFile)} ${job.title}`,
+            `${basename(tip.plainFile)} ${job.track === "conformance" ? "conformance: " : ""}${job.title}`,
             `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a job before it ends.`,
             before !== undefined ? [before] : [],
           );
@@ -544,12 +670,35 @@ export function describeModules(statuses: ModuleStatus[]): string {
     .map((status) => {
       const lines = [`${status.module} (${basename(status.plainFile)}):`];
       if (status.running !== undefined) lines.push(`  running: job ${status.running.jobId} - ${status.running.title}`);
-      status.planned.forEach((job, index) => lines.push(`  ${index + 1}. ${job.title} - ${casesText(job.cases)}`));
+      status.planned.forEach((job, index) => lines.push(`  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - ${casesText(job.cases)}`));
       if (status.why !== undefined) lines.push(`  ${status.why}`);
       return lines.join("\n");
     })
     .join("\n");
 }
+
+/**
+ * A conformance job: its tests written and run for its change - a failure judged, the test or the code fixed - then the
+ * whole suite, the tests the module inherits with it. Passing, what the tests are written for is recorded and committed;
+ * otherwise all of it - the code's fixes too - is undone.
+ */
+const defaultConformanceRunner: JobRunner = async (job, onDelta) => {
+  const result = await renderSpecDiffConformance({
+    plainFile: job.plainFile,
+    diff: job.planned.step.textDiff,
+    change: describeSpecChange(job.planned.step.changes),
+    cwd: job.cwd,
+    applied: "already applied",
+    spec: job.spec,
+    ...(job.model !== undefined ? { model: job.model } : {}),
+    onDelta,
+  });
+  if (result.passed) {
+    writeTestsRecord(result.conformanceDir, job.planned.step.tree);
+    recordHistory(job.buildDir, `conformance tests: ${job.planned.title}`);
+  }
+  return { landed: result.passed, report: describeSpecDiffConformance(result) };
+};
 
 /** A job as a spec diff render, landed on its unit tests: conformance is a track of its own. */
 const defaultRunner: JobRunner = async (job, onDelta) => {

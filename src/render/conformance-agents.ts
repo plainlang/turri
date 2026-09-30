@@ -624,10 +624,8 @@ export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
     ...problems.map((problem, index) => `${index + 1}. ${problemText(problem)}`),
     "",
     "Fix every one: implement what is missing, and make what is bad test the software black box and as the",
-    "specification says. Then run the suite. Never mock the software under test or loosen a test to pass. One you are",
-    "sure the review is wrong about, decline, and say why.",
+    "specification says. Then run the suite. One you are sure the review is wrong about, decline, and say why.",
     ...SUBMIT_AFTER_REVIEW,
-    ...INTEGRITY_RULES,
     ...REVIEW_LESSON,
   ].join("\n");
 }
@@ -985,9 +983,8 @@ export function codeFixerTask(options: { buildDir: string; conformanceDir?: stri
     "suite, and you get its output. Make the failure show in your own unit tests too where you can - for software that",
     "will not start, a unit test that starts it - so run_unit_tests catches it from now on.",
     "",
-    "If the output does not show why the software failed - an error answered with a bare \"failed\", nothing logged",
-    "about it - make it show first: where the code catches the error, log it with its whole trace and keep its",
-    "cause in what it hands on; run run_conformance_tests and read the cause; then fix that. Keep the logging.",
+    "If the output does not show why the software failed, make it show first (the rule on errors below), run",
+    "run_conformance_tests to read the cause, then fix that. Keep the logging.",
     "",
     ...(options.conformanceDir !== undefined
       ? [
@@ -1036,7 +1033,6 @@ export function testsFixPrompt(options: { run: ScriptRun; reason: string }): str
     ...fixMethod({ what: "conformance tests", fixes: "tests", runTool: "run_conformance_tests" }),
     "",
     "Correct the test to what the specification says. Never change a test so it agrees with code that",
-    "contradicts the specification, and never delete, skip or weaken a test to get a pass.",
-    ...INTEGRITY_RULES,
+    "contradicts the specification.",
   ].join("\n");
 }

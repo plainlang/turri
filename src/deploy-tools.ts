@@ -87,7 +87,7 @@ export function createDeployTools(options: {
       "or conformance run that finished left, never what a job is writing now - replacing what was there, and stopping " +
       "whatever an earlier deploy of it started. Always the module on top of the spec's requires chain: it holds the " +
       "code of the ones below. Call it when the person wants to try, run, see or use what was built. It says what to do next.",
-    promptSnippet: "deploy: put the built code in dist/<module> for the person to try, then start it",
+    promptSnippet: "put the built code in dist/<module> for the person to try, then start it",
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "A .plain file of the module. Default: the project's module from config.yaml." })),
       in_module: Type.Optional(Type.String({ description: "The codebase to take, when modules built on this one branch" })),
@@ -122,7 +122,7 @@ export function createDeployTools(options: {
       "packages, an image pull - and, when they say yes, run it in the deployed folder, in order, stopping at the first " +
       "that fails. List every command it takes, as it will run; nothing is installed unless they agree. `long_running` " +
       "are commands to start later with start_deployed that fetch as they start (`go run .`, `docker compose up`).",
-    promptSnippet: "propose_setup: ask the person before installing anything, then run the setup they agreed to",
+    promptSnippet: "ask the person before installing anything, then run the setup they agreed to",
     parameters: Type.Object({
       commands: Type.Array(Type.String(), { description: "Commands to run now, one line each, as they will run from the deployed folder" }),
       long_running: Type.Optional(Type.Array(Type.String(), { description: "Commands start_deployed will start later that fetch as they start" })),
@@ -171,7 +171,7 @@ export function createDeployTools(options: {
       "machine: in the background, its output kept, stopped on the next deploy, on /stop and when plainwright exits. " +
       "With `url`, waits until something answers there and says so, or shows the end of its output. A port something " +
       "else holds is said, and nothing is started.",
-    promptSnippet: "start_deployed: start a server of the deployed code, and wait for it to answer",
+    promptSnippet: "start a server of the deployed code, and wait for it to answer",
     parameters: Type.Object({
       name: Type.String({ description: "A short name for it: backend, frontend, app" }),
       command: Type.String({ description: "The command that starts it, as run from its folder" }),
@@ -203,7 +203,7 @@ export function createDeployTools(options: {
     name: "stop_deployed",
     label: "Stop deployed",
     description: "Stop what start_deployed started: the one named, or every one.",
-    promptSnippet: "stop_deployed: stop a deployed server, or all of them",
+    promptSnippet: "stop a deployed server, or all of them",
     parameters: Type.Object({
       name: Type.Optional(Type.String({ description: "The name it was started under. Omit to stop everything deploy started." })),
     }),

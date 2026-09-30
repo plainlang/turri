@@ -152,3 +152,57 @@ describe("conformance for a spec diff", () => {
     expect(conformanceRuns).toHaveLength(0);
   });
 });
+
+describe("the work loop's conformance jobs", () => {
+  it("write the tests of what the code is built from, run the whole suite with them, and record and commit what they are written for", async () => {
+    const { createWorkLoop } = await import("../../src/render/loop.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const { readRecord, writeCodeRecord } = await import("../../src/render/records.ts");
+    const { recordHistory, historyLog } = await import("../../src/render/history.ts");
+    // The code, as a render lands it: its record, committed.
+    const run = async (job: { buildDir: string; spec: { tree: object }; planned: { title: string } }) => {
+      mkdirSync(job.buildDir, { recursive: true });
+      writeFileSync(join(job.buildDir, "app.sh"), "echo base\n", { flag: "a" });
+      writeCodeRecord(job.buildDir, job.spec.tree as never);
+      recordHistory(job.buildDir, job.planned.title);
+      return { landed: true, report: "built" };
+    };
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, run: run as never });
+    await loop.bringUp(file("base"));
+    await loop.drain();
+
+    // A conformance job after each code job: the conformance agent given the spec whole - its test reqs with it.
+    expect(conformanceRuns).toHaveLength(2);
+    expect(conformanceRuns[0]!.specs).toContain("Shell scripts.");
+    expect(conformanceRuns[0]).toMatchObject({ buildDir: buildOf("base"), conformanceDir: testsOf("base") });
+    const tested = JSON.stringify(readRecord(testsOf("base")));
+    expect(tested).toContain("Base one.");
+    expect(tested).toContain("Base two.");
+    expect(tested).toContain("Shell scripts.");
+    expect(historyLog(buildOf("base"))).toContain("conformance tests:");
+  });
+
+  it("leave nothing of a conformance job that does not pass, and go on building the code", async () => {
+    const { createWorkLoop } = await import("../../src/render/loop.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const { readRecord, writeCodeRecord } = await import("../../src/render/records.ts");
+    const { recordHistory } = await import("../../src/render/history.ts");
+    passing = false;
+    const built: string[] = [];
+    const run = async (job: { buildDir: string; spec: { tree: object }; planned: { title: string } }) => {
+      built.push(job.planned.title);
+      mkdirSync(job.buildDir, { recursive: true });
+      writeFileSync(join(job.buildDir, "app.sh"), "echo base\n", { flag: "a" });
+      writeCodeRecord(job.buildDir, job.spec.tree as never);
+      recordHistory(job.buildDir, job.planned.title);
+      return { landed: true, report: "built" };
+    };
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, run: run as never });
+    await loop.bringUp(file("base"));
+    await loop.drain();
+    expect(built).toHaveLength(2);
+    expect(readRecord(testsOf("base"))).toBeNull();
+    expect(existsSync(join(testsOf("base"), "check_1.sh"))).toBe(false);
+    expect(loop.status()[0]!.why).toMatch(/did not pass/);
+  });
+});

@@ -741,7 +741,7 @@ export async function renderConformanceTests(
           };
           // After the first REVIEW_ROUNDS reviews that send them back, the arbiter weighs each: only what it upholds goes to the conformance agent.
           if (failedReviews > REVIEW_ROUNDS) {
-            stage(`the review sent the tests back ${failedReviews} times - the arbiter weighs what it found`);
+            stage(`the review sent the tests back ${failedReviews === 1 ? "once" : `${failedReviews} times`} - the arbiter weighs what it found`);
             const ruling = await arbitrateReview({
               subject: `the conformance tests of ${forChange ? `the spec change in module \`${moduleName}\`` : `functionality ${frid} of module \`${moduleName}\``}`,
               workdir: conformanceDir,

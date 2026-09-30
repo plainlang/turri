@@ -72,11 +72,10 @@ export function problemLine(problem: ReviewedProblem): string {
 export function arbiterPrompt<P extends ReviewedProblem>(options: Omit<ArbiterOptions<P>, "label" | "model" | "onDelta">): string {
   return [
     `You are the arbiter of ${options.subject}: the distinguished engineer who has the last word on their review.`,
-    "The tests pass. A reviewer - exacting, opinionated, hard to satisfy - has sent the work back",
-    `${options.history.length} times, and has sent it back again. Weigh what it found, as the engineer who balances`,
+    `The tests pass. A reviewer - exacting, opinionated, hard to satisfy - has ${options.history.length === 0 ? "sent the work back" : `sent the work back ${options.history.length === 1 ? "once" : `${options.history.length} times`}, and has sent it back again`}. Weigh what it found, as the engineer who balances`,
     "the trade-offs: the work has to be right and its tests good, and time lost chasing perfect ones is lost too.",
     "",
-    `The tests and the code are in ${options.read.join(" and ")}. Read them; change nothing.`,
+    `The tests and the code are in ${options.read.join(" and ")}.`,
     "",
     "For each problem the reviewer raised this time, rule:",
     ...options.uphold,
@@ -85,7 +84,7 @@ export function arbiterPrompt<P extends ReviewedProblem>(options: Omit<ArbiterOp
     "  test that already tests the behaviour, made a little stronger, another case of one already covered, a",
     "  matter of style, code written another way than the reviewer would have that does what the specification",
     "  says. Dismissed, it is let go.",
-    "When you uphold nothing, the work is approved as it is. Say in one line, for each problem, why.",
+    "When you uphold nothing, the work is approved as it is.",
     "",
     ...(options.history.length > 0
       ? [
@@ -113,7 +112,7 @@ export function arbiterPrompt<P extends ReviewedProblem>(options: Omit<ArbiterOp
           "",
         ]
       : []),
-    "Then call submit_ruling once, with every problem by its number: upheld, or dismissed.",
+    "Then call submit_ruling once, with every problem by its number - upheld, or dismissed - and in a line, why.",
   ].join("\n");
 }
 

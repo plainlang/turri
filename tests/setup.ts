@@ -1,5 +1,8 @@
 // No test waits out a provider that is failing: the harness retries at once.
 process.env.PLAINWRIGHT_PROVIDER_RETRY_DELAY ??= "0";
+// Test files run side by side, and several boot VMs at once: at the four cores a module's VM gets, they would ask for more
+// than the machine has, and the tests that time how fast a VM answers would measure the crowding. Two each, here.
+process.env.PLAINWRIGHT_VM_CPUS ??= "2";
 import { afterAll } from "vitest";
 import { closeAllVms } from "../src/render/vm.ts";
 

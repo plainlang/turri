@@ -19,7 +19,7 @@ export function createWriteArtifactTool(runDir: string) {
     description:
       "Write this step's deliverable. Path must be the artifact path given in the step instructions. " +
       "Overwrites any previous attempt.",
-    promptSnippet: "write_artifact: write the current step's deliverable to its artifact path",
+    promptSnippet: "write the current step's deliverable to its artifact path",
     parameters: Type.Object({
       path: Type.String({ description: "Artifact path, exactly as given in the step instructions" }),
       content: Type.String({ description: "Full contents of the artifact" }),
@@ -99,7 +99,7 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
       "Put one question to the user and wait for their answer. Ask exactly one thing at a time. " +
       "Offer concrete options in `options` so the user can pick rather than type - that is the " +
       "normal case, and a question with neither options nor free_form is refused rather than asked.",
-    promptSnippet: "ask_user: ask the user one question, offering options to pick from",
+    promptSnippet: "ask the user one question, offering options to pick from",
     promptGuidelines: [
       "Every ask_user call should carry `options` unless the answer genuinely cannot be anticipated; picking from a list is far quicker for the user than typing. A free-form question needs free_form: true.",
       "Use multi_select: true when several answers can apply at once, rather than asking the same question repeatedly.",
@@ -174,7 +174,7 @@ export function createRenderTools(loop: WorkLoop, liveReview?: LiveReviewer) {
     name: "render_status",
     label: "Render status",
     description: "What is being built, module by module: the job running, the jobs planned after it, and why nothing runs where nothing does.",
-    promptSnippet: "render_status: how the background builds are doing",
+    promptSnippet: "how the background builds are doing",
     parameters: Type.Object({}),
     async execute() {
       const statuses = loop.status();
@@ -194,7 +194,7 @@ export function createRenderTools(loop: WorkLoop, liveReview?: LiveReviewer) {
     description:
       "Answer a question the reviewer asked, after putting it to the user. The answer is carried " +
       "into the reviewer's next pass. Use this only for questions the reviewer raised by id.",
-    promptSnippet: "reply_to_review: hand the user's answer back to the reviewer",
+    promptSnippet: "hand the user's answer back to the reviewer",
     parameters: Type.Object({
       question_id: Type.String({ description: 'The id the reviewer gave, e.g. "q1"' }),
       answer: Type.String({ description: "What the user decided, in their terms" }),

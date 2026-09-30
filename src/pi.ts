@@ -323,7 +323,6 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // A timed turn is ended where it is when the time is up. The agent is not told: a turn cut short is taken up again
   // by the harness, and a clock in the prompt only hurries the work.
   const timed = timedSessions.has(session) && TURN_LIMIT_MS > 0;
-  const prompt = task !== undefined ? `${task}\n\n${text}` : text;
   let outOfTime = false;
   const timer = timed
     ? setTimeout(() => {
@@ -333,7 +332,8 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
         void session.abort();
       }, TURN_LIMIT_MS)
     : undefined;
-  debug?.prompt(prompt);
+  // What the model is sent, and only that: its task is its system prompt, which the log already holds whole.
+  debug?.prompt(text);
 
   try {
     await session.prompt(text, { expandPromptTemplates: false });
