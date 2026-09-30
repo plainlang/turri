@@ -704,7 +704,8 @@ export async function renderConformanceTests(
       // what the spec asks for. It has to pass, as the suite and the unit tests do.
       const testChanges = diffFiles(testsAtStart, digestFiles(conformanceDir));
       const changedTests = [...testChanges.added, ...testChanges.changed];
-      if (changedTests.length > 0) {
+      // After the last review's problems were worked on, the tests go on once they pass: not reviewed again.
+      if (changedTests.length > 0 && failedReviews < REVIEW_LIMIT) {
         stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_LIMIT}): black box, and the acceptance tests doing what the spec says`);
         // One reviewer for the run, made the first time the tests are reviewed.
         reviewer ??= await createTestReviewer({
@@ -735,8 +736,8 @@ export async function renderConformanceTests(
             lastReview = undefined;
             verified = true;
           };
-          // From the second review that sends them back, the arbiter weighs it: only what it upholds goes to the conformance agent.
-          if (failedReviews >= REVIEW_ROUNDS) {
+          // After the first REVIEW_ROUNDS reviews that send them back, the arbiter weighs each: only what it upholds goes to the conformance agent.
+          if (failedReviews > REVIEW_ROUNDS) {
             stage(`the review sent the tests back ${failedReviews} times - the arbiter weighs what it found`);
             const ruling = await arbitrateReview({
               subject: `the conformance tests of ${forChange ? `the spec change in module \`${moduleName}\`` : `functionality ${frid} of module \`${moduleName}\``}`,
@@ -768,16 +769,16 @@ export async function renderConformanceTests(
               reviewLetGo = ruling.dismissed.map((entry) => entry.problem);
             }
           }
-          // An optimiser, not a gate: past the last review, what it still finds is noted, and the run goes on.
+          // An optimiser, not a gate: what the last review sends back goes to the conformance agent once more, and the
+          // tests go on once the suite and the unit tests pass - they are not reviewed again.
           if (failedReviews >= REVIEW_LIMIT) {
             recordNote(
               buildDir,
               "pitfalls",
-              `the conformance tests went on after ${REVIEW_LIMIT} reviews that still found: ${problems.map((problem) => `${problem.file}${problem.test ? ` ${problem.test}` : ""}: ${problem.what.trim()}`).join("; ").slice(0, 600)}`,
+              `the conformance tests went on after ${REVIEW_LIMIT} reviews, the last one's problems worked on but not reviewed again: ${problems.map((problem) => `${problem.file}${problem.test ? ` ${problem.test}` : ""}: ${problem.what.trim()}`).join("; ").slice(0, 600)}`,
               `${label} conformance`,
             );
-            letGo(`the review is still not satisfied after ${REVIEW_LIMIT} reviews - going on; what it last found is in the notes`, problems);
-            break;
+            stage(`the last of ${REVIEW_LIMIT} reviews sends the tests back once more - after that they go on once they pass, without another review`);
           }
           reviewHistory.push(review.problems);
           lastReview = problems;

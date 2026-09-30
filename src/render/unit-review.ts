@@ -366,8 +366,8 @@ async function reviewLoop(
       return waived.length > 0 ? { passed: true, waived, reviews: reviews + 1 } : { passed: true, reviews: reviews + 1 };
     }
     let problems = review.problems;
-    // From the second review that sends them back, the arbiter weighs it first: only what it upholds goes to the coding agent.
-    if (reviews + 1 >= UNIT_REVIEW_ROUNDS) {
+    // After the first UNIT_REVIEW_ROUNDS reviews that send them back, the arbiter weighs each first: only what it upholds goes to the coding agent.
+    if (reviews >= UNIT_REVIEW_ROUNDS) {
       options.stage(`the review sent the work back ${reviews + 1} times - the arbiter weighs what it found`);
       const ruling = await arbitrateReview({
         subject: `the code and unit tests of ${options.what}`,
@@ -423,12 +423,12 @@ async function reviewLoop(
     await reflectOnReview(options.buildDir, pitfalls, options.send);
     if (!(await options.untilPassing())) return { passed: false, problems, reviews: reviews + 1 };
   }
-  // An optimiser, not a gate: what it still finds after the last review is noted, and the work goes on.
-  options.stage(`the review is still not satisfied after ${UNIT_REVIEW_LIMIT} reviews - going on; what it last found is in the notes`);
+  // An optimiser, not a gate: what the last review sent back was worked on and the unit tests pass - it is not reviewed again.
+  options.stage(`the last of ${UNIT_REVIEW_LIMIT} reviews sent the work back once more; its unit tests pass - going on without another review`);
   recordNote(
     options.buildDir,
     "pitfalls",
-    `the unit tests went on after ${UNIT_REVIEW_LIMIT} reviews that still found: ${said(earlier ?? [])}`,
+    `the unit tests went on after ${UNIT_REVIEW_LIMIT} reviews, the last one's problems worked on but not reviewed again: ${said(earlier ?? [])}`,
     `${options.label} unit tests`,
   );
   return { passed: true, waived: [...waived, ...(earlier ?? [])], reviews: UNIT_REVIEW_LIMIT };

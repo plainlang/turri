@@ -392,20 +392,20 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toContain("were never written and labelled");
   });
 
-  it("sends the conformance agent what the arbiter upholds - a functionality not tested black box - and goes on after three reviews all the same", async () => {
+  it("sends the conformance agent what the arbiter upholds of the second review - a functionality not tested black box - and then goes on once the tests pass, without another", async () => {
     const missing = { file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test skips the backup it checks.", blocking: true };
     reviewSays = () => ({ pass: false, problems: [missing] });
     arbiterRules = () => [{ problem: 1, uphold: true, why: "the acceptance test skips what it checks" }];
     const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), maxRounds: 15 });
-    // An optimiser, not a gate: after the last review the run goes on, and what it still found is kept.
+    // An optimiser, not a gate: what the last review sent back is worked on, and once the suite passes the run goes on.
     expect(result.passed).toBe(true);
-    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(3);
-    // From the second review that sends them back: the second and the third.
-    expect(asked.filter((turn) => turn.role === "arbiter")).toHaveLength(2);
-    expect(result.reviewWaived).toEqual([missing]);
-    const feedback = asked.filter((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better")).at(-1)!;
-    expect(feedback.prompt).toContain("1. BLOCKING · MISSING · test_acceptance_hello.py: The acceptance test skips the backup it checks.");
-    expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("the conformance tests went on after 3 reviews");
+    expect(asked.filter((turn) => turn.role === "reviewer")).toHaveLength(2);
+    // Only the second review that sends them back is weighed: the first goes to the conformance agent as it is.
+    expect(asked.filter((turn) => turn.role === "arbiter")).toHaveLength(1);
+    const feedback = asked.filter((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better"));
+    expect(feedback).toHaveLength(2);
+    expect(feedback.at(-1)!.prompt).toContain("1. BLOCKING · MISSING · test_acceptance_hello.py: The acceptance test skips the backup it checks.");
+    expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("the conformance tests went on after 2 reviews, the last one's problems worked on but not reviewed again");
   });
 
   it("approves the tests at the second failed review when the arbiter finds the reviewer picky - what it let go is kept in the notes", async () => {

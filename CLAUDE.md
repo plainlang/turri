@@ -79,9 +79,9 @@ is reported as pending, not dropped.
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
   Once they pass, `unit-review.ts` has a read-only reviewer - one session for the loop, shown the
   whole work diff first, then the diff since its last review (`workSnapshot`) and the coder's
-  `submit_work` account (`submit-work.ts`) - check that the code does what the spec says and its unit tests test it - an optimiser, not a gate: from the second review that sends them back an arbiter
-  agent weighs each one and passes on only what it upholds, and after three all is let go - as spec
-  changes do too.
+  `submit_work` account (`submit-work.ts`) - check that the code does what the spec says and its unit tests test it - an optimiser, not a gate: two reviews at most, the second weighed by an arbiter
+  agent that passes on only what it upholds; after that fix the work goes on once its tests pass - as
+  spec changes and conformance tests do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
   labelled and checked by label. `module.ts` covers regeneration, the regression gate (a repair
   agent that may not touch tests) and the older in-process chain build. `spec-change.ts` and

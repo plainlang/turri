@@ -160,15 +160,15 @@ describe("the unit test review", () => {
   });
 
   it("has the arbiter weigh the second review that sends the tests back - and approve them when it finds the reviewer picky", async () => {
-    for (let i = 0; i < UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [better] });
+    for (let i = 0; i <= UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [better] });
     rulings.push([{ problem: 1, uphold: false, why: "a nitpick: the error is already tested" }]);
     const sent: string[] = [];
     const result = await loop(sent);
     expect(result.passed).toBe(true);
     expect(result.waived).toEqual([better]);
-    // The first review went to the coding agent; the second went to the arbiter, which let it go.
-    expect(UNIT_REVIEW_ROUNDS).toBe(2);
-    expect(sent).toHaveLength(UNIT_REVIEW_ROUNDS - 1);
+    // The first review went to the coding agent as it was; the second went to the arbiter, which let it go.
+    expect(UNIT_REVIEW_ROUNDS).toBe(1);
+    expect(sent.filter((prompt) => prompt.includes("A review of the work found"))).toHaveLength(1);
     expect(arbiterPrompts).toHaveLength(1);
     expect(arbiterPrompts[0]).toContain("You are the arbiter");
     expect(arbiterPrompts[0]).toContain("1. BAD · test_app.py: could check the error message too");
@@ -180,9 +180,8 @@ describe("the unit test review", () => {
     expect(readNotes(dir).pitfalls.join("\n")).toContain("the arbiter let go what the unit test review raised: test_app.py: could check the error message too - a nitpick");
   });
 
-  it("sends the coding agent only what the arbiter upholds - the reviewer is sometimes right", async () => {
-    for (let i = 0; i < UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [weak, better] });
-    verdicts.push({ pass: true, problems: [] });
+  it("sends the coding agent only what the arbiter upholds of the last review - and then goes on without another", async () => {
+    for (let i = 0; i <= UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [weak, better] });
     rulings.push([
       { problem: 1, uphold: true, why: "register's stored user is the behaviour the spec states, and nothing tests it" },
       { problem: 2, uphold: false, why: "out of scope" },
@@ -190,20 +189,22 @@ describe("the unit test review", () => {
     const sent: string[] = [];
     const result = await loop(sent);
     expect(result.passed).toBe(true);
-    expect(result.waived).toEqual([better]);
+    expect(result.reviews).toBe(UNIT_REVIEW_LIMIT);
+    // What it dismissed is let go; what it upheld was worked on, and is not reviewed again.
+    expect(result.waived).toEqual([better, weak]);
     const last = sent.filter((prompt) => prompt.includes("A review of the work found")).at(-1)!;
     expect(last).toContain("only checks that register returns something");
     expect(last).not.toContain("could check the error message too");
+    expect(reviewPrompts).toHaveLength(UNIT_REVIEW_LIMIT);
   });
 
   it("lets the review stand when the arbiter gives no ruling", async () => {
-    for (let i = 0; i < UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [weak] });
-    verdicts.push({ pass: true, problems: [] });
+    for (let i = 0; i <= UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [weak] });
     rulings.push(undefined);
     const sent: string[] = [];
     const result = await loop(sent);
-    expect(result).toEqual({ passed: true, reviews: UNIT_REVIEW_ROUNDS + 1 });
-    expect(sent.filter((prompt) => prompt.includes("A review of the work found"))).toHaveLength(UNIT_REVIEW_ROUNDS);
+    expect(result).toEqual({ passed: true, waived: [weak], reviews: UNIT_REVIEW_LIMIT });
+    expect(sent.filter((prompt) => prompt.includes("A review of the work found"))).toHaveLength(UNIT_REVIEW_LIMIT);
   });
 
   it("gives the reviewer the voice of the exacting developer, who raises everything and leaves the weighing to the arbiter", async () => {
@@ -242,27 +243,30 @@ describe("the unit test review", () => {
   });
 
   it("tells the reviewer what the arbiter let go, so it does not raise it again", async () => {
-    for (let i = 0; i < UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [weak, better] });
-    verdicts.push({ pass: true, problems: [] });
-    rulings.push([
-      { problem: 1, uphold: true, why: "untested" },
-      { problem: 2, uphold: false, why: "a nitpick" },
-    ]);
-    await loop([]);
-    expect(reviewPrompts[UNIT_REVIEW_ROUNDS]).toContain("The arbiter weighed your last review and let these go");
-    expect(reviewPrompts[UNIT_REVIEW_ROUNDS]).toContain("could check the error message too");
+    const { unitReviewRequest } = await import("../../src/render/unit-review.ts");
+    const request = unitReviewRequest({ diff: "", changed: [], account: "", earlier: [weak], letGo: [better] });
+    expect(request).toContain("The arbiter weighed your last review and let these go");
+    expect(request).toContain("could check the error message too");
   });
 
-  it("is an optimiser, not a gate: a behaviour still untested after its last review is let go, noted, and the work goes on", async () => {
+  it("is an optimiser, not a gate: what the last review sends back is worked on, the unit tests pass, and the work goes on unreviewed", async () => {
     for (let i = 0; i < UNIT_REVIEW_LIMIT; i += 1) verdicts.push({ pass: false, problems: [weak] });
-    for (let i = 0; i < UNIT_REVIEW_LIMIT; i += 1) rulings.push([{ problem: 1, uphold: true, why: "untested" }]);
+    rulings.push([{ problem: 1, uphold: true, why: "untested" }]);
     const sent: string[] = [];
     const result = await loop(sent);
-    expect(UNIT_REVIEW_LIMIT).toBe(3);
+    expect(UNIT_REVIEW_LIMIT).toBe(2);
     expect(result.passed).toBe(true);
     expect(result.waived).toEqual([weak]);
     expect(sent).toHaveLength(UNIT_REVIEW_LIMIT);
-    expect(readNotes(dir).pitfalls.join("\n")).toContain(`the unit tests went on after ${UNIT_REVIEW_LIMIT} reviews`);
+    expect(reviewPrompts).toHaveLength(UNIT_REVIEW_LIMIT);
+    expect(readNotes(dir).pitfalls.join("\n")).toContain(`the unit tests went on after ${UNIT_REVIEW_LIMIT} reviews, the last one's problems worked on but not reviewed again`);
+  });
+
+  it("does not go on when the unit tests fail after the last review's problems were worked on", async () => {
+    for (let i = 0; i < UNIT_REVIEW_LIMIT; i += 1) verdicts.push({ pass: false, problems: [weak] });
+    rulings.push([{ problem: 1, uphold: true, why: "untested" }]);
+    const result = await loop([], false);
+    expect(result.passed).toBe(false);
   });
 
   it("takes the reviewer's own words for a problem's kind - one wrong word never throws a valid review away", async () => {
