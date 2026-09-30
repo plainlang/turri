@@ -237,7 +237,9 @@ A module already built from the spec as it is gets nothing. A spec that spans se
 spec diff per module that is not built yet, and a change to a module built on is made in the latest
 codebase built on it - the tip. A module built on another is planned only when its turn comes - once the
 work of the modules below it has landed - from what their code already implements, so the planning of a
-long chain goes a module at a time, bottom up, and never plans a module from nothing. When a module's plan
+long chain goes a module at a time, bottom up, and never plans a module from nothing. Until then its work is one job,
+named for what it waits on - "top.plain - planned into jobs once base has landed" - with a note that it is
+not planned yet. When a module's plan
 adds jobs, the jobs not started of the modules built on it are queued again behind them, so they still come
 after it. Parsing a long chain again for every job is avoided: a spec is parsed once, and again only when a
 file it could read has changed.

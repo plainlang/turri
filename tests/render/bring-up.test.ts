@@ -166,6 +166,10 @@ describe("bringing the queue up to the spec", () => {
     q.bringUpTo("top.plain");
     // The module below is planned; the one above waits for it to land.
     await vi.waitFor(() => expect(seen).toEqual(["- A :User: registers. | - A :User: signs in."]));
+    // Its one job says so, so it does not read as the whole module built at once.
+    const waiting = registry.list().find((job) => job.summary.startsWith("top.plain"))!;
+    expect(waiting.summary).toBe("top.plain - planned into jobs once base has landed");
+    expect(waiting.note).toContain("Not planned yet");
     release();
     await q.drain();
     expect(seen).toEqual(["- A :User: registers. | - A :User: signs in.", "- The home page says hello."]);

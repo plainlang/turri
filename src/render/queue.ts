@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
 import { pendingFrids, staleFrids } from "./state.ts";
 import { describeDelivery, withTryItLine } from "./delivery.ts";
@@ -398,6 +398,9 @@ export function createRenderQueue(options: {
         // Its turn: the modules below it have landed, so the work of this codebase is planned now.
         if (work.planLater === true) {
           for (const other of works.values()) if (other.codebase === work.codebase) other.planLater = false;
+          // No longer waiting: what it is now comes from its plan.
+          const job = options.registry.get(work.jobId!);
+          if (job !== undefined) job.note = undefined;
           triggerMaster(work);
         }
         // The queue master may still be reworking the queue: it decides what this job renders, or whether it runs at all.
@@ -487,8 +490,10 @@ export function createRenderQueue(options: {
   const triggerMaster = (work: SpecDiffWork) => {
     // Built on a module whose own work has not landed yet: what it starts from is not known, so it is planned when
     // its turn comes - when its first job can start - not now, beside the modules below it.
-    if (belowPending(work)) {
+    const waitsOn = belowPending(work);
+    if (waitsOn !== undefined) {
       work.planLater = true;
+      labelWaiting(work, waitsOn);
       return;
     }
     const previous = gateOf(work.codebase);
@@ -685,6 +690,7 @@ export function createRenderQueue(options: {
       const previous = { jobId: work.jobId!, conformanceJobId: work.conformanceJobId };
       const again: SpecDiffWork = { ...work, jobId: undefined, conformanceJobId: undefined, planLater: true };
       const { jobId } = startSpecDiff(again);
+      labelWaiting(again, belowPending(again) ?? basename(dirname(codebase)));
       const note = `Queued again as job ${jobId}: the module it is built on was planned into more jobs, and it comes after them.`;
       work.superseded = note;
       for (const id of [previous.jobId, previous.conformanceJobId]) {
@@ -918,10 +924,26 @@ export function createRenderQueue(options: {
     return left === null ? null : inheritedTree(left, source.moduleName, spec);
   };
 
-  /** Whether a module below this one in the chain still has work to land: this one's work is planned once that has. */
-  const belowPending = (work: SpecDiffWork): boolean => {
-    const below = new Set(work.spec.chain.slice(0, -1).map((entry) => entry.buildDir));
-    return [...works.values()].some((other) => below.has(other.codebase) && other.superseded === undefined && other.jobId !== undefined && isPending(options.registry.get(other.jobId)?.status));
+  /**
+   * Say on a job not planned yet what it is: one job with the module's whole diff, until it is planned, would read as
+   * the module built at once.
+   */
+  const labelWaiting = (work: SpecDiffWork, waitsOn: string) => {
+    const job = work.jobId !== undefined ? options.registry.get(work.jobId) : undefined;
+    if (job === undefined) return;
+    job.summary = `${basename(work.plainFile)} - planned into jobs once ${waitsOn} has landed`;
+    job.note = `Not planned yet: this is everything not built of ${work.spec.moduleName}, as one change. It is cut into jobs of one to three functional specs when its turn comes - once ${waitsOn}, the module it is built on, has landed - from what that module's code implements.`;
+  };
+
+  /** The nearest module below this one in the chain with work still to land, if any: this one's work is planned once it has. */
+  const belowPending = (work: SpecDiffWork): string | undefined => {
+    const below = work.spec.chain.slice(0, -1);
+    const pending = new Set(
+      [...works.values()]
+        .filter((other) => other.superseded === undefined && other.jobId !== undefined && isPending(options.registry.get(other.jobId)?.status))
+        .map((other) => other.codebase),
+    );
+    return [...below].reverse().find((entry) => pending.has(entry.buildDir))?.moduleName;
   };
 
   /** A functionality render as a work: its change - that functionality added - from what the code will be built from by then. */
