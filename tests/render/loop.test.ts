@@ -171,8 +171,12 @@ describe("the work loop", () => {
       ["base", true, undefined],
       ["top", false, "waiting for base: the code it is built on is not built yet"],
     ]);
+    // Not planned yet, it is in the queue all the same: behind the job of the module it waits for.
+    const running = loop.status()[0]!.running!.jobId;
+    expect(loop.planned().map((job) => [job.summary, job.status, job.waitingOn])).toEqual([["top.plain - waits for base", "queued", [running]]]);
     gate.release!();
     await loop.drain();
+    expect(loop.planned()).toEqual([]);
     expect(ran.map((job) => [job.module, job.add])).toEqual([
       ["base", ["1"]],
       ["top", ["1"]],

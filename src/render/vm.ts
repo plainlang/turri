@@ -246,7 +246,7 @@ export function vmImageFor(project: string): { tag: string; path: string; own: b
 /** Room for dependencies and build output, and for compilers to run. */
 const VM_DISK = process.env.PLAINWRIGHT_VM_DISK ?? "8G";
 const VM_MEMORY = process.env.PLAINWRIGHT_VM_MEMORY ?? "2G";
-const VM_CPUS = Number(process.env.PLAINWRIGHT_VM_CPUS ?? 2);
+const VM_CPUS = Number(process.env.PLAINWRIGHT_VM_CPUS ?? 4);
 
 /** A size as the VM takes it - "2G", "512M" - in bytes. */
 function bytesOf(size: string): number {

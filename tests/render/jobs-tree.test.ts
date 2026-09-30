@@ -26,7 +26,7 @@ function job(id: string, status: Job["status"], extra: Partial<Job> = {}): Job {
 }
 
 const diff = (line: string) => `--- a/app.plain\n+++ b/app.plain\n@@ -1 +1,2 @@\n+- ${line}\n`;
-const rowsOf = (jobs: Job[], state = createJobsTreeState()) => jobsTreeRows(jobs, state).map((row) => (row.kind === "section" ? `[${row.section} ${row.count}]` : row.job.id));
+const rowsOf = (jobs: Job[], state = createJobsTreeState()) => jobsTreeRows(jobs, state).map((row) => (row.kind === "section" ? `[${row.section} ${row.count}]` : row.kind === "file" ? `${row.job.id}/${row.file}` : row.job.id));
 
 describe("the jobs tree", () => {
   it("lists running, queued and finished, running and queued open and finished closed - finished newest first", () => {
@@ -55,12 +55,12 @@ describe("the jobs tree", () => {
     const state = createJobsTreeState();
     const closed = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
     expect(closed).toMatch(/▸ · app\.plain c · .*app\.plain/);
-    expect(closed).not.toContain("+- Users give kudos.");
+    expect(closed).not.toContain("+ - Users give kudos.");
     state.cursor = 2; // [running], [queued], c
     treeKey(state, jobsTreeRows(jobs, state), "open");
     const open = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
     expect(open).toContain("▾ · app.plain c");
-    expect(open).toContain("+- Users give kudos.");
+    expect(open).toContain("+ - Users give kudos.");
     expect(open).toContain("waits for job b");
   });
 
@@ -135,16 +135,72 @@ describe("the jobs tree", () => {
     const { lines, rowStarts } = jobsTreeLines(jobs, state, 120, PLAIN);
     keepCursorInView(state, rowStarts, lines.length, 10);
     expect(state.top).toBe(0);
-    // A page down: still in c's diff, the cursor stays on c.
+    // c's diff is under the row of its file, open as the file being rendered.
+    const rows = jobsTreeRows(jobs, state);
+    expect(rows[3]).toMatchObject({ kind: "file", file: "app.plain" });
+    // A page down: in the file's lines now - the cursor on the file, its row still in sight.
     scrollTree(state, 9, rowStarts, lines.length, 10);
     expect(state.top).toBe(9);
-    expect(state.cursor).toBe(2);
-    // Drawn again, it stays where it was scrolled to: a line of c is in sight.
+    expect(state.cursor).toBe(3);
+    // Drawn again, it stays where it was scrolled to: a line of the file is in sight.
     keepCursorInView(state, rowStarts, lines.length, 10);
     expect(state.top).toBe(9);
     // Down to f: the view follows it.
-    state.cursor = 3;
+    state.cursor = 4;
     keepCursorInView(state, rowStarts, lines.length, 10);
-    expect(state.top).toBe(rowStarts[3]! - 9);
+    expect(state.top).toBe(rowStarts[4]! - 9);
+  });
+
+  describe("a job's files", () => {
+    // A diff of hubspot.plain, with what it reads from two templates laid in.
+    const spread = [
+      "--- a/hubspot.plain",
+      "+++ b/hubspot.plain",
+      "@@ -1,4 +1,6 @@",
+      "+- :Provider: is a CRM.",
+      "+- :HubSpotClient: reads contacts.",
+      "+- :ConformanceTest: runs live.",
+      "+- :Mapping: maps a record.",
+      "",
+    ].join("\n");
+    const where = {
+      3: { file: "template/crm_common.plain", line: 4 },
+      4: { file: "hubspot.plain", line: 9 },
+      5: { file: "template/integration_testing.plain", line: 2 },
+      6: { file: "template/crm_common.plain", line: 12 },
+    };
+
+    it("are rows of their own under the job opened - the file being rendered first and open, the rest by name and closed, each one once", () => {
+      const jobs = [job("c", "queued", { summary: "hubspot.plain c", diff: spread, diffWhere: where })];
+      const state = createJobsTreeState();
+      state.cursor = 2;
+      treeKey(state, jobsTreeRows(jobs, state), "open");
+      expect(rowsOf(jobs, state)).toEqual(["[running 0]", "[queued 1]", "c", "c/hubspot.plain", "c/template/crm_common.plain", "c/template/integration_testing.plain", "[finished 0]"]);
+      const shown = jobsTreeLines(jobs, state, 100, PLAIN).lines.join("\n");
+      expect(shown).toContain("▾ hubspot.plain  +1");
+      expect(shown).toContain("reads contacts.");
+      // crm_common's two places in one row, closed: its lines not shown (its first is in the job's own line, as the change it leads with).
+      expect(shown).toContain("▸ template/crm_common.plain  +2");
+      expect(shown).not.toContain("maps a record.");
+    });
+
+    it("open and close one at a time, all of a job's at once from any of them, and step back to the job from one closed", () => {
+      const jobs = [job("c", "queued", { summary: "hubspot.plain c", diff: spread, diffWhere: where })];
+      const state = createJobsTreeState();
+      state.cursor = 2;
+      treeKey(state, jobsTreeRows(jobs, state), "open");
+      state.cursor = 4; // crm_common
+      treeKey(state, jobsTreeRows(jobs, state), "toggle");
+      expect(jobsTreeLines(jobs, state, 100, PLAIN).lines.join("\n")).toContain("maps a record.");
+      treeKey(state, jobsTreeRows(jobs, state), "closeAll");
+      const closed = jobsTreeLines(jobs, state, 100, PLAIN).lines.join("\n");
+      expect(closed).not.toContain("reads contacts.");
+      expect(closed).not.toContain("maps a record.");
+      treeKey(state, jobsTreeRows(jobs, state), "openAll");
+      expect(jobsTreeLines(jobs, state, 100, PLAIN).lines.join("\n")).toContain("runs live.");
+      treeKey(state, jobsTreeRows(jobs, state), "close");
+      treeKey(state, jobsTreeRows(jobs, state), "close");
+      expect(state.cursor).toBe(2);
+    });
   });
 });

@@ -21,6 +21,8 @@ export interface Job {
   summary: string;
   /** The spec change a render spec diff job renders, as its diff. Shown while it waits and runs. */
   diff?: string;
+  /** Where its diff's lines are in the .plain files - their files and line numbers there - when they could be placed. */
+  diffWhere?: import("./diff-view.ts").DiffWhere;
   /** For a conformance job: the render job it is the conformance of. */
   follows?: string;
   /** A note on it, for the person: why it did not run, or what became of it. */

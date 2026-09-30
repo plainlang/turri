@@ -1,0 +1,124 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "***plain",
+    "patterns": [
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#variables"
+        },
+        {
+            "include": "#classes"
+        },
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#functions"
+        },
+        {
+            "include": "#modules"
+        },
+        {
+            "include": "#punctuation"
+        },
+        {
+            "include": "#strings"
+        }
+    ],
+    "repository": {
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "entity.name.function.plain",
+                    "match": "\\*\\*\\*(definitions|implementation reqs|test reqs|functional specs|acceptance tests)\\*\\*\\*"
+                },
+                {
+                    "name": "meta.frontmatter.plain",
+                    "begin": "^---$",
+                    "end": "^---$",
+                    "patterns": [
+                        {
+                            "name": "keyword.control.import.plain",
+                            "match": "^\\s*(description):"
+                        },
+                        {
+                            "name": "keyword.control.import.plain",
+                            "match": "^\\s*(required_concepts):"
+                        },
+                        {
+                            "name": "keyword.control.import.plain",
+                            "match": "^\\s*(exported_concepts):"
+                        },
+                        {
+                            "name": "keyword.control.import.plain",
+                            "match": "^\\s*(import):"
+                        },
+                        {
+                            "name": "keyword.control.requires.plain",
+                            "match": "^\\s*(requires):"
+                        },
+                        {
+                            "match": "^\\s*-\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                            "captures": {
+                                "1": {
+                                    "name": "entity.name.type.class.plain"
+                                }
+                            }
+                        },
+                        {
+                            "name": "variable.parameter.plain",
+                            "match": ":[^\\s]+?:"
+                        }
+                    ]
+                },
+                {
+                    "name": "variable.parameter.plain",
+                    "match": ":[^\\s]+?:"
+                },
+                {
+                    "name": "comment.line.plain",
+                    "match": "^>.*$"
+                },
+                {
+                    "name": "entity.name.function.plain",
+                    "match": "\\\"\\{\\{.*?\\}\\}\\\""
+                },
+                {
+                    "name": "entity.name.module.plain",
+                    "begin": "\\{%\\s*include",
+                    "end": "%\\}"
+                },
+                {
+                    "name": "entity.punctuation.definition.bullet.plain",
+                    "match": "^\\s*-"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.quoted.other.plain",
+                    "match": "\\[[^)]+\\]\\([^\\]]+\\)"
+                },
+                {
+                    "name": "string.quoted.double.plain",
+                    "match": "\"[^\"]*\""
+                },
+                {
+                    "name": "string.quoted.other.backtick.plain",
+                    "match": "`[^`]*`"
+                },
+                {
+                    "name": "string.quoted.other.angle.plain",
+                    "match": "<[^<>]+>"
+                }
+            ]
+        }
+    },
+    "scopeName": "source.plain"
+}

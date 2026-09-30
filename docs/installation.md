@@ -237,5 +237,5 @@ For Gemini, `GEMINI_API_KEY` is what makes pi *offer* the google provider, but w
 | --- | --- |
 | `PLAIN_TEMPLATE_DIRS` | colon-separated template directories, e.g. the standard library |
 | `PLAINWRIGHT_VM_IMAGE` | a different Gondolin image to boot (default `plainwright:latest`) |
-| `PLAINWRIGHT_VM_DISK`, `PLAINWRIGHT_VM_MEMORY`, `PLAINWRIGHT_VM_CPUS` | the VM's size (default `8G`, `2G`, `2`) |
+| `PLAINWRIGHT_VM_DISK`, `PLAINWRIGHT_VM_MEMORY`, `PLAINWRIGHT_VM_CPUS` | the VM's size (default `8G`, `2G`, `4`) |
 | `PLAINWRIGHT_COMMAND_TIMEOUT` | seconds a command in the VM may run before it is stopped - an agent's own, its tests, an install (default `120`) |

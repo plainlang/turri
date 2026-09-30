@@ -1,4 +1,6 @@
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { diffView, PLAIN_PAINT, type DiffPaint } from "./diff-view.ts";
+import { plainPaint } from "./plain-palette.ts";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { describeUsage } from "./activity.ts";
 import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
 
@@ -98,6 +100,24 @@ export function summarizeDiff(diff: string, style: DiffStyle = PLAIN_DIFF): stri
 }
 
 /** The lines of a diff worth reading in a panel: the hunks, not the headers. */
+/**
+ * A line of the panel wrapped to its width, its continuations under its text: indented as far as it is,
+ * and past the rule of a diff box when it is in one.
+ */
+export function wrapKeepingIndent(line: string, width: number): string[] {
+  if (visibleWidth(line) <= width) return [line];
+  const plain = line.replace(/\x1b\[[0-9;]*m/g, "");
+  const indent = /^(\s*(?:│ )?)/.exec(plain)?.[1] ?? "";
+  // Inside a diff box its rule goes on down the continuations; elsewhere, blanks.
+  const lead = indent;
+  const inner = Math.max(10, width - indent.length);
+  const [first = "", ...rest] = wrapTextWithAnsi(line, width);
+  return [first, ...rest.flatMap((part) => wrapTextWithAnsi(part, inner)).map((part) => `${lead}${part}`)];
+}
+
+/** A diff's colours for the +/- alone, when there is nothing to highlight with. */
+const paintOf = (style: DiffStyle): DiffPaint => ({ ...PLAIN_PAINT, added: style.added, removed: style.removed });
+
 export function diffBody(diff: string): string[] {
   return diff
     .split("\n")
@@ -110,6 +130,9 @@ export interface PanelOptions {
   now?: number;
   /** Colours for the diffs of render spec diff jobs. */
   diffStyle?: DiffStyle;
+  /** How the expanded diff is painted - ***plain highlighted, added and removed lines banded - and how wide. */
+  diffPaint?: DiffPaint;
+  width?: number;
   /** The lines of help about ctrl+o and the side panel - left out where they do not apply, as in the side panel itself. */
   hints?: boolean;
 }
@@ -134,8 +157,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (job.diff !== undefined) {
       lines.push(`    ${summarizeDiff(job.diff, diffStyle)}`);
       if (expanded) {
-        const body = diffBody(job.diff);
-        for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${styleDiffLine(line, diffStyle)}`);
+        const body = diffView(job.diff, Math.max(10, (options.width ?? 100) - 8), options.diffPaint ?? paintOf(diffStyle), job.diffWhere);
+        for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${line}`);
         if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - /watch ${job.id} shows it all`);
       }
     }
@@ -197,12 +220,20 @@ interface Redrawable {
   requestRender(): void;
 }
 
+/** What of pi's theme the panel paints with: the diff's colours and bands, and ***plain's colours in it. */
+interface PanelTheme {
+  fg(color: "toolDiffAdded" | "toolDiffRemoved", text: string): string;
+  /** Whether it is made for a dark or a light surface, and how many colours the terminal has: the diff's palette. */
+  appearance?: "dark" | "light";
+  getColorMode?(): string;
+}
+
 /** The parts of pi's TUI the panel needs: enough to draw, redraw, and ask about ctrl+o. */
 export interface PanelUI {
   setWidget(
     key: string,
     content:
-      | ((tui: Redrawable, theme: { fg(color: "toolDiffAdded" | "toolDiffRemoved", text: string): string }) => {
+      | ((tui: Redrawable, theme: PanelTheme) => {
           render(width: number): string[];
           invalidate(): void;
         })
@@ -215,6 +246,7 @@ export interface PanelUI {
 export interface JobPanel {
   /** Where to draw. Until this is set there is no UI, and the panel does nothing. */
   attach(ui: PanelUI): void;
+
   /** Redraw soon, e.g. because a job changed. */
   refresh(): void;
 }
@@ -242,12 +274,15 @@ export function createJobPanel(list: () => Job[]): JobPanel {
               added: (text) => theme.fg("toolDiffAdded", text),
               removed: (text) => theme.fg("toolDiffRemoved", text),
             };
+            const diffPaint: DiffPaint = plainPaint(theme);
             return {
               // Laid out on every render, so ctrl+o takes effect on the very next frame.
-              render: (width) =>
-                jobPanelLines(list(), { expanded: target.getToolsExpanded(), diffStyle }).map((line) =>
-                  truncateToWidth(line, width),
-                ),
+              render: (width) => {
+                const expanded = target.getToolsExpanded();
+                const lines = jobPanelLines(list(), { expanded, diffStyle, diffPaint, width });
+                // Opened, nothing is cut off: every line wraps. Closed, a line each - the panel stays short.
+                return expanded ? lines.flatMap((line) => wrapKeepingIndent(line, width)) : lines.map((line) => truncateToWidth(line, width));
+              },
               invalidate() {},
             };
           },

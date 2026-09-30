@@ -84,13 +84,12 @@ describe("the transcript viewer", () => {
     const lines = transcriptLines(job, 80, style);
     const at = lines.indexOf("── the spec change");
     expect(at).toBeGreaterThan(lines.indexOf("── harness · cognio: spec diff 2 of 3 - Reject duplicate registrations"));
-    expect(lines.slice(at + 1, at + 7)).toEqual([
-      "~--- a/cognio.plain",
-      "~+++ b/cognio.plain",
-      "~@@ -3 +3,2 @@",
-      "~ - A student can register.",
-      "++  - Duplicates return 409.",
-      "--  - Old line.",
+    // The file named once, quietly; each line after its sign, added and removed ones padded out for their band.
+    expect(lines.slice(at + 1, at + 5).map((line) => line.trimEnd())).toEqual([
+      "~cognio.plain  ++1 -−1",
+      "  - A student can register.",
+      "++   - Duplicates return 409.",
+      "--   - Old line.",
     ]);
     expect(lines.indexOf("~harness ▸")).toBeGreaterThan(at);
   });
@@ -185,16 +184,16 @@ describe("the side panel", () => {
     const conformance = registry.start({ kind: "render_spec_diff_conformance", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
     await registry.wait(conformance.id);
     const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 30, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
-    // Newest first: the conformance job, then the spec diff.
+    // Newest first: the conformance job, then the spec diff - each opened, past the row of the conformance job's file.
     const down = "\x1b[B";
-    for (const key of [down, down, "\r", down, "\r", down, "\r"]) {
+    for (const key of [down, down, "\r", down, "\r", down, down, "\r"]) {
       panel.render(120);
       panel.handleInput(key);
     }
     const lines = panel.render(120).join("\n");
     expect(lines).toContain("backend.plain render spec diff");
-    expect(lines).toContain("+- :OrderController: takes the :AuthData: from the request.");
-    expect(lines).toContain("+++ b/backend.plain");
+    expect(lines).toContain("+ - :OrderController: takes the :AuthData: from the request.");
+    expect(lines).not.toContain("+++ b/backend.plain");
     expect(lines).toContain(`the conformance of backend.plain render spec diff (job ${job.id}, succeeded)`);
   });
 

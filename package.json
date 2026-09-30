@@ -24,12 +24,13 @@
     "regenerate": "tsx src/regenerate-frid.ts",
     "check": "tsx src/check-cli.ts",
     "setup": "node bin/plainwright.mjs setup",
-    "doctor": "node bin/plainwright.mjs doctor"
+    "doctor": "node bin/plainwright.mjs doctor",
+    "grammar:sync": "node scripts/sync-plyn-grammar.mjs"
   },
   "dependencies": {
     "@earendil-works/gondolin": "^0.12.0",
-    "@earendil-works/pi-coding-agent": "^0.99.1",
-    "@earendil-works/pi-tui": "^0.99.1",
+    "@earendil-works/pi-coding-agent": "^0.99.2",
+    "@earendil-works/pi-tui": "^0.99.2",
     "@langchain/langgraph": "1.4.15",
     "gray-matter": "^4.0.3",
     "js-yaml": "^5.4.2",

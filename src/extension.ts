@@ -33,6 +33,7 @@ import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./s
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
 import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { createWorkLoop, describeModules, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
+import { plainPaint } from "./render/plain-palette.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createSidePanel, type PanelView } from "./render/side-panel.ts";
 import { createJobsTreeState } from "./render/jobs-tree.ts";
@@ -1421,6 +1422,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             error: (text) => theme.fg("error", text),
             added: (text) => theme.fg("toolDiffAdded", text),
             removed: (text) => theme.fg("toolDiffRemoved", text),
+            // A spec diff's ***plain highlighted as plyn highlights it, and its added and removed lines filled.
+            diff: plainPaint(theme),
           },
           back: () => {
             entry.handle?.unfocus();

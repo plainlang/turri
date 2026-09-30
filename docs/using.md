@@ -71,16 +71,31 @@ come waits for a free slot, and says so.
 
 - **The panel** above the input shows each running job - its stage, what its agents are doing,
   its model, time and cost - and the queue. `ctrl+o` expands it.
+- **A spec diff**, wherever a panel shows one, reads as an editor shows a diff: its \*\*\*plain highlighted
+  as [plyn](https://github.com/plainlang/plyn) highlights it - section headers, concepts, names in
+  backticks, text in quotes, links, the front matter - each added line filled green and each removed one
+  red, the text on top, the fill the width of the panel ([colours](theming.md#spec-diffs)). It is shown
+  file by file, each file's lines together under its name, with what it adds and takes out - the module
+  being rendered first, the rest by name, and none the diff does not change. Each line has its number in
+  that file: a spec diff is of the spec as read, with what it imports laid in, so a line is placed in the
+  file it is written in - its links read as the parser renders them - and a removed line, in no file now,
+  goes with the change it is part of and has no number. A line is never put in a file on a guess: one
+  that cannot be placed is listed last, under "not found in the spec's files". Where lines of a file are not in
+  the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
+  the lines under it are in, `↕ 28 lines · ***functional specs***`, as GitHub names a hunk's function. Opened with `ctrl+o`, the panel wraps
+  every line rather than cutting it off.
 - **The side panel** (`ctrl+j`, which in plainwright replaces pi's own new-line key - `shift+enter` still
   inserts one; pi outside plainwright keeps it, and a `tui.input.newLine` of your own in
   `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with two views - `tab`
   switches between them:
   - **Jobs** - the whole queue as three sections - running, queued, finished - each opened and closed on
     its own (running and queued start open). A job is one line: what it is and what it changes, with time
-    and cost - a running one adds its stage. Opened, it shows all of what it builds: the spec diff, or for
-    a render the diff of the functional spec it adds, coloured, and running, what its agents are doing.
-    `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
-    (`←` on a closed job goes to its section), `o` and `c` open or close every job of the section, `t`
+    and cost - a running one adds its stage. Opened, it shows what it is doing, running, and under it a row
+    for each file its spec diff changes - the file of the module being rendered first and open, the rest by
+    name and closed - each opening onto that file's lines. A file with nothing added or taken out is not
+    listed. `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
+    (`←` on a closed job goes to its section, on a closed file to its job), `o` and `c` open or close every
+    job of the section - or, on a file, every file of its job - `t`
     opens a job's trace, `pgup` `pgdn` and the wheel scroll. The cursor stays on its row when the job under
     it moves on; a job opened closes when it moves to another section. What is open is kept while the
     panel is closed;
@@ -99,8 +114,9 @@ come waits for a free slot, and says so.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
   and the spec as it is now - again whenever a job ends or the spec changes - and the first job of
   it runs; see [the work model](work-model.md). Changes that overlap never pile up: the next job
-  builds the spec as it is. A job building something the spec no longer wants is stopped and rolled
-  back. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
+  builds the spec as it is. The jobs planned after the one running are listed behind it, as queued,
+  and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
+  A job building something the spec no longer wants is stopped and rolled back. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
   in the spec: the codebase waits until the spec changes or it is asked for again.
 - **A change to a module below** is made in the codebase at the tip of the chain, where its code
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new

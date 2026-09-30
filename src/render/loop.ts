@@ -12,7 +12,9 @@ import { chainTree, codeTree, inheritedRecord, readRecord, writeCodeRecord } fro
 import { resolveTemplateDirs } from "./render.ts";
 import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, type ChainEntry } from "./requires.ts";
 import { withTryItLine } from "./delivery.ts";
-import { describeSpecDiff, renderSpecDiff, type SpecSnapshot } from "./spec-change.ts";
+import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./spec-change.ts";
+import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
+import { projectDirOf } from "./paths.ts";
 import { changesBetween, parseTree, serializeTree, type SpecStep } from "./spec-steps.ts";
 import { listFiles } from "./testing.ts";
 import { casesOf, codeWork, stillWanted, type JobCases } from "./work.ts";
@@ -78,6 +80,8 @@ interface ModuleState {
   halted?: { why: string; specKey: string };
   /** Why the last look started nothing here. */
   why?: string;
+  /** The module below it that it waits for, while it does: not planned until that one is built. */
+  waitsFor?: string;
 }
 
 export interface WorkLoop {
@@ -236,6 +240,8 @@ export function createWorkLoop(options: {
         return { report: result.report, details: { passed: result.landed, landed: result.landed } };
       },
     });
+    // Its lines where they are written: the module's .plain file, those it imports, and those of the modules below it.
+    job.diffWhere = whereInFiles(planned.step.textDiff, state.chain);
     state.running = { jobId: job.id, planned, from, after: planned.step.tree };
     void options.registry.wait(job.id).then(
       (settled) => settle(state, settled),
@@ -348,6 +354,7 @@ export function createWorkLoop(options: {
       return;
     }
     const below = waitingOn(state);
+    state.waitsFor = below;
     if (below !== undefined) {
       state.why = `waiting for ${below}: the code it is built on is not built yet`;
       return;
@@ -442,31 +449,55 @@ export function createWorkLoop(options: {
     planned() {
       const now = Date.now();
       let sequence = Number.MAX_SAFE_INTEGER;
+      // The last job - running or planned - of each module, by name: what a module waiting for it waits behind.
+      const lastOf = new Map<string, string>();
       return order.flatMap((key) => {
         const state = modules.get(key)!;
         const tip = tipEntry(state);
         const status = statusOf(state);
         let before = status.running?.jobId;
+        if (before !== undefined) lastOf.set(tip.moduleName, before);
+        const row = (id: string, summary: string, note: string, waitingOn: string[]): Job => ({
+          id,
+          kind: "render_spec_diff",
+          summary,
+          note,
+          ...(state.model !== undefined ? { model: state.model } : {}),
+          status: "queued",
+          sequence: sequence--,
+          queuedAt: now,
+          startedAt: now,
+          waitingOn,
+          tail: "",
+          activity: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+          agents: [],
+          transcript: [],
+        });
+        // Waiting for the module below it: not planned yet, but in the queue all the same - behind what it waits for.
+        if (state.running === undefined && state.waitsFor !== undefined) {
+          const behind = lastOf.get(state.waitsFor);
+          const id = `planned-${tip.moduleName}-waiting`;
+          lastOf.set(tip.moduleName, id);
+          return [
+            row(
+              id,
+              `${basename(tip.plainFile)} - waits for ${state.waitsFor}`,
+              `Not planned yet: its work is planned into jobs once ${state.waitsFor} is built - the code it is built on.`,
+              behind !== undefined ? [behind] : [],
+            ),
+          ];
+        }
         return status.planned.map((job, index): Job => {
-          const row: Job = {
-            id: `planned-${tip.moduleName}-${index + 1}`,
-            kind: "render_spec_diff",
-            summary: `${basename(tip.plainFile)} ${job.title}`,
-            note: `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a job before it ends.`,
-            ...(state.model !== undefined ? { model: state.model } : {}),
-            status: "queued",
-            sequence: sequence--,
-            queuedAt: now,
-            startedAt: now,
-            waitingOn: before !== undefined ? [before] : [],
-            tail: "",
-            activity: [],
-            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
-            agents: [],
-            transcript: [],
-          };
-          before = row.id;
-          return row;
+          const planned = row(
+            `planned-${tip.moduleName}-${index + 1}`,
+            `${basename(tip.plainFile)} ${job.title}`,
+            `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a job before it ends.`,
+            before !== undefined ? [before] : [],
+          );
+          before = planned.id;
+          lastOf.set(tip.moduleName, planned.id);
+          return planned;
         });
       });
     },
@@ -482,6 +513,17 @@ export function createWorkLoop(options: {
     },
   };
   return loop;
+}
+
+/** A diff's lines placed in the .plain files of a chain - the tip's first - named as they are from the project. */
+function whereInFiles(diff: string, chain: ChainEntry[]): DiffWhere {
+  try {
+    const files = [...chain].reverse().flatMap((entry) => specFilesOf(entry.plainFile));
+    const unique = [...new Set(files)].map((path) => ({ name: relative(projectDirOf(chain.at(-1)!.plainFile), path) || basename(path), text: readFileSync(path, "utf8") }));
+    return locateDiffLines(diff, unique);
+  } catch {
+    return {};
+  }
 }
 
 /** What a job does, in a few words: its cases. */

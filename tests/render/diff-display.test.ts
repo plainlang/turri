@@ -43,7 +43,8 @@ describe("showing a spec change", () => {
     expect(compact.some((line) => line.includes("│"))).toBe(false);
 
     const expanded = jobPanelLines(jobs.list(), { expanded: true });
-    expect(expanded).toContain("      │ +- :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+    // The sign in a column of its own, the row padded out for its band.
+    expect(expanded.map((line) => line.trimEnd())).toContain("      │ + - :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
     expect(expanded.filter((line) => line.includes("backend.plain +3 −1"))).toHaveLength(2);
     release();
   });
@@ -56,7 +57,7 @@ describe("showing a spec change", () => {
 
     const lines = transcriptLines(queued, 100);
     expect(lines[0]).toBe("── the spec change");
-    expect(lines).toContain("+- :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+    expect(lines.map((line) => line.trimEnd())).toContain("+ - :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
     expect(lines.at(-1)).toBe("(queued - not started yet)");
   });
 });
@@ -76,5 +77,20 @@ describe("colouring a spec change", () => {
     expect(summarizeDiff(diff, style)).toBe(
       "backend.plain <green>+3</green> <red>−1</red> · :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.",
     );
+  });
+});
+
+describe("the job panel, opened", () => {
+  it("wraps every line to the width, its continuations under its text - in a diff box, under the box's rule", async () => {
+    const { wrapKeepingIndent } = await import("../../src/render/job-panel.ts");
+    const long = "    reviewing the code and its unit tests (review 1): does the code do what the spec says, and does each test fail when that breaks";
+    const rows = wrapKeepingIndent(long, 40);
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.every((row) => row.length <= 40)).toBe(true);
+    expect(rows.slice(1).every((row) => row.startsWith("    ") && !row.startsWith("     "))).toBe(true);
+    expect(rows.join(" ").replace(/\s+/g, " ")).toContain("when that breaks");
+    const boxed = wrapKeepingIndent(`      │ ${"word ".repeat(20)}`, 40);
+    expect(boxed.slice(1).every((row) => row.startsWith("      │ "))).toBe(true);
+    expect(wrapKeepingIndent("short", 40)).toEqual(["short"]);
   });
 });

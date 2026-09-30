@@ -1,6 +1,7 @@
+import { diffView, PLAIN_PAINT, type DiffPaint, type DiffWhere } from "./diff-view.ts";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { TranscriptEntry } from "./activity.ts";
-import { styleDiffLine, type DiffStyle } from "./job-panel.ts";
+import type { DiffStyle } from "./job-panel.ts";
 import type { Job } from "./jobs.ts";
 
 /**
@@ -19,6 +20,8 @@ export interface TranscriptStyle extends DiffStyle {
   muted(text: string): string;
   accent(text: string): string;
   error(text: string): string;
+  /** How a spec diff is painted - ***plain highlighted, added and removed lines filled (`plain-palette.ts`). Not given: the +/- coloured alone. */
+  diff?: DiffPaint;
 }
 
 const PLAIN: TranscriptStyle = {
@@ -43,17 +46,8 @@ function wrap(text: string, width: number, indent: string): string[] {
  * A spec change's diff, whole: what it adds and removes coloured, the rest receding. A line wider
  * than the screen wraps rather than being cut - a spec line changed near its end is the change.
  */
-export function diffLines(diff: string, width: number, style: TranscriptStyle): string[] {
-  return diff
-    .trimEnd()
-    .split("\n")
-    .flatMap((line) => {
-      const colour = styleDiffLine(line, style) === line ? style.muted : line.startsWith("+") ? style.added : style.removed;
-      if (line === "") return [""];
-      const [first = "", ...rest] = wrapTextWithAnsi(line, Math.max(10, width));
-      // Continuations indented past the +/- column, so it stays readable.
-      return [colour(first), ...rest.flatMap((part) => wrapTextWithAnsi(part, Math.max(10, width - 2))).map((part) => colour(`  ${part}`))];
-    });
+export function diffLines(diff: string, width: number, style: TranscriptStyle, where?: DiffWhere): string[] {
+  return diffView(diff, width, style.diff ?? { ...PLAIN_PAINT, added: style.added, removed: style.removed, muted: style.muted }, where);
 }
 
 /** "judge" of "app 1 judge", "coding agent" of "app spec change coding agent" - the role, without the unit of work. */
@@ -92,7 +86,7 @@ function entryLines(entry: TranscriptEntry, width: number, style: TranscriptStyl
  * job, by the change it renders, which is readable before the job has even started.
  */
 export function transcriptLines(job: Job, width: number, style: TranscriptStyle = PLAIN, agent?: string): string[] {
-  const change = job.diff === undefined ? [] : [style.heading("── the spec change"), ...diffLines(job.diff, width, style)];
+  const change = job.diff === undefined ? [] : [style.heading("── the spec change"), ...diffLines(job.diff, width, style, job.diffWhere)];
   if (job.transcript.length === 0) {
     return [...change, ...(change.length > 0 ? [""] : []), style.muted(job.status === "queued" ? "(queued - not started yet)" : "(nothing yet)")];
   }

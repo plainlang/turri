@@ -2,7 +2,8 @@ import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { describeUsage } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
-import { diffLines, type TranscriptStyle } from "./transcript-view.ts";
+import { diffFiles, fileHeader, PLAIN_PAINT } from "./diff-view.ts";
+import type { TranscriptStyle } from "./transcript-view.ts";
 
 /**
  * The side panel's Jobs view: the queue as a tree, read one job at a time.
@@ -25,6 +26,8 @@ export interface JobsTreeState {
   open: Record<JobSection, boolean>;
   /** The jobs opened, by id, and the section each was opened in. */
   openJobs: Map<string, JobSection>;
+  /** The files of each job's diff opened or closed by hand, by job and file: the rest as they start - the file being rendered open, the others closed. */
+  openFiles: Map<string, Map<string, boolean>>;
   /** The row the cursor is on. */
   cursor: number;
   /** The first line shown. */
@@ -32,14 +35,39 @@ export interface JobsTreeState {
 }
 
 export function createJobsTreeState(): JobsTreeState {
-  return { open: { running: true, queued: true, finished: false }, openJobs: new Map(), cursor: 0, top: 0 };
+  return { open: { running: true, queued: true, finished: false }, openJobs: new Map(), openFiles: new Map(), cursor: 0, top: 0 };
 }
 
 export function sectionOf(job: Job): JobSection {
   return job.status === "running" ? "running" : job.status === "queued" ? "queued" : "finished";
 }
 
-export type TreeRow = { kind: "section"; section: JobSection; count: number } | { kind: "job"; section: JobSection; job: Job };
+export type TreeRow =
+  | { kind: "section"; section: JobSection; count: number }
+  | { kind: "job"; section: JobSection; job: Job }
+  | { kind: "file"; section: JobSection; job: Job; file: string; first: boolean };
+
+/** The files of a job's diff, in the order they are shown - read once for each diff, not on every frame. */
+const filesSeen = new Map<string, { diff: string; files: string[] }>();
+function filesOf(job: Job): string[] {
+  if (job.diff === undefined || job.diff.trim() === "") return [];
+  const seen = filesSeen.get(job.id);
+  if (seen !== undefined && seen.diff === job.diff) return seen.files;
+  const files = diffFiles(job.diff, 80, undefined, job.diffWhere).map((file) => file.file);
+  filesSeen.set(job.id, { diff: job.diff, files });
+  return files;
+}
+
+/** Whether a file of a job's diff is open: as it was opened or closed, else open when it is the file being rendered - the first. */
+function isFileOpen(state: JobsTreeState, row: { job: Job; file: string; first: boolean }): boolean {
+  return state.openFiles.get(row.job.id)?.get(row.file) ?? row.first;
+}
+
+function setFileOpen(state: JobsTreeState, job: Job, file: string, open: boolean): void {
+  const files = state.openFiles.get(job.id) ?? new Map<string, boolean>();
+  files.set(file, open);
+  state.openFiles.set(job.id, files);
+}
 
 /** Whether a job is open where it is now: one opened in another section, it closed when it left it. */
 function isOpen(state: JobsTreeState, job: Job): boolean {
@@ -62,7 +90,12 @@ export function jobsTreeRows(jobs: Job[], state: JobsTreeState): TreeRow[] {
   for (const job of jobs) isOpen(state, job);
   return SECTIONS.flatMap((section) => {
     const inSection = of(section);
-    return [{ kind: "section" as const, section, count: inSection.length }, ...(state.open[section] ? inSection.map((job) => ({ kind: "job" as const, section, job })) : [])];
+    const jobRows = (job: Job): TreeRow[] => [
+      { kind: "job", section, job },
+      // An open job's diff, a row a file: each opens and closes on its own.
+      ...(isOpen(state, job) ? filesOf(job).map((file, index): TreeRow => ({ kind: "file", section, job, file, first: index === 0 })) : []),
+    ];
+    return [{ kind: "section" as const, section, count: inSection.length }, ...(state.open[section] ? inSection.flatMap(jobRows) : [])];
   });
 }
 
@@ -100,9 +133,8 @@ function named(jobs: Job[], id: string): string {
 function detailLines(job: Job, jobs: Job[], width: number, style: TranscriptStyle): string[] {
   const indent = "        ";
   const lines: string[] = [];
-  if (job.diff !== undefined && job.diff.trim() !== "") {
-    lines.push(...diffLines(job.diff, Math.max(10, width - indent.length), style).map((line) => `${indent}${line}`));
-  } else if (job.building !== undefined) {
+  // A diff is shown a file at a time, in rows of their own after these.
+  if ((job.diff === undefined || job.diff.trim() === "") && job.building !== undefined) {
     lines.push(style.muted(`${indent}${job.building.label}:`), ...wrap(job.building.text, width, `${indent}  `, style.accent));
   }
   if (job.follows !== undefined) lines.push(style.muted(`${indent}the conformance of ${named(jobs, job.follows)}`));
@@ -120,7 +152,7 @@ function detailLines(job: Job, jobs: Job[], width: number, style: TranscriptStyl
     if (job.now !== undefined) lines.push(style.muted(`${indent}… ${job.now.label} · ${Math.max(0, Math.round((Date.now() - job.now.since) / 1000))}s`));
   }
   if (job.status === "failed" && job.error !== undefined) lines.push(...wrap(job.error.split("\n").slice(0, 6).join("\n"), width, indent, style.error));
-  return lines.length > 0 ? lines : [style.muted(`${indent}(nothing more to show)`)];
+  return lines.length > 0 || filesOf(job).length > 0 ? lines : [style.muted(`${indent}(nothing more to show)`)];
 }
 
 /** The rows as lines, the cursor's marked, and where each row starts - for scrolling to it. */
@@ -143,6 +175,16 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
       lines.push(here ? style.heading(header) : style.muted(header));
       return;
     }
+    if (row.kind === "file") {
+      const open = isFileOpen(state, row);
+      const paint = style.diff ?? { ...PLAIN_PAINT, added: style.added, removed: style.removed, muted: style.muted };
+      const shown = diffFiles(row.job.diff!, Math.max(10, width - FILE_INDENT.length), paint, row.job.diffWhere).find((file) => file.file === row.file);
+      if (shown === undefined) return;
+      const header = `${pointer}${FILE_INDENT.slice(1)}${fileHeader(shown, paint, open)}`;
+      lines.push(here ? style.heading(header) : header);
+      if (open) lines.push(...shown.rows.map((line) => `${FILE_INDENT}${line}`));
+      return;
+    }
     const { job } = row;
     const open = isOpen(state, job);
     const spent = describeUsage(job.usage);
@@ -156,6 +198,9 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
   });
   return { lines, rowStarts, rows };
 }
+
+/** How far a job's files, and their lines, are indented under it. */
+const FILE_INDENT = "        ";
 
 /** Keep the cursor's row in sight: scroll only as far as that takes. */
 export function keepCursorInView(state: JobsTreeState, rowStarts: number[], lineCount: number, height: number): void {
@@ -194,23 +239,34 @@ export function treeKey(state: JobsTreeState, rows: TreeRow[], key: "up" | "down
     case "toggle":
       if (row === undefined) return { kind: "none" };
       if (row.kind === "section") state.open[row.section] = !state.open[row.section];
+      else if (row.kind === "file") setFileOpen(state, row.job, row.file, !isFileOpen(state, row));
       else if (state.openJobs.has(row.job.id)) state.openJobs.delete(row.job.id);
       else state.openJobs.set(row.job.id, row.section);
       return { kind: "handled" };
     case "open":
       if (row === undefined) return { kind: "none" };
       if (row.kind === "section") state.open[row.section] = true;
+      else if (row.kind === "file") setFileOpen(state, row.job, row.file, true);
       else state.openJobs.set(row.job.id, row.section);
       return { kind: "handled" };
     case "close":
       if (row === undefined) return { kind: "none" };
       if (row.kind === "section") state.open[row.section] = false;
-      else if (state.openJobs.has(row.job.id)) state.openJobs.delete(row.job.id);
+      else if (row.kind === "file") {
+        // Open, it closes; closed, the cursor goes up to its job.
+        if (isFileOpen(state, row)) setFileOpen(state, row.job, row.file, false);
+        else state.cursor = rows.findLastIndex((other, index) => index < state.cursor && other.kind === "job" && other.job.id === row.job.id);
+      } else if (state.openJobs.has(row.job.id)) state.openJobs.delete(row.job.id);
       else state.cursor = rows.findLastIndex((other, index) => index < state.cursor && other.kind === "section");
       return { kind: "handled" };
     case "openAll":
     case "closeAll": {
       if (row === undefined) return { kind: "none" };
+      // On a file: every file of its job, to go through them quickly.
+      if (row.kind === "file") {
+        for (const other of rows) if (other.kind === "file" && other.job.id === row.job.id) setFileOpen(state, other.job, other.file, key === "openAll");
+        return { kind: "handled" };
+      }
       const section = row.section;
       state.open[section] = true;
       for (const other of rows) {
@@ -221,6 +277,6 @@ export function treeKey(state: JobsTreeState, rows: TreeRow[], key: "up" | "down
       return { kind: "handled" };
     }
     case "trace":
-      return row?.kind === "job" ? { kind: "trace", jobId: row.job.id } : { kind: "none" };
+      return row?.kind === "job" || row?.kind === "file" ? { kind: "trace", jobId: row.job.id } : { kind: "none" };
   }
 }
