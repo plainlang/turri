@@ -999,7 +999,7 @@ export async function renderChain(options: RenderChainOptions): Promise<RenderCh
       const source = byModule.get(entry.requires);
       if (source !== undefined) {
         reportStage(`${unitOf(entry.moduleName)}: starting from ${entry.requires}'s code and conformance tests`);
-        copied = copyRequiredCode(source.buildDir, entry.buildDir, entry.moduleName, source.moduleName).length;
+        copied = copyRequiredCode(source.buildDir, entry.buildDir, entry.moduleName, source.moduleName, entryTree).length;
         options.onChainEvent?.({
           type: "copied",
           from: entry.requires,

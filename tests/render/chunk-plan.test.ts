@@ -144,3 +144,16 @@ describe("a plan and the work", () => {
     expect(plan.flatMap((job) => job.changes).sort()).toEqual(netChanges(from.base, from.current).map((change) => change.id).sort());
   });
 });
+
+describe("what a module built on another starts from", () => {
+  it("is that module's functional specs, inherited, and every definition and req of its own spec that code implements word for word", async () => {
+    const { inheritedTree } = await import("../../src/render/state.ts");
+    const source = tree({ definitions: ["- :User: is a person."], impl: ["- :Implementation: is Python.", "- Uses SQLite."], specs: ["- A :User: registers."] });
+    const spec = tree({ definitions: ["- :User: is a person.", "- :Page: is a screen."], impl: ["- :Implementation: is Python.", "- Uses Flask."], specs: ["- Show a :Page:."] });
+    expect(inheritedTree(source, "base", spec)).toEqual({
+      definitions: [{ markdown: "- :User: is a person." }],
+      "implementation reqs": [{ markdown: "- :Implementation: is Python." }],
+      "required functional specs": [{ markdown: "- A :User: registers.", module: "base", frid: "1" }],
+    });
+  });
+});

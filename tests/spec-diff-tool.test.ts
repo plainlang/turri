@@ -252,8 +252,11 @@ describe("a spec diff across two modules of a chain", () => {
     // The part below: only its own file.
     expect(rendered[0]).toContain("+++ b/accounts.plain");
     expect(rendered[0]).not.toContain("app.plain");
-    // The part above: nothing built there yet, so its whole spec - and not the module below's, which its code comes with.
-    expect(rendered[1]).toContain("--- /dev/null\n+++ b/app.plain");
+    // The part above: nothing built there yet, so planned once the one below landed, from the code it starts from -
+    // what that code implements already, its own "Python." among it, is not new work: only its own functional spec is.
+    expect(rendered[1]).toContain("+++ b/app.plain");
+    expect(rendered[1]).toContain("+- Show the home page to a visitor.");
+    expect(rendered[1]).not.toContain("+- Python.");
     expect(rendered[1]).not.toContain("accounts.plain");
     expect(result.details.jobIds).toHaveLength(2);
     expect(result.content[0]!.text).toContain("split into a job for each");

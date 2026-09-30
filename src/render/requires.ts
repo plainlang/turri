@@ -6,6 +6,7 @@ import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { builtRequiredSpecs, inheritBuiltTree, STATE_FILE, type RequiredSpec } from "./state.ts";
+import type { MarshalledPlainSource } from "../plain/spec.ts";
 import { head, historyLog, recordHistory } from "./history.ts";
 import { listFiles } from "./testing.ts";
 
@@ -193,6 +194,8 @@ export function copyRequiredCode(
   toModule: string,
   /** The module the code comes from: its functional specs are what the new one inherits. */
   fromModule: string,
+  /** The new module's spec: what of its definitions and reqs the code already implements is recorded as built. */
+  spec?: MarshalledPlainSource,
 ): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
@@ -208,7 +211,7 @@ export function copyRequiredCode(
   // The working notes describe this code, so they come up with it.
   if (existsSync(notesPath(from)) && !existsSync(notesPath(to))) copyFileSync(notesPath(from), notesPath(to));
   // What the code is built from comes with it, as what the new module inherits - not as its own work.
-  inheritBuiltTree(from, to, fromModule);
+  inheritBuiltTree(from, to, fromModule, spec);
 
   // A new module's history starts here: where its code came from, and at which commit.
   const source = basename(dirname(from));

@@ -58,6 +58,16 @@ for (const { frid, specifications, codeVariables } of iterateFunctionalSpecs(tre
 }
 ```
 
+## Parsing once
+
+A module's parse reads its imports and the whole of its `requires` chain, so a long chain asks for the same
+files over and over: bringing an 18-module chain up to its spec parsed for minutes. Two caches keep it to once.
+Inside `withParseCache`, one question about the specs, each file is parsed once. Between calls, a parse is kept
+with a fingerprint of every file directly in its template folders and the current one - name, size,
+modification time, and a `.plain` file's text - and handed out again, as a copy, while the fingerprint is the
+same; a spec that does not parse is kept as that too. What a parse returns is unchanged: the cache only decides
+whether to parse again.
+
 ## Fidelity
 
 The port is checked against the Python implementation directly, not only against the ported

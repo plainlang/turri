@@ -145,6 +145,39 @@ describe("bringing the queue up to the spec", () => {
     expect(ran).toEqual(["spec diff", "spec diff"]);
   });
 
+  it("plans a module built on another only once that one has landed - from what its code already implements, which is no new work", async () => {
+    const base = "***definitions***\n\n- :User: is a person.\n\n***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- A :User: registers.\n\n- A :User: signs in.\n";
+    const top = "---\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- :Implementation: is Python.\n\n- Pages are served with Flask.\n\n***functional specs***\n\n- The home page says hello.\n";
+    writeFileSync(join(dir, "base.plain"), base);
+    writeFileSync(join(dir, "top.plain"), top);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const seen: string[] = [];
+    const registry = createJobRegistry();
+    const q = createRenderQueue({
+      registry,
+      cwd: dir,
+      queueMaster: false,
+      chunkAgents: {
+        group: async (specs) => (seen.push(specs.map((spec) => spec.text.split("\n")[0]).join(" | ")), await (specs.some((spec) => spec.text.includes("home page")) ? Promise.resolve() : held), undefined),
+        place: async () => undefined,
+      },
+    });
+    q.bringUpTo("top.plain");
+    // The module below is planned; the one above waits for it to land.
+    await vi.waitFor(() => expect(seen).toEqual(["- A :User: registers. | - A :User: signs in."]));
+    release();
+    await q.drain();
+    expect(seen).toEqual(["- A :User: registers. | - A :User: signs in.", "- The home page says hello."]);
+    // Base: a job a functional spec. Top: only what is its own - its Flask req and its functional spec - not
+    // Python or User, which the code it starts from implements.
+    const topDiffs = diffs.filter((diff) => diff.includes("top.plain"));
+    expect(topDiffs).toHaveLength(1);
+    expect(topDiffs[0]).toContain("+- Pages are served with Flask.");
+    expect(topDiffs[0]).toContain("+- The home page says hello.");
+    expect(topDiffs[0]).not.toContain("+- :Implementation: is Python.");
+  });
+
   it("queues nothing when what is built already is the spec", () => {
     writeFileSync(join(dir, "app.plain"), spec("is Python.", ["Say hello."]));
     builtUpTo(1);

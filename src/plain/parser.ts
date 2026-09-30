@@ -1,4 +1,5 @@
-import { existsSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { extname, isAbsolute, basename, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
 import {
@@ -761,11 +762,48 @@ export function plainFileParser(
   templateDirs: string[],
   options: ParseOptions = {},
 ): [string, MarshalledPlainSource, string[]] {
-  if (activeCache === undefined) return parseModule(plainSourceFileName, templateDirs, new Map(), options);
-  const key = `${options.allowNoFunctionalities ? "any" : "renderable"}\0${templateDirs.join("\0")}\0${plainSourceFileName}`;
+  const key = `${options.allowNoFunctionalities ? "any" : "renderable"}\0${process.cwd()}\0${templateDirs.join("\0")}\0${plainSourceFileName}`;
+  if (activeCache === undefined) {
+    // Between calls: the parse from before, while nothing it could have read has changed since.
+    const fingerprint = filesFingerprint(templateDirs);
+    const kept = fingerprint !== undefined ? lastParses.get(key) : undefined;
+    if (kept !== undefined && kept.fingerprint === fingerprint) {
+      if (kept.error !== undefined) throw kept.error;
+      return structuredClone(kept.parsed!);
+    }
+    let parsed: ParsedModule;
+    try {
+      parsed = parseModule(plainSourceFileName, templateDirs, new Map(), options);
+    } catch (error) {
+      // A spec that does not parse does not parse again until it changes: it is not parsed again to say so.
+      if (fingerprint !== undefined) remember(key, { fingerprint, error });
+      throw error;
+    }
+    if (fingerprint !== undefined) remember(key, { fingerprint, parsed: structuredClone(parsed) });
+    return parsed;
+  }
   let parsed = activeCache.get(key);
   if (parsed === undefined) {
-    parsed = parseModule(plainSourceFileName, templateDirs, activeCache.modules, options);
+    // Nothing changes while `run` runs: each folder set's fingerprint is taken once.
+    const dirsKey = templateDirs.join("\0");
+    let fingerprint = activeCache.fingerprints.get(dirsKey);
+    if (!activeCache.fingerprints.has(dirsKey)) {
+      fingerprint = filesFingerprint(templateDirs);
+      activeCache.fingerprints.set(dirsKey, fingerprint);
+    }
+    const kept = fingerprint !== undefined ? lastParses.get(key) : undefined;
+    if (kept !== undefined && kept.fingerprint === fingerprint) {
+      if (kept.error !== undefined) throw kept.error;
+      parsed = structuredClone(kept.parsed!);
+    } else {
+      try {
+        parsed = parseModule(plainSourceFileName, templateDirs, activeCache.modules, options);
+      } catch (error) {
+        if (fingerprint !== undefined) remember(key, { fingerprint, error });
+        throw error;
+      }
+      if (fingerprint !== undefined) remember(key, { fingerprint, parsed: structuredClone(parsed) });
+    }
     activeCache.set(key, parsed);
   }
   return parsed;
@@ -782,7 +820,7 @@ export function plainFileParser(
  */
 export function withParseCache<T>(run: () => T): T {
   if (activeCache !== undefined) return run();
-  activeCache = Object.assign(new Map<string, ParsedModule>(), { modules: new Map<string, ParsedModule>() });
+  activeCache = Object.assign(new Map<string, ParsedModule>(), { modules: new Map<string, ParsedModule>(), fingerprints: new Map<string, string | undefined>() });
   try {
     return run();
   } finally {
@@ -790,7 +828,46 @@ export function withParseCache<T>(run: () => T): T {
   }
 }
 
-let activeCache: (Map<string, ParsedModule> & { modules: Map<string, ParsedModule> }) | undefined;
+let activeCache: (Map<string, ParsedModule> & { modules: Map<string, ParsedModule>; fingerprints: Map<string, string | undefined> }) | undefined;
+
+/**
+ * Parses kept between calls, each with what the files it could have read were when it was made: every file directly
+ * in the template folders and the current one - its name, size and modification time, and a .plain file's text.
+ * The same fingerprint, the same parse: a spec is parsed again only once something it could read has changed. A
+ * copy is handed out, so no caller can change what is kept. Bounded, oldest out first.
+ */
+const lastParses = new Map<string, { fingerprint: string; parsed?: ParsedModule; error?: unknown }>();
+const KEPT_PARSES = 200;
+
+function remember(key: string, entry: { fingerprint: string; parsed?: ParsedModule; error?: unknown }): void {
+  lastParses.delete(key);
+  lastParses.set(key, entry);
+  while (lastParses.size > KEPT_PARSES) lastParses.delete(lastParses.keys().next().value!);
+}
+
+function filesFingerprint(templateDirs: string[]): string | undefined {
+  try {
+    const parts: string[] = [];
+    for (const dir of [process.cwd(), ...templateDirs]) {
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        parts.push(`${dir}:-`);
+        continue;
+      }
+      for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        if (!entry.isFile()) continue;
+        const path = resolve(dir, entry.name);
+        const stat = statSync(path);
+        parts.push(`${path}:${stat.size}:${stat.mtimeMs}${entry.name.endsWith(".plain") ? `:${readFileSync(path, "utf8")}` : ""}`);
+      }
+    }
+    return createHash("sha1").update(parts.join("\n")).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
 
 type ParsedModule = [string, MarshalledPlainSource, string[]];
 

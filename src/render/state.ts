@@ -212,15 +212,33 @@ export function recordBuiltRequiredFunctionality(buildDir: string, module: strin
  * as the new module's inheritance. The new module has built nothing of its own: a tree it already
  * has keeps its own functional specs, and the rest of it.
  */
-export function inheritBuiltTree(fromBuildDir: string, toBuildDir: string, fromModule: string): void {
-  const source = readBuiltTree(fromBuildDir);
-  if (source === null) return;
+/**
+ * What a module that starts from another's code is built from, before any work of its own: the other module's
+ * functional specs, as ones it inherits, and - of its own spec's definitions, implementation reqs and test reqs -
+ * every one the other module's code already implements, word for word. So none of those is taken for new work
+ * when its own is planned and rendered: the code it starts from has them. `spec`: the module's own spec; without
+ * it, only the functional specs are carried.
+ */
+export function inheritedTree(source: MarshalledPlainSource, fromModule: string, spec?: MarshalledPlainSource): MarshalledPlainSource {
   const carried = [
     ...items(source, REQUIRED_FUNCTIONAL_SPECS),
     ...items(source, FUNCTIONAL_REQUIREMENTS).map((item, index) => ({ ...item, module: fromModule, frid: String(index + 1) })),
   ];
+  const shared: MarshalledPlainSource = {};
+  for (const section of [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS]) {
+    if (spec === undefined) break;
+    const built = new Set(items(source, section).map((item) => item.markdown.trim()));
+    const own = items(spec, section).filter((item) => built.has(item.markdown.trim()));
+    if (own.length > 0) shared[section] = own;
+  }
+  return withoutEmpty({ ...shared, [REQUIRED_FUNCTIONAL_SPECS]: carried });
+}
+
+export function inheritBuiltTree(fromBuildDir: string, toBuildDir: string, fromModule: string, spec?: MarshalledPlainSource): void {
+  const source = readBuiltTree(fromBuildDir);
+  if (source === null) return;
   const target = readBuiltTree(toBuildDir) ?? {};
-  writeBuiltTree(toBuildDir, { ...target, [REQUIRED_FUNCTIONAL_SPECS]: carried });
+  writeBuiltTree(toBuildDir, { ...target, ...inheritedTree(source, fromModule, spec) });
 }
 
 /** The required modules' functional specs a codebase is built on, as text - or null when nothing records them. */

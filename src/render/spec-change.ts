@@ -337,7 +337,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     const source = chain.find((entry) => entry.moduleName === tip.requires);
     if (source !== undefined) {
       stage(`no code here yet - starting from ${source.moduleName}'s code`);
-      copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName);
+      copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName, tree);
     }
   }
 

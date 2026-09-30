@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { basename } from "node:path";
-import { plainFileParser } from "../plain/parser.ts";
+import { plainFileParser, withParseCache } from "../plain/parser.ts";
 import { pendingFrids, staleFrids } from "./state.ts";
 import { describeDelivery, withTryItLine } from "./delivery.ts";
 import { defaultBuildDir, modulesRoot, projectDirOf } from "./paths.ts";
@@ -30,7 +30,7 @@ import { abandonWork, markWork, resetToLastCommit, type WorkStart } from "./hist
 import { llmQueueMaster, netChanges, propose, reworkQueue, stepsOf, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
 import { llmChunkAgents, planChunks, type ChunkAgents } from "./chunk-plan.ts";
 import { withActivity, type ActivitySink } from "./activity.ts";
-import { readBuiltTree, withBuiltFunctionality } from "./state.ts";
+import { inheritedTree, readBuiltTree, withBuiltFunctionality } from "./state.ts";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 
 /**
@@ -395,6 +395,11 @@ export function createRenderQueue(options: {
       model: work.model,
       lanes: [...moduleLanes(codebaseOf(work.plainFile), options.buildDir)],
       run: async (onDelta) => {
+        // Its turn: the modules below it have landed, so the work of this codebase is planned now.
+        if (work.planLater === true) {
+          for (const other of works.values()) if (other.codebase === work.codebase) other.planLater = false;
+          triggerMaster(work);
+        }
         // The queue master may still be reworking the queue: it decides what this job renders, or whether it runs at all.
         await gateOf(work.codebase);
         if (work.superseded !== undefined) return { report: work.superseded, details: { passed: false, skipped: true, landed: false } };
@@ -423,7 +428,8 @@ export function createRenderQueue(options: {
    */
   const rebaseIfBehind = (work: SpecDiffWork, jobId: string) => {
     if (work.before === undefined) return;
-    const built = readBuiltTree(work.codebase) ?? {};
+    // Nothing built here yet: what it starts from is the code of the module it requires, copied up when it renders.
+    const built = readBuiltTree(work.codebase) ?? startsFrom(work.spec.chain, work.spec.tree) ?? {};
     const before = work.before ?? {};
     // Functional specs it would record as built that nothing builds: not built, and not in its own change - queued
     // behind a module build that stopped before them, say, which the queue does not follow.
@@ -479,6 +485,12 @@ export function createRenderQueue(options: {
 
   /** Rework the queue around a new change: after whatever the queue master was already doing for that codebase. */
   const triggerMaster = (work: SpecDiffWork) => {
+    // Built on a module whose own work has not landed yet: what it starts from is not known, so it is planned when
+    // its turn comes - when its first job can start - not now, beside the modules below it.
+    if (belowPending(work)) {
+      work.planLater = true;
+      return;
+    }
     const previous = gateOf(work.codebase);
     masters.set(work.codebase, previous.then(() => runMaster(work.codebase)).then(() => {}).catch(() => {}));
   };
@@ -560,8 +572,8 @@ export function createRenderQueue(options: {
     // Code with no record of the spec it was built from: what is built is not known, so the work cannot be planned
     // from it - the queue stays as it was queued, each change on top of the code as it is.
     if (built === null && running === undefined && instruction === undefined && listFiles(codebase).length > 0) return { why: "what the code is built from is not recorded, so the queue is left as it was queued" };
-    // Nothing built yet: the queue's work is the whole spec, from nothing.
-    const base = running?.spec.tree ?? built ?? {};
+    // Nothing built yet: the work is from what the module it requires leaves, as it inherits it - or, requiring none, from nothing.
+    const base = running?.spec.tree ?? built ?? startsFrom(latest.spec.chain, latest.spec.tree) ?? {};
 
     const specFile = relative(options.cwd, latest.plainFile);
     let specText = "";
@@ -625,7 +637,8 @@ export function createRenderQueue(options: {
     // Stopped by the master: it ends, its work so far is rolled back - before any queued job starts, since they wait
     // for this turn - and its change is in the plan's jobs now.
     if (plan.stopRunning !== undefined && running !== undefined) await stopRunningWork(running, plan);
-    applyPlan(waiting, plan, plan.base, plan.stopRunning !== undefined ? running : undefined);
+    // Starting jobs reads their chains: once per file for all of them.
+    withParseCache(() => applyPlan(waiting, plan, plan.base, plan.stopRunning !== undefined ? running : undefined));
     return { plan };
   };
 
@@ -659,6 +672,33 @@ export function createRenderQueue(options: {
    * left out; what is left over goes on after them, as new jobs. The queued jobs no planned one runs
    * as are stopped, saying where their change went.
    */
+  /**
+   * Queue again, at the back, the jobs not started of every module built on `codebase` - so they come after the jobs
+   * just added for it, as the modules they are built on have to. Each is planned again when its turn comes.
+   */
+  const requeueAbove = (codebase: string) => {
+    const above = [...works.values()]
+      .filter((work) => !work.started && work.superseded === undefined && work.jobId !== undefined && isPending(options.registry.get(work.jobId)?.status))
+      .filter((work) => work.spec.chain.slice(0, -1).some((entry) => entry.buildDir === codebase))
+      .sort((a, b) => (options.registry.get(a.jobId!)?.sequence ?? 0) - (options.registry.get(b.jobId!)?.sequence ?? 0));
+    for (const work of above) {
+      const previous = { jobId: work.jobId!, conformanceJobId: work.conformanceJobId };
+      const again: SpecDiffWork = { ...work, jobId: undefined, conformanceJobId: undefined, planLater: true };
+      const { jobId } = startSpecDiff(again);
+      const note = `Queued again as job ${jobId}: the module it is built on was planned into more jobs, and it comes after them.`;
+      work.superseded = note;
+      for (const id of [previous.jobId, previous.conformanceJobId]) {
+        if (id === undefined) continue;
+        options.registry.stop(id);
+        const job = options.registry.get(id);
+        if (job !== undefined) {
+          job.note = note;
+          job.error = note;
+        }
+      }
+    }
+  };
+
   /** A planned job's name: its file, the functional specs it adds - "fs 3-5" - and its title. */
   const planName = (plainFile: string, before: MarshalledPlainSource, after: MarshalledPlainSource, title: string) => {
     const count = (tree: MarshalledPlainSource) => ((tree[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? []).length;
@@ -775,6 +815,9 @@ export function createRenderQueue(options: {
         if (job !== undefined) job.note = `${job.note !== undefined ? `${job.note} ` : ""}Conformance tests on, by ${by}: it writes and runs them in its own render.`;
       }
     }
+    // Jobs added for this codebase run after everything queued so far - the modules built on it too, which have to
+    // wait for them: those not started are queued again, behind them.
+    if (started.size > 0) requeueAbove(waiting[0]!.codebase);
     // The queued jobs no planned job runs as: their change is undone, or runs in another job.
     const where = new Map(placed.map((entry) => [entry.planned.jobId, entry.work?.jobId ?? started.get(entry.planned)]));
     for (const work of waiting) {
@@ -858,6 +901,27 @@ export function createRenderQueue(options: {
       .map((work) => ({ jobId: work.jobId!, tree: work.spec.tree }));
     const last = candidates.sort((a, b) => (options.registry.get(a.jobId)?.sequence ?? 0) - (options.registry.get(b.jobId)?.sequence ?? 0)).at(-1);
     return last?.tree ?? readBuiltTree(codebase);
+  };
+
+  /**
+   * What a module nothing is built of starts from: the code of the module it requires, copied up, and so what that
+   * module leaves - its queued work, or what is built - as it inherits it: that module's functional specs, and every
+   * definition and req of its own spec that code already implements. Null when it requires none, or that one is not
+   * built or queued either.
+   */
+  const startsFrom = (chain: ChainEntry[], spec: MarshalledPlainSource): MarshalledPlainSource | null => {
+    const tip = chain.at(-1);
+    if (tip === undefined || tip.requires === null) return null;
+    const source = chain.find((entry) => entry.moduleName === tip.requires);
+    if (source === undefined) return null;
+    const left = treeAhead(source.buildDir);
+    return left === null ? null : inheritedTree(left, source.moduleName, spec);
+  };
+
+  /** Whether a module below this one in the chain still has work to land: this one's work is planned once that has. */
+  const belowPending = (work: SpecDiffWork): boolean => {
+    const below = new Set(work.spec.chain.slice(0, -1).map((entry) => entry.buildDir));
+    return [...works.values()].some((other) => below.has(other.codebase) && other.superseded === undefined && other.jobId !== undefined && isPending(options.registry.get(other.jobId)?.status));
   };
 
   /** A functionality render as a work: its change - that functionality added - from what the code will be built from by then. */
@@ -1215,7 +1279,7 @@ export function createRenderQueue(options: {
         // cuts it into jobs from its functional specs outward (chunk-plan.ts), per codebase it lands in.
         const last = bring.to !== undefined && entry === entries.at(-1) ? Math.min(Number(bring.to), nowSpecs.length) : nowSpecs.length;
         const target = { ...now, [FUNCTIONAL_REQUIREMENTS]: nowSpecs.slice(0, Math.max(covered, last)) } as MarshalledPlainSource;
-        const from = ahead ?? {};
+        const from = ahead ?? startsFrom(chain.slice(0, chain.indexOf(entry) + 1), target) ?? {};
         if (serializeTree(target) !== serializeTree(from) && (ahead === null || !sameSpec(ahead, target))) {
           let layout;
           try {
@@ -1313,6 +1377,13 @@ export function createRenderQueue(options: {
       ].join("\n");
     },
   };
+  // One parse per file for the whole of a call: each module's lanes, codebase and chain, and each job's, ask for the
+  // same .plain files - on a long chain of requires, thousands of times.
+  const bringUpTo = queue.bringUpTo.bind(queue);
+  queue.bringUpTo = (plainFile, bring) => withParseCache(() => bringUpTo(plainFile, bring));
+  const enqueueSpecDiff = queue.enqueueSpecDiff.bind(queue);
+  queue.enqueueSpecDiff = (request) => withParseCache(() => enqueueSpecDiff(request));
+
   return queue;
 }
 
@@ -1385,6 +1456,8 @@ interface SpecDiffWork {
   turnAt?: number;
   /** Stopped by the queue master while running, it finished before the stop took, and landed. */
   landedAnyway?: boolean;
+  /** Built on a module with work still to land: planned when its turn comes, not when it was queued. */
+  planLater?: boolean;
   /**
    * A functionality render, not a spec diff: the spec it leaves as queued, and whether conformance was off. Left as
    * it was, it runs as the render it was asked for; reworked, it runs as a spec diff.

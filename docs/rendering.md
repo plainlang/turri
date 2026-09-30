@@ -31,7 +31,9 @@ scripts, models and conformance in its own `config.<module>.yaml`, laid over `co
 
 A module that `requires` another starts from a copy of that module's code and tests, and builds on
 top of it; the latest module built in a chain is where later changes to any module of the chain
-are made.
+are made. What that code implements comes with it, as built: the other module's functional specs, as
+ones it inherits, and every definition, implementation req and test req of its own spec that the other
+module's code implements word for word - so none of them is new work for it.
 
 ## One functionality
 
@@ -233,7 +235,12 @@ the jobs already queued for it:
 
 A module already built from the spec as it is gets nothing. A spec that spans several modules gets a
 spec diff per module that is not built yet, and a change to a module built on is made in the latest
-codebase built on it - the tip.
+codebase built on it - the tip. A module built on another is planned only when its turn comes - once the
+work of the modules below it has landed - from what their code already implements, so the planning of a
+long chain goes a module at a time, bottom up, and never plans a module from nothing. When a module's plan
+adds jobs, the jobs not started of the modules built on it are queued again behind them, so they still come
+after it. Parsing a long chain again for every job is avoided: a spec is parsed once, and again only when a
+file it could read has changed.
 
 ### How the work is cut into jobs
 
