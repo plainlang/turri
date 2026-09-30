@@ -48,6 +48,11 @@ export interface Job {
   now?: { label: string; since: number };
   /** Every model response its agents have had, added up. */
   usage: UsageReport;
+  /**
+   * Queued again as another job - the one it names - to come after jobs added ahead of it: it never ran, and is not
+   * announced or listed as a job of its own.
+   */
+  replacedBy?: string;
   /** Each of its agents: turns, compactions and what it cost - a row per agent, in the order they first worked. */
   agents: AgentTally[];
   /** The whole conversation of its agents, oldest dropped first past a size limit. */

@@ -198,6 +198,8 @@ export default function (pi: ExtensionAPI) {
     onChange: () => panel.refresh(),
     onFinish: (job) => {
       panel.refresh();
+      // Queued again as another job: that one says how it went.
+      if (job.replacedBy !== undefined) return;
       announceJob(pi, job);
       // A spec that contradicts itself is the person's to settle, now: the agent is started on it.
       if (job.specConflict !== undefined) {
@@ -2229,7 +2231,7 @@ function deployedLabel(name: string, what: string): string {
 }
 
 function listJobs(jobs: JobRegistry): string {
-  const all = [...jobs.list()].reverse();
+  const all = [...jobs.list()].reverse().filter((job) => job.replacedBy === undefined);
   const deployed = runningDeployed().map((item) => `deploy ${item.name}  running  ${item.moduleName}: ${item.url ?? item.command}  (pid ${item.pid}, output in ${relative(process.cwd(), item.log) || item.log})`);
   const listed = deployed.length > 0 ? `\n\nRunning from dist - /stop deploy <name> stops one:\n${deployed.join("\n")}` : "";
   if (all.length === 0) return `No jobs have been started.${listed}`;
@@ -2483,7 +2485,7 @@ function announceJob(pi: ExtensionAPI, job: Job): void {
         : job.status === "succeeded"
         ? (job.announce ?? job.report ?? "")
         : job.status === "stopped"
-          ? "Stopped on request. Whatever it changed before it stopped is still on disk; the functionality it was on counts as not built."
+          ? (job.note ?? "Stopped on request. Whatever it changed before it stopped is still on disk; the functionality it was on counts as not built.")
           : (job.error ?? "no error recorded"),
   };
   try {

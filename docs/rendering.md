@@ -241,7 +241,7 @@ long chain goes a module at a time, bottom up, and never plans a module from not
 named for what it waits on - "top.plain - planned into jobs once base has landed" - with a note that it is
 not planned yet. When a module's plan
 adds jobs, the jobs not started of the modules built on it are queued again behind them, so they still come
-after it. Parsing a long chain again for every job is avoided: a spec is parsed once, and again only when a
+after it - quietly: the copy is the job, and the one it replaces is neither announced nor listed. Parsing a long chain again for every job is avoided: a spec is parsed once, and again only when a
 file it could read has changed.
 
 ### How the work is cut into jobs
@@ -252,7 +252,8 @@ work from what the code will be built from - what is built, or what the running 
 as it is now is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
 
 1. **Which new functional specs go together.** An agent groups them: at most three a job, only ones
-   next to each other in the spec's order, and only when they describe the same thing - most go alone.
+   next to each other in the spec's order - the specs that build one component or feature together (a component
+   and the parts only it uses), a spec alone when it stands on its own or is big.
 2. **The definitions each group uses**, in code: the concepts its functional specs name, and the
    concepts those definitions name in turn. A definition goes with the first group that uses it; later
    groups have it built. One nothing uses goes with the last.

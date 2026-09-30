@@ -173,6 +173,15 @@ describe("bringing the queue up to the spec", () => {
     release();
     await q.drain();
     expect(seen).toEqual(["- A :User: registers. | - A :User: signs in.", "- The home page says hello."]);
+    // Base was planned into two jobs, so top's job was queued again behind them - the old one marked replaced, and
+    // left out of the Jobs view: it never ran, and its copy says how it went.
+    const replaced = registry.list().filter((job) => job.replacedBy !== undefined);
+    expect(replaced).toHaveLength(1);
+    expect(registry.get(replaced[0]!.replacedBy!)!.status).toBe("succeeded");
+    const { createJobsTreeState, jobsTreeRows } = await import("../../src/render/jobs-tree.ts");
+    const state = createJobsTreeState();
+    state.open.finished = true;
+    expect(jobsTreeRows(registry.list(), state).some((row) => row.kind === "job" && row.job.id === replaced[0]!.id)).toBe(false);
     // Base: a job a functional spec. Top: only what is its own - its Flask req and its functional spec - not
     // Python or User, which the code it starts from implements.
     const topDiffs = diffs.filter((diff) => diff.includes("top.plain"));

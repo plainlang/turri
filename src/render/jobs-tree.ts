@@ -52,7 +52,8 @@ function isOpen(state: JobsTreeState, job: Job): boolean {
 
 /** The rows, top to bottom: each section's header, and its jobs when it is open - finished ones newest first. */
 export function jobsTreeRows(jobs: Job[], state: JobsTreeState): TreeRow[] {
-  const bySequence = [...jobs].sort((a, b) => a.sequence - b.sequence);
+  // A job queued again as another is that other one: it is not listed apart.
+  const bySequence = jobs.filter((job) => job.replacedBy === undefined).sort((a, b) => a.sequence - b.sequence);
   const of = (section: JobSection) => {
     const inSection = bySequence.filter((job) => sectionOf(job) === section);
     return section === "finished" ? inSection.sort((a, b) => (b.finishedAt ?? b.sequence) - (a.finishedAt ?? a.sequence) || b.sequence - a.sequence) : inSection;

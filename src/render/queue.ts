@@ -705,12 +705,14 @@ export function createRenderQueue(options: {
       work.superseded = note;
       for (const id of [previous.jobId, previous.conformanceJobId]) {
         if (id === undefined) continue;
-        options.registry.stop(id);
+        // Marked first, so it is not announced as stopped when the stop settles.
         const job = options.registry.get(id);
         if (job !== undefined) {
+          job.replacedBy = id === previous.jobId ? jobId : again.conformanceJobId ?? jobId;
           job.note = note;
           job.error = note;
         }
+        options.registry.stop(id);
       }
     }
   };
