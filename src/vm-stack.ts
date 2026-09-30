@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { plainFileParser } from "./plain/parser.ts";
-import { resolveTemplateDirs } from "./render/render.ts";
+import { resolveTemplateDirs } from "./render/paths.ts";
 import { sectionsOf } from "./render/state.ts";
 
 /**

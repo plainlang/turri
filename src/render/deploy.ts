@@ -6,7 +6,7 @@ import { HISTORY_DIR } from "./history.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { distDirFor, ensureInScratch, projectDirOf } from "./paths.ts";
 import { findCodebaseTip, type ChainEntry } from "./requires.ts";
-import { STATE_FILE } from "./state.ts";
+import { RECORD_FILE } from "./records.ts";
 
 /**
  * Deploy: a module's code, as its last commit has it, put out in `dist/<module>` for the person to try.
@@ -85,7 +85,7 @@ export function exportModule(plainFile: string, inModule?: string): Deployment {
     { encoding: "utf8" },
   );
   if (exported.status !== 0) throw new Error(`Could not export ${entry.moduleName}'s code at ${commit.slice(0, 8)}: ${(exported.stderr ?? "").trim()}`);
-  for (const file of [STATE_FILE, NOTES_FILE]) rmSync(join(dir, file), { force: true });
+  for (const file of [RECORD_FILE, NOTES_FILE]) rmSync(join(dir, file), { force: true });
 
   const [short, subject, when] = git(moduleDir, ["log", "-1", "--format=%h%x1f%s%x1f%cr", commit]).stdout.trim().split("\x1f");
   const unfinished = git(moduleDir, ["status", "--porcelain", "--untracked-files=all", "--", "code"]).stdout.trim() !== "";

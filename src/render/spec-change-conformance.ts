@@ -4,7 +4,7 @@ import { getFrids, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../pla
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { abandonWork, startWork } from "./history.ts";
-import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
+import { ensureRegressionPasses, type RegressionResult } from "./regression.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
 import { applySpecDiff, snapshotSpec, type SpecSnapshot } from "./spec-change.ts";
 import { sectionsOf } from "./state.ts";
@@ -13,12 +13,12 @@ import { missingTestLabels } from "./test-kinds.ts";
 import { findTestScripts, projectRootFor, requireTestScripts } from "./test-scripts.ts";
 
 /**
- * The conformance tests brought in line with a spec change - the spec diff's counterpart of
- * render_functionality_conformance, as render spec diff is render functionality's.
+ * The conformance tests brought in line with a spec change: a conformance job of the work loop
+ * (docs/rendering.md).
  *
- * Rendering the code and conformance are separate jobs. A spec change can be rendered without
- * conformance and given it later, or be a change the code does not need at all - test reqs, an
- * acceptance test - and only the tests follow it. Either way one agent is given the diff and the
+ * Rendering the code and conformance are separate jobs. A spec change is built in the code first
+ * and its tests follow, or it is a change the code does not need at all - test reqs, an acceptance
+ * test - and only the tests follow it. Either way one agent is given the diff and the
  * spec as it stands, and brings the tests in line: writes, changes and removes them. It can fix
  * the code where a test shows the code does not do what the spec says, as it can when it writes a
  * functionality's tests; nothing here renders the change itself.

@@ -1,11 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
-import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { vmScratchDir } from "./paths.ts";
-import { STATE_FILE } from "./state.ts";
+import { RECORD_FILE } from "./records.ts";
 import { runUnitScript, scriptFailure } from "./test-scripts.ts";
 import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
@@ -93,7 +91,7 @@ export const NOT_CODE = new Set([
   ".cargo",
   // Working notes for the agents: not part of the codebase either (see notes.ts).
   NOTES_FILE,
-  STATE_FILE,
+  RECORD_FILE,
 ]);
 
 export function listFiles(root: string): string[] {
@@ -190,31 +188,22 @@ export function removalChallengePrompt(removals: TestRemoval[], subject: string)
 }
 
 
-
 /**
- * How many times a coding agent that ended its turn having written nothing is asked for a draft. Thinking a
- * problem through and ending the turn with nothing written leaves nothing to test or review; a best guess does.
- * A spec change is asked once: one that only rewords or describes may need no code, and the agent says so.
+ * How many times a coding agent that ended its turn having written nothing is asked for a draft: once. Thinking a
+ * problem through and ending the turn with nothing written leaves nothing to test or review; a best guess does. A
+ * change that only rewords or describes may need no code, and the agent says so.
  */
-export const DRAFT_ASKS = { functionality: 2, change: 1 } as const;
+export const DRAFT_ASKS = 1;
 
-/** For a coding agent that has written nothing yet: write a best-guess draft now. */
-export function draftPrompt(forChange: boolean): string {
+/** For a coding agent that has written nothing yet: write a best-guess draft now, or say why no code is needed. */
+export function draftPrompt(): string {
   return [
     "You have not written anything yet: the code folder is as it was when you started.",
     "",
-    ...(forChange
-      ? [
-          "If the change needs code - anything it adds to or changes in a functional spec, an implementation req or an",
-          "acceptance test - stop planning and write it now: your best guess at what the change asks, the code and its",
-          "unit tests, as a draft. If you are sure it needs no code at all - it only rewords, describes or renames - say so",
-          "in one line, and why.",
-        ]
-      : [
-          "Stop planning and write it now: your best guess at what the specification asks, the code and its unit tests, as",
-          "a draft. It does not have to be right the first time - the unit tests run on it and it is reviewed, and what is",
-          "wrong comes back to you. Nothing written cannot be tested, reviewed or fixed.",
-        ]),
+    "If the change needs code - anything it adds to or changes in a functional spec, an implementation req or an",
+    "acceptance test - stop planning and write it now: your best guess at what the change asks, the code and its",
+    "unit tests, as a draft. If you are sure it needs no code at all - it only rewords, describes or renames - say so",
+    "in one line, and why.",
     "Where the specification leaves something open, pick the most likely reading, write it, and note the assumption",
     "with update_notes. Then run the unit tests.",
   ].join("\n");

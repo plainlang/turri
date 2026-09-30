@@ -10,7 +10,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
-import { createDeployState, createDeployTools, DEPLOY_TOOLS, deployGuide, refuseInstall, type Approve } from "./deploy-tools.ts";
+import { createDeployState, createDeployTools, DEPLOY_TOOLS, refuseInstall, type Approve } from "./deploy-tools.ts";
 import { listDeployed, runningDeployed, shortPath, stopDeployed } from "./render/deploy.ts";
 import { projectDirOf } from "./render/paths.ts";
 import { ask, BEGIN, createExecutor } from "./pi.ts";

@@ -4,9 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata, withParseCache } from "../plain/parser.ts";
 import {
-  DEFINITIONS,
   FUNCTIONAL_REQUIREMENTS,
-  NON_FUNCTIONAL_REQUIREMENTS,
   getFrids,
   getInheritedFunctionalSpecs,
   getSpecificationsForFrid,
@@ -18,9 +16,6 @@ import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
-import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
-import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
-import { modulesRoot, projectDirOf } from "./paths.ts";
 import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec } from "./prompt.ts";
 import { abandonWork, recordHistory, startWork } from "./history.ts";
 import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
@@ -39,11 +34,12 @@ import {
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
-import { resolveTemplateDirs } from "./render.ts";
+import { resolveTemplateDirs } from "./paths.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } from "./requires.ts";
 import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
-import { readBuiltTree, sectionsOf, writeBuiltTree } from "./state.ts";
+import { sectionsOf } from "./state.ts";
+import { readRecord, writeCodeRecord } from "./records.ts";
 import { changesBetween, sameSpec, serializeTree } from "./spec-steps.ts";
 import { untilUnitTestsReviewed } from "./unit-review.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
@@ -52,7 +48,6 @@ import {
   inventoryTests,
   listFiles,
   removalChallengePrompt,
-  runCommand,
   type TestRemoval,
   type TestRun,
   verifyUnitSuite,
@@ -131,23 +126,6 @@ export function plainFilesOf(diff: string): string[] {
   return [...files];
 }
 
-/**
- * The whole spec of a module as one change: every .plain file it is built from - its own and the
- * ones it imports, in the project - added from nothing. What a build that starts from nothing is
- * given, so it is told everything it builds, not only the last thing written.
- */
-export function wholeSpecDiff(plainFile: string, cwd: string, templateDirs: string[] = [], except: string[] = []): string {
-  const root = resolve(cwd);
-  const skip = new Set(except.map((path) => resolve(root, path)));
-  return specFilesOf(resolve(root, plainFile), templateDirs)
-    .filter((path) => !relative(root, path).startsWith("..") && !skip.has(path))
-    .map((path) => {
-      const run = spawnSync("git", ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", relative(root, path)], { cwd: root, encoding: "utf8" });
-      return run.stdout;
-    })
-    .join("");
-}
-
 /** A module's .plain file and every one it imports, transitively - the files its spec is read from. */
 export function specFilesOf(plainFile: string, templateDirs: string[] = []): string[] {
   const dirs = resolveTemplateDirs(resolve(plainFile), templateDirs);
@@ -223,14 +201,6 @@ export interface RenderSpecDiffOptions {
   templateDirs?: string[];
   /** The codebase to render in, when modules built on this one branch. */
   inModule?: string;
-  /** Write and run conformance tests. Default: when the module has test reqs. */
-  conformance?: boolean;
-  /**
-   * The conformance tests follow as a job of their own - render spec diff conformance, queued
-   * behind this one. The change lands on its unit tests: the suite is run by that job, once the
-   * tests are brought in line with the change, since the ones here may check what it changed.
-   */
-  conformanceLater?: boolean;
   /**
    * The diff was already put in when it was written - how that went - and is not to be applied
    * again. A render queued behind the interview runs after later changes have gone on top of
@@ -242,21 +212,16 @@ export interface RenderSpecDiffOptions {
   model?: string;
   /** Review the code and unit tests once they pass - that they do what the change says. Default: the config's `review:`, else true. */
   unitReview?: boolean;
-  /**
-   * false: the change lands once its unit tests pass and are reviewed - the conformance tests, the whole suite
-   * included, are not run here: conformance is a track of its own (docs/work-model.md). Default: they are.
-   */
-  regression?: false;
   /** What the job does to each functional spec (work.ts): its agents are told case by case. Not given: in general. */
   cases?: JobCases;
+  /** Build the coding agent's task and stop there: nothing is started, and what the render did is rolled back. */
+  dryRun?: boolean;
   /** The unit test review's model. Default: the project's judge-model, else `model`. */
   judgeModel?: string;
   onDelta?: (delta: string) => void;
 }
 
 export interface RenderSpecDiffResult {
-  /** The change section by section, as its agents were shown it - for the conformance job after it. */
-  change?: string;
   /** The codebase the change was rendered in. */
   moduleName: string;
   buildDir: string;
@@ -267,14 +232,12 @@ export interface RenderSpecDiffResult {
   attempts: number;
   testRemovals: TestRemoval[];
   files: { added: string[]; changed: string[]; removed: string[] };
-  conformance?: RenderConformanceTestsResult;
-  regression?: RegressionResult;
   passed: boolean;
-  stoppedAt: "unit tests" | "conformance" | "regression" | null;
-  /** Conformance was left to a job of its own, which should run now. */
-  conformanceLater?: boolean;
+  stoppedAt: "unit tests" | null;
   /** The specs were only restructured: nothing was rendered, the spec as now laid out was recorded. */
   restructured?: boolean;
+  /** A dry run: the task the coding agent would be given. */
+  task?: string;
 }
 
 export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<RenderSpecDiffResult> {
@@ -291,24 +254,24 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   if (fresh !== undefined) {
     throw new Error(
       `${tip.moduleName} now requires ${fresh.modules.join(", ")}, which its code was not built on, so a spec diff cannot bring the change in. ` +
-        `Render the module instead (render_module ${relative(cwd, tip.plainFile)}): it builds ${fresh.modules.join(", ")} and starts ` +
-        `${fresh.rebuild.map((entry) => entry.moduleName).join(", ")} again from scratch on it.`,
+        `Its code has to be started again on it: remove ${fresh.rebuild.map((entry) => relative(cwd, dirname(entry.buildDir))).join(", ")} and render the ` +
+        `module (render_module ${relative(cwd, tip.plainFile)}), which builds it from the bottom of the chain.`,
     );
   }
   stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);
   // The change is made to the codebase's last known good state, not to what an interrupted
   // run left half-written.
   stage("starting from the codebase's last commit");
-  // The change is one unit - its code, its conformance tests, the whole suite - landed whole,
-  // with the spec it was built from, or undone whole.
-  const unit = startWork([tip.buildDir, conformanceDirFor(moduleName, modulesRoot(projectDirOf(tip.plainFile)))], moduleName);
+  // The change is one unit - its code and its unit tests - landed whole, with the spec it was built from, or
+  // undone whole. Its conformance tests are a job of their own, after it (docs/rendering.md).
+  const unit = startWork([tip.buildDir], moduleName);
   // Only laid out differently - definitions moved to a common module, specs moved between modules
   // of the chain: the code already is what the spec says. Nothing to render; the spec is recorded
   // as it is now laid out.
-  const builtBefore = readBuiltTree(tip.buildDir);
+  const builtBefore = readRecord(tip.buildDir, { onDisk: true });
   if (builtBefore !== null && sameSpec(builtBefore, tree)) {
     stage("the specs were only restructured - nothing to render; recording the spec as it is now laid out");
-    writeBuiltTree(tip.buildDir, tree);
+    writeCodeRecord(tip.buildDir, tree);
     recordHistory(tip.buildDir, `spec restructured: ${summarizeDiff(options.diff)}`, options.diff);
     return {
       moduleName,
@@ -327,16 +290,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // Whether the change is done is the project's testing scripts: without them, nothing is built.
   stage("finding the project's testing scripts");
   const root = projectRootFor(tip.plainFile, tip.buildDir);
-  // Turned off, the conformance testing script is not used at all, found or not.
-  const scripts = options.conformance === false ? withoutConformance(findTestScripts(root, tip.plainFile, tip.buildDir)) : findTestScripts(root, tip.plainFile, tip.buildDir);
-  const conformanceOn = options.conformance !== false && (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0;
-  requireTestScripts(moduleName, scripts, { conformance: conformanceOn });
+  // The code is judged by its unit tests alone: the conformance testing script is the conformance job's.
+  const scripts = withoutConformance(findTestScripts(root, tip.plainFile, tip.buildDir));
+  requireTestScripts(moduleName, scripts, { conformance: false });
   reportActivity(`  unit testing script: ${relative(root, scripts.unit)}`);
-  if (scripts.conformance !== undefined && conformanceOn) reportActivity(`  conformance testing script: ${relative(root, scripts.conformance)}`);
-  if (options.conformance === false) reportActivity("  conformance is off: no conformance tests are written or run");
-  const frids = [...getFrids(tree)];
-  const lastFrid = frids.at(-1);
-  const sections = sectionsOf(tree);
+  const lastFrid = [...getFrids(tree)].at(-1);
   const buildDir = tip.buildDir;
   // From scratch there is no build directory yet, and everything the agent runs runs in it.
   mkdirSync(buildDir, { recursive: true });
@@ -345,18 +303,15 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     const source = chain.find((entry) => entry.moduleName === tip.requires);
     if (source !== undefined) {
       stage(`no code here yet - starting from ${source.moduleName}'s code`);
-      copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName, tree);
+      copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName);
     }
   }
 
-  const specifications: Specifications =
-    lastFrid !== undefined ? getSpecificationsForFrid(tree, lastFrid)[0] : { ...sections, [FUNCTIONAL_REQUIREMENTS]: [] };
-  const required = getInheritedFunctionalSpecs(tree);
   stage("mapping the codebase and writing the prompt");
   // The agent is given the spec the code is built from - the state before the change - and the change: the spec
   // before it, plus the diff, is the spec after it. Read from the codebase as it is now, code copied up from a
   // required module included; with nothing built, there is no spec before, and the change is all of it.
-  const builtNow = readBuiltTree(buildDir) ?? {};
+  const builtNow = readRecord(buildDir, { onDisk: true }) ?? {};
   // The change as it is to the code - from what it is built from to the spec this job records - section by section:
   // what every agent of this change is shown, in place of the raw diff.
   const changes = changesBetween(serializeTree(builtNow), serializeTree(tree));
@@ -387,8 +342,13 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
-  // The scripts its work is judged by: the conformance testing script only when conformance runs.
-  const task = [withNotes(withTestingScripts(prompt, scripts, conformanceOn ? ["unit", "conformance"] : ["unit"], root), buildDir), "", ...SUBMIT_WORK_NOTE].join("\n");
+  // The script its work is judged by.
+  const task = [withNotes(withTestingScripts(prompt, scripts, ["unit"], root), buildDir), "", ...SUBMIT_WORK_NOTE].join("\n");
+  if (options.dryRun === true) {
+    // Nothing of it stays: a copy of the code below, the folder made.
+    abandonWork(unit, moduleName, "a dry run");
+    return { moduleName, buildDir, diff: applied, response: "", runs: [], attempts: 0, testRemovals: [], files: { added: [], changed: [], removed: [] }, passed: false, stoppedAt: null, task };
+  }
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   // One session for the whole change: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({
@@ -444,10 +404,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           continue;
         }
         // Nothing written - a turn spent planning - leaves nothing to test or review: ask for a best-guess draft, or why none.
-        if (draftAsks < DRAFT_ASKS.change && wroteNothing(buildDir, digestsBefore)) {
+        if (draftAsks < DRAFT_ASKS && wroteNothing(buildDir, digestsBefore)) {
           draftAsks += 1;
           stage("the coding agent has changed nothing yet - asking for a best-guess draft, or why the change needs no code");
-          response = await ask(executor, draftPrompt(true), options.onDelta);
+          response = await ask(executor, draftPrompt(), options.onDelta);
           continue;
         }
 
@@ -500,12 +460,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // Passing means the harness's own run of the unit testing script passed, last.
   const unitPassed = verified;
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
-  const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files, ...(changeText !== undefined ? { change: changeText } : {}) };
+  const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files };
 
   /** The change landed: what the code is built from is now the spec with the change in, committed with it. */
   const land = () => {
     stage("recording what the code is built from, and committing it");
-    writeBuiltTree(buildDir, tree);
+    writeCodeRecord(buildDir, tree);
     recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)}`, options.diff);
   };
 
@@ -515,79 +475,14 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     return { ...base, passed: false, stoppedAt: "unit tests" };
   }
 
-  if (options.regression === false) {
-    stage("unit tests pass - landing the change on them");
-    land();
-    return { ...base, passed: true, stoppedAt: null };
-  }
-
-  const conformanceRoot = modulesRoot(projectDirOf(tip.plainFile));
-  // Conformance tests follow the change, whatever it touches - a definition, a req, the test reqs -
-  // with or without a functional spec yet. Only with conformance off, or no test reqs to write them
-  // from, are none written; the ones already here are kept passing all the same.
-  const hasTestReqs = specifications[TEST_REQUIREMENTS].length > 0;
-  if (options.conformance === false || !hasTestReqs) {
-    // No conformance tests written for the change - but the ones already here are kept
-    // passing: the change must not break what they check.
-    stage(options.conformance === false ? "conformance is off - done" : "no conformance tests to write for this change - keeping the existing ones passing");
-    const regression = await ensureRegressionPasses({
-      start: unit,
-      step: `${moduleName} spec change`,
-      buildDir, conformanceRoot, moduleName, frids, tree, required, scripts,
-      model: options.model, onDelta: options.onDelta,
-    });
-    if (regression.passed) land();
-    return { ...base, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
-  }
-
-  if (options.conformanceLater === true) {
-    stage("unit tests pass - landing the change; its conformance tests follow as a job of their own");
-    land();
-    return { ...base, passed: true, stoppedAt: null, conformanceLater: true };
-  }
-
-  stage("unit tests pass - bringing the conformance tests in line with the change");
-  const conformance = await renderConformanceTests({
-    plainFile: tip.plainFile,
-    frid: lastFrid,
-    templateDirs,
-    buildDir,
-    conformanceDir: conformanceDirFor(moduleName, conformanceRoot),
-    diff: options.diff,
-    ...(changeText !== undefined ? { change: changeText } : {}),
-    spec: { moduleName, tree },
-    // The implementation of the change is not committed yet: it is committed with the record.
-    continuing: true,
-    model: options.model,
-    onDelta: options.onDelta,
-  });
-  if (!conformance.passed) {
-    abandonWork(unit, moduleName, "the spec change's conformance tests do not pass");
-    return { ...base, conformance, passed: false, stoppedAt: "conformance" };
-  }
-
-  stage("conformance tests pass - running the codebase's whole conformance suite");
-  const regression = await ensureRegressionPasses({
-    start: unit,
-    step: `${moduleName} spec change`,
-    buildDir,
-    conformanceRoot,
-    moduleName,
-    frids,
-    tree,
-    required,
-    scripts,
-    model: options.model,
-    onDelta: options.onDelta,
-  });
-  if (regression.passed) land();
-  return { ...base, conformance, regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
+  stage("unit tests pass - landing the change on them");
+  land();
+  return { ...base, passed: true, stoppedAt: null };
 }
 
 /** What a rendered spec change did, for the agent and the person. */
 export function describeSpecDiff(result: RenderSpecDiffResult): string {
   const { added, changed, removed } = result.files;
-  const repairs = result.regression?.repairs.length ?? 0;
   if (result.restructured === true) {
     return `The specs were only restructured: ${result.moduleName}'s code (${result.buildDir}) is already built from the same spec, so nothing was rendered - the spec is recorded as it is now laid out.`;
   }
@@ -599,19 +494,9 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
           at: result.stoppedAt!,
           runs: result.runs,
           attempts: result.attempts,
-          conformance: result.conformance,
-          repairs: result.regression?.repairs.length,
         }),
     result.diff === "applied" ? "The diff was applied to the .plain files." : "The diff was already applied.",
     `Files: ${added.length} added, ${changed.length} changed, ${removed.length} removed.`,
-    result.conformanceLater === true
-      ? "Its conformance tests follow as a job of their own, queued behind this one."
-      : result.conformance === undefined
-      ? "Conformance tests were not run: the module has no test reqs, or they were turned off."
-      : result.conformance.passed
-        ? "Conformance tests were brought in line with the change and pass."
-        : "Conformance tests are NOT passing.",
-    repairs > 0 ? `${repairs} regression repair(s) changed the code beyond the change itself.` : "",
     result.testRemovals.length > 0 ? `Unit tests removed and justified: ${result.testRemovals.map((r) => r.file).join(", ")}.` : "",
     "",
     "<agent report>",

@@ -1,7 +1,7 @@
 import type { JobCases, TouchedSpec } from "./work.ts";
 
 /**
- * What a job's agents are told to do, by its cases - see docs/work-model.md. A job's functional specs each fall in
+ * What a job's agents are told to do, by its cases - see docs/rendering.md. A job's functional specs each fall in
  * one case - fresh, added, changed (patched), taken out - or, with none touched, the job is mechanical. The coding
  * agent and the conformance agent are each told, case by case, exactly what to do with the functional specs of that
  * case; their reviewers, what to hold each to. A job holding several cases gets a section for each.

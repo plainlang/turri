@@ -1,13 +1,11 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
-import { resolveTemplateDirs } from "./render.ts";
-import { builtRequiredSpecs, inheritBuiltTree, STATE_FILE, type RequiredSpec } from "./state.ts";
-import { writeCodeRecord } from "./records.ts";
-import type { MarshalledPlainSource } from "../plain/spec.ts";
+import { resolveTemplateDirs } from "./paths.ts";
+import { inheritedRecord, readRecord, RECORD_FILE, writeCodeRecord } from "./records.ts";
 import { head, historyLog, recordHistory } from "./history.ts";
 import { listFiles } from "./testing.ts";
 
@@ -19,8 +17,8 @@ import { listFiles } from "./testing.ts";
  * module starts. So rendering a module means rendering its chain, bottom first, carrying
  * the code forward at each step.
  *
- * What has already been built is not tracked here - that is per functionality, in
- * `state.ts`, because a module is routinely left part-built.
+ * What has already been built is not tracked here: each codebase's record says what it is built
+ * from - see `records.ts`.
  */
 
 export interface ChainEntry {
@@ -191,19 +189,6 @@ function findTip(
 }
 
 /**
- * Every functional spec of the modules this one requires, transitively, bottom of the chain
- * first - as the parser inherits them.
- *
- * A required module's code is copied in as this module's starting point, and that code
- * already holds its own ancestors'. So all of their functional specs are previous
- * functional specs here: already implemented, in this codebase.
- */
-export function requiredFunctionalSpecs(plainFile: string, templateDirs: string[] = []): RequiredSpec[] {
-  const [, tree] = plainFileParser(basename(plainFile), resolveTemplateDirs(plainFile, templateDirs));
-  return getInheritedFunctionalSpecs(tree);
-}
-
-/**
  * Copy a required module's codebase into the build that is about to be created.
  *
  * What the code is built from comes too, converted: what the source module built becomes what
@@ -216,17 +201,13 @@ export function copyRequiredCode(
   toModule: string,
   /** The module the code comes from: its functional specs are what the new one inherits. */
   fromModule: string,
-  /** The new module's spec: what of its definitions and reqs the code already implements is recorded as built. */
-  spec?: MarshalledPlainSource,
-  /** What to record the new codebase as built from, instead of working it out from the source's record. */
-  record?: MarshalledPlainSource,
 ): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
 
   const copied: string[] = [];
   for (const file of listFiles(from)) {
-    if (basename(file) === STATE_FILE) continue;
+    if (basename(file) === RECORD_FILE) continue;
     const target = join(to, file);
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(join(from, file), target);
@@ -235,8 +216,8 @@ export function copyRequiredCode(
   // The working notes describe this code, so they come up with it.
   if (existsSync(notesPath(from)) && !existsSync(notesPath(to))) copyFileSync(notesPath(from), notesPath(to));
   // What the code is built from comes with it, as what the new module inherits - not as its own work.
-  if (record !== undefined) writeCodeRecord(to, record);
-  else inheritBuiltTree(from, to, fromModule, spec);
+  const built = readRecord(from);
+  writeCodeRecord(to, built !== null ? inheritedRecord(built, fromModule) : {});
 
   // A new module's history starts here: where its code came from, and at which commit.
   const source = basename(dirname(from));
@@ -270,8 +251,9 @@ export function copyRequiredCode(
 export function newlyRequired(chain: ChainEntry[]): { modules: string[]; rebuild: ChainEntry[] } | undefined {
   for (const [index, entry] of chain.entries()) {
     if (index === 0 || listFiles(entry.buildDir).length === 0) continue;
-    const recorded = builtRequiredSpecs(entry.buildDir);
-    if (recorded === null) continue;
+    const record = readRecord(entry.buildDir);
+    if (record === null) continue;
+    const recorded = getInheritedFunctionalSpecs(record);
     const known = new Set(recorded.map((spec) => spec.module));
     const history = known.size === 0 ? historyLog(entry.buildDir, 10_000) : "";
     const missing = chain.slice(0, index).filter((below) => {
@@ -285,26 +267,4 @@ export function newlyRequired(chain: ChainEntry[]): { modules: string[]; rebuild
     }
   }
   return undefined;
-}
-
-/**
- * Take a module back to nothing - its code, its conformance tests and what they were built from -
- * so it is built again from the start, on the module it now requires. Committed, so the code that
- * was there is in its history.
- */
-export function startFromScratch(entry: ChainEntry, why: string): void {
-  const testsDir = join(dirname(entry.buildDir), "tests");
-  for (const dir of [entry.buildDir, testsDir]) rmSync(dir, { recursive: true, force: true });
-  mkdirSync(entry.buildDir, { recursive: true });
-  recordHistory(entry.buildDir, `start from scratch: ${why}`);
-}
-
-export function describeChain(chain: ChainEntry[]): string {
-  return chain
-    .map((entry, index) => {
-      const from = entry.requires ? `, code from ${entry.requires}` : "";
-      const count = `${entry.frids.length} functionalit${entry.frids.length === 1 ? "y" : "ies"}`;
-      return `${index + 1}. ${entry.moduleName}  ${count}${from}`;
-    })
-    .join("\n");
 }

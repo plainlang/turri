@@ -7,7 +7,7 @@ import { recordHistory } from "../../src/render/history.ts";
 import { exportModule, installsSoftware, listDeployed, runningDeployed, startDeployed, stopDeployed } from "../../src/render/deploy.ts";
 import { createDeployState, createDeployTools, refuseInstall, type Approve } from "../../src/deploy-tools.ts";
 import { NOTES_FILE } from "../../src/render/notes.ts";
-import { STATE_FILE } from "../../src/render/state.ts";
+import { RECORD_FILE } from "../../src/render/records.ts";
 
 let dir: string;
 
@@ -51,7 +51,7 @@ afterEach(async () => {
 
 describe("deploying a module", () => {
   it("puts its last commit in dist/<module> - leaving out what a job is writing now, and the harness's own files", () => {
-    const code = built("app", { "app.py": "print('hello')\n", [STATE_FILE]: "{}", [NOTES_FILE]: "- notes\n" });
+    const code = built("app", { "app.py": "print('hello')\n", [RECORD_FILE]: "{}", [NOTES_FILE]: "- notes\n" });
     // A render at work: a file half-written, one not committed, dependencies installed.
     writeFileSync(join(code, "app.py"), "print('hel");
     writeFileSync(join(code, "wip.py"), "half\n");
@@ -63,7 +63,7 @@ describe("deploying a module", () => {
     expect(readFileSync(join(deployment.dir, "app.py"), "utf8")).toBe("print('hello')\n");
     expect(existsSync(join(deployment.dir, "wip.py"))).toBe(false);
     expect(existsSync(join(deployment.dir, "node_modules"))).toBe(false);
-    expect(existsSync(join(deployment.dir, STATE_FILE))).toBe(false);
+    expect(existsSync(join(deployment.dir, RECORD_FILE))).toBe(false);
     expect(existsSync(join(deployment.dir, NOTES_FILE))).toBe(false);
     expect(deployment.unfinished).toBe(true);
     expect(deployment.subject).toBe("render app fs 1: it greets");

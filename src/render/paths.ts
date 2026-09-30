@@ -31,11 +31,6 @@ export function defaultBuildDir(moduleName: string, cwd: string = process.cwd())
   return join(moduleDir(moduleName, cwd), "code");
 }
 
-/** Conformance tests: `plain_modules/<module>/tests`. */
-export function defaultTestsDir(moduleName: string, cwd: string = process.cwd()): string {
-  return join(moduleDir(moduleName, cwd), "tests");
-}
-
 /**
  * The directory every module's output hangs off, `plain_modules` by default.
  *
@@ -173,4 +168,25 @@ export function ensureInScratch(scratch: string, path: string): string {
 export function sessionsDir(project: string): string {
   const scratch = scratchDir(join(project, MODULES_DIR));
   return ensureInScratch(scratch, join(scratch, "sessions"));
+}
+
+/**
+ * Template search order, matching file_utils.get_template_directories: the plain file's
+ * own directory first, then a sibling `template/` directory if there is one (where a
+ * project keeps its import modules), then anything passed in, then PLAIN_TEMPLATE_DIRS.
+ * A `stdlib/...` import is not looked for in them: it is plainwright's (see plain/stdlib.ts).
+ */
+export function resolveTemplateDirs(plainFile: string, extra: string[] = []): string[] {
+  const own = dirname(resolve(plainFile));
+  const dirs = [own];
+
+  const sibling = join(own, "template");
+  if (existsSync(sibling)) dirs.push(sibling);
+
+  dirs.push(...extra.map((dir) => resolve(dir)));
+
+  const fromEnv = process.env.PLAIN_TEMPLATE_DIRS;
+  if (fromEnv) dirs.push(...fromEnv.split(":").filter(Boolean).map((dir) => resolve(dir)));
+
+  return [...new Set(dirs)];
 }

@@ -2,9 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
-import { importedNames } from "./render/spec-diff-parts.ts";
-import { resolveTemplateDirs } from "./render/render.ts";
+import { IMPORT_DIRECTIVE, PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
+import { resolveTemplateDirs } from "./render/paths.ts";
 import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./render/spec-change.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
 import { describeModules, type WorkLoop } from "./render/loop.ts";
@@ -139,4 +138,26 @@ export function createSpecDiffTools(options: {
       },
     },
   };
+}
+
+/** The module names some .plain file in these folders imports: import modules, not codebases. */
+export function importedNames(dirs: string[]): Set<string> {
+  const names = new Set<string>();
+  for (const dir of dirs) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir).filter((name) => name.endsWith(PLAIN_SOURCE_FILE_EXTENSION));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      try {
+        const imports = readPlainSourceMetadata(readFileSync(join(dir, entry), "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined;
+        for (const name of imports ?? []) names.add(name);
+      } catch {
+        // A file that does not read imports nothing.
+      }
+    }
+  }
+  return names;
 }

@@ -78,10 +78,10 @@ describe("renderConformanceTests", () => {
     ).rejects.toThrow("Nothing to test");
   });
 
-  it("points at the render command when the build is missing", async () => {
+  it("points at the command that builds the code when the build is missing", async () => {
     await expect(
       renderConformanceTests({ plainFile: SIMPLE, frid: "1", buildDir, dryRun: true }),
-    ).rejects.toThrow(`npm run render -- ${SIMPLE} 1`);
+    ).rejects.toThrow(`plainwright module ${SIMPLE}`);
   });
 
   it("rejects an unknown functionality id", async () => {

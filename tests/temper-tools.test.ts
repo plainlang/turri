@@ -178,11 +178,12 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     const { specStatusOf } = await import("../src/temper-tools.ts");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("nothing is built yet");
-    const { recordBuiltFunctionality } = await import("../src/render/state.ts");
+    const { writeCodeRecord } = await import("../src/render/records.ts");
     const tree = plainFileParser("app.plain", [dir])[1];
-    recordBuiltFunctionality(buildDir(), tree, "1");
-    expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("functionalities not built from the spec as it stands: 2 (never built)");
-    recordBuiltFunctionality(buildDir(), tree, "2");
+    const specs = tree["functional specs"] as unknown[];
+    writeCodeRecord(buildDir(), { ...tree, "functional specs": specs.slice(0, 1) } as never);
+    expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("app's code is not built from the spec as it stands: add to functional specs, as item 2");
+    writeCodeRecord(buildDir(), tree);
     writeFileSync(join(buildDir(), "app.py"), "print('hi')\n");
     const failed = { id: "f1", kind: "render_spec_diff_conformance", summary: "app.plain spec diff conformance", status: "failed", sequence: 1, details: { passed: false } };
     expect(specStatusOf(join(dir, "app.plain"), dir, [failed as never]).text).toContain("did not pass");

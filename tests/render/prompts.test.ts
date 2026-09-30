@@ -1,10 +1,6 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { STATE_FILE } from "../../src/render/state.ts";
 import { describe, expect, it } from "vitest";
-import { buildConformancePrompt, buildRegressionFixPrompt, buildRenderPrompt } from "../../src/render/prompt.ts";
-import { listFrids, renderFunctionality, resolveTemplateDirs } from "../../src/render/render.ts";
+import { buildConformancePrompt, buildRegressionFixPrompt, buildSpecDiffPrompt, type SpecDiffPromptInput } from "../../src/render/prompt.ts";
+import { resolveTemplateDirs } from "../../src/render/paths.ts";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
@@ -14,6 +10,25 @@ import {
 } from "../../src/plain/spec.ts";
 
 const SIMPLE = "tests/data/simple.plain";
+
+/** The coding agent's prompt for a change that adds functionality 2 of `demo`. */
+function codingPrompt(overrides: Partial<SpecDiffPromptInput> = {}): string {
+  return buildSpecDiffPrompt({
+    moduleName: "demo",
+    diff: "@@ -1 +1,3 @@\n - Mine one.\n+\n+- Mine two.",
+    specifications: {
+      [DEFINITIONS]: ["- :App: is a console application."],
+      [NON_FUNCTIONAL_REQUIREMENTS]: ["- :Implementation: should be in Python."],
+      [TEST_REQUIREMENTS]: ["- Tests use unittest."],
+      [FUNCTIONAL_REQUIREMENTS]: ["- Mine one."],
+    },
+    required: [],
+    linkedResources: [],
+    empty: false,
+    cases: { fresh: false, add: [{ frid: "2", text: "Mine two." }], patch: [], delete: [], mechanical: false },
+    ...overrides,
+  });
+}
 
 describe("template directory resolution", () => {
   it("puts the plain file's own directory first", () => {
@@ -29,133 +44,30 @@ describe("template directory resolution", () => {
   });
 });
 
-describe("listFrids", () => {
-  it("returns the module name and its functionality ids", () => {
-    const { moduleName, frids } = listFrids(SIMPLE);
-    expect(moduleName).toBe("simple");
-    expect(frids).toEqual(["1"]);
-  });
-});
-
-describe("buildRenderPrompt", () => {
-  const specifications = {
-    [DEFINITIONS]: ["- :App: is a console application."],
-    [NON_FUNCTIONAL_REQUIREMENTS]: ["- :Implementation: should be in Python."],
-    [TEST_REQUIREMENTS]: ["- Tests use unittest."],
-    [FUNCTIONAL_REQUIREMENTS]: ["- Already built one.", "- Already built two.", "- Build this one."],
-    [ACCEPTANCE_TESTS]: ["- It should exit 0."],
-  };
-
-  it("separates the target functionality from the ones already built", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "3",
-      specifications,
-      linkedResources: [],
-    });
-
-    expect(prompt).toContain('<functionality module="demo" id="3">\n- Build this one.\n</functionality>');
-    expect(prompt).toContain(
-      '<already implemented>\n<module name="demo" role="current">\n<functionality module="demo" id="1" status="implemented">\n- Already built one.\n</functionality>\n\n' +
-        '<functionality module="demo" id="2" status="implemented">\n- Already built two.\n</functionality>\n</module>\n</already implemented>',
-    );
-    // The target must not also appear as context.
-    expect(prompt.split("- Build this one.")).toHaveLength(2);
-  });
-
+describe("the coding agent's prompt", () => {
   it("withholds the test reqs, which belong to conformance", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "3",
-      specifications,
-      linkedResources: [],
-    });
-
+    const prompt = codingPrompt();
     expect(prompt).not.toContain("<test reqs>\n");
     expect(prompt).not.toContain("- Tests use unittest.");
   });
 
-  it("includes the remaining specification sections and the acceptance tests", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "3",
-      specifications,
-      linkedResources: [],
-    });
-
-    expect(prompt).toContain("<definitions>");
-    expect(prompt).toContain("<implementation reqs>");
-    expect(prompt).toContain("<acceptance tests>\n- It should exit 0.\n</acceptance tests>");
-    expect(prompt).toContain("Implement functionality 3 of module `demo` and its unit tests - only functionality 3 of module `demo`.");
-  });
-
-  it("says which functionalities are already implemented and that only the new one is the task", () => {
-    const prompt = buildRenderPrompt({ moduleName: "demo", frid: "3", specifications, linkedResources: [] });
-
-    expect(prompt).toContain("Functionalities 1 and 2 of module `demo` are already implemented");
-    expect(prompt).toContain("Your task is functionality 3 of module `demo`, and only functionality 3 of module `demo`.");
-    expect(prompt).toContain("Do not implement them again");
-  });
-
-  it("says nothing is implemented yet for the first functionality", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "1",
-      specifications: { ...specifications, [FUNCTIONAL_REQUIREMENTS]: ["- The first."] },
-      linkedResources: [],
-    });
-
-    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 of module `demo` is its first.");
-    expect(prompt).not.toContain("Do not implement");
-  });
-
-  it("lists the required modules' functional specs first, as already implemented", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "2",
-      specifications: { ...specifications, [FUNCTIONAL_REQUIREMENTS]: ["- Mine one.", "- Mine two."] },
-      linkedResources: [],
+  it("lists the required modules' functional specs first, as already implemented, and the module's own after them", () => {
+    const prompt = codingPrompt({
       required: [
         { module: "c", frid: "1", spec: "- From c." },
         { module: "b", frid: "1", spec: "- From b." },
       ],
     });
-
     const c = prompt.indexOf('<functionality module="c" id="1" status="implemented">\n- From c.');
     const b = prompt.indexOf('<functionality module="b" id="1" status="implemented">\n- From b.');
     const mine = prompt.indexOf('<functionality module="demo" id="1" status="implemented">\n- Mine one.');
     expect(c).toBeGreaterThan(-1);
     expect(b).toBeGreaterThan(c);
     expect(mine).toBeGreaterThan(b);
-    expect(prompt).toContain("It builds on `c` and `b`, whose 2 functional specs are implemented in this codebase too");
-    expect(prompt).toContain("Functionality 1 of module `demo` and the functionalities of c and b exist. Do not implement them");
-  });
-
-  it("tells the first functionality of a requiring module what it builds on", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "1",
-      specifications: { ...specifications, [FUNCTIONAL_REQUIREMENTS]: ["- Mine one."] },
-      linkedResources: [],
-      required: [{ module: "b", frid: "1", spec: "- From b." }],
-    });
-    expect(prompt).toContain("Nothing of `demo` is implemented yet: functionality 1 of module `demo` is its first. It builds on `b`");
-    expect(prompt).toContain("The functionalities of b exist. Do not implement them again");
   });
 
   it("omits sections that are empty", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "1",
-      specifications: {
-        [DEFINITIONS]: [],
-        [NON_FUNCTIONAL_REQUIREMENTS]: ["- A req."],
-        [TEST_REQUIREMENTS]: [],
-        [FUNCTIONAL_REQUIREMENTS]: ["- The only one."],
-      },
-      linkedResources: [],
-    });
-
+    const prompt = codingPrompt({ specifications: { [DEFINITIONS]: [], [NON_FUNCTIONAL_REQUIREMENTS]: ["- A req."], [TEST_REQUIREMENTS]: [], [FUNCTIONAL_REQUIREMENTS]: [] } });
     // The primer names every section's tag; an empty section's own tag is not there.
     expect(prompt).not.toContain("<definitions>\n");
     expect(prompt).not.toContain("<test reqs>\n");
@@ -164,59 +76,8 @@ describe("buildRenderPrompt", () => {
   });
 
   it("embeds linked resource contents", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "demo",
-      frid: "1",
-      specifications: {
-        [DEFINITIONS]: [],
-        [NON_FUNCTIONAL_REQUIREMENTS]: [],
-        [TEST_REQUIREMENTS]: [],
-        [FUNCTIONAL_REQUIREMENTS]: ["- Use the schema."],
-      },
-      linkedResources: [{ text: "schema.yaml", target: "a/schema.yaml", content: "kind: Example" }],
-    });
-
+    const prompt = codingPrompt({ linkedResources: [{ text: "schema.yaml", target: "a/schema.yaml", content: "kind: Example" }] });
     expect(prompt).toContain('<resource name="schema.yaml" path="a/schema.yaml">\nkind: Example\n</resource>');
-  });
-});
-
-describe("renderFunctionality", () => {
-  it("builds the prompt without starting an agent on a dry run", async () => {
-    const result = await renderFunctionality({ plainFile: SIMPLE, frid: "1", dryRun: true });
-
-    expect(result.moduleName).toBe("simple");
-    expect(result.frid).toBe("1");
-    expect(result.response).toBe("");
-    expect(result.buildDir.endsWith("plain_modules/simple/code")).toBe(true);
-    expect(result.prompt).toContain('<functionality module="simple" id="1">\n- Simple functionality\n</functionality>');
-    expect(result.prompt).toContain("- Simple implementation requirement");
-  });
-
-  it("writes no state on a dry run - nothing was built", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "plainwright-dryrun-"));
-    try {
-      await renderFunctionality({ plainFile: SIMPLE, frid: "1", dryRun: true, buildDir: dir });
-      expect(existsSync(join(dir, STATE_FILE))).toBe(false);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("defaults to the first functionality", async () => {
-    const result = await renderFunctionality({ plainFile: SIMPLE, dryRun: true });
-    expect(result.frid).toBe("1");
-  });
-
-  it("rejects an unknown functionality id and lists the real ones", async () => {
-    await expect(renderFunctionality({ plainFile: SIMPLE, frid: "7", dryRun: true })).rejects.toThrow(
-      "Functionality 7 does not exist. Available: 1.",
-    );
-  });
-
-  it("rejects a file that is not a .plain file", async () => {
-    await expect(renderFunctionality({ plainFile: "README.md", dryRun: true })).rejects.toThrow(
-      "Expected a .plain file",
-    );
   });
 });
 
@@ -261,13 +122,8 @@ describe("what the other agents are told is already implemented", () => {
 
 describe("how to read the specification", () => {
   it("leads every coding prompt: the sections, and the predefined concepts that are never in the definitions", async () => {
-    const { buildRenderPrompt, specPrimer } = await import("../../src/render/prompt.ts");
-    const prompt = buildRenderPrompt({
-      moduleName: "app",
-      frid: "1",
-      specifications: { definitions: [], "implementation reqs": ["- :Implementation: uses FastAPI."], "test reqs": [], "functional specs": ["- Say hello."] },
-      linkedResources: [],
-    });
+    const { specPrimer } = await import("../../src/render/prompt.ts");
+    const prompt = codingPrompt();
     expect(prompt.startsWith("<how to read the specification>")).toBe(true);
     expect(prompt).toContain(":Implementation: - the system that implements :plainFunctionality:.");
     expect(prompt).toContain("They carry the same authority as the");
@@ -288,12 +144,9 @@ describe("how to read the specification", () => {
 
 describe("functionalities, by the module they belong to", () => {
   it("are grouped under their module, in the order the modules are built on each other, the current one marked", async () => {
-    const { buildRenderPrompt, functionalitiesByModule } = await import("../../src/render/prompt.ts");
-    const prompt = buildRenderPrompt({
+    const prompt = codingPrompt({
       moduleName: "top",
-      frid: "2",
-      specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": ["- Top one.", "- Top two."] },
-      linkedResources: [],
+      specifications: { [DEFINITIONS]: [], [NON_FUNCTIONAL_REQUIREMENTS]: [], [TEST_REQUIREMENTS]: [], [FUNCTIONAL_REQUIREMENTS]: ["- Top one."] },
       required: [
         { module: "base", frid: "1", spec: "- Base one." },
         { module: "base", frid: "3", spec: "- Base three." },
@@ -305,11 +158,9 @@ describe("functionalities, by the module they belong to", () => {
         '<functionality module="base" id="3" status="implemented">\n- Base three.\n</functionality>\n</module>\n\n' +
         '<module name="top" role="current">\n<functionality module="top" id="1" status="implemented">\n- Top one.\n</functionality>\n</module>\n</already implemented>',
     );
-    // The one to build, with its module too.
-    expect(prompt).toContain('<functionality module="top" id="2">\n- Top two.\n</functionality>');
-    expect(prompt).toContain("functionality 1 of `base` and functionality 1 of `app` are two");
 
     // Regenerating base in top's codebase: top is built on base, so it comes after, and base is the current one.
+    const { functionalitiesByModule } = await import("../../src/render/prompt.ts");
     expect(
       functionalitiesByModule(
         [
@@ -348,11 +199,10 @@ describe("the build's identity, and the code's build files", () => {
   });
 
   it("never loses why something failed: every coding agent keeps the cause, the judge blames code that hides it, and the fixer makes it show first", async () => {
-    const { buildRenderPrompt } = await import("../../src/render/prompt.ts");
     const { codeFixerTask, judgePrompt } = await import("../../src/render/conformance-agents.ts");
     const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- pytest."], "functional specs": ["- Take an order."] };
     const run = { command: "c", exitCode: 1, output: '{"error": "failed"}', timeoutMs: 1 };
-    const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
+    const render = codingPrompt();
     expect(render).toContain("Never lose why something failed");
     expect(render).toContain("Never make the code behave differently when a test runs it");
     const fix = codeFixerTask({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." } });
@@ -363,11 +213,11 @@ describe("the build's identity, and the code's build files", () => {
   });
 
   it("is kept by every agent that writes code, and handed whole to the conformance agent", async () => {
-    const { buildRenderPrompt, buildConformancePrompt } = await import("../../src/render/prompt.ts");
+    const { buildConformancePrompt } = await import("../../src/render/prompt.ts");
     const { codeFixerTask } = await import("../../src/render/conformance-agents.ts");
     const { buildManifests } = await import("../../src/render/conformance.ts");
     const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- pytest."], "functional specs": ["- Take an order."] };
-    const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
+    const render = codingPrompt();
     expect(render).toContain("Keep the build's identity as it is: its name, coordinates, version, package and main class.");
     const fix = codeFixerTask({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." } });
     expect(fix).toContain("Keep the build's identity as it is");

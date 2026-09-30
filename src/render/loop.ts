@@ -1,20 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
 import { FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
-import { llmChunkAgents, planChunks, type ChunkAgents } from "./chunk-plan.ts";
+import { llmChunkAgents, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
 import { recordHistory, resetToLastCommit } from "./history.ts";
 import type { Job, JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
-import { stepsOf, type MasterInput, type Steering } from "./queue-master.ts";
+import type { Steering } from "./steering.ts";
 import { chainTree, codeTree, conformanceTarget, inheritedRecord, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "./records.ts";
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./spec-change-conformance.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { modulesRoot } from "./paths.ts";
 import { configForSpec } from "../config.ts";
 import { describeSpecChange } from "./prompt.ts";
-import { resolveTemplateDirs } from "./render.ts";
+import { resolveTemplateDirs } from "./paths.ts";
 import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, type ChainEntry } from "./requires.ts";
 import { withTryItLine } from "./delivery.ts";
 import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./spec-change.ts";
@@ -25,7 +25,7 @@ import { listFiles } from "./testing.ts";
 import { casesOf, codeWork, stillWanted, type JobCases } from "./work.ts";
 
 /**
- * The work loop - see docs/work-model.md.
+ * The work loop - see docs/rendering.md.
  *
  * Nothing is queued. For every codebase it has been asked to bring up to its spec, the loop works out
  * what is left to build - from the code record to the spec of the codebase's requires chain, as the
@@ -132,6 +132,8 @@ export interface WorkLoop {
   planned(): Job[];
   /** Resolves once nothing runs and nothing more can start. */
   drain(): Promise<void>;
+  /** In a dry run: the job each codebase would start, with the spec it would be given. */
+  firsts(): Array<{ module: string; plainFile: string; buildDir: string; spec: SpecSnapshot; planned: PlannedJob }>;
 }
 
 const tipOf = (chain: ChainEntry[]): ChainEntry => chain.at(-1)!;
@@ -186,6 +188,8 @@ export function createWorkLoop(options: {
   runConformance?: JobRunner;
   /** Whether the config has a module's conformance tests on. Default: its `conformance-tests:`, on unless false. */
   conformanceOn?: (plainFile: string) => boolean;
+  /** Plan, and keep the job each codebase would start (`firsts`) - but start none. */
+  dryRun?: boolean;
 }): WorkLoop {
   const modules = new Map<string, ModuleState>();
   const order: string[] = [];
@@ -261,7 +265,7 @@ export function createWorkLoop(options: {
       ...(options.steering?.(state.askedFile) ?? []),
       ...state.guidance.map((text) => ({ source: "the request that asked for the work", text })),
     ];
-    const input: MasterInput = { base: from, previous: from, current, queued: [], specFile, specText, steering };
+    const input: PlanInput = { base: from, current, specFile, specText, steering };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into jobs`);
@@ -274,8 +278,16 @@ export function createWorkLoop(options: {
     });
   };
 
+  /** A dry run's first jobs, by codebase: what each would start. */
+  const firsts = new Map<string, { spec: SpecSnapshot; planned: PlannedJob }>();
+
   const startJob = (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, planned: PlannedJob) => {
     const tip = tipEntry(state);
+    if (options.dryRun === true) {
+      firsts.set(tip.buildDir, { spec: planned.track === "conformance" ? spec : { ...spec, tree: planned.step.tree }, planned });
+      state.why = `would start: ${planned.title}`;
+      return;
+    }
     const conformance = planned.track === "conformance";
     const job: Job = options.registry.start({
       kind: conformance ? "render_spec_diff_conformance" : "render_spec_diff",
@@ -289,7 +301,7 @@ export function createWorkLoop(options: {
           const below = state.chain.find((entry) => entry.moduleName === tip.requires);
           const source = below === undefined ? null : readRecord(below.buildDir);
           if (below !== undefined && source !== null) {
-            copyRequiredCode(below.buildDir, tip.buildDir, tip.moduleName, below.moduleName, undefined, inheritedRecord(source, below.moduleName));
+            copyRequiredCode(below.buildDir, tip.buildDir, tip.moduleName, below.moduleName);
             // Its conformance tests come with the code, the ones below's: none of its own is written yet.
             if (existsSync(join(testsDirOf(state), RECORD_FILE))) writeTestsRecord(testsDirOf(state), {});
           }
@@ -438,7 +450,8 @@ export function createWorkLoop(options: {
     }
     const fresh = newlyRequired(state.chain);
     if (fresh !== undefined && fresh.rebuild.some((entry) => entry.buildDir === tip.buildDir)) {
-      state.why = `it now requires ${fresh.modules.join(", ")}, which its code was not built on - its code has to be started again on it`;
+      const rebuild = fresh.rebuild.map((entry) => relative(options.cwd, dirname(entry.buildDir))).join(", ");
+      state.why = `it now requires ${fresh.modules.join(", ")}, which its code was not built on - its code has to be started again on it: remove ${rebuild} and it is built again, from the bottom of the chain`;
       return;
     }
     const below = waitingOn(state);
@@ -627,6 +640,13 @@ export function createWorkLoop(options: {
         });
       });
     },
+    firsts() {
+      return order.flatMap((key) => {
+        const first = firsts.get(key);
+        const tip = tipEntry(modules.get(key)!);
+        return first === undefined ? [] : [{ module: tip.moduleName, plainFile: tip.plainFile, buildDir: tip.buildDir, ...first }];
+      });
+    },
     async drain() {
       for (;;) {
         await ticking;
@@ -709,8 +729,6 @@ const defaultRunner: JobRunner = async (job, onDelta) => {
     cwd: job.cwd,
     applied: "already applied",
     spec: job.spec,
-    conformance: false,
-    regression: false,
     cases: job.planned.cases,
     ...(job.model !== undefined ? { model: job.model } : {}),
     onDelta,

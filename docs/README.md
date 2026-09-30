@@ -50,8 +50,7 @@ pages go into each part.
 | [Deploy](deploy.md) | trying what is built: dist/<module>, the last commit, starting it on your machine, asking before installing, `plainwright deploy` |
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |
-| [Rendering](rendering.md) | where things go, one functionality, a whole module, spec diffs, conformance tests, what the code is built from |
-| [The work model](work-model.md) | how plainwright decides what to build next, and the stages it is being rebuilt in: two records, the work derived from them, the prompt for each case |
+| [Rendering](rendering.md) | where things go, one job, a whole module and how its work is cut into jobs, each job's cases, spec changes, conformance tests, the two records of what is built |
 | [The sandbox](sandbox.md) | what an agent can reach, the file-tool fence, the VM, installing what the image lacks |
 | [Skills and gates](skills-and-gates.md) | the gate syntax, what the harness enforces, what a step can do, the rules, trying the gates |
 | [The \*\*\*plain parser](parser.md) | the TypeScript port, `plainwright check`, inheritance, the iterator, fidelity |

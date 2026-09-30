@@ -8,7 +8,7 @@ import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { keepFullOutput, listFiles, shownOutput, truncateOutput, type TestRun } from "./testing.ts";
+import { keepFullOutput, listFiles, truncateOutput, type TestRun } from "./testing.ts";
 import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 /**

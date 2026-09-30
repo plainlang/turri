@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { plainFileParser } from "../../src/plain/parser.ts";
 import { projectDirOf } from "../../src/render/paths.ts";
-import { renderFunctionality, resolveTemplateDirs } from "../../src/render/render.ts";
+import { resolveTemplateDirs } from "../../src/render/paths.ts";
+import { renderSpecDiff } from "../../src/render/spec-change.ts";
 import { writeTestScripts } from "../test-scripts.ts";
 
 let root: string;
@@ -37,10 +38,10 @@ describe("a spec kept in a folder of its own, named from the one above", () => {
   });
 
   it("is built in that project's plain_modules", async () => {
-    const result = await renderFunctionality({ plainFile: "plain/hubspot.plain", frid: "1", dryRun: true });
+    const result = await renderSpecDiff({ plainFile: "plain/hubspot.plain", diff: "+- It prints hello.", applied: "already applied", dryRun: true });
     expect(result.buildDir).toBe(join(root, "plain", "plain_modules", "hubspot", "code"));
     // Its own testing scripts, and nothing about plain/ in the prompt is missing.
-    expect(result.prompt).toContain("test_scripts/run_unittests_python.sh");
+    expect(result.task).toContain("test_scripts/run_unittests_python.sh");
   });
 });
 

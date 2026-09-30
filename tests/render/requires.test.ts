@@ -2,13 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { copyRequiredCode, describeChain, newlyRequired, requiredFunctionalSpecs, resolveRequiresChain, startFromScratch } from "../../src/render/requires.ts";
-import { historyLog, recordHistory } from "../../src/render/history.ts";
-import { writeBuiltTree } from "../../src/render/state.ts";
-import { isModuleUpToDate, pendingFrids, readBuiltTree, recordBuiltFunctionality } from "../../src/render/state.ts";
+import { copyRequiredCode, newlyRequired, resolveRequiresChain } from "../../src/render/requires.ts";
+import { recordHistory } from "../../src/render/history.ts";
+import { readRecord, writeCodeRecord } from "../../src/render/records.ts";
 import { getFrids, getInheritedFunctionalSpecs, getSpecificationItems } from "../../src/plain/spec.ts";
 import { plainFileParser } from "../../src/plain/parser.ts";
-import { resolveTemplateDirs } from "../../src/render/render.ts";
+import { resolveTemplateDirs } from "../../src/render/paths.ts";
 
 let dir: string;
 let build: string;
@@ -62,20 +61,6 @@ describe("resolveRequiresChain", () => {
   });
 });
 
-describe("build state", () => {
-  const treeFor = (file: string) =>
-    plainFileParser(`${file}.plain`, resolveTemplateDirs(join(dir, `${file}.plain`)))[1];
-
-  it("counts a module as built only when every functionality is recorded", () => {
-    const [entry] = resolveRequiresChain(join(dir, "base.plain"), [], build);
-    const tree = treeFor("base");
-    expect(isModuleUpToDate(tree, entry!.buildDir)).toBe(false);
-
-    recordBuiltFunctionality(entry!.buildDir, tree, "1");
-    expect(isModuleUpToDate(tree, entry!.buildDir)).toBe(true);
-  });
-});
-
 describe("copyRequiredCode", () => {
   it("copies the required module's codebase into the new build", () => {
     const from = join(build, "base");
@@ -90,48 +75,20 @@ describe("copyRequiredCode", () => {
     expect(readFileSync(join(to, "app.py"), "utf8")).toBe("print('base')");
   });
 
-  it("does not carry the build state across, which would claim the new build is finished", () => {
+  it("does not carry the record across as the new module's own, which would claim the new build is finished", () => {
     const from = join(build, "base");
     const to = join(build, "middle");
     mkdirSync(from, { recursive: true });
     writeFileSync(join(from, "app.py"), "print('base')");
-    const baseTree = plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1];
-    recordBuiltFunctionality(from, baseTree, "1");
+    writeCodeRecord(from, plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1]);
 
     copyRequiredCode(from, to, "middle", "base");
 
-    const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
-    expect(isModuleUpToDate(middleTree, to)).toBe(false);
+    expect(readRecord(to)!["functional specs"]).toBeUndefined();
   });
 
   it("copies nothing when the required build does not exist", () => {
     expect(copyRequiredCode(join(build, "nope"), join(build, "middle"), "middle", "base")).toEqual([]);
-  });
-});
-
-describe("describeChain", () => {
-  it("shows the order, the counts and where the code comes from", () => {
-    const text = describeChain(resolveRequiresChain(join(dir, "top.plain"), [], build));
-    expect(text).toContain("1. base");
-    expect(text).toContain("3. top");
-    expect(text).toContain("code from middle");
-  });
-});
-
-describe("requiredFunctionalSpecs", () => {
-  it("carries every ancestor's functional specs, transitively, bottom of the chain first", () => {
-    writeFileSync(join(dir, "base.plain"), spec().replace("- Do the thing.", "- Base one.\n\n- Base two."));
-    writeFileSync(join(dir, "middle.plain"), spec("base").replace("- Do the thing.", "- Middle one."));
-
-    expect(requiredFunctionalSpecs(join(dir, "top.plain"))).toEqual([
-      { module: "base", frid: "1", spec: "- Base one." },
-      { module: "base", frid: "2", spec: "- Base two." },
-      { module: "middle", frid: "1", spec: "- Middle one." },
-    ]);
-  });
-
-  it("is empty for a module that requires nothing", () => {
-    expect(requiredFunctionalSpecs(join(dir, "base.plain"))).toEqual([]);
   });
 });
 
@@ -180,24 +137,24 @@ describe("the tree, when code is copied up the chain", () => {
     const baseTree = plainFileParser("base.plain", resolveTemplateDirs(join(dir, "base.plain")))[1];
     mkdirSync(from, { recursive: true });
     writeFileSync(join(from, "app.py"), "print('base')\n");
-    recordBuiltFunctionality(from, baseTree, "1");
+    writeCodeRecord(from, baseTree);
 
     copyRequiredCode(from, middle, "middle", "base");
-    const carried = readBuiltTree(middle)!;
+    const carried = readRecord(middle)!;
     expect(carried["functional specs"]).toBeUndefined();
     expect(carried["required functional specs"]).toEqual([{ markdown: "- Do the thing.", module: "base", frid: "1" }]);
 
     // And on up: what middle inherits and what it built, in the order the code was built.
     const middleTree = plainFileParser("middle.plain", resolveTemplateDirs(join(dir, "middle.plain")))[1];
-    recordBuiltFunctionality(middle, middleTree, "1");
+    writeCodeRecord(middle, { ...readRecord(middle)!, "functional specs": middleTree["functional specs"] });
+    recordHistory(middle, "built middle 1");
     copyRequiredCode(middle, top, "top", "middle");
-    expect((readBuiltTree(top)!["required functional specs"] as Array<{ module: string; frid: string }>).map((s) => `${s.module} ${s.frid}`)).toEqual([
+    expect((readRecord(top)!["required functional specs"] as Array<{ module: string; frid: string }>).map((s) => `${s.module} ${s.frid}`)).toEqual([
       "base 1",
       "middle 1",
     ]);
     // Nothing of top's own is built yet.
-    const topTree = plainFileParser("top.plain", resolveTemplateDirs(join(dir, "top.plain")))[1];
-    expect(pendingFrids(topTree, top).map((p) => p.frid)).toEqual(["1"]);
+    expect(readRecord(top)!["functional specs"]).toBeUndefined();
   });
 });
 
@@ -224,7 +181,7 @@ describe("a module required that the code was not built on", () => {
     const code = join(build, module, "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, "app.py"), `# ${module}\n`);
-    writeBuiltTree(code, tree);
+    writeCodeRecord(code, tree as never);
     recordHistory(code, `built ${module}`);
   };
 
@@ -234,22 +191,13 @@ describe("a module required that the code was not built on", () => {
     expect(newlyRequired(resolveRequiresChain(join(dir, "middle.plain"), [], build))).toBeUndefined();
   });
 
-  it("is a module below that nothing is built of - the specs split into a new module - and the built ones above start from scratch", () => {
+  it("is a module below that nothing is built of - the specs split into a new module - with the built ones above to start again", () => {
     // middle was built on its own; now it requires base, which is new.
     built("middle", { "functional specs": [{ markdown: "- Do the thing." }] });
     const chain = resolveRequiresChain(join(dir, "top.plain"), [], build);
     const fresh = newlyRequired(chain)!;
     expect(fresh.modules).toEqual(["base"]);
     expect(fresh.rebuild.map((entry) => entry.moduleName)).toEqual(["middle"]);
-
-    mkdirSync(join(build, "middle", "tests"), { recursive: true });
-    writeFileSync(join(build, "middle", "tests", "test_old.py"), "pass\n");
-    startFromScratch(fresh.rebuild[0]!, "it now requires base");
-    expect(existsSync(join(build, "middle", "code", "app.py"))).toBe(false);
-    expect(existsSync(join(build, "middle", "tests"))).toBe(false);
-    expect(readBuiltTree(join(build, "middle", "code"))).toBeNull();
-    // The code that was there is in the history.
-    expect(historyLog(join(build, "middle", "code"))).toMatch(/start from scratch: it now requires base[\s\S]*built middle/);
   });
 
   it("is a built module the record does not list as inherited", () => {

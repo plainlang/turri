@@ -1,8 +1,5 @@
-import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, extname, join, relative, resolve } from "node:path";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
@@ -17,7 +14,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import { reportActivity, reportSpec, reportStage, unitOf } from "./activity.ts";
+import { reportActivity, reportSpec, reportStage, unitOf, type BuildingSpec } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { abandonWork, diffSinceSnapshot, moduleDirOf, recordHistory, startWork, workDiff, workSnapshot, type WorkStart } from "./history.ts";
 import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unansweredPrompt } from "./submit-work.ts";
@@ -62,17 +59,16 @@ import { ATTEMPTS } from "./stop-report.ts";
 import { ARBITER_AFTER, arbitrateReview, dismissedNote, REVIEW_LIMIT } from "./arbiter.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
-import { defaultBuildDir, modulesRoot, testsDirUnder, ensureInVmScratch, vmScratchDir, projectDirOf } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, testsDirUnder, vmScratchDir, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule, section, specChangeBlock } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources } from "./resources.ts";
-import { buildingSpec, resolveTemplateDirs } from "./render.ts";
+import { resolveTemplateDirs } from "./paths.ts";
 import {
   findTestRemovals,
   inventoryTests,
   listFiles,
   removalChallengePrompt,
-  runCommand,
   shownOutput,
   truncateOutput,
   type TestRemoval,
@@ -199,7 +195,7 @@ export async function renderConformanceTests(
     if (!options.dryRun) reportStage(`${forChange ? unitOf(moduleName) : unitOf(moduleName, frid)}: ${label}`);
   };
   stage(options.diff !== undefined ? "conformance tests for the spec change" : `conformance tests for functionality ${frid}`);
-  if (!options.dryRun && !forChange) reportSpec(buildingSpec(moduleName, frid!, frids.length, getSpecificationsForFrid(tree, frid!)[0], true));
+  if (!options.dryRun && !forChange) reportSpec(buildingSpec(moduleName, frid!, frids.length, getSpecificationsForFrid(tree, frid!)[0]));
   // From the last known good state, unless this step continues work not yet committed.
   // On its own it is one unit - its tests, and any change to the code - landed whole or undone
   // whole. Continuing work already under way, it is part of that work's unit instead.
@@ -212,7 +208,7 @@ export async function renderConformanceTests(
   if (manifest.length === 0) {
     throw new Error(
       `Nothing to test: ${buildDir} is empty or missing. ` +
-        (forChange ? "Render the spec change first." : `Render the functionality first, for example: npm run render -- ${options.plainFile} ${frid}`),
+        `Build the code first: plainwright module ${relative(process.cwd(), options.plainFile)}.`,
     );
   }
 
@@ -1021,4 +1017,21 @@ function specText(specifications: Specifications, moduleName: string, frids: str
     .map(([key, items]) => section(key, numbered(key, items))!);
   if (diff !== undefined) sections.push(specChangeBlock(diff));
   return sections.join("\n\n");
+}
+
+/**
+ * The functional spec a conformance run writes tests for, for the person watching: which one of how
+ * many, and its text as the spec has it, with its acceptance tests after it.
+ */
+export function buildingSpec(
+  moduleName: string,
+  frid: string,
+  total: number,
+  specifications: { "functional specs": string[]; [ACCEPTANCE_TESTS]?: string[] },
+): BuildingSpec {
+  const acceptance = specifications[ACCEPTANCE_TESTS] ?? [];
+  return {
+    label: `${moduleName} functionality ${frid} of ${total}`,
+    text: [(specifications["functional specs"].at(-1) ?? "").trim(), ...(acceptance.length > 0 ? ["", "acceptance tests:", ...acceptance.map((test) => test.trim())] : [])].join("\n"),
+  };
 }

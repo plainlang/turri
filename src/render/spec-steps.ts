@@ -2,8 +2,6 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
@@ -11,13 +9,10 @@ import {
   NON_FUNCTIONAL_REQUIREMENTS,
   REQUIRED_FUNCTIONAL_SPECS,
   TEST_REQUIREMENTS,
-  getFrids,
   getInheritedFunctionalSpecs,
   type MarshalledPlainSource,
 } from "../plain/spec.ts";
 import { validateConcepts } from "../plain/concepts.ts";
-import { sectionsOf, specStateFor } from "./state.ts";
-import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { sectionTag } from "./prompt.ts";
 
 /**
@@ -30,12 +25,9 @@ import { sectionTag } from "./prompt.ts";
  * a definition, a req. Git lines them up, so a spec inserted in the middle is one addition and
  * the specs after it are untouched, though their numbers moved.
  *
- * An agent orders the changes into steps - which go together, which go first. It picks changes
- * by id; it never writes a diff. The harness applies what it picked, checks that each step leaves
- * a spec that holds together - no concept used before a step defines it - and compares the
- * result with the target. Whatever the agent left out, or placed in a step that did not hold, is
- * diffed again from where its good steps got to, and it is asked about that - until applying
- * every step, in order, gives the target exactly.
+ * The planner (`chunk-plan.ts`) cuts the changes into steps - which go together, which go first. It
+ * picks changes by id; it never writes a diff. `makeStep` applies what it picked, and `inconsistencies`
+ * checks that each step leaves a spec that holds together - no concept used before a step defines it.
  */
 
 /** The sections of a tree, in the order they are written. Written even when empty, so they never change. */
@@ -75,53 +67,6 @@ export function serializeTree(tree: MarshalledPlainSource): string {
     for (const item of (value as unknown[] | undefined) ?? []) lines.push(JSON.stringify(sortKeys(item)));
   }
   return `${lines.join("\n")}\n`;
-}
-
-/**
- * Whether `to` is `from` with functional specs added at the end, and nothing else: every other
- * section the same, `from`'s functional specs unchanged and in order at the start of `to`'s, and
- * at least one more after them. Two trees the same are not - nothing was added.
- *
- * Such a change needs no spec diff: the new functional specs are built one by one, on top of
- * what is there, as a module is.
- */
-export function onlyAppendsFunctionalSpecs(from: MarshalledPlainSource, to: MarshalledPlainSource): boolean {
-  const before = (from[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? [];
-  const after = (to[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? [];
-  if (after.length <= before.length) return false;
-  // `to` without what it added has to be `from`, exactly.
-  return serializeTree({ ...to, [FUNCTIONAL_REQUIREMENTS]: after.slice(0, before.length) }) === serializeTree({ ...from, [FUNCTIONAL_REQUIREMENTS]: before });
-}
-
-/**
- * Whether `current` is `built` with functional specs added at the end, and nothing else - so the
- * new ones are rendered one by one, on top of what is there, as render_module builds a module.
- * The definitions, the implementation and test reqs and the inherited functional specs as built,
- * and the functional specs built unchanged at the start of the spec. Nothing of the module's own
- * built yet is the first case of it: its first render is built from the spec as it stands. Two the
- * same are too: there is nothing to do. Anything else - a spec changed in place, a req added, a
- * definition changed - takes spec diffs.
- *
- * Compared as the specs read - their text, with their acceptance tests - so a tree recorded by an
- * earlier plainwright, which kept the text, compares as it should.
- */
-export function reachedByRendering(built: MarshalledPlainSource | null, current: MarshalledPlainSource): boolean {
-  const builtFrids = built === null ? [] : [...getFrids(built)];
-  // Nothing of the module's own built - no functional spec, no section: only what it inherits,
-  // or nothing at all. A spec change that built the sections has built something, and what was
-  // added to them since is a change like any other.
-  const ownSections = built === null ? [] : Object.values(sectionsOf(built)).flat();
-  if (builtFrids.length === 0 && ownSections.length === 0) return true;
-  const currentFrids = [...getFrids(current)];
-  if (builtFrids.length > currentFrids.length) return false;
-  const own = (tree: MarshalledPlainSource, frid: string) => {
-    const { spec, acceptanceTests } = specStateFor(tree, frid);
-    return JSON.stringify([spec, acceptanceTests ?? []]);
-  };
-  // The sections in any order: definitions moved to a common module read the same.
-  const around = (tree: MarshalledPlainSource) =>
-    JSON.stringify([Object.entries(sectionsOf(tree)).map(([heading, texts]) => [heading, [...texts].sort()]), getInheritedFunctionalSpecs(tree)]);
-  return around(built!) === around(current) && builtFrids.every((frid) => own(built!, frid) === own(current, frid));
 }
 
 /**
@@ -455,30 +400,6 @@ export function describeChange(change: SpecChange): string {
   return [`${change.id}: ${what}`, ...body].join("\n");
 }
 
-/** A step as the agent planned it: the changes it takes, by id. */
-export interface PlannedStep {
-  title: string;
-  reason: string;
-  changes: string[];
-}
-
-export interface PlanRequest {
-  /** The spec as the steps planned so far leave it, serialized. */
-  current: string;
-  /** The spec to get to, serialized. */
-  target: string;
-  /** What is left to do, by id. */
-  changes: SpecChange[];
-  /** The steps planned in earlier rounds, already applied to `current`. */
-  planned: Array<{ title: string; reason: string }>;
-  /** 1 for the first request; later ones are about what the first left out. */
-  round: number;
-  /** What was wrong with the last round's answer, when anything was. */
-  feedback?: string;
-}
-
-export type Planner = (request: PlanRequest) => Promise<PlannedStep[]>;
-
 /** One step of the sequence: a spec diff, and the spec before and after it. */
 export interface SpecStep {
   title: string;
@@ -501,116 +422,6 @@ export interface SpecStep {
   sections: string[];
   /** Made by the harness for what the agent never placed, after its rounds ran out. */
   fallback?: boolean;
-}
-
-export interface SpecStepsResult {
-  steps: SpecStep[];
-  /** What each round asked about and what came back of it. */
-  rounds: Array<{ round: number; asked: number; placed: number; problems: string[] }>;
-}
-
-export const DEFAULT_PLAN_ROUNDS = 4;
-
-/**
- * The steps from one tree to another. Applying every step's changes, in order, gives `to`
- * exactly: that is checked, round after round, until it holds.
- */
-export async function planSpecSteps(
-  from: MarshalledPlainSource,
-  to: MarshalledPlainSource,
-  options: {
-    planner: Planner;
-    maxRounds?: number;
-    /** What the text diffs call the spec: the module's .plain file. */
-    specFile?: string;
-    /** That file's text, whose layout the text diffs follow - see layoutOf. */
-    specText?: string;
-  },
-): Promise<SpecStepsResult> {
-  const file = options.specFile ?? "spec.plain";
-  const layout = options.specText !== undefined ? layoutOf(options.specText) : undefined;
-  const target = serializeTree(to);
-  let current = serializeTree(from);
-  const steps: SpecStep[] = [];
-  const rounds: SpecStepsResult["rounds"] = [];
-  const maxRounds = options.maxRounds ?? DEFAULT_PLAN_ROUNDS;
-  let feedback: string | undefined;
-  // What is wrong with the spec at either end is not the steps' doing.
-  const endpoints = new Set([...validateConcepts(from), ...validateConcepts(to)]);
-
-  for (let round = 1; round <= maxRounds && current !== target; round += 1) {
-    const changes = changesBetween(current, target);
-    const byId = new Map(changes.map((change) => [change.id, change]));
-    const planned = await options.planner({
-      current,
-      target,
-      changes,
-      planned: steps.map(({ title, reason }) => ({ title, reason })),
-      round,
-      feedback,
-    });
-
-    // What the answer placed, each change once, in the order given. The rest is asked about again.
-    const problems: string[] = [];
-    const used = new Set<string>();
-    const taken: Array<{ step: PlannedStep; changes: SpecChange[] }> = [];
-    for (const step of planned) {
-      const picked: SpecChange[] = [];
-      for (const id of step.changes) {
-        const change = byId.get(id);
-        if (change === undefined) problems.push(`"${step.title}" names ${id}, which is not one of the changes.`);
-        else if (used.has(id)) problems.push(`"${step.title}" names ${id}, which an earlier step already takes.`);
-        else {
-          used.add(id);
-          picked.push(change);
-        }
-      }
-      if (picked.length > 0) taken.push({ step, changes: picked });
-      else problems.push(`"${step.title}" takes no change of its own, so it was left out.`);
-    }
-    const missing = changes.filter((change) => !used.has(change.id));
-    if (missing.length > 0) problems.push(`No step takes ${missing.map((change) => change.id).join(", ")}.`);
-
-    // Every step from this round applies to the same tree, `current`: step k is the first k
-    // together. Each has to leave a spec that holds together - every concept it uses defined,
-    // none defined twice - or it, and every step after it in this answer, is asked about again.
-    const base = current;
-    const sofar: SpecChange[] = [];
-    let previous = base;
-    let placed = 0;
-    for (const { step, changes: picked } of taken) {
-      const next = applyChanges(base, [...sofar, ...picked]);
-      const wrong = inconsistencies(parseTree(next), endpoints);
-      if (wrong.length > 0) {
-        const after = taken.length - taken.findIndex((entry) => entry.step === step) - 1;
-        problems.push(
-          `"${step.title}" leaves the specification inconsistent, so it${after > 0 ? ` and the ${after} step${after === 1 ? "" : "s"} after it` : ""} ` +
-            `were not taken:\n${wrong.map((error) => `  - ${error}`).join("\n")}`,
-        );
-        break;
-      }
-      sofar.push(...picked);
-      placed += picked.length;
-      steps.push(makeStep(step.title, step.reason, picked, previous, next, file, layout));
-      previous = next;
-    }
-    current = previous;
-    rounds.push({ round, asked: changes.length, placed, problems });
-    feedback = problems.length > 0 ? problems.join("\n") : undefined;
-  }
-
-  if (current !== target) {
-    // The rounds ran out with changes still unplaced: they go in one last step of their own,
-    // so the sequence is complete whatever the agent did.
-    const rest = changesBetween(current, target);
-    steps.push({
-      ...makeStep("The rest of the change", "Changes no planned step placed.", rest, current, applyChanges(current, rest), file, layout),
-      fallback: true,
-    });
-    current = steps.at(-1)!.after;
-  }
-  if (current !== target) throw new Error("The steps do not add up to the target spec - this is a bug in plainwright.");
-  return { steps, rounds };
 }
 
 /**
@@ -718,87 +529,3 @@ export function makeStep(title: string, reason: string, changes: SpecChange[], b
   };
 }
 
-/** What the planning agent is asked. */
-export function planPrompt(request: PlanRequest): string {
-  return [
-    "Code has been built from one ***plain specification, and the specification has since changed. The code is",
-    "to be brought up to date as a sequence of steps: each step is one spec change, rendered by a coding agent on",
-    "its own, then its tests are brought in line, before the next step starts. Order the changes below into those",
-    "steps.",
-    "",
-    "How to cut them:",
-    "- A step is about one thing a person would name: a feature, a rule, a fix. Roughly one functional spec per step.",
-    "- A definition goes in the first step whose functional spec uses it. A definition no step uses goes in the step",
-    "  whose subject it belongs to, or on its own.",
-    "- An implementation req that concerns one feature goes with that feature. One that concerns the whole codebase",
-    "  goes in a step of its own, before the features that should be built with it.",
-    "- A change to the test reqs, or to acceptance tests alone, goes in a step of its own: it changes only the tests.",
-    "- A step never uses a concept a later step defines, and never relies on a functional spec a later step adds.",
-    "- Keep the order of the functional specs, unless one depends on another that comes after it.",
-    "- A removal goes with whatever replaces it; the removal of a spec goes with the removal of what only it used.",
-    "",
-    "Every change goes in exactly one step. Call submit_plan once, with the steps in order.",
-    ...(request.round > 1
-      ? [
-          "",
-          `This is round ${request.round}. These steps are already planned, and applied to the specification below:`,
-          ...request.planned.map((step, index) => `${index + 1}. ${step.title}`),
-          ...(request.feedback !== undefined ? ["", "What was wrong with the last answer:", request.feedback] : []),
-          "",
-          "Plan the steps that come after them, for the changes still left.",
-        ]
-      : []),
-    "",
-    "<specification as it stands>",
-    treeText(request.current),
-    "</specification as it stands>",
-    "",
-    "<specification to get to>",
-    treeText(request.target),
-    "</specification to get to>",
-    "",
-    "<changes>",
-    request.changes.map(describeChange).join("\n\n"),
-    "</changes>",
-  ].join("\n");
-}
-
-/** The planning agent: a model with one tool, to hand its plan back with. */
-export function llmPlanner(options: { cwd: string; model?: string; label?: string }): Planner {
-  return async (request) => {
-    let steps: PlannedStep[] | undefined;
-    const submit: ToolDefinition = defineTool({
-      name: "submit_plan",
-      label: "Submit plan",
-      description: "Hand back the steps, in order. Call this exactly once.",
-      parameters: Type.Object({
-        steps: Type.Array(
-          Type.Object({
-            title: Type.String({ description: "What the step does, in a few words" }),
-            reason: Type.String({ description: "Why these changes go together, and why here in the order" }),
-            changes: Type.Array(Type.String(), { description: 'The ids of the changes it makes, e.g. ["c1", "c4"]' }),
-          }),
-        ),
-      }),
-      async execute(_id, params) {
-        steps = (params as { steps: PlannedStep[] }).steps;
-        return { content: [{ type: "text" as const, text: "Plan recorded." }], details: {}, terminate: true };
-      },
-    }) as ToolDefinition;
-    const session = await createExecutor({
-      cwd: options.cwd,
-      customTools: [submit],
-      tools: ["submit_plan"],
-      model: options.model,
-      label: options.label ?? "spec steps planner",
-      task: planPrompt(request),
-    });
-    try {
-      await ask(session, BEGIN);
-    } finally {
-      session.dispose();
-    }
-    // No plan is a plan with nothing placed: the next round asks again.
-    return steps ?? [];
-  };
-}

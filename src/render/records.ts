@@ -13,7 +13,7 @@ import {
 import { committedText } from "./history.ts";
 
 /**
- * What a module is built from, in two records - see docs/work-model.md.
+ * What a module is built from, in two records - see docs/rendering.md.
  *
  * - The code record, `code/.plainwright.json`: the spec the code is built from, without what is only
  *   for conformance - the test reqs, and the acceptance tests under each functional spec.
@@ -145,14 +145,79 @@ export function conformanceTarget(code: MarshalledPlainSource | null, tests: Mar
   });
 }
 
+/** A record written before the tree was all it held: v2's layout, with its sections as text. */
+interface StoredV2 {
+  version: number;
+  module: string;
+  [DEFINITIONS]?: string[];
+  [NON_FUNCTIONAL_REQUIREMENTS]?: string[];
+  [TEST_REQUIREMENTS]?: string[];
+  [FUNCTIONAL_REQUIREMENTS]: Array<{ module: string; frid: string; spec: string; "acceptance tests"?: string[]; unitTests?: string }>;
+}
+
+/** The first layout of all: one context snapshot per functionality. */
+interface StoredLegacy {
+  module: string;
+  functionalities: Record<string, { frid: string; unitTests?: string; specifications: Record<string, string[]> }>;
+}
+
+const asItem = (markdown: string, acceptanceTests?: string[]): Item => ({
+  markdown,
+  ...(acceptanceTests !== undefined && acceptanceTests.length > 0 ? { [ACCEPTANCE_TESTS]: acceptanceTests.map((test) => ({ markdown: test })) } : {}),
+});
+
+/**
+ * An older record, as the tree it describes. Its own functional specs are taken up to the first
+ * that did not build: the tree says what is built, and the one that failed is not.
+ */
+function treeFromV2(stored: StoredV2): MarshalledPlainSource {
+  const own = stored[FUNCTIONAL_REQUIREMENTS].filter((entry) => entry.module === stored.module).sort((a, b) => Number(a.frid) - Number(b.frid));
+  const built: Item[] = [];
+  for (const [index, entry] of own.entries()) {
+    if (Number(entry.frid) !== index + 1 || entry.unitTests !== "passed") break;
+    built.push(asItem(entry.spec, entry["acceptance tests"]));
+  }
+  const required = stored[FUNCTIONAL_REQUIREMENTS]
+    .filter((entry) => entry.module !== stored.module)
+    .map((entry) => ({ ...asItem(entry.spec, entry["acceptance tests"]), module: entry.module, frid: entry.frid }));
+  return withoutEmpty({
+    [DEFINITIONS]: (stored[DEFINITIONS] ?? []).map((text) => asItem(text)),
+    [NON_FUNCTIONAL_REQUIREMENTS]: (stored[NON_FUNCTIONAL_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [TEST_REQUIREMENTS]: (stored[TEST_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [FUNCTIONAL_REQUIREMENTS]: built,
+    [REQUIRED_FUNCTIONAL_SPECS]: required,
+  });
+}
+
+function treeFromLegacy(stored: StoredLegacy): MarshalledPlainSource {
+  const entries = Object.values(stored.functionalities).sort((a, b) => Number(a.frid) - Number(b.frid));
+  const latest = entries.at(-1)?.specifications;
+  const built: Item[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (Number(entry.frid) !== index + 1 || entry.unitTests !== "passed") break;
+    built.push(asItem(entry.specifications[FUNCTIONAL_REQUIREMENTS]?.at(-1) ?? "", entry.specifications[ACCEPTANCE_TESTS]));
+  }
+  return withoutEmpty({
+    [DEFINITIONS]: (latest?.[DEFINITIONS] ?? []).map((text) => asItem(text)),
+    [NON_FUNCTIONAL_REQUIREMENTS]: (latest?.[NON_FUNCTIONAL_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [TEST_REQUIREMENTS]: (latest?.[TEST_REQUIREMENTS] ?? []).map((text) => asItem(text)),
+    [FUNCTIONAL_REQUIREMENTS]: built,
+  });
+}
+
+/** A record's text as the tree it holds, whatever layout wrote it - or null when it is not one. */
 function readRecordText(text: string | undefined): MarshalledPlainSource | null {
   if (text === undefined) return null;
+  let raw: unknown;
   try {
-    const raw = JSON.parse(text) as unknown;
-    return raw !== null && typeof raw === "object" && !Array.isArray(raw) ? (raw as MarshalledPlainSource) : null;
+    raw = JSON.parse(text);
   } catch {
     return null;
   }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (typeof (raw as { version?: unknown }).version === "number") return treeFromV2(raw as StoredV2);
+  if ("functionalities" in raw) return treeFromLegacy(raw as StoredLegacy);
+  return raw as MarshalledPlainSource;
 }
 
 function readFileText(path: string): string | undefined {

@@ -7,27 +7,36 @@ import {
   applyChanges,
   changesBetween,
   describeChange,
-  onlyAppendsFunctionalSpecs,
+  makeStep,
   parseTree,
-  reachedByRendering,
   sameSpec,
-  planPrompt,
-  planSpecSteps,
   serializeTree,
-  type PlannedStep,
-  type PlanRequest,
-  type Planner,
+  type SpecStep,
 } from "../../src/render/spec-steps.ts";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
-import { withBuiltFunctionality } from "../../src/render/state.ts";
 
 const item = (markdown: string, extra: object = {}) => ({ markdown, ...extra });
 const tree = (sections: Record<string, string[]>): MarshalledPlainSource =>
   Object.fromEntries(Object.entries(sections).map(([key, items]) => [key, items.map((text) => item(text))]));
 const changesOf = (a: MarshalledPlainSource, b: MarshalledPlainSource) => changesBetween(serializeTree(a), serializeTree(b));
 
-/** A planner that takes every change, one step each, in the order given. */
-const oneEach: Planner = async (request) => request.changes.map((change) => ({ title: change.id, reason: "", changes: [change.id] }));
+/** Steps from `from` to `to`, cut from the changes in the order and sizes `cut` gives - each step the ones before it and its own, applied to `from`. */
+function stepsOf(from: MarshalledPlainSource, to: MarshalledPlainSource, cut: (ids: string[]) => string[][] = (ids) => ids.map((id) => [id])): SpecStep[] {
+  const base = serializeTree(from);
+  const changes = changesBetween(base, serializeTree(to));
+  const byId = new Map(changes.map((change) => [change.id, change]));
+  const steps: SpecStep[] = [];
+  const sofar = [];
+  let previous = base;
+  for (const [index, ids] of cut(changes.map((change) => change.id)).entries()) {
+    const picked = ids.map((id) => byId.get(id)!);
+    sofar.push(...picked);
+    const next = applyChanges(base, sofar);
+    steps.push(makeStep(`step ${index + 1}`, "", picked, previous, next, "spec.plain"));
+    previous = next;
+  }
+  return steps;
+}
 
 describe("a tree written out", () => {
   it("has one line per item, keys sorted, every section named even when empty", () => {
@@ -53,117 +62,6 @@ describe("a tree written out", () => {
     const reordered = { "functional specs": [{ linked_resources: [{ target: "api.yaml", text: "api" }], markdown: "- One.\n  - With detail." }], definitions: original.definitions };
     expect(parseTree(serializeTree(original))).toEqual(original);
     expect(serializeTree(reordered)).toBe(serializeTree(original));
-  });
-});
-
-describe("a change that only adds functional specs at the end", () => {
-  const from = {
-    definitions: [item("- :User: is a person.")],
-    "implementation reqs": [item("- Python.")],
-    "functional specs": [item("- A :User: can sign up.", { acceptance_tests: [item("- It returns 201.")] }), item("- A :User: can log in.")],
-  };
-  const withSpecs = (...specs: object[]) => ({ ...from, "functional specs": [...from["functional specs"], ...specs] });
-
-  it("is one when every new spec comes after the ones there were, and nothing else changed", () => {
-    expect(onlyAppendsFunctionalSpecs(from, withSpecs(item("- A :User: can log out.")))).toBe(true);
-    expect(onlyAppendsFunctionalSpecs(from, withSpecs(item("- A :User: can log out."), item("- A :User: can delete their account.")))).toBe(true);
-    // From nothing built: every spec is new.
-    expect(onlyAppendsFunctionalSpecs({ ...from, "functional specs": [] }, from)).toBe(true);
-    expect(onlyAppendsFunctionalSpecs({ definitions: from.definitions, "implementation reqs": from["implementation reqs"] }, from)).toBe(true);
-    // The same items, keys in another order, are the same items.
-    const reordered = { "functional specs": [{ acceptance_tests: [item("- It returns 201.")], markdown: "- A :User: can sign up." }, item("- A :User: can log in."), item("- A :User: can log out.")], "implementation reqs": from["implementation reqs"], definitions: from.definitions };
-    expect(onlyAppendsFunctionalSpecs(from, reordered)).toBe(true);
-  });
-
-  it("is not one when nothing was added", () => {
-    expect(onlyAppendsFunctionalSpecs(from, from)).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...from, "functional specs": [from["functional specs"][0]!] })).toBe(false);
-  });
-
-  it("is not one when a spec is inserted before the end, or one there was changes, moves or goes", () => {
-    const [first, second] = from["functional specs"];
-    const extra = item("- A :User: can log out.");
-    expect(onlyAppendsFunctionalSpecs(from, { ...from, "functional specs": [first!, extra, second!] })).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...from, "functional specs": [first!, item("- A :User: can log in, with a key."), extra] })).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...from, "functional specs": [second!, first!, extra] })).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...from, "functional specs": [second!, extra, item("- More.")] })).toBe(false);
-    // An acceptance test is part of its spec.
-    expect(onlyAppendsFunctionalSpecs(from, { ...from, "functional specs": [item("- A :User: can sign up.", { acceptance_tests: [item("- It returns 200.")] }), second!, extra] })).toBe(false);
-  });
-
-  it("is not one when anything but the functional specs changed too", () => {
-    const extra = item("- A :User: can see their :Streak:.");
-    expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(extra), definitions: [...from.definitions, item("- :Streak: is days in a row.")] })).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(item("- A :User: can log out.")), "implementation reqs": [item("- Python 3.12.")] })).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(item("- A :User: can log out.")), "test reqs": [item("- Tests run fresh.")] })).toBe(false);
-    expect(onlyAppendsFunctionalSpecs(from, { ...withSpecs(item("- A :User: can log out.")), "required functional specs": [item("- Base one.")] })).toBe(false);
-  });
-});
-
-describe("whether the code reaches the spec by rendering the functional specs it lacks", () => {
-  const spec = (extra: { definitions?: string[]; reqs?: string[]; specs?: string[] } = {}): MarshalledPlainSource => ({
-    definitions: ["- :User: is a person.", "- :Order: is something a :User: bought.", ...(extra.definitions ?? [])].map((text) => item(text)),
-    "implementation reqs": ["- Python.", ...(extra.reqs ?? [])].map((text) => item(text)),
-    "functional specs": (extra.specs ?? ["- A :User: can sign up.", "- A :User: can see an :Order:."]).map((text) => item(text)),
-  });
-  /** What the code is built from after its first `count` functionalities were rendered from `tree`. */
-  const builtUpTo = (tree: MarshalledPlainSource, count: number) => {
-    let built: MarshalledPlainSource | null = null;
-    for (let frid = 1; frid <= count; frid += 1) built = withBuiltFunctionality(built, tree, String(frid));
-    return built;
-  };
-
-  it("does with nothing built, part built, and all built", () => {
-    const current = spec();
-    expect(reachedByRendering(null, current)).toBe(true);
-    expect(reachedByRendering(builtUpTo(current, 1), current)).toBe(true);
-    expect(reachedByRendering(builtUpTo(current, 2), current)).toBe(true);
-  });
-
-  it("does not when new functional specs come with a definition or a req: the shared sections changed", () => {
-    const before = spec();
-    const after = spec({
-      definitions: ["- :Refund: is money back for an :Order:."],
-      specs: ["- A :User: can sign up.", "- A :User: can see an :Order:.", "- A :User: can ask for a :Refund:."],
-    });
-    expect(reachedByRendering(builtUpTo(before, 2), after)).toBe(false);
-    expect(reachedByRendering(builtUpTo(before, 2), spec({ specs: ["- A :User: can sign up.", "- A :User: can see an :Order:.", "- A :User: can leave."] }))).toBe(true);
-  });
-
-  it("does not when a spec change built the sections and definitions came in since - no functional spec built yet", () => {
-    // As cognio's first spec change left it: the reqs built, no definitions, no functional spec.
-    const built = { "implementation reqs": [item("- Python.")], "test reqs": [item("- Conformance tests use pytest.")] };
-    const current = { ...built, definitions: [item("- :User: is a person.")], "functional specs": [item("- A :User: can sign up.")] };
-    expect(reachedByRendering(built, current)).toBe(false);
-    // With the sections as built, the new functional specs are rendered one by one.
-    expect(reachedByRendering(built, { ...built, "functional specs": [item("- The app starts.")] })).toBe(true);
-  });
-
-  it("does for a module with nothing of its own built - started from another's code, say - whatever it inherits", () => {
-    expect(reachedByRendering({ "required functional specs": [item("- Base one.", { module: "base", frid: "1" })] }, spec())).toBe(true);
-  });
-
-  it("does not when a built spec changed, a req came in on its own, a definition changed, or a spec went in before the end", () => {
-    const built = builtUpTo(spec(), 2);
-    expect(reachedByRendering(built, spec({ specs: ["- A :User: can sign up with an email.", "- A :User: can see an :Order:."] }))).toBe(false);
-    expect(reachedByRendering(built, spec({ reqs: ["- Every error is JSON."] }))).toBe(false);
-    const redefined = spec();
-    (redefined.definitions as Array<{ markdown: string }>)[0]!.markdown = "- :User: is a person with an email.";
-    expect(reachedByRendering(built, redefined)).toBe(false);
-    expect(reachedByRendering(built, spec({ specs: ["- A :User: can sign up.", "- A :User: can log in.", "- A :User: can see an :Order:."] }))).toBe(false);
-    expect(reachedByRendering(built, spec({ specs: ["- A :User: can sign up."] }))).toBe(false);
-  });
-
-  it("does not when only a built spec's acceptance tests changed", () => {
-    const withTest = (test: string): MarshalledPlainSource => ({ ...spec(), "functional specs": [item("- A :User: can sign up.", { acceptance_tests: [item(test)] })] });
-    expect(reachedByRendering(builtUpTo(withTest("- It returns 201."), 1), withTest("- It returns 200."))).toBe(false);
-  });
-
-  it("compares a tree recorded as text by an earlier plainwright as the spec reads", () => {
-    // Items with only their text, as an old record converts to - no code variables or links kept.
-    const old = { definitions: [item("- :User: is a person.")], "implementation reqs": [item("- Python.")], "functional specs": [item("- A :User: can sign up.")] };
-    const current = { ...old, "functional specs": [item("- A :User: can sign up.", { code_variables: [] }), item("- A :User: can log in.")] };
-    expect(reachedByRendering(old, current)).toBe(true);
   });
 });
 
@@ -299,17 +197,15 @@ describe("any two trees", () => {
         const from = randomTree(next, words);
         const to = edited(next, from);
         // Changes shuffled, cut into steps of random sizes.
-        const planner: Planner = async (request) => {
-          const ids = request.changes.map((change) => change.id).sort(() => next() - 0.5);
-          const steps: PlannedStep[] = [];
-          while (ids.length > 0) steps.push({ title: `step ${steps.length + 1}`, reason: "", changes: ids.splice(0, 1 + Math.floor(next() * 3)) });
-          return steps;
-        };
-        const result = await planSpecSteps(from, to, { planner });
-        expect(result.steps.at(-1)?.after ?? serializeTree(from)).toBe(serializeTree(to));
-        expect(result.rounds.length).toBeLessThanOrEqual(1);
+        const steps = stepsOf(from, to, (ids) => {
+          const shuffled = [...ids].sort(() => next() - 0.5);
+          const cut: string[][] = [];
+          while (shuffled.length > 0) cut.push(shuffled.splice(0, 1 + Math.floor(next() * 3)));
+          return cut;
+        });
+        expect(steps.at(-1)?.after ?? serializeTree(from)).toBe(serializeTree(to));
         let current = serializeTree(from);
-        for (const step of result.steps) {
+        for (const step of steps) {
           expect(step.before).toBe(current);
           writeFileSync(join(dir, "spec.before"), current);
           writeFileSync(join(dir, "step.diff"), step.diff.replaceAll("spec.after", "spec.before"));
@@ -323,165 +219,6 @@ describe("any two trees", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-});
-
-describe("planning the steps", () => {
-  const from = tree({ definitions: ["- :User: is a person."], "functional specs": ["- A :User: can sign up.", "- A :User: can log in."] });
-  const to = tree({
-    definitions: ["- :User: is a person.", "- :Streak: is days in a row."],
-    "test reqs": ["- Conformance tests run against a fresh database."],
-    "functional specs": ["- A :User: can sign up.", "- A :User: can log in, with a valid password.", "- A :User: can see their :Streak:."],
-  });
-
-  it("asks nothing when there is nothing to do", async () => {
-    let asked = 0;
-    const result = await planSpecSteps(from, from, { planner: async () => ((asked += 1), []) });
-    expect(asked).toBe(0);
-    expect(result.steps).toEqual([]);
-  });
-
-  it("builds each step's spec and diff from the changes it takes", async () => {
-    const planner: Planner = async (request) => {
-      const id = (match: (text: string) => boolean) => request.changes.find((change) => match(change.after ?? ""))!.id;
-      return [
-        { title: "Log in needs a valid password", reason: "a fix", changes: [id((t) => t.includes("valid password"))] },
-        { title: "Study streak", reason: "concept with its feature", changes: [id((t) => t.includes(":Streak: is")), id((t) => t.includes("see their"))] },
-        { title: "Fresh database", reason: "tests only", changes: [id((t) => t.includes("fresh database"))] },
-      ];
-    };
-    const result = await planSpecSteps(from, to, { planner });
-    expect(result.steps.map((step) => [step.title, step.sections])).toEqual([
-      ["Log in needs a valid password", ["functional specs"]],
-      ["Study streak", ["definitions", "functional specs"]],
-      ["Fresh database", ["test reqs"]],
-    ]);
-    // The first step's spec has the fix and nothing else of the change.
-    expect(result.steps[0]!.tree["functional specs"]).toEqual(tree({ x: ["- A :User: can sign up.", "- A :User: can log in, with a valid password."] }).x);
-    expect(result.steps[0]!.tree.definitions).toEqual(from.definitions);
-    expect(result.steps[0]!.diff).toContain('-{"markdown":"- A :User: can log in."}');
-    expect(result.steps[0]!.diff).toContain('+{"markdown":"- A :User: can log in, with a valid password."}');
-    expect(result.steps[2]!.after).toBe(serializeTree(to));
-    expect(result.rounds).toEqual([{ round: 1, asked: 4, placed: 4, problems: [] }]);
-  });
-
-  it("asks again about what the agent left out, from where its steps got to, until it all adds up", async () => {
-    const requests: PlanRequest[] = [];
-    const planner: Planner = async (request) => {
-      requests.push(request);
-      const [first, second] = request.changes;
-      if (request.round === 1) {
-        // One change placed, one used twice, an id that does not exist - and the rest left out.
-        return [
-          { title: "First", reason: "", changes: [first!.id] },
-          { title: "Again", reason: "", changes: [first!.id, "c99"] },
-          { title: "Second", reason: "", changes: [second!.id] },
-        ];
-      }
-      return request.changes.map((change) => ({ title: change.id, reason: "", changes: [change.id] }));
-    };
-    const result = await planSpecSteps(from, to, { planner });
-
-    expect(requests).toHaveLength(2);
-    expect(result.rounds[0]).toMatchObject({ round: 1, asked: 4, placed: 2 });
-    expect(result.rounds[0]!.problems).toEqual([
-      '"Again" names c1, which an earlier step already takes.',
-      '"Again" names c99, which is not one of the changes.',
-      '"Again" takes no change of its own, so it was left out.',
-      "No step takes c3, c4.",
-    ]);
-    // Round 2 starts from the spec the first round's steps leave, and asks only about what is left.
-    expect(requests[1]!.current).toBe(result.steps[1]!.after);
-    expect(requests[1]!.changes).toHaveLength(2);
-    expect(requests[1]!.planned.map((step) => step.title)).toEqual(["First", "Second"]);
-    expect(requests[1]!.feedback).toContain("No step takes c3, c4.");
-    expect(result.steps.map((step) => step.title)).toEqual(["First", "Second", "c1", "c2"]);
-    expect(result.steps.at(-1)!.after).toBe(serializeTree(to));
-  });
-
-  it("puts whatever is still unplaced when the rounds run out into one last step", async () => {
-    const result = await planSpecSteps(from, to, { planner: async () => [], maxRounds: 2 });
-    expect(result.rounds.map((round) => round.placed)).toEqual([0, 0]);
-    expect(result.steps).toHaveLength(1);
-    expect(result.steps[0]).toMatchObject({ fallback: true, after: serializeTree(to) });
-    expect(result.steps[0]!.changes).toHaveLength(4);
-  });
-
-  it("shows the agent every change by id, and in a later round what is already planned", async () => {
-    const changes = changesOf(from, to);
-    const first = planPrompt({ current: serializeTree(from), target: serializeTree(to), changes, planned: [], round: 1 });
-    expect(first).toContain("c1: add to definitions, as item 2");
-    expect(first).toContain("c3: change the text of item 2 of functional specs");
-    expect(first).toContain("    - A :User: can log in, with a valid password.");
-    expect(first).toContain("<test reqs>\n");
-    const later = planPrompt({ current: serializeTree(from), target: serializeTree(to), changes, planned: [{ title: "First", reason: "" }], round: 2, feedback: "No step takes c3." });
-    expect(later).toContain("This is round 2");
-    expect(later).toContain("1. First");
-    expect(later).toContain("No step takes c3.");
-  });
-
-  describe("each step holding together", () => {
-    const idOf = (request: PlanRequest, text: string) => request.changes.find((change) => (change.after ?? change.before ?? "").includes(text))!.id;
-
-    it("sends back a step that uses a concept before a step defines it - and keeps the good steps before it", async () => {
-      const requests: PlanRequest[] = [];
-      const planner: Planner = async (request) => {
-        requests.push(request);
-        if (request.round === 1) {
-          return [
-            { title: "Login fix", reason: "", changes: [idOf(request, "valid password")] },
-            { title: "Streak endpoint", reason: "", changes: [idOf(request, "see their")] },
-            { title: "Streak concept", reason: "", changes: [idOf(request, ":Streak: is")] },
-            { title: "Fresh database", reason: "", changes: [idOf(request, "fresh database")] },
-          ];
-        }
-        return [
-          { title: "Study streak", reason: "", changes: [idOf(request, ":Streak: is"), idOf(request, "see their")] },
-          { title: "Fresh database", reason: "", changes: [idOf(request, "fresh database")] },
-        ];
-      };
-      const result = await planSpecSteps(from, to, { planner });
-
-      expect(result.rounds[0]).toMatchObject({ round: 1, asked: 4, placed: 1 });
-      expect(result.rounds[0]!.problems).toEqual([
-        expect.stringMatching(/^"Streak endpoint" leaves the specification inconsistent, so it and the 2 steps after it were not taken:\n  - Syntax error: Concept :Streak: is not defined/),
-      ]);
-      // Round 2 starts where the good step left off, and is told why.
-      expect(requests[1]!.current).toBe(result.steps[0]!.after);
-      expect(requests[1]!.feedback).toContain("Concept :Streak: is not defined");
-      expect(result.steps.map((step) => step.title)).toEqual(["Login fix", "Study streak", "Fresh database"]);
-      expect(result.steps.at(-1)!.after).toBe(serializeTree(to));
-    });
-
-    it("sends back a step that takes a definition away while a spec still uses it", async () => {
-      const withExport = tree({ definitions: ["- :User: is a person.", "- :Export: is a CSV file."], "functional specs": ["- A :User: can sign up.", "- A :User: can download an :Export:."] });
-      const without = tree({ definitions: ["- :User: is a person."], "functional specs": ["- A :User: can sign up."] });
-      const planner: Planner = async (request) =>
-        request.round === 1
-          ? [
-              { title: "Drop the concept", reason: "", changes: [idOf(request, ":Export: is")] },
-              { title: "Drop the feature", reason: "", changes: [idOf(request, "download")] },
-            ]
-          : [{ title: "Drop export", reason: "", changes: request.changes.map((change) => change.id) }];
-      const result = await planSpecSteps(withExport, without, { planner });
-      expect(result.rounds[0]!.problems[0]).toMatch(/^"Drop the concept" leaves the specification inconsistent, so it and the 1 step after it were not taken/);
-      expect(result.steps.map((step) => step.title)).toEqual(["Drop export"]);
-    });
-
-    it("does not blame a step for what is wrong at either end", async () => {
-      // A concept the spec already uses without defining, before and after: no step's doing.
-      const broken = tree({ definitions: ["- :User: is a person."], "functional specs": ["- A :User: can sign up.", "- A :Ghost: haunts."] });
-      const fixed = tree({ definitions: ["- :User: is a person."], "functional specs": ["- A :User: can sign up, with an email.", "- A :Ghost: haunts."] });
-      const result = await planSpecSteps(broken, fixed, { planner: oneEach });
-      expect(result.rounds[0]!.problems).toEqual([]);
-      expect(result.steps).toHaveLength(1);
-    });
-  });
-
-  it("one step per change is a valid plan", async () => {
-    const result = await planSpecSteps(from, to, { planner: oneEach });
-    expect(result.steps).toHaveLength(4);
-    expect(result.steps.at(-1)!.after).toBe(serializeTree(to));
   });
 });
 
@@ -582,8 +319,6 @@ describe("a restructuring of the specs", () => {
   it("is the same spec - definitions moved to a common module, and so read in another order", () => {
     const moved = { ...built, definitions: [item("- :Session: is a sign-in."), item("- :User: is a person.")] } as MarshalledPlainSource;
     expect(sameSpec(built, moved)).toBe(true);
-    // Nothing to render - and render_module takes it as built, not as spec diffs.
-    expect(reachedByRendering(built, moved)).toBe(true);
   });
 
   it("is the same spec when functional specs move to the module the code already holds them from", () => {

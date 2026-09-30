@@ -4,8 +4,9 @@ import { DEFAULT_CONCEPTS, extractConceptsFromDefinition, extractConceptsFromSpe
 import { ACCEPTANCE_TESTS, DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { reportActivity, reportStage } from "./activity.ts";
-import { checkDraft, netChanges, propose, steeringBlock, type DraftJob, type MasterInput, type Steering } from "./queue-master.ts";
-import type { SpecChange } from "./spec-steps.ts";
+import { steeringBlock, type Steering } from "./steering.ts";
+import { validateConcepts } from "../plain/concepts.ts";
+import { applyChanges, changesBetween, inconsistencies, layoutOf, makeStep, parseTree, serializeTree, type SpecChange, type SpecStep } from "./spec-steps.ts";
 
 /**
  * The queue's work, cut into jobs of a size worth rendering.
@@ -28,6 +29,88 @@ import type { SpecChange } from "./spec-steps.ts";
  * the plan falls back to a functional spec a job. A job past MAX_LINES_PER_JOB is split. The plan is the queue
  * master's proposal: it reviews it, and may change it, held to the same checks.
  */
+
+
+/** What the planner cuts: the work from `base` to `current`, and the module's .plain file for how the diffs read. */
+export interface PlanInput {
+  /** What the work starts from: the record, or what the job running lands. */
+  base: MarshalledPlainSource;
+  /** What it ends on: the spec as the track sees it now. */
+  current: MarshalledPlainSource;
+  /** How the person wants the work cut and ordered. */
+  steering?: Steering[];
+  /** The module's .plain file, as the diffs name it, and its text - for the diffs' layout. */
+  specFile: string;
+  specText: string;
+}
+
+/** One job of a plan: a title, why, and the changes it makes, by id. */
+export interface DraftJob {
+  title: string;
+  reason: string;
+  changes: string[];
+}
+
+/** The work the queue does: every change from the base to the spec as it is now, numbered. */
+export function netChanges(base: MarshalledPlainSource, current: MarshalledPlainSource): SpecChange[] {
+  return changesBetween(serializeTree(base), serializeTree(current));
+}
+
+/**
+ * What is wrong with a reworked queue, or nothing: every change in exactly one job, no job without
+ * one, and each job, applied after the ones before it, leaving a spec that holds together - the last
+ * exactly the spec as it is now.
+ */
+export function checkDraft(input: PlanInput, draft: DraftJob[]): string[] {
+  const net = netChanges(input.base, input.current);
+  const byId = new Map(net.map((change) => [change.id, change]));
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const job of draft) {
+    if (job.changes.length === 0) problems.push(`"${job.title}" makes no change - delete it, or give it changes.`);
+    for (const id of job.changes) {
+      if (!byId.has(id)) problems.push(`"${job.title}" names ${id}, which is not one of the changes.`);
+      else if (seen.has(id)) problems.push(`${id} is in more than one job - "${job.title}" and an earlier one.`);
+      seen.add(id);
+    }
+  }
+  const missing = net.filter((change) => !seen.has(change.id)).map((change) => change.id);
+  if (missing.length > 0) problems.push(`No job makes ${missing.join(", ")} - every change has to be made, or the queue does not end on the spec as it is now.`);
+  if (problems.length > 0) return problems;
+
+  const base = serializeTree(input.base);
+  const endpoints = new Set([...validateConcepts(input.base), ...validateConcepts(input.current)]);
+  const sofar: SpecChange[] = [];
+  for (const job of draft) {
+    sofar.push(...job.changes.map((id) => byId.get(id)!));
+    const wrong = inconsistencies(parseTree(applyChanges(base, sofar)), endpoints);
+    if (wrong.length > 0) {
+      problems.push(`After "${job.title}" the spec does not hold together - a later job defines what it uses:\n${wrong.map((error) => `  - ${error}`).join("\n")}`);
+      return problems;
+    }
+  }
+  if (applyChanges(base, sofar) !== serializeTree(input.current)) {
+    problems.push("Applied in order, the jobs do not end exactly on the spec as it is now.");
+  }
+  return problems;
+}
+
+/** A checked draft, as the queue runs it: each job's diff and the spec it leaves. */
+export function stepsOf(input: PlanInput, draft: DraftJob[]): Array<DraftJob & { step: SpecStep }> {
+  const byId = new Map(netChanges(input.base, input.current).map((change) => [change.id, change]));
+  const layout = layoutOf(input.specText);
+  let before = serializeTree(input.base);
+  const sofar: SpecChange[] = [];
+  return draft.map((job) => {
+    const changes = job.changes.map((id) => byId.get(id)!);
+    sofar.push(...changes);
+    const after = applyChanges(serializeTree(input.base), sofar);
+    const step = makeStep(job.title, job.reason, changes, before, after, input.specFile, layout);
+    before = after;
+    return { ...job, step };
+  });
+}
+
 
 export const MAX_SPECS_PER_JOB = 3;
 export const MAX_LINES_PER_JOB = 120;
@@ -189,28 +272,18 @@ function sizeOf(chunk: Chunk): number {
  * whose own change it carries - the first of them not taken by an earlier one - so a job keeps its id, its notes and
  * its conformance job where the plan leaves its change where it was.
  */
-function draftOf(chunks: Chunk[], net: SpecChange[], conformance: boolean, owners: Map<string, string>): DraftJob[] {
-  const used = new Set<string>();
+function draftOf(chunks: Chunk[], net: SpecChange[]): DraftJob[] {
   return chunks
     .map((chunk) => {
       const ids = new Set([...chunk.specs, ...chunk.definitions, ...chunk.reqs, ...(chunk.built ?? [])].map((change) => change.id));
       return { chunk, changes: net.filter((change) => ids.has(change.id)).map((change) => change.id) };
     })
     .filter((entry) => entry.changes.length > 0)
-    .map((entry) => {
-      // The job its functional specs were queued in, before one its definitions or reqs came with.
-      const first = [...entry.chunk.specs, ...(entry.chunk.built ?? [])].map((change) => change.id);
-      const order = [...first, ...entry.changes.filter((id) => !first.includes(id))];
-      const jobId = order.map((id) => owners.get(id)).find((owner): owner is string => owner !== undefined && !used.has(owner));
-      if (jobId !== undefined) used.add(jobId);
-      return {
-        title: entry.chunk.title,
-        reason: entry.chunk.built !== undefined ? "what is built already, changed" : "new work, cut from its functional specs",
-        changes: entry.changes,
-        ...(jobId !== undefined ? { jobId } : {}),
-        conformance,
-      };
-    });
+    .map((entry) => ({
+      title: entry.chunk.title,
+      reason: entry.chunk.built !== undefined ? "what is built already, changed" : "new work, cut from its functional specs",
+      changes: entry.changes,
+    }));
 }
 
 /** A spec's first line, as a group's title when no agent gave one. */
@@ -222,13 +295,9 @@ function titleOf(change: SpecChange): string {
  * Cut the queue's work - from `input.base` to `input.current` - into jobs, as the three steps say. Returns the draft
  * the work loop runs: checked (checkDraft), or, when nothing holds, the whole work as one job.
  */
-export async function planChunks(input: MasterInput, agents?: ChunkAgents): Promise<DraftJob[]> {
+export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   const net = netChanges(input.base, input.current);
   if (net.length === 0) return [];
-  const conformance = input.conformanceAvailable === true;
-  // Which queued job each change is the own change of - as it was queued, or edited since.
-  const owners = new Map<string, string>();
-  for (const job of propose(input)) for (const id of job.changes) if (job.jobId !== undefined && !owners.has(id)) owners.set(id, job.jobId);
   const specs = newSpecsOf(net, input.current);
   const inSpecs = new Set(specs);
   const isNew = (change: SpecChange, section: string) => change.section === section && change.kind === "add";
@@ -241,7 +310,7 @@ export async function planChunks(input: MasterInput, agents?: ChunkAgents): Prom
   // Anything else changes what is built on - an edit, a removal, a functional spec built changed or put in among them.
   const builtChanges = net.filter((change) => !inSpecs.has(change) && !placedByKind.has(change) && !otherAdds.includes(change));
   const hasBuilt = builtChanges.length > 0;
-  const whole: DraftJob[] = [{ title: "The spec change", reason: "the whole of the work, in one job", changes: net.map((change) => change.id), ...(input.queued[0] !== undefined ? { jobId: input.queued[0].jobId } : {}), conformance }];
+  const whole: DraftJob[] = [{ title: "The spec change", reason: "the whole of the work, in one job", changes: net.map((change) => change.id) }];
   if (specs.length === 0) return checkDraft(input, whole).length === 0 ? whole : [];
 
   // 1. Which functional specs go together.
@@ -318,7 +387,7 @@ export async function planChunks(input: MasterInput, agents?: ChunkAgents): Prom
     }
   }
 
-  const draft = draftOf(chunks, net, conformance, owners);
+  const draft = draftOf(chunks, net);
   if (checkDraft(input, draft).length === 0) return draft;
   // It does not hold together: a functional spec a job, every req with the first.
   reportActivity(`  the plan did not hold together (${checkDraft(input, draft)[0]?.slice(0, 120)}) - a functional spec a job`);
@@ -326,7 +395,7 @@ export async function planChunks(input: MasterInput, agents?: ChunkAgents): Prom
   groups.splice(0, groups.length, ...numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) })));
   chunks = chunksFor(groups);
   place();
-  const simple = draftOf(chunks, net, conformance, owners);
+  const simple = draftOf(chunks, net);
   if (checkDraft(input, simple).length === 0) return simple;
   return checkDraft(input, whole).length === 0 ? whole : [];
 }

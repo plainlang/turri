@@ -141,9 +141,8 @@ Without a conversation, the same work is on the command line:
 
 ```bash
 plainwright check app.plain          # validate a spec - no model, no API key
-plainwright render app.plain 1       # build functionality 1
-plainwright module app.plain         # build every functionality in order
-plainwright regenerate app.plain 3   # rebuild functionality 3 after its spec changed
+plainwright module app.plain         # build the spec: planned into jobs, run until it is built
+plainwright regenerate app.plain 3   # build functionality 3 again, changed or not
 ```
 
 More: [using **plainwright**](docs/using.md); to render a spec overnight, see

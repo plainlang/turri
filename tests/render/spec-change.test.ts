@@ -63,12 +63,12 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 
 const { applySpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/render/spec-change.ts");
 const { buildSpecDiffPrompt } = await import("../../src/render/prompt.ts");
-const { readBuiltTree } = await import("../../src/render/state.ts");
+const { readRecord } = await import("../../src/render/records.ts");
 const { listFiles } = await import("../../src/render/testing.ts");
 /** The spec as the parser has it now. */
 const parsed = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1];
 const { plainFileParser } = await import("../../src/plain/parser.ts");
-const { resolveTemplateDirs } = await import("../../src/render/render.ts");
+const { resolveTemplateDirs } = await import("../../src/render/paths.ts");
 
 let dir: string;
 let cwd: string;
@@ -172,7 +172,7 @@ describe("rendering a spec diff", () => {
     expect(prompts[0]).toContain("Nothing is built yet");
     expect(prompts[0]).not.toContain("<already implemented>\n");
     // What the code is built from: the spec with the change in, and nothing else in the file.
-    expect(readBuiltTree(result.buildDir)).toEqual(parsed());
+    expect(readRecord(result.buildDir)).toEqual(parsed());
     expect(Object.keys(JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"))).sort()).toEqual(["functional specs", "implementation reqs"]);
   });
 
@@ -195,24 +195,18 @@ describe("rendering a spec diff", () => {
     expect(reviews).toBeGreaterThan(0);
   });
 
-  it("ignores the conformance testing script when conformance is turned off - in the prompt and in the runs", async () => {
+  it("is judged by its unit tests alone - the conformance testing script is not in its prompt, and the conformance tests are not run", async () => {
     const withTests = (fs: string[]) => plain(fs).replace("***functional specs***", "***test reqs***\n\n- unittest.\n\n***functional specs***");
     writeFileSync(join(dir, "app.plain"), withTests(["- One."]));
-    // Conformance tests already here that would fail: turned off, nothing runs them.
+    // Conformance tests already here that would fail: the code job does not run them - the conformance job does.
     const tests = join(dir, "plain_modules", "app", "tests");
     mkdirSync(tests, { recursive: true });
     writeFileSync(join(tests, "test_conformance_one.py"), "import unittest\n\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.fail()\n");
 
-    const result = await renderSpecDiff({
-      plainFile: "app.plain",
-      diff: diffOf(withTests(["- One."]), withTests(["- One.", "- Two."])),
-      cwd: dir,
-      conformance: false,
-    });
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(withTests(["- One."]), withTests(["- One.", "- Two."])), cwd: dir });
 
     expect(prompts[0]).toContain('<script kind="unit tests"');
     expect(prompts[0]).not.toContain("conformance tests\" path=");
-    expect(result.regression).toMatchObject({ passed: true, runs: [], conformanceOff: true });
     expect(result.passed).toBe(true);
   });
 
@@ -242,7 +236,7 @@ describe("rendering a spec diff", () => {
     }) as never);
     const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- Uno."])), cwd: dir });
     expect(result.stoppedAt).toBe("unit tests");
-    expect(readBuiltTree(result.buildDir)).toBeNull();
+    expect(readRecord(result.buildDir)).toBeNull();
     expect(listFiles(result.buildDir)).toEqual([]);
   });
 });
@@ -272,7 +266,7 @@ describe("rendering a spec diff before any functional spec exists", () => {
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(after);
     expect(prompts.at(-1)).toContain('<definitions change="1 added">\nAdded:\n  - :User: is a person.\n</definitions>');
     expect(result.passed).toBe(true);
-    expect(readBuiltTree(result.buildDir)).toEqual({
+    expect(readRecord(result.buildDir)).toEqual({
       definitions: [{ markdown: "- :User: is a person." }],
       "implementation reqs": [{ markdown: "- Python." }],
     });
@@ -299,12 +293,18 @@ describe("conformance for a spec change", () => {
       "",
     ].join("\n");
 
-    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+    // The code first, then its conformance job - given the change section by section, as the work loop gives it.
+    const treeOf = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")), { allowNoFunctionalities: true })[1];
+    const treeBefore = treeOf();
+    expect((await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir })).passed).toBe(true);
+    const { renderSpecDiffConformance } = await import("../../src/render/spec-change-conformance.ts");
+    const { changesBetween, serializeTree } = await import("../../src/render/spec-steps.ts");
+    const { describeSpecChange } = await import("../../src/render/prompt.ts");
+    const change = describeSpecChange(changesBetween(serializeTree(treeBefore), serializeTree(treeOf())));
+    const result = await renderSpecDiffConformance({ plainFile: "app.plain", diff, change, cwd: dir, applied: "already applied" });
 
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(after);
-    // The conformance step ran: the agent was asked, and the whole suite with it passes.
-    expect(result.conformance).toBeDefined();
-    expect(result.conformance!.passed).toBe(true);
+    // The conformance agent was asked, and the whole suite with it passes.
     const conformancePrompt = prompts.find((prompt) => prompt.includes("You are writing conformance tests"))!;
     // The conformance agent is shown the change section by section, as the coding agent was.
     expect(conformancePrompt).toContain('<definitions change="1 added">\nAdded:\n  - :User: is a person.\n</definitions>');
@@ -387,8 +387,8 @@ describe("the work loop rendering spec diffs", () => {
 
     expect(result.diff).toBe("applied");
     // The spec as it stood with this change in - not the file as it is now.
-    expect(readBuiltTree(result.buildDir)).toEqual(spec.tree);
-    expect((readBuiltTree(result.buildDir)!["functional specs"] as Array<{ markdown: string }>).map((f) => f.markdown)).toEqual(["- One.", "- :User: signs in."]);
+    expect(readRecord(result.buildDir)).toEqual(spec.tree);
+    expect((readRecord(result.buildDir)!["functional specs"] as Array<{ markdown: string }>).map((f) => f.markdown)).toEqual(["- One.", "- :User: signs in."]);
   });
 
   it("leave each spec diff in the history, oldest first - and the tree as the last one left it", async () => {
@@ -404,7 +404,7 @@ describe("the work loop rendering spec diffs", () => {
 
     const { historyLog } = await import("../../src/render/history.ts");
     expect(historyLog(result.buildDir).split("\n").filter((line) => line.includes("spec diff:"))).toHaveLength(2);
-    expect(readBuiltTree(result.buildDir)).toEqual(parsed());
+    expect(readRecord(result.buildDir)).toEqual(parsed());
   });
 });
 
@@ -443,7 +443,7 @@ describe("a spec diff that only restructures the specs", () => {
 
     expect(result).toMatchObject({ passed: true, restructured: true, attempts: 0 });
     expect(prompts).toHaveLength(agentTurns);
-    expect(readBuiltTree(result.buildDir)).toEqual(parsed());
+    expect(readRecord(result.buildDir)).toEqual(parsed());
   });
 
   it("is refused when the module now requires one its code was not built on - that takes a rebuild from scratch", async () => {

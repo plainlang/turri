@@ -31,9 +31,9 @@ vi.mock("../../src/render/conformance.ts", async (importOriginal) => {
 });
 
 const { renderSpecDiffConformance, describeSpecDiffConformance } = await import("../../src/render/spec-change-conformance.ts");
-const { readBuiltTree, recordBuiltFunctionality } = await import("../../src/render/state.ts");
+const { readRecord, writeCodeRecord } = await import("../../src/render/records.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
-const { resolveTemplateDirs } = await import("../../src/render/render.ts");
+const { resolveTemplateDirs } = await import("../../src/render/paths.ts");
 
 let dir: string;
 const module_ = (specs: string[], requires?: string, testReqs = true) =>
@@ -45,12 +45,10 @@ const testsOf = (name: string) => join(dir, "plain_modules", name, "tests");
 const git = (...args: string[]) => spawnSync("git", args, { cwd: dir, encoding: "utf8" }).stdout;
 
 function built(name: string) {
-  const [moduleName, tree] = plainFileParser(`${name}.plain`, resolveTemplateDirs(file(name)));
+  const [, tree] = plainFileParser(`${name}.plain`, resolveTemplateDirs(file(name)));
   mkdirSync(buildOf(name), { recursive: true });
   writeFileSync(join(buildOf(name), "app.sh"), `echo ${name}\n`);
-  for (const frid of ["1", "2"].slice(0, (tree["functional specs"] as unknown[]).length)) {
-    recordBuiltFunctionality(buildOf(name), tree, frid);
-  }
+  writeCodeRecord(buildOf(name), tree);
 }
 
 /** A change to a .plain file as git writes it - and the file put back, so the diff is still to be applied. */
@@ -99,7 +97,7 @@ describe("conformance for a spec diff", () => {
     expect(result.passed).toBe(true);
     expect(result.tested).toEqual(["1"]);
     // Nothing was rendered: the record still says what the code was built from.
-    const inherited = readBuiltTree(buildOf("top"))!["required functional specs"] as Array<{ markdown: string; module: string; frid: string }>;
+    const inherited = readRecord(buildOf("top"))!["required functional specs"] as Array<{ markdown: string; module: string; frid: string }>;
     expect(inherited.find((spec) => spec.module === "base" && spec.frid === "2")!.markdown).toBe("- Base two.");
     // The tests it wrote are committed.
     expect(existsSync(join(testsOf("top"), "check_1.sh"))).toBe(true);
@@ -114,20 +112,6 @@ describe("conformance for a spec diff", () => {
     expect(result).toMatchObject({ passed: false, stoppedAt: "conformance" });
     expect(result.regression).toBeUndefined();
     expect(existsSync(join(testsOf("base"), "check_1.sh"))).toBe(false);
-  });
-
-  it("tests a change with no functional spec written yet - a definition - rather than refusing it", async () => {
-    const none = "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- Shell scripts.\n";
-    writeFileSync(file("base"), none);
-    mkdirSync(buildOf("base"), { recursive: true });
-    writeFileSync(join(buildOf("base"), "app.sh"), "echo base\n");
-    const diff = diffOf("base", "***definitions***\n\n- :User: is a person.\n\n" + none);
-
-    const result = await renderSpecDiffConformance({ plainFile: file("base"), diff, cwd: dir });
-
-    expect(conformanceRuns).toHaveLength(1);
-    expect(conformanceRuns[0]).toMatchObject({ frid: undefined, diff, module: "base" });
-    expect(result.passed).toBe(true);
   });
 
   it("tests a change with no functional spec written yet - a definition - rather than refusing it", async () => {

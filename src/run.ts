@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { relative, resolve } from "node:path";
+import { relative } from "node:path";
 import { describeGates, runSkill } from "./forge.ts";
 import type { Decision, Reporter } from "./graph.ts";
 import { runAsk } from "./ask.ts";

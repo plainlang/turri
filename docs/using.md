@@ -114,7 +114,7 @@ come waits for a free slot, and says so.
   one never starts - and **`/stop deploy <name>`** stops a server `deploy` started.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
   and the spec as it is now - again whenever a job ends or the spec changes - and the first job of
-  it runs; see [the work model](work-model.md). Changes that overlap never pile up: the next job
+  it runs; see [a whole module](rendering.md#a-whole-module). Changes that overlap never pile up: the next job
   builds the spec as it is. The jobs planned after the one running are listed behind it, as queued,
   and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
   A job building something the spec no longer wants is stopped and rolled back. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
@@ -285,16 +285,16 @@ linked resources resolve the way the parser expects. For a long run - a whole sp
 
 ```bash
 plainwright check <file.plain>              # validate a spec - no model, no API key
-plainwright render <file.plain> --list      # the functionality ids
-plainwright render <file.plain> 1           # build functionality 1
-plainwright module <file.plain>             # build every functionality
-plainwright regenerate <file.plain> 2       # rebuild after its spec changed
+plainwright module <file.plain>             # build what the code is not built from yet, and what it requires
+plainwright spec-diff <file.plain> <diff>   # apply a spec diff, and build it
+plainwright regenerate <file.plain> 2       # build functionality 2 again, changed or not
 plainwright conformance <file.plain> 1      # black-box tests for functionality 1
 plainwright skill skills/forge-plain        # run a gated skill directly
 plainwright deploy <file.plain>             # put what is built in dist/<module>, and start it here
 ```
 
-Each takes `--model provider/model-id`, `--build-dir` and `--template-dir` (repeatable); `render`
-and `conformance` also take `--dry-run`, which prints the prompt and starts nothing. `--help`
+The ones that build take `--model provider/model-id`; `module` also takes `--build-dir` and
+`--dry-run`, which plans the work, prints the prompt of each codebase's first job and starts nothing.
+Template directories come from `PLAIN_TEMPLATE_DIRS`. `--help`
 on any of them lists the rest. The bin is
 `plainwright`, not `forge`: `forge` is already Foundry's.

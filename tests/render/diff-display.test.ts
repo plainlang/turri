@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createJobRegistry } from "../../src/render/jobs.ts";
-import { diffBody, jobPanelLines, styleDiffLine, summarizeDiff } from "../../src/render/job-panel.ts";
+import { jobPanelLines, summarizeDiff } from "../../src/render/job-panel.ts";
 import { transcriptLines } from "../../src/render/transcript-view.ts";
 
 const diff = [
@@ -25,11 +25,6 @@ function gate() {
 describe("showing a spec change", () => {
   it("sums it up in one line: the files, the lines, and what it is about", () => {
     expect(summarizeDiff(diff)).toBe("backend.plain +3 −1 · :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
-  });
-
-  it("keeps the hunks and drops the headers", () => {
-    expect(diffBody(diff)[0]).toBe("@@ -3,6 +3,8 @@");
-    expect(diffBody(diff).some((line) => line.startsWith("diff --git") || line.startsWith("+++"))).toBe(false);
   });
 
   it("shows under a running job, in full with ctrl+o, and as a line under each queued one", async () => {
@@ -64,14 +59,6 @@ describe("showing a spec change", () => {
 
 describe("colouring a spec change", () => {
   const style = { added: (t: string) => `<green>${t}</green>`, removed: (t: string) => `<red>${t}</red>` };
-
-  it("makes added lines green and removed lines red, and leaves the rest alone", () => {
-    expect(styleDiffLine("+- :Kudo: is new.", style)).toBe("<green>+- :Kudo: is new.</green>");
-    expect(styleDiffLine("-- Old rule.", style)).toBe("<red>-- Old rule.</red>");
-    expect(styleDiffLine(" - :User: stays.", style)).toBe(" - :User: stays.");
-    expect(styleDiffLine("+++ b/backend.plain", style)).toBe("+++ b/backend.plain");
-    expect(styleDiffLine("--- a/backend.plain", style)).toBe("--- a/backend.plain");
-  });
 
   it("colours the counts in the summary line", () => {
     expect(summarizeDiff(diff, style)).toBe(

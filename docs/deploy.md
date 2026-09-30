@@ -62,5 +62,5 @@ at the terminal - `[y/N]` - before it installs anything. With no terminal to ask
 nothing is installed and it says what is needed. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 
-`plainwright render`, `module` and `spec-diff` end a build that landed with
+`plainwright module`, `spec-diff`, `regenerate` and `conformance` end a build that landed with
 `To try it: plainwright deploy <spec>`.

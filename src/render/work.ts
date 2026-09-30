@@ -4,7 +4,7 @@ import { codeTree, conformanceTarget, type Chosen } from "./records.ts";
 import { applyChanges, changesBetween, parseTree, serializeTree, type SpecChange } from "./spec-steps.ts";
 
 /**
- * The work, derived from the records - see docs/work-model.md. Nothing here is stored: what is left
+ * The work, derived from the records - see docs/rendering.md. Nothing here is stored: what is left
  * to build is the difference between what a record says is built and what the spec says now, worked
  * out again whenever either changes.
  *

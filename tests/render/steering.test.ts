@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSteeringStore, EVERY_MODULE, queueSectionOf, steeringFor } from "../../src/render/steering.ts";
 import { groupPrompt, placePrompt } from "../../src/render/chunk-plan.ts";
-import { masterPrompt } from "../../src/render/queue-master.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -42,12 +41,11 @@ describe("steering the queue", () => {
     ]);
   });
 
-  it("reaches the grouping, the placement and the queue master as a strong preference within their limits", () => {
+  it("reaches the grouping and the placement agents as a strong preference within their limits", () => {
     const steering = [{ source: "the conversation", text: "The worker's helpers go with the worker." }];
     for (const prompt of [
       groupPrompt([{ number: 1, text: "- One." }], steering),
       placePrompt({ groups: [], built: false, implementationReqs: [], testReqs: [], steering }),
-      masterPrompt({ base: {}, previous: {}, current: {}, queued: [], specFile: "a.plain", specText: "", steering } as never, []),
     ]) {
       expect(prompt).toContain('<from source="the conversation">\nThe worker\'s helpers go with the worker.\n</from>');
       expect(prompt).toContain("Follow these as a strong preference");

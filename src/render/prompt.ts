@@ -14,17 +14,6 @@ import type { JobCases } from "./work.ts";
 import type { RequiredSpec } from "./state.ts";
 import type { SpecChange } from "./spec-steps.ts";
 
-export interface PromptInput {
-  moduleName: string;
-  frid: string;
-  specifications: Specifications;
-  linkedResources: LoadedResource[];
-  /** The harness's map of the code built so far. Absent or null when there is none. */
-  codebase?: string | null;
-  /** Functional specs of the modules this one requires, transitively: already in the code. */
-  required?: RequiredSpec[];
-}
-
 /**
  * Everything already in the code: the required modules' functional specs, bottom of the
  * chain first, then this module's own earlier ones. Null when there is nothing.
@@ -65,19 +54,6 @@ export function functionalitiesByModule(
       return `<module name="${module}"${module === currentModule ? ' role="current"' : ""}>\n${items.join("\n\n")}\n</module>`;
     })
     .join("\n\n");
-}
-
-/**
- * "Functionality 1 of module `app`", "Functionalities 1 and 2 of module `app`", "Functionalities 1 to 3 of module
- * `app`", or null for none. Always with the module: its functionalities are numbered from 1, as every other
- * module's are, so a number alone is ambiguous in a codebase that holds more than one.
- */
-function implementedRange(count: number, moduleName: string): string | null {
-  if (count === 0) return null;
-  const of = ` of module \`${moduleName}\``;
-  if (count === 1) return `Functionality 1${of}`;
-  if (count === 2) return `Functionalities 1 and 2${of}`;
-  return `Functionalities 1 to ${count}${of}`;
 }
 
 /** "functionality 3 of module `app`": a functionality, named so that no other module's can be meant. */
@@ -205,86 +181,6 @@ export function section(key: string, items: string[]): string | null {
   return `<${tag}>\n${items.join("\n\n")}\n</${tag}>`;
 }
 
-/**
- * Build the prompt for one functionality.
- *
- * `getSpecificationsForFrid` returns every functionality up to and including the target,
- * so the last entry is what this run implements and the ones before it are already-built
- * context. Keeping that distinction explicit is the difference between the agent
- * extending the codebase and rewriting it.
- */
-export function buildRenderPrompt(input: PromptInput): string {
-  const { specifications } = input;
-  const functionalities = specifications[FUNCTIONAL_REQUIREMENTS];
-  const target = functionalities[functionalities.length - 1];
-  if (target === undefined) throw new Error(`Functionality ${input.frid} has no specification text.`);
-  const alreadyBuilt = functionalities.slice(0, -1);
-  const required = input.required ?? [];
-  const requiredModules = [...new Set(required.map((spec) => spec.module))];
-  const done = implementedRange(alreadyBuilt.length, input.moduleName);
-  const it = functionalityOf(input.frid, input.moduleName);
-  // The required modules' code is this codebase's starting point, so their specs are done
-  // work here just as much as this module's earlier ones.
-  const inherited =
-    requiredModules.length === 0
-      ? ""
-      : ` It builds on ${requiredModules.map((m) => `\`${m}\``).join(" and ")}, whose ${required.length} ` +
-        `functional spec${required.length === 1 ? " is" : "s are"} implemented in this codebase too and listed first below.`;
-
-  const parts: Array<string | null> = [
-    specPrimer({ testReqs: false }),
-    `You are implementing one functionality of the \`${input.moduleName}\` specification.`,
-    "",
-    done === null
-      ? `Nothing of \`${input.moduleName}\` is implemented yet: ${it} is its first.${inherited}`
-      : `${done} ${alreadyBuilt.length === 1 ? "is" : "are"} already implemented: the code is in the working ` +
-        "directory and its unit tests pass. They are listed below so you know what exists - they are not " +
-        `your task. Your task is ${it}, and only ${it}.${inherited}`,
-    "",
-    section(DEFINITIONS, specifications[DEFINITIONS]),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
-    // Test reqs are deliberately absent. They govern conformance testing, which is
-    // written by an agent that has not seen this code - showing them here invites the
-    // implementer to build towards the tests that are meant to judge it from outside.
-    alreadyImplemented(input.moduleName, alreadyBuilt, required),
-    // Exact, because the harness wrote it from the files and the build record. Without it
-    // every render starts by rediscovering the same codebase the last one just explored.
-    input.codebase ? `<codebase>\n${input.codebase}\n</codebase>` : null,
-  ];
-
-  parts.push(linkedResourcesSection(input.linkedResources));
-
-  parts.push(
-    `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
-    section(ACCEPTANCE_TESTS, specifications[ACCEPTANCE_TESTS] ?? []),
-    "",
-    `Implement ${it} and its unit tests - only ${it}.`,
-    "",
-    ...(done === null && required.length === 0
-      ? []
-      : done === null
-        ? [
-            `- The functionalities of ${requiredModules.join(" and ")} exist. Do not implement them again, and do not`,
-            `  rewrite their code. Change it only where ${it} needs it to, and keep their`,
-            "  behaviour and their tests passing.",
-          ]
-        : requiredModules.length > 0
-          ? [
-              `- ${done} and the functionalities of ${requiredModules.join(" and ")} exist. Do not implement them`,
-              `  again, and do not rewrite their code. Change it only where ${it} needs it to,`,
-              "  and keep their behaviour and their tests passing.",
-            ]
-          : [
-              `- ${done} ${alreadyBuilt.length === 1 ? "exists" : "exist"}. Do not implement ${alreadyBuilt.length === 1 ? "it" : "them"} again, and do not`,
-              `  rewrite ${alreadyBuilt.length === 1 ? "its" : "their"} code. Change it only where ${it} needs it to, and keep`,
-              `  ${alreadyBuilt.length === 1 ? "its behaviour and its" : "their behaviour and their"} tests passing.`,
-            ]),
-    ...workingRules(Boolean(input.codebase)),
-  );
-
-  return parts.filter((part): part is string => part !== null).join("\n");
-}
-
 function linkedResourcesSection(resources: LoadedResource[]): string | null {
   if (resources.length === 0) return null;
   const rendered = resources.map(
@@ -336,38 +232,20 @@ export interface SpecDiffPromptInput {
 /**
  * The specification a review of some work is given: laid out exactly as the coding agent had it - how to read a
  * ***plain spec, the definitions, the implementation reqs, what was already implemented - and then what is new, in
- * a block of its own: the functionality the work built, with its acceptance tests, or the change it made, section
- * by section. The reviewer reads what the coding agent read, and knows exactly what this work was.
+ * a block of its own: the change the work made, section by section. The reviewer reads what the coding agent read,
+ * and knows exactly what this work was.
  */
 export function reviewedSpec(input: {
   moduleName: string;
   specifications: Specifications;
   /** Functional specs of the modules this one requires: already in the code. */
   required?: RequiredSpec[];
-  /** The functionality the work built: the last of the functional specs. */
-  frid?: string;
-  /** For a spec change: the change, section by section. */
+  /** The change, section by section. */
   change?: string;
 }): string {
   const { specifications } = input;
   const functionalities = specifications[FUNCTIONAL_REQUIREMENTS] ?? [];
   const required = input.required ?? [];
-  if (input.frid !== undefined) {
-    const target = functionalities[functionalities.length - 1] ?? "";
-    return [
-      specPrimer({ testReqs: false }),
-      "",
-      section(DEFINITIONS, specifications[DEFINITIONS] ?? []),
-      section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? []),
-      alreadyImplemented(input.moduleName, functionalities.slice(0, -1), required),
-      "<new in this work>",
-      `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
-      section(ACCEPTANCE_TESTS, specifications[ACCEPTANCE_TESTS] ?? []),
-      "</new in this work>",
-    ]
-      .filter((part): part is string => part !== null)
-      .join("\n");
-  }
   return [
     specPrimer({ testReqs: false }),
     "",
@@ -534,109 +412,6 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
   ];
   return parts.filter((part): part is string => part !== null).join("\n");
 }
-
-export interface RegeneratePromptInput {
-  moduleName: string;
-  frid: string;
-  specifications: Specifications;
-  linkedResources: LoadedResource[];
-  /** The spec as this code was built from it. Unknown for a build recorded before it was kept. */
-  previous?: string;
-  /** Added to its module after this codebase was built: not in the code at all yet. */
-  added?: boolean;
-  /** The spec is exactly what the code was built from: regenerating by request, not because of a change. */
-  unchanged?: boolean;
-  /** Everything else in the codebase: every functional spec it holds except this one. */
-  implemented: RequiredSpec[];
-  /** Whose codebase this is, when it is not the functionality's own module's. */
-  codebaseOf?: string;
-  codebase?: string | null;
-}
-
-/**
- * Build the prompt for updating a functionality whose spec changed.
- *
- * Unlike a first render, the functionality is already in the code, and so is everything
- * built after it - possibly several modules' worth, when the codebase is a later module's.
- * So the task is a change, shown as one: what the spec said, what it says now, and every
- * other functionality in the code that has to keep working through it.
- */
-export function buildRegeneratePrompt(input: RegeneratePromptInput): string {
-  const { specifications } = input;
-  const target = specifications[FUNCTIONAL_REQUIREMENTS].at(-1);
-  if (target === undefined) throw new Error(`Functionality ${input.frid} has no specification text.`);
-  const where =
-    input.codebaseOf === undefined
-      ? "the working directory"
-      : `the working directory, which is the codebase of \`${input.codebaseOf}\` - built on top of \`${input.moduleName}\``;
-
-  // Three situations share this prompt, and each needs saying plainly: a spec that changed is
-  // a diff to apply; a spec that is new is a first implementation in a grown codebase; a spec
-  // that did not change is a request to redo the work, which a diff of nothing would ignore.
-  const mode = input.added ? "added" : input.unchanged ? "redo" : "changed";
-  const opening = {
-    added: `Functionality ${input.frid} was added to the \`${input.moduleName}\` specification after this codebase was built.`,
-    redo: `Functionality ${input.frid} of the \`${input.moduleName}\` specification is to be regenerated. Its spec has not changed since it was built.`,
-    changed: `Functionality ${input.frid} of the \`${input.moduleName}\` specification has changed since it was built.`,
-  }[mode];
-  const task = {
-    added:
-      `Every functionality listed as already implemented is in ${where}. Your task is to implement ` +
-      `${functionalityOf(input.frid, input.moduleName)} there - and only that.`,
-    redo:
-      `The code for it, and for every functionality listed as already implemented, is in ${where}. Your task ` +
-      `is to implement ${functionalityOf(input.frid, input.moduleName)} again from its spec, replacing the code it has now - and only that.`,
-    changed:
-      `The code for it, and for every functionality listed as already implemented, is in ${where}. ` +
-      `Your task is to update the code so ${functionalityOf(input.frid, input.moduleName)} does what its spec says now - and only that.`,
-  }[mode];
-
-  const parts: Array<string | null> = [
-    specPrimer({ testReqs: false }),
-    opening,
-    "",
-    task,
-    "",
-    section(DEFINITIONS, specifications[DEFINITIONS]),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
-    alreadyImplemented(input.moduleName, [], input.implemented),
-    input.codebase ? `<codebase>\n${input.codebase}\n</codebase>` : null,
-    linkedResourcesSection(input.linkedResources),
-    input.previous !== undefined && mode === "changed"
-      ? `<functionality module="${input.moduleName}" id="${input.frid}" version="as built">\n${input.previous}\n</functionality>`
-      : null,
-    mode === "changed"
-      ? `<functionality module="${input.moduleName}" id="${input.frid}" version="now">\n${target}\n</functionality>`
-      : `<functionality module="${input.moduleName}" id="${input.frid}">\n${target}\n</functionality>`,
-    section(ACCEPTANCE_TESTS, specifications[ACCEPTANCE_TESTS] ?? []),
-    "",
-    {
-      added: `Implement ${functionalityOf(input.frid, input.moduleName)} and its unit tests.`,
-      redo: `Implement ${functionalityOf(input.frid, input.moduleName)} and its unit tests again, from the spec.`,
-      changed: `Update ${functionalityOf(input.frid, input.moduleName)} and its unit tests to the spec as it is now.`,
-    }[mode],
-    "",
-    mode === "redo"
-      ? "- Replace its code rather than patching it: write it as you would from the spec alone. Keep its interface " +
-        "to the rest of the codebase - what other code calls, and what it calls."
-      : mode === "changed"
-        ? input.previous !== undefined
-          ? "- Change what the new version changes, and nothing else. Where the two versions agree, the code stays."
-          : "- The version it was built from is not recorded. Read the code for it, and change what no longer matches."
-        : null,
-    "- Everything listed as already implemented exists and must keep working, including what was built",
-    "  after this functionality. Do not reimplement it or rewrite it; change it only where this update needs to.",
-    {
-      added: "- Write unit tests for it. Tests of anything else stay as they are.",
-      redo: "- Rewrite the unit tests for this functionality from its spec. Tests of anything else stay as they are.",
-      changed: "- Update the unit tests for this functionality to the new spec. Tests of anything else stay as they are.",
-    }[mode],
-    ...workingRules(Boolean(input.codebase)),
-  ];
-
-  return parts.filter((part): part is string => part !== null).join("\n");
-}
-
 
 export interface ConformancePromptInput {
   /** What the job does to each functional spec (work.ts): the agent is told case by case. Not given: in general. */

@@ -25,22 +25,26 @@ scripts, models and conformance in its own `config.<module>.yaml`, laid over `co
 | --- | --- |
 | `plain_modules/<module>/code/` | the implementation and its unit tests |
 | `plain_modules/<module>/tests/` | the black-box conformance tests, organised however suits them |
-| `plain_modules/<module>/code/.plainwright.json` | the tree the code is built from - see [below](#what-the-code-is-built-from) |
+| `plain_modules/<module>/code/.plainwright.json` | the code record: the spec the code is built from - see [below](#what-the-code-is-built-from) |
+| `plain_modules/<module>/tests/.plainwright.json` | the tests record: what the conformance tests are written for - see [below](#what-the-code-is-built-from) |
 | `plain_modules/<module>/code/.plainwright-notes.md` | the agents' working notes - see [below](#working-notes) |
 | `plain_modules/<module>/.plaingit` | the module's history - see [using](using.md#module-history) |
 
 A module that `requires` another starts from a copy of that module's code and tests, and builds on
 top of it; the latest module built in a chain is where later changes to any module of the chain
-are made. What that code implements comes with it, as built: the other module's functional specs, as
-ones it inherits, and every definition, implementation req and test req of its own spec that the other
-module's code implements word for word - so none of them is new work for it.
+are made. What that code implements comes with it, as built: the other module's definitions and
+implementation reqs, tagged with it, and its functional specs, as ones the new module inherits. A
+definition or req of the module's own spec that a module below already has, word for word, is not new
+work for it: the code implements it already.
 
-## One functionality
+## One job
+
+Every piece of work on the code is a job of the work loop (see [a whole module](#a-whole-module)): a
+spec diff that takes the code from the spec it is built from to the spec the job ends on. To see what
+the first jobs would be told:
 
 ```bash
-plainwright render <file.plain> --list          # the functionality ids
-plainwright render <file.plain> 1               # build functionality 1
-plainwright render <file.plain> 1 --dry-run     # print the prompt, start nothing
+plainwright module <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
 ```
 
 ### What the agent is given
@@ -52,20 +56,21 @@ their functionality) and what the predefined concepts mean - `:Implementation:`,
 `:ConformanceTests:` and the rest, used in every spec and defined in none. It also says how a
 failure is fixed without hiding it: no changing test data to get a pass, no mocking the system
 under test, no skipping or silencing a failing test. It holds the definitions
-and implementation and test reqs in scope, every functionality already built (the required
-modules' too) marked as implemented, a map of the codebase as it stands, the contents of any
-linked resources, and the one functionality to build now with its acceptance tests:
+and implementation reqs in scope, every functionality already built (the required modules' too)
+marked as implemented, a map of the codebase as it stands, the contents of any linked resources,
+and the change to build, section by section, with what to do with each functional spec it touches
+(see [what a job is given](#what-a-job-is-given-and-what-it-records)):
 
 ```
 <definitions> … </definitions>
 <implementation reqs> … </implementation reqs>
-<test reqs> … </test reqs>
 <already implemented> … </already implemented>
 <codebase> … </codebase>
 <linked resources> … </linked resources>
-<functionality module="hello" id="1"> - Display "hello, world" </functionality>
-<acceptance tests> … </acceptance tests>
+<spec change> … </spec change>
 ```
+
+The test reqs and the acceptance tests are not in it: they are the conformance agents'.
 
 Every section has one name, its tag's, in every prompt: how to read the spec introduces each one as
 `<definitions>`, `<implementation reqs>`, `<test reqs>`, `<functional specs>` (each functional spec
@@ -119,9 +124,9 @@ runs the unit testing script itself**, and only that run counts (see
   the code folder as it found it (notes aside). That leaves nothing to test or review. So before the
   tests run, the agent is told to stop planning and write a draft: its best guess at what the spec
   asks, the code and its unit tests, with any assumption put in the notes. A draft that is wrong
-  comes back from the tests and the review; nothing written cannot. A functionality is asked twice.
-  A spec change or a regeneration is asked once, to write the change or say why it needs no code:
-  one that only rewords a spec may need none. After that, the turn is taken as what it did.
+  comes back from the tests and the review; nothing written cannot. It is asked once, to write the
+  change or say why it needs no code: one that only rewords a spec may need none. After that, the
+  turn is taken as what it did.
 
 A test may go only when it asserts nothing meaningful - it cannot fail, exactly duplicates
 another, or tests something the spec does not require. Inconvenient, slow or failing are not
@@ -147,8 +152,8 @@ case and error the spec states for this work has a test asserting the exact outc
   or swallows a failure; that the unit under test is never mocked - only what is outside it; and that
   the tests are deterministic. A test that is not there is `missing`, a weak one is `bad`.
 
-For a spec change, what it adds or changes is what needs code and tests, and a change that adds no
-behaviour needs neither. Code written another way than the reviewer would have written it is not a
+What the change adds or changes is what needs code and tests, and a change that adds no behaviour
+needs neither. Code written another way than the reviewer would have written it is not a
 problem, as long as it does what the spec says.
 
 The review is told what to inspect, so it does not have to guess. One reviewer does every review of
@@ -157,8 +162,7 @@ first starts from what it already read and raised. Its instructions hold:
 
 - **The spec as the coding agent had it**, laid out the same way: how to read a spec,
   `<definitions>`, `<implementation reqs>` and `<already implemented>`. What this work built is
-  apart, in `<new in this work>`: for a functionality, its `<functionality module="m" id="N">` with
-  its `<acceptance tests>`; for a spec change, the `<spec change>`, section by section.
+  apart, in `<new in this work>`: the `<spec change>`, section by section.
 
 And each review is shown:
 
@@ -194,9 +198,8 @@ matter of style, or the code is written another way but does what the spec says.
 upholds goes back. What it dismisses is let go, with why, in the working notes' pitfalls. When it
 upholds nothing, the work is approved as it is. The review optimises the code and its tests; it never stops the work - whether it is done is the
 unit testing script's to say. What the second review sends back is worked on once, and then the work
-goes on without another review - once its unit tests pass, which they still must. For a spec change the review
-is given the change section by section, and told that behaviour is what a functional spec, an
-acceptance test or a req states: a page or a component only a definition names has no code yet. The
+goes on without another review - once its unit tests pass, which they still must. The review is
+told that behaviour is what a functional spec, an acceptance test or a req states: a page or a component only a definition names has no code yet. The
 conformance tests are reviewed as black-box tests (see [conformance tests](#conformance-tests)).
 
 Every time a review sends tests back, the agent that fixes them also leaves the lesson in the
@@ -208,14 +211,14 @@ time - so the reviews of the next functionalities have less to send back, and fi
 
 ### Then
 
-Once the unit tests pass: the conformance tests already in the codebase are run and kept passing
-(repairing the code if needed), the functional spec goes into the tree the code is built from, and a
-commit is made to the module's history. A render that does not pass is undone instead - see
-[below](#what-the-code-is-built-from). A render that lands ends its report with the offer to try it -
-"Want to try it? Just ask me" in the chat, `plainwright deploy <spec>` on the command line - and
-trying it is [deploy](deploy.md)'s, not the render's. When the render's conformance tests follow as
-a job of their own, the offer comes at the very end, from that job, once they pass too. Spec diffs,
-conformance jobs and regenerations that land make the same offer.
+Once the unit tests pass and are reviewed, the job lands: the code record becomes the spec the job
+ends on, and a commit is made to the module's history. The conformance tests are not run here: they are
+the conformance track's, and its job for what this one built runs next, before anything is built on it
+(see [conformance tests in the work loop](#conformance-tests-in-the-work-loop)). A job that does not pass
+is undone instead - see [below](#what-the-code-is-built-from). A job that lands ends its report with the
+offer to try it - "Want to try it? Just ask me" in the chat, `plainwright deploy <spec>` on the command
+line - and trying it is [deploy](deploy.md)'s, not the job's. Conformance jobs that land make the same
+offer.
 
 ## A whole module
 
@@ -224,8 +227,8 @@ plainwright module <file.plain>
 ```
 
 Rendering a module - `render_module` in a conversation, `plainwright module` on the command line - is
-not a job of its own, and nothing is queued: the work loop (`src/render/loop.ts`, see
-[the work model](work-model.md)) works out what is left to build, has it planned into jobs, and runs
+not a job of its own, and nothing is queued: the work loop (`src/render/loop.ts`) works out what is left
+to build, has it planned into jobs, and runs
 the first. What is left is the difference between what a codebase's code is built from - its code
 record - and the spec of its requires chain as the `.plain` files have it now. When a job ends, or the
 spec changes, it is worked out again; a plan is kept only while the spec and the record it was cut from
@@ -298,8 +301,7 @@ of every codebase it is built in - committed, so the record says it is not built
 to their spec, which builds it again. A functionality whose spec changed needs none of it: `spec_changed`
 builds it again by itself.
 
-`plainwright regenerate <file.plain> 2` on the command line is the older path: it re-renders that
-functionality over the existing code in the chain's latest codebase, and runs every conformance test.
+`plainwright regenerate <file.plain> 2` does the same on the command line.
 
 ### The testing scripts
 
@@ -377,15 +379,27 @@ definition is itself by its concept: one reworded or moved is shown as changed, 
 Test reqs and acceptance tests are for conformance only: the code record holds neither, and no coding
 agent is shown them.
 
-It is told, too, what to do with each functional spec the job touches, by its case (`src/render/cases.ts`,
-[the work model](work-model.md#prompts)): a fresh project is set up first, with its unit tests where the unit
+It is told, too, what to do with each functional spec the job touches, by its case (`src/render/cases.ts`): a
+fresh project is set up first, with its unit tests where the unit
 testing script runs them; a new functional spec is built and unit tested; a changed one - its text, or a concept
 it uses - is changed in place, its code and tests to match, never built again from scratch; one taken out has its
 code and the tests only it had removed. A job holding several cases has a line for each. A job that touches no
 functional spec - implementation reqs, or definitions none uses - is mechanical: the code adapts, no new test is
 written, and an existing one may change only mechanically, never what it asserts. The unit test review holds each
 part to its case, and a mechanical job only to its reqs and to no test removed or weakened. A conformance job's
-agent and its reviewer are told the same, for the tests.
+agent and its reviewer are told the same, for the tests:
+
+| case | when | code | conformance |
+| --- | --- | --- | --- |
+| fresh | the module requires none and nothing is built | set up the project and its unit tests where the unit testing script runs them, then build | set up `tests/` so the conformance testing script, which brings the tests together with `code/`, runs them, then write |
+| add | a functional spec is new | build it and write its unit tests | write its tests |
+| patch | its text changed, or a concept it uses did | change the existing code and tests to match - never build it again from scratch | rewrite its existing tests to match |
+| delete | a functional spec is gone | take out its code and the tests only it had | take out its tests |
+| mechanical | no functional spec is touched - only reqs, or definitions none uses | adapt the code; write no new test; an existing one may change only mechanically - an import, a fixture, its setup - never what it asserts | the same, for test reqs, definitions or implementation reqs alone |
+
+A functional spec is patched when a concept it uses changed as well as when its own text did: the
+harness follows each functional spec's concepts through the definitions. Fresh is only where nothing
+exists: a module that requires another starts from what it inherits, and its first job adds or patches.
 
 A job lands once its unit tests pass and are reviewed: the code record becomes the spec the job ends on,
 committed with the code. Its conformance tests are not the code job's: they are a track of their own
@@ -403,12 +417,12 @@ The unit tests are written by the agent that wrote the code. Conformance tests a
 black box, end to end, written from the spec.
 
 ```bash
-plainwright conformance <file.plain> 1
-plainwright conformance <file.plain> 1 --dry-run
+plainwright conformance <file.plain>            # every functional spec the code is built from
+plainwright conformance <file.plain> 1 3        # functional specs 1 and 3
 ```
 
-It refuses to start before the functionality has been rendered. Conformance is on by default when
-the module has `***test reqs***`, and can be turned off. Once a codebase has conformance tests,
+They follow the code: a functional spec gets conformance tests once its code is built. Conformance is
+on by default when the module has `***test reqs***`, and can be turned off. Once a codebase has conformance tests,
 they are always run and kept passing, whether or not the current render writes new ones, and they
 are carried up to the modules built on top of it.
 
@@ -675,37 +689,39 @@ codebase: they are left out of the code map, the file lists and what `deploy` pu
 
 ## What the code is built from
 
-`plain_modules/<module>/code/.plainwright.json` holds one thing: the marshalled plain tree the code
-in that folder is built from, as JSON - the definitions, the implementation and test reqs, the
-module's own functional specs and those it inherits. Nothing about how a build went: whether tests
-passed and which files a render touched are in the history, not here. A functionality is rebuilt
-when its own spec no longer matches what the tree says it was built from.
+Two records per module, each committed with what it describes in the module's `.plaingit`:
 
-What goes into it:
+| | |
+| --- | --- |
+| `code/.plainwright.json` | the code record: the spec the code is built from - its whole requires chain's: the definitions and implementation reqs of the modules below, each tagged with its module, their functional specs among the ones it inherits, and its own - without the test reqs and the acceptance tests, which are for conformance only |
+| `tests/.plainwright.json` | the tests record: the functional specs the conformance tests are written for - of the code record's, with their acceptance tests - the definitions and implementation reqs they were written against, and the test reqs they follow |
 
-- **A functionality rendered:** the tree as it was, with that functional spec in its place, and the
-  module's definitions, implementation reqs and test reqs as the spec has them. Every functional spec
-  of a module shares those - each is rendered with all of them - so that is what it was built with.
-- **A spec diff rendered:** the spec as parsed with the diff in, whole.
-- **A required module's functionality rebuilt in a later module's codebase:** that spec, in the
-  inherited ones of the later module's tree.
-- **A module started from another's code:** everything the other's tree holds, as what it inherits.
+Nothing about how a build went: whether tests passed and which files a job touched are in the
+history. And nothing else is stored: what is left to build is worked out from the records whenever a
+job ends or the spec changes - the code work from the code record to the spec now (`src/render/work.ts`),
+the conformance work from the tests record to what the tests are to be written for. Only the running
+job is kept; what the panel shows as planned is worked out again. The tests record never goes ahead of
+the code's: a conformance test exercises functionality, and only what is in the code can be tested.
 
-A unit of work - a functionality with its conformance tests and the whole suite, a spec diff, a
-conformance run, a regeneration - lands whole or is undone whole. It starts from the module's last
-commit, putting back whatever an interrupted run left; a module with no commit yet is given one
-first. When it does not pass, the module goes back to that commit: its changes, the files it added
-and any commit it made on the way are gone, with the tree they came with. Installed dependencies
-and caches stay. So the code, its tests and the tree they were built from never disagree.
+What goes into them:
 
-In the chat, a render's or a spec diff's conformance tests are a job of their own, right behind it.
-The render lands first - its code, committed with the tree - and counts as built only once they
-pass: when that conformance job fails for good, the module goes back to the commit the render
-started from, its code, tests and tree with it, before anything behind it could run.
+- **A code job landed:** the code record becomes the spec the job ends on.
+- **A conformance job landed:** the tests record becomes what its tests are written for.
+- **A module started from another's code:** that code's record, as a lower module's - see
+  [where things go](#where-things-go) - and an empty tests record: the tests it inherits are the module
+  below's.
+- **A functionality regenerated:** it is taken out of the code record, so the next job builds it again.
+
+A unit of work - a code job, a conformance job - lands whole or is undone whole. It starts from the
+module's last commit, putting back whatever an interrupted run left; a module with no commit yet is
+given one first. When it does not pass, the module goes back to that commit: its changes, the files it
+added and any commit it made on the way are gone, with the record they came with. Installed
+dependencies and caches stay. So the code, its tests and the records of what they were built from never
+disagree.
 
 The record is the harness's alone. No agent writes it: the file tools refuse it, and what the
 harness records next is built on the record as its last commit has it, not the file on disk - so a
 change an agent's shell made to it is never carried on.
 
 A record written by an earlier version of plainwright is read as the tree it describes, up to the
-first functionality that did not build; the next build writes the tree.
+first functionality that did not build; the next job writes it anew.

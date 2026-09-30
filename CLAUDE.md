@@ -14,11 +14,11 @@ before changing the harness.
 npm install && npm link                        # `plainwright` on PATH, pointing at this clone (edits apply at once)
 npm run typecheck                              # tsc --noEmit - covers src/ only, not tests/
 npm test                                       # the whole vitest suite
-npx vitest run tests/render/state.test.ts      # one file
-npx vitest run tests/render/module.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
+npx vitest run tests/render/records.test.ts    # one file
+npx vitest run tests/render/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
 npm run chat                                   # pi with the extension loaded straight from src/
 plainwright check tests/data/simple.plain      # parse and validate a spec: no model, no API key
-plainwright render <file.plain> 1 --dry-run    # print the prompt a render would send, start nothing
+plainwright module <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
 plainwright doctor                             # what the machine lacks (QEMU, VM image, model provider)
 ```
 
@@ -34,14 +34,16 @@ stripping runs the sources and nothing compiles them. So:
 - imports use explicit `.ts` extensions;
 - don't use syntax that type stripping can't erase: parameter properties
   (`constructor(readonly x: T)`), `enum`, `namespace`. Declare the field and assign it in the
-  constructor. `tsc` and `tsx` (the `npm run render`-style scripts) both accept these, so they only
+  constructor. `tsc` and `tsx` (the `npm run module`-style scripts) both accept these, so they only
   fail when run through `plainwright`.
 
 ## Architecture
 
-**Entry points.** `src/cli.ts` dispatches `plainwright <cmd>`. `render`, `module`, `regenerate`,
-`conformance`, `check` and `skill` import `render-frid.ts`, `render-module.ts`, `regenerate-frid.ts`,
-`conformance-frid.ts`, `check-cli.ts` and `run.ts`, each of which parses `process.argv` itself.
+**Entry points.** `src/cli.ts` dispatches `plainwright <cmd>`. `module`, `spec-diff`, `regenerate`,
+`conformance`, `check` and `skill` import `render-module.ts`, `spec-diff-cli.ts`, `regenerate-frid.ts`,
+`conformance-frid.ts`, `check-cli.ts` and `run.ts`, each of which parses `process.argv` itself; the
+four that build share `loop-cli.ts` `runLoop`, which drives the work loop as the chat does. `render`
+(`render-frid.ts`) only says it is gone.
 `setup`, `doctor` and `vm-image` go to `setup.ts`. `chat` spawns pi through `pi-launch.ts` with
 `src/extension.ts`, which registers every conversation tool and slash command
 (`render_*`, `run_skill`, `check_plain`, `set_render_model`, `/watch`, `/jobs`, `/stop`, ...).
@@ -74,8 +76,10 @@ is reported as pending, not dropped.
 
 **Rendering (`src/render/`)**, one unit of work at a time:
 
-- `render.ts` renders one functionality. `prompt.ts` builds the only thing the agent sees; it can't
-  read `.plain` files. The agent works, then the harness runs the project's unit testing script
+- A job is a spec diff: `spec-change.ts` `renderSpecDiff` renders one in the code, landing on its unit
+  tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
+  what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, delete,
+  mechanical). The agent works, then the harness runs the project's unit testing script
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
   Once they pass, `unit-review.ts` has a read-only reviewer - one session for the loop, shown the
   whole work diff first, then the diff since its last review (`workSnapshot`) and the coder's
@@ -83,10 +87,9 @@ is reported as pending, not dropped.
   agent that passes on only what it upholds; after that fix the work goes on once its tests pass - as
   spec changes and conformance tests do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
-  labelled and checked by label. `module.ts` covers regeneration, the regression gate (a repair
-  agent that may not touch tests) and the older in-process chain build. `spec-change.ts` and
-  `spec-change-conformance.ts` render a spec change given as a git diff.
-- Nothing is queued (`docs/work-model.md`). `loop.ts` works out what is left to build - `work.ts`
+  labelled and checked by label; `spec-change-conformance.ts` runs it for a conformance job, then
+  `regression.ts` runs the whole suite (a repair agent that may not touch tests).
+- Nothing is queued (`docs/rendering.md`). `loop.ts` works out what is left to build - `work.ts`
   `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
   reqs or acceptance tests) to the spec now - has `chunk-plan.ts` cut it into jobs from the functional
   specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses, an agent
@@ -94,15 +97,15 @@ is reported as pending, not dropped.
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
   (`stillWanted`). `render_module`, `spec_changed`, `render_spec_diff`, `write_spec_diff` and
   `plainwright module` all go through `bringUp`. Steering (`render/steering.ts`: `steer_queue`, AGENTS.md's
-  queue section, a tool's `guidance`) reaches the planner's agents. `queue-master.ts` is left only for the
-  pure helpers the planner uses. Conformance is a second track in the loop: from `tests/.plainwright.json`
+  queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.plainwright.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
   spec diff's conformance run, the whole suite with it - before the module's next code job; `render_conformance`
   turns it on for the session over `conformance-tests: false`.
-- `spec-steps.ts`: when the spec changed in ways other than appending functional specs, it diffs
-  the built tree against the current one and has an agent order the changes into spec-diff steps.
-- `state.ts`: `code/.plainwright.json` holds only the marshalled tree the code was built from. A
-  functionality is stale when its spec no longer matches that tree.
+- `spec-steps.ts`: a tree written out one item a line, diffed with git into changes by id, and a step
+  (`makeStep`) made of some of them - its tree, its diff, its text diff laid out as the module's file.
+- `records.ts`: `code/.plainwright.json` holds only the spec the code was built from, and
+  `tests/.plainwright.json` what the conformance tests are written for. What is left is derived from
+  them, never stored.
 - `history.ts`: each `plain_modules/<m>` is a git repo with its git dir at `.plaingit`. Every unit of
   work starts from the last commit (`startWork`) and either commits or is rolled back whole
   (`abandonWork`), commits included. Code, tests and tree must never disagree.

@@ -204,11 +204,6 @@ export function markWork(dirs: string[]): WorkStart {
   return { modules };
 }
 
-/** The same, for one directory - the start of a step that writes only there. */
-export function startFromLastCommit(dir: string, moduleName: string): WorkStart {
-  return startWork([dir], moduleName);
-}
-
 /**
  * Undo a unit of work that failed: every module folder it wrote back at the commit it started
  * from - its changes, the files it added and any commit it made since, gone. What history does

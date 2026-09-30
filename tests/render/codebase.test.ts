@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { codebaseMap, diffFiles, digestFiles } from "../../src/render/codebase.ts";
-import { buildRenderPrompt } from "../../src/render/prompt.ts";
+import { buildSpecDiffPrompt } from "../../src/render/prompt.ts";
 
 let dir: string;
 let build: string;
@@ -50,10 +50,10 @@ describe("the codebase map", () => {
     expect(codebaseMap(build)).toBe("Files (2):\n  app/main.py\n  app/routes.py");
   });
 
-  it("goes into the render prompt, with the instruction to start from it", () => {
-    const prompt = buildRenderPrompt({
-      moduleName: "app", frid: "2", linkedResources: [], codebase: "Files (1):\n  app/main.py",
-      specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": ["- One.", "- Two."] },
+  it("goes into the coding agent's prompt, with the instruction to start from it", () => {
+    const prompt = buildSpecDiffPrompt({
+      moduleName: "app", diff: "+- Two.", linkedResources: [], codebase: "Files (1):\n  app/main.py", required: [], empty: false,
+      specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": ["- One."] },
     });
     expect(prompt).toContain("<codebase>\nFiles (1):\n  app/main.py\n</codebase>");
     expect(prompt).toContain("Start from it");

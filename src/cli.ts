@@ -58,11 +58,11 @@ function chat(args: string[]): never {
 }
 
 const COMMANDS: Record<string, { module: string; blurb: string }> = {
-  render: { module: "./render-frid.ts", blurb: "build one functionality (--list to see them)" },
-  conformance: { module: "./conformance-frid.ts", blurb: "black-box tests for one functionality" },
-  module: { module: "./render-module.ts", blurb: "build every functionality, with the regression gate" },
-  regenerate: { module: "./regenerate-frid.ts", blurb: "rebuild a functionality after its spec changed" },
-  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "render a change to the specs, given as a git diff" },
+  render: { module: "./render-frid.ts", blurb: "gone - says what to use instead" },
+  conformance: { module: "./conformance-frid.ts", blurb: "write and run a module's conformance tests" },
+  module: { module: "./render-module.ts", blurb: "build a module and its chain (--dry-run: print the first job's prompt)" },
+  regenerate: { module: "./regenerate-frid.ts", blurb: "build one functionality again" },
+  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "apply a change to the specs, given as a git diff, and build it" },
   check: { module: "./check-cli.ts", blurb: "validate a ***plain spec without rendering" },
   deploy: { module: "./deploy-cli.ts", blurb: "put what is built in dist/<module> and start it on this machine" },
   skill: { module: "./run.ts", blurb: "run a gated skill" },

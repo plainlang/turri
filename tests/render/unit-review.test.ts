@@ -75,8 +75,8 @@ function loop(sent: string[], passing = true, reflects = true, fixes?: () => voi
     what: "functionality 1 of module `app`",
     spec: reviewedSpec({
       moduleName: "app",
-      specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": ["- A visitor registers with an email; the user is stored with it."] } as never,
-      frid: "1",
+      specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": [] } as never,
+      change: "<functional specs change=\"1 added\">\nAdded:\n  functionality 1:\n  - A visitor registers with an email; the user is stored with it.\n</functional specs>",
     }),
     label: "app 1",
     send: async (prompt) => {
@@ -120,7 +120,7 @@ describe("the unit test review", () => {
     await loop([], true, true, () => writeFileSync(join(dir, "test_app.py"), "def test_register(): assert register('a@b.c') == {'email': 'a@b.c'}\n"));
     expect(reviewerTasks[0]).toContain("How to read it:");
     expect(reviewerTasks[0]).toContain(
-      '<new in this work>\n<functionality module="app" id="1">\n- A visitor registers with an email; the user is stored with it.\n</functionality>',
+      '<new in this work>\n<spec change>\n<functional specs change="1 added">\nAdded:\n  functionality 1:\n  - A visitor registers with an email; the user is stored with it.',
     );
     expect(reviewPrompts[0]).toContain("<the code this work wrote - a diff of the code folder from where the work started>\ndiff --git a/app.py b/app.py");
     expect(reviewPrompts[0]).toContain("+def register(email): return {'email': email}");
@@ -177,7 +177,7 @@ describe("the unit test review", () => {
     expect(arbiterPrompts[0]).toContain("review 1:");
     expect(arbiterPrompts[0]).not.toContain("review 2:");
     // The same spec and code the reviewer read.
-    expect(arbiterPrompts[0]).toContain('<new in this work>\n<functionality module="app" id="1">');
+    expect(arbiterPrompts[0]).toContain('<new in this work>\n<spec change>\n<functional specs change="1 added">');
     expect(arbiterPrompts[0]).toContain("+def register(email): return {'email': email}");
     expect(readNotes(dir).pitfalls.join("\n")).toContain("the arbiter let go what the unit test review raised: test_app.py: could check the error message too - a nitpick");
   });

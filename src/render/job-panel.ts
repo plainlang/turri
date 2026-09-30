@@ -64,13 +64,6 @@ export interface DiffStyle {
 
 const PLAIN_DIFF: DiffStyle = { added: (text) => text, removed: (text) => text };
 
-/** One diff line, coloured by what it does. Hunk headers and context stay as they are. */
-export function styleDiffLine(line: string, style: DiffStyle = PLAIN_DIFF): string {
-  if (line.startsWith("+") && !line.startsWith("+++")) return style.added(line);
-  if (line.startsWith("-") && !line.startsWith("---")) return style.removed(line);
-  return line;
-}
-
 export function summarizeDiff(diff: string, style: DiffStyle = PLAIN_DIFF): string {
   const files = new Set<string>();
   let added = 0;
@@ -117,12 +110,6 @@ export function wrapKeepingIndent(line: string, width: number): string[] {
 
 /** A diff's colours for the +/- alone, when there is nothing to highlight with. */
 const paintOf = (style: DiffStyle): DiffPaint => ({ ...PLAIN_PAINT, added: style.added, removed: style.removed });
-
-export function diffBody(diff: string): string[] {
-  return diff
-    .split("\n")
-    .filter((line) => !/^(diff --git|index |--- |\+\+\+ )/.test(line) && line !== "");
-}
 
 export interface PanelOptions {
   /** Everything, rather than the compact view. */

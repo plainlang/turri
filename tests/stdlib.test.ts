@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkPlainFile } from "../src/plain/check.ts";
 import { plainFileParser } from "../src/plain/parser.ts";
-import { resolveTemplateDirs } from "../src/render/render.ts";
+import { resolveTemplateDirs } from "../src/render/paths.ts";
 import { loadRules } from "../src/rules.ts";
 import { conformanceOf, describeStdlib, isStack, stdlibTemplates } from "../src/stdlib.ts";
 import { chatRulesBlock } from "../src/extension.ts";

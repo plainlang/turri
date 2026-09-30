@@ -23,14 +23,11 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/pi.ts` | pi session factories for executors, sub-agents and judges |
 | `src/spec-tools.ts` | `write_spec_diff` |
 | `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) - and `highlight.ts`, which highlights \*\*\*plain with plyn's grammar, `plain.tmLanguage.json` (`npm run grammar:sync` refreshes it from [plyn](https://github.com/plainlang/plyn)) |
-| `src/render/render.ts` | one functionality to code |
-| `src/render/module.ts` | whole-module builds, regression runs, regeneration |
 | `src/render/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
-| `src/render/spec-change.ts` | rendering a spec diff |
+| `src/render/spec-change.ts`, `src/render/spec-change-conformance.ts` | a code job - a spec diff rendered in the code - and a conformance job |
 | `src/render/loop.ts`, `src/render/records.ts`, `src/render/work.ts`, `src/render/jobs.ts` | the work loop, the records and the work derived from them, and background jobs |
-| `src/render/spec-diff-parts.ts` | cutting a spec diff by the codebase each part lands in |
-| `src/render/queue-master.ts` | the helpers the planner still uses - checking a cut and making its steps; the rest goes in stage 5 of the [work model](work-model.md) |
-| `src/render/state.ts` | the tree the code is built from, `.plainwright.json` |
+| `src/render/chunk-plan.ts`, `src/render/cases.ts` | cutting the work into jobs, and what a job's agents are told by its cases |
+| `src/render/regression.ts` | the whole conformance suite run, and the repair agent that may not touch tests |
 | `src/render/history.ts` | module history in `.plaingit` |
 | `src/render/deploy.ts`, `src/deploy-tools.ts`, `src/deploy-cli.ts` | deploy: the last commit to `dist/<module>`, what installs software, what it starts on the host - see [deploy](deploy.md) |
 | `src/render/confine.ts`, `src/render/vm.ts` | the file-tool fence and the sandbox VM - see [sandbox](sandbox.md) |

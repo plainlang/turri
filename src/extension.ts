@@ -1,10 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
-import { Box, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Box, matchesKey, Text } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
@@ -21,7 +21,7 @@ import { createWebTools } from "./render/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
-import { resolveTemplateDirs } from "./render/render.ts";
+import { resolveTemplateDirs } from "./render/paths.ts";
 import { plainFileParser } from "./plain/parser.ts";
 import { TEST_REQUIREMENTS } from "./plain/spec.ts";
 import { sectionsOf } from "./render/state.ts";
@@ -43,10 +43,9 @@ import { defaultBuildDir } from "./render/paths.ts";
 import { describeUsage, type SpecConflict } from "./render/activity.ts";
 import { describeSpecConflict } from "./render/stop-report.ts";
 import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
-import { findCodebaseTip } from "./render/requires.ts";
 import { applySpecDiff, revertSpecDiff } from "./render/spec-change.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
-import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
+import { loadRules, renderRulesBlock } from "./rules.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
@@ -1538,15 +1537,6 @@ function modulesWithHistory(cwd: string): string[] {
   }
 }
 
-/** The spec of the codebase a job on this module would write: the tip built on it, or itself. */
-function codebasePlainFile(plainFile: string, inModule?: string): string {
-  try {
-    return findCodebaseTip(plainFile, { inModule }).tip.plainFile;
-  } catch {
-    return plainFile;
-  }
-}
-
 /** Stop a job by id or id prefix, and say what that means for the queue. */
 function stopJob(jobs: JobRegistry, named: string): string {
   const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
@@ -1893,15 +1883,6 @@ function specConflictTask(conflict: SpecConflict): string {
     "If analyze-2-func-specs finds the two compatible, tell the user so, and that the conformance tests of these two are what",
     "kept failing - offer to render their conformance again.",
   ].join("\n");
-}
-
-/** A durable note in the transcript when something actually completes. */
-function recordMilestone(pi: ExtensionAPI, milestone: { module: string; text: string }): void {
-  try {
-    pi.appendEntry(MILESTONE_ENTRY, milestone);
-  } catch {
-    /* the report still carries it */
-  }
 }
 
 const INTERVIEW_ENTRY = "forge_exchange";

@@ -1,14 +1,16 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { formatDuration, type Job, type JobRegistry } from "./render/jobs.ts";
 import { readNotes } from "./render/notes.ts";
 import { modulesRoot, projectDirOf } from "./render/paths.ts";
-import { describeModules, type WorkLoop } from "./render/loop.ts";
+import { chainSpec, describeModules, type WorkLoop } from "./render/loop.ts";
+import { readRecord } from "./render/records.ts";
+import { builtTips } from "./render/requires.ts";
 import { snapshotSpec } from "./render/spec-change.ts";
-import { sameSpec } from "./render/spec-steps.ts";
-import { pendingFrids, readBuiltTree } from "./render/state.ts";
+import { describeChange } from "./render/spec-steps.ts";
+import { codeWork } from "./render/work.ts";
 import { getFrids } from "./plain/spec.ts";
 
 /**
@@ -143,16 +145,23 @@ function describeStruggle(job: Job, struggle: Struggle): string {
  */
 export function specStatusOf(plainFile: string, cwd: string, jobs: Job[]): { done: boolean; text: string } {
   const spec = snapshotSpec(plainFile, { cwd });
-  const tip = spec.chain.at(-1)!;
-  const built = readBuiltTree(tip.buildDir);
   const name = basename(plainFile);
   const missing: string[] = [];
   const frids = [...getFrids(spec.tree)];
-  if (built === null) missing.push("nothing is built yet");
-  else {
-    const pending = pendingFrids(spec.tree, tip.buildDir);
-    if (pending.length > 0) missing.push(`functionalities not built from the spec as it stands: ${pending.map((entry) => `${entry.frid} (${entry.reason})`).join(", ")}`);
-    else if (!sameSpec(built, spec.tree)) missing.push("the code is built from an earlier spec - a definition, an implementation req or a section changed since");
+  // Where the module's code lives - its own codebase, or the built ones above it - each against the spec of its chain.
+  const tips = builtTips(plainFile);
+  for (const chain of tips.length > 0 ? tips : [spec.chain]) {
+    const tip = chain.at(-1)!;
+    const record = readRecord(tip.buildDir);
+    if (record === null) {
+      missing.push(tips.length > 0 ? `${tip.moduleName} has nothing built yet` : "nothing is built yet");
+      continue;
+    }
+    const work = codeWork(record, chainSpec(chain).tree);
+    if (work.length > 0) {
+      const left = work.map((change) => describeChange(change).split("\n")[0]!.replace(/^[^:]+: /, ""));
+      missing.push(`${tip.moduleName}'s code is not built from the spec as it stands: ${left.join("; ")}`);
+    }
   }
   // The builds of this codebase: by the module each is for - its summary starts with its .plain file.
   const mineOf = jobs.filter((job) => spec.chain.some((entry) => job.summary.startsWith(basename(entry.plainFile))));

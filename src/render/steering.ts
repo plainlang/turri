@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import type { Steering } from "./queue-master.ts";
 import { projectDirOf } from "./paths.ts";
 
 /**
@@ -84,5 +83,24 @@ export function steeringFor(plainFile: string, cwd: string, store: SteeringStore
     ...fromFiles,
     ...store.get(EVERY_MODULE).map((text) => ({ source: "the conversation", text })),
     ...store.get(module).map((text) => ({ source: `the conversation, for ${module}`, text })),
+  ];
+}
+
+/** How the person or the harness wants the queue planned: a strong preference, each with where it came from. */
+export interface Steering {
+  source: string;
+  text: string;
+}
+
+/** The steering, for an agent's task: each with where it came from, and how binding it is. */
+export function steeringBlock(steering: Steering[] | undefined): string[] {
+  if (steering === undefined || steering.length === 0) return [];
+  return [
+    "<how the queue is to be planned - the person's or the harness's wishes>",
+    ...steering.map((entry) => `<from source="${entry.source}">\n${entry.text.trim()}\n</from>`),
+    "</how the queue is to be planned>",
+    "Follow these as a strong preference: they say how the person wants the work cut and ordered. They never override the",
+    "limits and checks the plan is held to; where one would, keep to the limit, and say so where you give your answer.",
+    "",
   ];
 }

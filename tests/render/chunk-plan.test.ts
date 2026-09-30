@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupProblems, planChunks, placeProblems, MAX_LINES_PER_JOB, type ChunkAgents, type GroupAnswer, type PlaceAnswer } from "../../src/render/chunk-plan.ts";
-import { checkDraft, netChanges, stepsOf, type MasterInput } from "../../src/render/queue-master.ts";
+import { checkDraft, netChanges, stepsOf, type PlanInput } from "../../src/render/chunk-plan.ts";
 
 const item = (markdown: string) => ({ markdown });
 const tree = (sections: { definitions?: string[]; impl?: string[]; tests?: string[]; specs?: string[] }) =>
@@ -11,8 +11,8 @@ const tree = (sections: { definitions?: string[]; impl?: string[]; tests?: strin
     ...(sections.specs ? { "functional specs": sections.specs.map(item) } : {}),
   }) as never;
 
-function input(base: object, current: object): MasterInput {
-  return { base: base as never, previous: base as never, current: current as never, queued: [], specFile: "app.plain", specText: "", conformanceAvailable: true };
+function input(base: object, current: object): PlanInput {
+  return { base: base as never, current: current as never, specFile: "app.plain", specText: "" };
 }
 
 /** Stand-in agents: they answer as told, and record what they were shown. */
@@ -26,7 +26,7 @@ function agents(group?: GroupAnswer, place?: PlaceAnswer): ChunkAgents & { shown
 }
 
 /** What each job of a plan adds, as text - its changes, read back from the steps. */
-function jobs(plan: Awaited<ReturnType<typeof planChunks>>, from: MasterInput) {
+function jobs(plan: Awaited<ReturnType<typeof planChunks>>, from: PlanInput) {
   return stepsOf(from, plan).map((job) => ({ title: job.title, diff: job.step.textDiff }));
 }
 
@@ -109,14 +109,6 @@ describe("cutting the queue's work into jobs", () => {
     expect(MAX_LINES_PER_JOB).toBe(120);
   });
 
-  it("keeps a queued job's id on the job that carries its own change", async () => {
-    const base = tree({ specs: [SPECS[0]!] });
-    const one = tree({ specs: SPECS.slice(0, 2) });
-    const two = tree({ specs: SPECS.slice(0, 3) });
-    const from: MasterInput = { ...input(base, two), queued: [{ jobId: "aaaa1111", title: "sign in", tree: one, textDiff: "" }, { jobId: "bbbb2222", title: "comments", tree: two, textDiff: "" }] };
-    const plan = await planChunks({ ...from, current: tree({ definitions: DEFS.slice(0, 3), specs: SPECS.slice(0, 3) }) as never });
-    expect(plan.map((job) => job.jobId)).toEqual(["aaaa1111", "bbbb2222"]);
-  });
 });
 
 describe("the checks a plan is held to", () => {
@@ -142,18 +134,5 @@ describe("a plan and the work", () => {
     const from = input({}, tree({ definitions: DEFS, impl: ["- :Implementation: is Python."], specs: SPECS }));
     const plan = await planChunks(from);
     expect(plan.flatMap((job) => job.changes).sort()).toEqual(netChanges(from.base, from.current).map((change) => change.id).sort());
-  });
-});
-
-describe("what a module built on another starts from", () => {
-  it("is that module's functional specs, inherited, and every definition and req of its own spec that code implements word for word", async () => {
-    const { inheritedTree } = await import("../../src/render/state.ts");
-    const source = tree({ definitions: ["- :User: is a person."], impl: ["- :Implementation: is Python.", "- Uses SQLite."], specs: ["- A :User: registers."] });
-    const spec = tree({ definitions: ["- :User: is a person.", "- :Page: is a screen."], impl: ["- :Implementation: is Python.", "- Uses Flask."], specs: ["- Show a :Page:."] });
-    expect(inheritedTree(source, "base", spec)).toEqual({
-      definitions: [{ markdown: "- :User: is a person." }],
-      "implementation reqs": [{ markdown: "- :Implementation: is Python." }],
-      "required functional specs": [{ markdown: "- A :User: registers.", module: "base", frid: "1" }],
-    });
   });
 });

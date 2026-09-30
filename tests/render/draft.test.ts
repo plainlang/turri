@@ -32,7 +32,6 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   };
 });
 
-const { renderFunctionality } = await import("../../src/render/render.ts");
 const { renderSpecDiff } = await import("../../src/render/spec-change.ts");
 const { DRAFT_ASKS } = await import("../../src/render/testing.ts");
 
@@ -58,17 +57,11 @@ afterEach(() => {
 describe("a coding agent that has written nothing", () => {
   it("is asked for a best-guess draft before its tests run - and what it drafts goes on to be tested and reviewed", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
-    const result = await renderFunctionality({ plainFile: "app.plain", frid: "1" });
+    const diff = ["diff --git a/app.plain b/app.plain", "--- a/app.plain", "+++ b/app.plain", "@@ -6 +6,3 @@", " - One.", "+", "+- Two.", ""].join("\n");
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
     expect(drafts()).toHaveLength(1);
-    expect(drafts()[0]).toContain("Stop planning and write it now: your best guess");
+    expect(drafts()[0]).toContain("stop planning and write it now: your best guess");
     expect(result.passed).toBe(true);
-  });
-
-  it("is asked only so many times, and then its turn is taken as what it did", async () => {
-    silent = true;
-    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
-    await renderFunctionality({ plainFile: "app.plain", frid: "1" });
-    expect(drafts()).toHaveLength(DRAFT_ASKS.functionality);
   });
 
   it("making a spec change is asked once - for a draft, or why the change needs no code", async () => {
@@ -76,7 +69,7 @@ describe("a coding agent that has written nothing", () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     const diff = ["diff --git a/app.plain b/app.plain", "--- a/app.plain", "+++ b/app.plain", "@@ -6 +6,3 @@", " - One.", "+", "+- Two.", ""].join("\n");
     await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
-    expect(drafts()).toHaveLength(DRAFT_ASKS.change);
+    expect(drafts()).toHaveLength(DRAFT_ASKS);
     expect(drafts()[0]).toContain("If you are sure it needs no code at all");
   });
 });
