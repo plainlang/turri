@@ -600,3 +600,14 @@ describe("a restructuring of the specs", () => {
     expect(sameSpec(built, { ...built, "functional specs": [item("- A :User: can log in."), item("- A :User: can register.")] } as MarshalledPlainSource)).toBe(false);
   });
 });
+
+describe("a spec diff of a spec in a folder of the project", () => {
+  it("is taken by the path it has from where plainwright runs - plain/hubspot.plain - folders and all", async () => {
+    const { diffSpecText, serializeTree } = await import("../../src/render/spec-steps.ts");
+    const before = serializeTree({ "functional specs": [{ markdown: "- One." }] } as never);
+    const after = serializeTree({ "functional specs": [{ markdown: "- One." }, { markdown: "- Two." }] } as never);
+    const diff = diffSpecText(before, after, "plain/hubspot.plain");
+    expect(diff).toContain("--- a/plain/hubspot.plain\n+++ b/plain/hubspot.plain");
+    expect(diff).toContain("+- Two.");
+  });
+});

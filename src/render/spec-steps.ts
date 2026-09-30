@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -196,8 +196,9 @@ export function diffTrees(before: string, after: string, context = 3): string {
 function gitDiff(before: string, after: string, context: number, [from, to]: [string, string]): string {
   const dir = mkdtempSync(join(tmpdir(), "plainwright-spec-steps-"));
   try {
-    mkdirSync(join(dir, "a"));
-    mkdirSync(join(dir, "b"));
+    // The names are paths - "plain/hubspot.plain" for a spec in a folder of the project: their folders first.
+    mkdirSync(dirname(join(dir, "a", from)), { recursive: true });
+    mkdirSync(dirname(join(dir, "b", to)), { recursive: true });
     writeFileSync(join(dir, "a", from), before);
     writeFileSync(join(dir, "b", to), after);
     const run = spawnSync(
