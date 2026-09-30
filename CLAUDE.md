@@ -87,9 +87,10 @@ is reported as pending, not dropped.
   agent that may not touch tests) and the older in-process chain build. `spec-change.ts` and
   `spec-change-conformance.ts` render a spec change given as a git diff.
 - Rendering a module is not a job: `queue.ts` `bringUpTo` queues, per module of the chain, one spec
-  diff for what changed in what is built or queued, then one render per functional spec after it -
-  `render_module`, `plainwright module` and `spec_changed` all go through it, and the queue master
-  reworks the result. A render is a spec diff that adds one functionality.
+  diff for everything not built yet - `render_module`, `plainwright module` and `spec_changed` all go
+  through it. Every change re-plans the work not started: `chunk-plan.ts` cuts it into jobs from the
+  functional specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses,
+  an agent places the reqs), and that plan is the queue master's proposal, which it reviews. A render is a spec diff that adds one functionality.
 - `spec-steps.ts`: when the spec changed in ways other than appending functional specs, it diffs
   the built tree against the current one and has an agent order the changes into spec-diff steps.
 - `state.ts`: `code/.plainwright.json` holds only the marshalled tree the code was built from. A

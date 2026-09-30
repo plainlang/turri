@@ -75,14 +75,20 @@ function builtUpTo(count: number) {
 }
 
 describe("bringing the queue up to the spec", () => {
-  it("renders every functional spec of a module nothing is built of, one job each, in order", async () => {
+  it("builds a module nothing is built of as one change the queue cuts into jobs - with no agent, a functional spec a job, the reqs with the first", async () => {
     writeFileSync(join(dir, "app.plain"), spec("is Python.", ["Say hello.", "Say goodbye.", "Count to ten."]));
     const { registry, q } = queue();
     const brought = q.bringUpTo("app.plain");
-    expect(brought.modules[0]!.specDiff).toBeUndefined();
-    expect(brought.modules[0]!.renders.map((render) => render.frid)).toEqual(["1", "2", "3"]);
-    for (const id of brought.jobIds) await registry.wait(id);
-    expect(ran).toEqual(["fs 1", "fs 2", "fs 3"]);
+    expect(brought.modules[0]!.specDiff).toBeDefined();
+    expect(brought.modules[0]!.renders).toEqual([]);
+    await q.drain();
+    expect(ran).toEqual(["spec diff", "spec diff", "spec diff"]);
+    expect(diffs[0]).toContain("Say hello.");
+    expect(diffs[0]).toContain("is Python.");
+    expect(diffs[1]).toContain("Say goodbye.");
+    expect(diffs[1]).not.toContain("is Python.");
+    expect(diffs[2]).toContain("Count to ten.");
+    expect(registry.list().map((job) => job.summary)).toEqual(expect.arrayContaining(["app.plain fs 1: Say hello.", "app.plain fs 2: Say goodbye.", "app.plain fs 3: Count to ten."]));
     expect(JSON.stringify(readBuiltTree(buildDir()))).toBe(JSON.stringify(parse()));
   });
 
@@ -93,11 +99,14 @@ describe("bringing the queue up to the spec", () => {
     const { registry, q } = queue();
     const brought = q.bringUpTo("app.plain");
     expect(brought.modules[0]!.specDiff).toBeDefined();
-    expect(brought.modules[0]!.renders.map((render) => render.frid)).toEqual(["3", "4"]);
-    for (const id of brought.jobIds) await registry.wait(id);
-    expect(ran).toEqual(["spec diff", "fs 3", "fs 4"]);
+    await q.drain();
+    // What is built, changed, first - then each new functional spec.
+    expect(ran).toEqual(["spec diff", "spec diff", "spec diff"]);
     expect(diffs[0]).toContain("Python 3.12");
     expect(diffs[0]).not.toContain("Count to ten.");
+    expect(diffs[1]).toContain("Count to ten.");
+    expect(diffs[2]).toContain("Sing.");
+    expect(registry.list().map((job) => job.summary)).toContain("app.plain spec diff: Changes to what is built");
     expect(JSON.stringify(readBuiltTree(buildDir()))).toBe(JSON.stringify(parse()));
   });
 
@@ -106,12 +115,34 @@ describe("bringing the queue up to the spec", () => {
     builtUpTo(3);
     writeFileSync(join(dir, "app.plain"), spec("is Python.", ["Say hello.", "Wave goodbye.", "Count to ten.", "Sing."]));
     const { registry, q } = queue();
-    const brought = q.bringUpTo("app.plain");
-    expect(brought.modules[0]!.renders.map((render) => render.frid)).toEqual(["4"]);
-    for (const id of brought.jobIds) await registry.wait(id);
-    expect(ran).toEqual(["spec diff", "fs 4"]);
+    q.bringUpTo("app.plain");
+    await q.drain();
+    expect(ran).toEqual(["spec diff", "spec diff"]);
     expect(diffs[0]).toContain("Wave goodbye.");
+    expect(diffs[0]).not.toContain("Sing.");
+    expect(diffs[1]).toContain("Sing.");
+    expect(diffs[1]).not.toContain("+- Wave goodbye.");
     expect(JSON.stringify(readBuiltTree(buildDir()))).toBe(JSON.stringify(parse()));
+  });
+
+  it("says on the jobs waiting for it that the queue is being planned, so a long plan never looks like a hang", async () => {
+    writeFileSync(join(dir, "app.plain"), spec("is Python.", ["Say hello.", "Say goodbye."]));
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const registry = createJobRegistry();
+    const q = createRenderQueue({
+      registry,
+      cwd: dir,
+      queueMaster: false,
+      // The grouping agent, taking its time.
+      chunkAgents: { group: async () => (await held, undefined), place: async () => undefined },
+    });
+    const brought = q.bringUpTo("app.plain");
+    const job = registry.get(brought.jobIds[0]!)!;
+    await vi.waitFor(() => expect(job.stage).toContain("planning the queue: which of the 2 new functional specs go together"));
+    release();
+    await q.drain();
+    expect(ran).toEqual(["spec diff", "spec diff"]);
   });
 
   it("queues nothing when what is built already is the spec", () => {

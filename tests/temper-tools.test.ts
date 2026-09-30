@@ -1,18 +1,35 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { collectFindings, createTemperTools, noteStamp } from "../src/temper-tools.ts";
-import { createJobRegistry } from "../src/render/jobs.ts";
-import { createRenderQueue } from "../src/render/queue.ts";
-import { recordNote, NOTES_FILE } from "../src/render/notes.ts";
-import { writeBuiltTree } from "../src/render/state.ts";
-import { plainFileParser } from "../src/plain/parser.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/** What each spec diff rendered: a spec diff that lands records the spec it was given, as the real one does. */
+const diffs: string[] = [];
+vi.mock("../src/render/spec-change.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/render/spec-change.ts")>();
+  return {
+    ...actual,
+    renderSpecDiff: async (options: { diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
+      diffs.push(options.diff ?? "");
+      (await import("../src/render/state.ts")).writeBuiltTree(options.spec!.chain!.at(-1)!.buildDir, options.spec!.tree as never);
+      return { passed: true, stoppedAt: null };
+    },
+    describeSpecDiff: () => "rendered",
+  };
+});
+
+const { collectFindings, createTemperTools, noteStamp } = await import("../src/temper-tools.ts");
+const { createJobRegistry } = await import("../src/render/jobs.ts");
+const { createRenderQueue } = await import("../src/render/queue.ts");
+const { recordNote, NOTES_FILE } = await import("../src/render/notes.ts");
+const { writeBuiltTree } = await import("../src/render/state.ts");
+const { plainFileParser } = await import("../src/plain/parser.ts");
 
 let dir: string;
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-temper-")));
   mkdirSync(join(dir, "plain_modules", "app", "code"), { recursive: true });
+  diffs.length = 0;
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -69,18 +86,19 @@ describe("what a tempering run reads back", () => {
 });
 
 describe("rendering and waiting, from a skill", () => {
-  it("queues a module that is not built yet functionality by functionality, and waits for every build to say how it ended", async () => {
+  it("queues a module that is not built yet as the queue plans it - a job a functional spec here - and waits for every build to say how it ended", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const registry = createJobRegistry();
-    const rendered: string[] = [];
-    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false, run: async (request) => (rendered.push(request.frid), { report: `built ${request.frid}` }) });
+    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
     const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     const queued = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
-    expect(queued).toContain("Queued 2 renders of app.plain: functionality 1");
+    expect(queued).toContain("builds what is not built yet");
     const waited = text(await tool(tools, "watch_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
     expect(waited).toContain("Every build queued since this run started has finished");
-    expect(waited).toMatch(/app\.plain fs 1 · succeeded after \S+ - built 1/);
-    expect(rendered).toEqual(["1", "2"]);
+    expect(waited).toMatch(/app\.plain fs 1: Say hello\. · succeeded after/);
+    expect(diffs).toHaveLength(2);
+    expect(diffs[0]).toContain("+- Say hello.");
+    expect(diffs[1]).toContain("+- Say goodbye.");
   });
 
   it("queues a spec changed in place as one spec diff - and nothing when the code is built from it already", async () => {
@@ -93,7 +111,7 @@ describe("rendering and waiting, from a skill", () => {
     expect(text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never))).toContain("nothing to render");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello, loudly."]));
     const changed = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
-    expect(changed).toMatch(/as one spec diff: job \S+/);
+    expect(changed).toContain("builds what is not built yet");
     expect(registry.list()[0]!.diff).toContain("+- Say hello, loudly.");
     registry.stop(registry.list()[0]!.id);
   });

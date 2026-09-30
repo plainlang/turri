@@ -27,7 +27,9 @@ import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { abandonWork, markWork, resetToLastCommit, type WorkStart } from "./history.ts";
-import { llmQueueMaster, netChanges, reworkQueue, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
+import { llmQueueMaster, netChanges, propose, reworkQueue, stepsOf, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
+import { llmChunkAgents, planChunks, type ChunkAgents } from "./chunk-plan.ts";
+import { withActivity, type ActivitySink } from "./activity.ts";
 import { readBuiltTree, withBuiltFunctionality } from "./state.ts";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 
@@ -112,9 +114,9 @@ export interface RenderQueue {
   /**
    * Bring the queue up to the spec as the .plain files have it now - for the module and every module it
    * requires, bottom first: from what the queue leaves each (what is built, and the jobs queued for it), one
-   * spec diff for what changed in that - its sections, and the functional specs built or queued - and then a
-   * render per functional spec after them. Rendering a module is this, and so is being told the spec changed:
-   * the queue master reworks the queue around the spec diff, as around any change. Says what it queued.
+   * spec diff for everything not built or queued yet, which the queue then plans into jobs from its functional
+   * specs outward (chunk-plan.ts). Rendering a module is this, and so is being told the spec changed: the queue
+   * master reviews the plan, as around any change. Says what it queued.
    */
   bringUpTo(plainFile: string, options?: { to?: string; only?: boolean; model?: string }): BroughtUp;
   /** The entry for a functionality that is queued or building right now, if there is one. */
@@ -160,7 +162,7 @@ export function describeBroughtUp(brought: BroughtUp, file: string): string {
       lines.push(`- ${module.module}: built from the spec as it is - nothing to do.`);
       continue;
     }
-    if (module.specDiff !== undefined) lines.push(`- ${module.module}: job ${module.specDiff} brings what is built in line with the spec.`);
+    if (module.specDiff !== undefined) lines.push(`- ${module.module}: job ${module.specDiff} builds what is not built yet - before it starts, the queue cuts it into jobs from its functional specs outward, each with the definitions and reqs it uses.`);
     if (module.renders.length > 0) {
       const frids = module.renders.map((render) => render.frid);
       lines.push(
@@ -267,6 +269,11 @@ export function createRenderQueue(options: {
   run?: RenderRunner;
   /** The queue master: an agent that reworks the queued spec diffs around each new change. false: none. Default: the LLM one. */
   queueMaster?: QueueMasterAgent | false;
+  /**
+   * The agents that cut the queue's work into jobs (chunk-plan.ts). Default: on the queue master's model, unless the
+   * master is a stand-in or off - then the plan is a functional spec a job, and no model is asked.
+   */
+  chunkAgents?: ChunkAgents;
   /** The queue master's model. Default: the model the spec change renders on. */
   masterModel?: string;
   /** How the queue master asks the person, when it is not sure. */
@@ -472,7 +479,6 @@ export function createRenderQueue(options: {
 
   /** Rework the queue around a new change: after whatever the queue master was already doing for that codebase. */
   const triggerMaster = (work: SpecDiffWork) => {
-    if (options.queueMaster === false) return;
     const previous = gateOf(work.codebase);
     masters.set(work.codebase, previous.then(() => runMaster(work.codebase)).then(() => {}).catch(() => {}));
   };
@@ -484,6 +490,48 @@ export function createRenderQueue(options: {
    * since those change what the code is built from in ways the master does not see. Says why it did
    * nothing, when it did nothing.
    */
+  /**
+   * Planning the queue, said where the person looks: its stages and what its agents do go on the jobs that wait
+   * for it - the first of them shows each stage, all of them that they wait for the plan - and what it costs is
+   * counted on the first. So a queue being planned is never a silence that looks like a hang.
+   */
+  const withPlanningShown = async <T,>(waiting: SpecDiffWork[], run: () => Promise<T>): Promise<T> => {
+    const shownOn = waiting.map((work) => options.registry.get(work.jobId!)).filter((job): job is Job => job !== undefined);
+    const first = shownOn[0];
+    const say = (label: string) => {
+      for (const job of shownOn) job.stage = job === first ? label : `waiting for the queue to be planned - ${label}`;
+    };
+    say("planning the queue: cutting the work into jobs");
+    const sink: ActivitySink = {
+      stage: say,
+      activity(line) {
+        if (first !== undefined) first.activity = [...first.activity, line].slice(-20);
+      },
+      now(label) {
+        if (first !== undefined) first.now = label === undefined ? undefined : { label, since: Date.now() };
+      },
+      usage(spent) {
+        if (first === undefined) return;
+        first.usage = {
+          input: first.usage.input + spent.input,
+          output: first.usage.output + spent.output,
+          cacheRead: first.usage.cacheRead + spent.cacheRead,
+          cacheWrite: first.usage.cacheWrite + spent.cacheWrite,
+          cost: first.usage.cost + spent.cost,
+        };
+      },
+      transcript() {},
+    };
+    try {
+      return await withActivity(sink, run);
+    } finally {
+      for (const job of shownOn) {
+        if (job.stage?.includes("planned") || job.stage?.startsWith("planning the queue") || job.stage === "the queue master reviews the plan") job.stage = undefined;
+        job.now = undefined;
+      }
+    }
+  };
+
   const runMaster = async (codebase: string, instruction?: string): Promise<{ plan?: MasterPlan; why?: string }> => {
     const mine = [...works.values()].filter((work) => work.codebase === codebase && work.jobId !== undefined);
     const waiting = mine.filter(
@@ -500,7 +548,7 @@ export function createRenderQueue(options: {
     lastSeen.set(codebase, latest.spec.tree);
     // The spec diff rendering now: the master may stop it, so one waiting job beside it is a queue to rework.
     const running = mine.find((work) => work.started && work.superseded === undefined && options.registry.get(work.jobId!)?.status === "running");
-    if ((instruction === undefined && waiting.length + (running !== undefined ? 1 : 0) < 2) || previousSpec === undefined) return { why: "only one spec diff is waiting" };
+
     // A functionality render of this codebase - one on its lanes - changes what its code is built from; one of another module does not.
     const codebaseLanes = new Set(moduleLanes(codebaseOf(latest.plainFile), options.buildDir));
     // Functionality renders are in the queue it reworks; one it cannot see - its spec did not parse - it waits for.
@@ -509,6 +557,9 @@ export function createRenderQueue(options: {
       rebuilds.some((rebuild) => rebuild.codebase === codebase && isPending(options.registry.get(rebuild.jobId)?.status));
     if (otherWork) return { why: "functionality renders or a rebuild are queued for this codebase too - they change what the code is built from, so the spec diffs are left as they are" };
     const built = readBuiltTree(codebase);
+    // Code with no record of the spec it was built from: what is built is not known, so the work cannot be planned
+    // from it - the queue stays as it was queued, each change on top of the code as it is.
+    if (built === null && running === undefined && instruction === undefined && listFiles(codebase).length > 0) return { why: "what the code is built from is not recorded, so the queue is left as it was queued" };
     // Nothing built yet: the queue's work is the whole spec, from nothing.
     const base = running?.spec.tree ?? built ?? {};
 
@@ -521,7 +572,7 @@ export function createRenderQueue(options: {
     }
     const input: MasterInput = {
       base,
-      previous: previousSpec,
+      previous: previousSpec ?? base,
       current: latest.spec.tree,
       queued: waiting.map((work) => ({
         jobId: work.jobId!,
@@ -550,13 +601,27 @@ export function createRenderQueue(options: {
           }
         : {}),
     };
-    // Only added on top - nothing queued is undone, edited or needed elsewhere: nothing to rework, and no agent to ask.
-    if (instruction === undefined && untouched(input)) return { why: "the new change touches nothing queued" };
-    const plan = await reworkQueue({
-      input,
-      agent: (options.queueMaster === false ? undefined : options.queueMaster) ?? llmQueueMaster({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue master` }),
-      askPerson: options.askPerson,
+    // The work not started, cut into jobs from its functional specs outward - whatever the master then makes of it.
+    // Said on the jobs that wait for it, so the queue is not a silence while it is planned.
+    const plan = await withPlanningShown(waiting, async (): Promise<MasterPlan | undefined> => {
+      const agents =
+        options.chunkAgents ??
+        (options.queueMaster === false || typeof options.queueMaster === "function" ? undefined : llmChunkAgents({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue planner` }));
+      const proposal = await planChunks(input, agents);
+      // Only added on top, planned as it was queued - or no master: the plan is the queue, with no agent to ask.
+      const asQueued = JSON.stringify(propose(input).filter((job) => job.changes.length > 0).map((job) => job.changes)) === JSON.stringify(proposal.map((job) => job.changes));
+      if (options.queueMaster === false || (instruction === undefined && untouched(input) && asQueued)) {
+        return proposal.length > 0 ? { jobs: stepsOf(input, proposal), summary: "The queue's work, cut into jobs from its functional specs.", by: "proposal", base: input.base } : undefined;
+      }
+      reportStage("the queue master reviews the plan");
+      return reworkQueue({
+        input,
+        agent: options.queueMaster ?? llmQueueMaster({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue master` }),
+        askPerson: options.askPerson,
+        proposal,
+      });
     });
+    if (plan === undefined) return { why: "there is nothing to build" };
     // Stopped by the master: it ends, its work so far is rolled back - before any queued job starts, since they wait
     // for this turn - and its change is in the plan's jobs now.
     if (plan.stopRunning !== undefined && running !== undefined) await stopRunningWork(running, plan);
@@ -594,6 +659,15 @@ export function createRenderQueue(options: {
    * left out; what is left over goes on after them, as new jobs. The queued jobs no planned one runs
    * as are stopped, saying where their change went.
    */
+  /** A planned job's name: its file, the functional specs it adds - "fs 3-5" - and its title. */
+  const planName = (plainFile: string, before: MarshalledPlainSource, after: MarshalledPlainSource, title: string) => {
+    const count = (tree: MarshalledPlainSource) => ((tree[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? []).length;
+    const from = count(before) + 1;
+    const to = count(after);
+    const specs = to >= from ? (to === from ? `fs ${from}` : `fs ${from}-${to}`) : "spec diff";
+    return `${basename(plainFile)} ${specs}: ${title.slice(0, 70)}`;
+  };
+
   const applyPlan = (waiting: SpecDiffWork[], plan: MasterPlan, base: MarshalledPlainSource, stoppedRunning?: SpecDiffWork) => {
     const by = plan.by === "master" ? "the queue master" : "the harness";
     const claimed = new Map(plan.jobs.map((planned, index) => [planned.jobId, index] as const).filter(([id]) => id !== undefined));
@@ -639,7 +713,10 @@ export function createRenderQueue(options: {
         rewritten.push(jobId);
         started.set(planned, jobId);
         const job = options.registry.get(jobId);
-        if (job !== undefined) job.note = `${from === "" ? "Inserted" : "Moved here"} by ${by}: ${planned.title}${from}.`;
+        if (job !== undefined) {
+          job.note = `${from === "" ? "Inserted" : "Moved here"} by ${by}: ${planned.title}${from}.`;
+          job.summary = planName(extra.plainFile, before, step.tree, planned.title);
+        }
         before = step.tree;
         continue;
       }
@@ -654,11 +731,13 @@ export function createRenderQueue(options: {
       if (changed) work.diff = step.textDiff;
       work.applied = "already applied";
       work.spec = { ...work.spec, tree: step.tree };
+      const namedFrom = before;
       work.before = before;
       before = step.tree;
       const job = options.registry.get(work.jobId!);
       if (job !== undefined) {
         job.diff = work.diff;
+        job.summary = planName(work.plainFile, namedFrom, step.tree, work.title);
         // What it renders now, in a line of its own: what the whole turn did is said once, in the conversation.
         if (from !== "") job.note = `Now renders "${planned.title}"${from}, by ${by}.`;
         else if (changed) job.note = `Reworked by ${by} - it now renders ${work.title}.`;
@@ -1132,35 +1211,28 @@ export function createRenderQueue(options: {
         const covered = coveredPrefix(ahead, now);
         const nowSpecs = (now[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? [];
         const module: BroughtUp["modules"][number] = { module: entry.moduleName, renders: [], upToDate: false };
-        // What is built or queued, brought in line with the spec as it is now: its sections, and those functional specs.
-        if (ahead !== null) {
-          const target = { ...now, [FUNCTIONAL_REQUIREMENTS]: nowSpecs.slice(0, covered) } as MarshalledPlainSource;
-          if (serializeTree(target) !== serializeTree(ahead) && !sameSpec(ahead, target)) {
-            let layout;
-            try {
-              layout = layoutOf(readFileSync(entry.plainFile, "utf8"));
-            } catch {
-              /* the layout is only for how the diff reads */
-            }
-            const diff = diffSpecText(serializeTree(ahead), serializeTree(target), relative(options.cwd, entry.plainFile), layout);
-            const queuedDiff = queue.enqueueSpecDiff({
-              plainFile: entry.plainFile,
-              diff,
-              applied: "already applied",
-              spec: { moduleName: entry.moduleName, plainFile: entry.plainFile, tree: target, chain: chain.slice(0, chain.indexOf(entry) + 1) },
-              ...(bring.model !== undefined ? { model: bring.model } : {}),
-            });
-            module.specDiff = queuedDiff.jobId;
-            brought.jobIds.push(...queuedDiff.parts.map((part) => part.jobId));
-          }
-        }
-        // Then every functional spec after them, one render each, pinned to the spec as it is now.
+        // Everything from what is built or queued to the spec as it is now - up to `to` - as one spec diff: the queue
+        // cuts it into jobs from its functional specs outward (chunk-plan.ts), per codebase it lands in.
         const last = bring.to !== undefined && entry === entries.at(-1) ? Math.min(Number(bring.to), nowSpecs.length) : nowSpecs.length;
-        for (let index = covered; index < last; index += 1) {
-          const frid = String(index + 1);
-          const queued = queue.enqueue({ plainFile: entry.plainFile, frid, pinned, ...(bring.model !== undefined ? { model: bring.model } : {}) });
-          module.renders.push({ frid, jobId: queued.jobId });
-          brought.jobIds.push(queued.jobId);
+        const target = { ...now, [FUNCTIONAL_REQUIREMENTS]: nowSpecs.slice(0, Math.max(covered, last)) } as MarshalledPlainSource;
+        const from = ahead ?? {};
+        if (serializeTree(target) !== serializeTree(from) && (ahead === null || !sameSpec(ahead, target))) {
+          let layout;
+          try {
+            layout = layoutOf(readFileSync(entry.plainFile, "utf8"));
+          } catch {
+            /* the layout is only for how the diff reads */
+          }
+          const diff = diffSpecText(serializeTree(from), serializeTree(target), relative(options.cwd, entry.plainFile), layout);
+          const queuedDiff = queue.enqueueSpecDiff({
+            plainFile: entry.plainFile,
+            diff,
+            applied: "already applied",
+            spec: { moduleName: entry.moduleName, plainFile: entry.plainFile, tree: target, chain: chain.slice(0, chain.indexOf(entry) + 1) },
+            ...(bring.model !== undefined ? { model: bring.model } : {}),
+          });
+          module.specDiff = queuedDiff.jobId;
+          brought.jobIds.push(...queuedDiff.parts.map((part) => part.jobId));
         }
         module.upToDate = module.specDiff === undefined && module.renders.length === 0;
         brought.modules.push(module);

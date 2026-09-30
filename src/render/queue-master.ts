@@ -307,9 +307,11 @@ export async function reworkQueue(options: {
   input: MasterInput;
   agent: QueueMasterAgent;
   askPerson?: (question: string) => Promise<string | undefined>;
+  /** The draft it starts from: the queue's work cut into jobs (chunk-plan.ts). Default: each queued job keeps its own changes. */
+  proposal?: DraftJob[];
 }): Promise<MasterPlan> {
   const { input } = options;
-  const proposal = propose(input);
+  const proposal = options.proposal !== undefined && options.proposal.length > 0 && checkDraft(input, options.proposal).length === 0 ? options.proposal : propose(input);
   let draft: DraftJob[] = proposal.map((job) => ({ ...job, changes: [...job.changes] }));
   let committed: { draft: DraftJob[]; summary: string; work: MasterInput } | undefined;
   // What the draft is measured against: the input, or - once the running job is stopped - from what is built, with it first.

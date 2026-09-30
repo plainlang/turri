@@ -226,17 +226,41 @@ render queue, where the queue master sees and reworks them like any others. For 
 `requires` chain, bottom first, starting from what the queue will leave it - what is built, and
 the jobs already queued for it:
 
-- **a spec diff**, when what is built or queued no longer matches the spec - a definition, a req,
-  an acceptance test, a functional spec already built worded differently: one render spec diff job
-  that brings it in line. The functional specs it covers are every one up to the last that is built
-  or queued word for word;
-- **then a render functionality job per functional spec after that**, pinned to the spec as it is
-  now, each followed by its conformance job when conformance tests are on.
+- **one spec diff for everything not built yet** - what changed in what is built, and every
+  functional spec after it - which, before anything starts, the queue **cuts into jobs** (see
+  [how the work is cut into jobs](#how-the-work-is-cut-into-jobs)), each followed by its conformance
+  job when conformance tests are on.
 
-A module already built from the spec as it is gets nothing. A render is a spec diff that adds one
-functionality: when the queue master reworks the queue around a change - a req changed ahead of
-it - a render whose only change is still adding its own functionality to what is built runs as
-that render, on the spec as it now is; one it gives more to runs as a spec diff.
+A module already built from the spec as it is gets nothing. A spec that spans several modules gets a
+spec diff per module that is not built yet, and a change to a module built on is made in the latest
+codebase built on it - the tip.
+
+### How the work is cut into jobs
+
+A job that renders the whole of a new spec is too big to build well, and a render per functional spec,
+the first carrying every definition and req, is no better: most of the work lands in one job. So the
+work from what the code will be built from - what is built, or what the running job lands - to the spec
+as it is now is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
+
+1. **Which new functional specs go together.** An agent groups them: at most three a job, only ones
+   next to each other in the spec's order, and only when they describe the same thing - most go alone.
+2. **The definitions each group uses**, in code: the concepts its functional specs name, and the
+   concepts those definitions name in turn. A definition goes with the first group that uses it; later
+   groups have it built. One nothing uses goes with the last.
+3. **Where each new req goes.** An agent places each implementation req with the group it is about -
+   or with the first, when it is about everything (the language, the framework) - and each test req
+   with the first group whose conformance tests need it. The coding agent is never shown the test reqs
+   of its change; its conformance job is.
+
+Changes to what is built - an item edited or taken out, a functional spec built worded differently - go
+first, in a job of their own. Every answer is checked: every new functional spec once, in order, next to
+each other, at most three; every req placed once. One that does not hold goes back to its agent, twice at
+most, and then the plan is a functional spec a job with every req in the first. A group past 120 lines
+goes a functional spec a job. A job is named for what it adds: `app.plain fs 3-5: Comments`, and it lands
+whole or not at all, its conformance job with it. Every change to the spec plans the work not started
+again, the running job left alone; the jobs that wait say, in the job panel, that the queue is being
+planned, and what it is at. A codebase whose code has no record of the spec it was built from is not
+planned: its queue stays as it was queued.
 
 Each functionality's conformance job writes its tests and then runs every conformance test in the
 codebase as one suite, with the unit testing script: a functionality that breaks one built before
@@ -249,9 +273,9 @@ A spec change is a notice, not a diff to run: **`spec_changed`**, after the spec
 means - the file tools, a skill, you in an editor - brings the queue up to the spec as it is now in
 exactly the same way, from what the queue will leave each module, and the queue master reworks the
 queue around what it queued, stopping the job running when the change undoes it. Say a module of
-50 functionalities is rendering and the spec changes while functionality 25 builds: the
-functionalities up to 25 are aligned by one spec diff, and 26 to 50 go on as renders of the spec as
-it now is. `render_spec_diff` and forge-plain's `write_spec_diff` are ways to make an edit and give
+50 functionalities is rendering and the spec changes while functionality 25 builds: 25 goes on, and
+the work after it is planned again from what 25 will leave - what changed in what is built first, then
+26 to 50 cut into jobs as the spec now has them. `render_spec_diff` and forge-plain's `write_spec_diff` are ways to make an edit and give
 the notice in one call.
 
 ### Regenerating after a spec change
@@ -412,11 +436,12 @@ reworks: each is the work of adding its functionality, from the spec ahead of it
 spec. One it leaves as it was runs as the render it was asked for; one it changes, merges into or
 moves runs as a spec diff in its place - the spec as it now is - and writes its conformance tests
 itself, its functionality conformance job stopped with a note. On a codebase with nothing built
-yet, the work is measured from nothing. Whenever a spec diff job is submitted while at
-least one other is waiting, the queue master reworks the waiting ones. The harness works out the net
-change - from the spec the code is built from (or the one the running spec diff lands) to the spec
-as it now is - as numbered changes, and a proposal: each waiting job keeps the changes of its own
-still in the net change, the rest going to the newest. An agent (the judge model, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
+yet, the work is measured from nothing. Whenever a spec diff job is submitted, the queue is planned again, and the queue master reviews the plan.
+The harness works out the net change - from the spec the code is built from (or the one the running spec
+diff lands) to the spec as it now is - as numbered changes, and its proposal is that work cut into jobs
+([above](#how-the-work-is-cut-into-jobs)), each job keeping the id of the waiting job whose functional
+spec it carries. When the change only adds on top and the plan leaves the queue as it was queued, no
+agent is asked. An agent (the judge model, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
 every waiting job's diff, the spec before and after the new change and the `.plain` file itself, and
 may delete, merge, reorder, rewrite and insert jobs, or ask the person when it is not sure. Every change
 it is given - the running job's, the new one, each waiting job's - is told section by section, as the

@@ -168,8 +168,8 @@ describe("the queue master", () => {
     const undo = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "-- Users have a profile page.", applied: "already applied", spec: snapshot(["- Users sign up.", "- Users comment on sessions."]) });
 
     for (const id of [comments.jobId, profiles.jobId, undo.jobId]) await registry.wait(id);
-    // All three were submitted before the master's turn came: it saw the three together once - and left 1.
-    expect(seen).toEqual([3]);
+    // All three were submitted before the master's turn came: it saw them together once, planned as the one job they come to.
+    expect(seen).toEqual([1]);
     expect(ran).toEqual(["render spec diff"]);
     expect(renderedDiffs[0]).toContain("Users comment on sessions.");
     expect(renderedDiffs[0]).not.toContain("profile page");
@@ -222,8 +222,9 @@ describe("the queue master", () => {
     release();
     for (const id of [navJob.jobId, profileJob.jobId, feedJob.jobId, removal.jobId]) await registry.wait(id);
 
-    // The harness's proposal already gave the nav bar, as it is now, back to the nav bar's job.
-    expect(drafts[0]!.map((job) => job.changes.length)).toEqual([1, 0, 1, 0]);
+    // The harness's proposal is the work planned again: the nav bar as it is now, in the nav bar's job, and the feed - nothing left to delete.
+    expect(drafts[0]!.map((job) => job.changes.length)).toEqual([1, 1]);
+    expect(drafts[0]!.map((job) => job.jobId)).toEqual([navJob.jobId, feedJob.jobId]);
     expect(ran).toEqual(["render spec diff", "render spec diff"]);
     expect(renderedDiffs[0]).toContain("`Search` to `/search`.");
     expect(renderedDiffs[0]).not.toContain("My profile");
@@ -286,10 +287,13 @@ describe("the queue master", () => {
     release();
     await registry.wait(kudos.jobId);
 
-    expect(renderedDiffs).toHaveLength(1);
-    expect(renderedDiffs[0]).toContain("Users comment on sessions.");
-    expect(renderedDiffs[0]).toContain("Users give kudos.");
-    expect(registry.get(kudos.jobId)!.note).toContain("Rebased when it started");
+    await q.drain();
+    // Planned again from what is built: comments first, in the place the kudos job had, then kudos - a job each.
+    expect(renderedDiffs).toHaveLength(2);
+    expect(renderedDiffs[0]).toContain("+- Users comment on sessions.");
+    expect(renderedDiffs[0]).not.toContain("+- Users give kudos.");
+    expect(renderedDiffs[1]).toContain("+- Users give kudos.");
+    expect(registry.list().map((job) => job.summary)).toEqual(expect.arrayContaining(["backend.plain fs 2: Users comment on sessions.", "backend.plain fs 3: Users give kudos."]));
   });
 
   it("renders a spec diff queued behind a module build the queue does not track from what that build really landed - its unbuilt functionalities as well", async () => {
@@ -309,12 +313,12 @@ describe("the queue master", () => {
     const kudos = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users give kudos.", applied: "already applied", spec: snapshot(["- Users sign up.", "- Users comment on sessions.", "- Users give kudos."]) });
     registry.stop(build.id);
     release();
-    await registry.wait(kudos.jobId);
+    await q.drain();
 
-    expect(renderedDiffs).toHaveLength(1);
-    expect(renderedDiffs[0]).toContain("Users comment on sessions.");
-    expect(renderedDiffs[0]).toContain("Users give kudos.");
-    expect(registry.get(kudos.jobId)!.note).toContain("not built and not in its change");
+    // Planned from what is built - sign-up - to the spec it is pinned to: comments, which the build did not land, then kudos.
+    expect(renderedDiffs).toHaveLength(2);
+    expect(renderedDiffs[0]).toContain("+- Users comment on sessions.");
+    expect(renderedDiffs[1]).toContain("+- Users give kudos.");
   });
 
   it("takes a first build's change again from nothing when the scaffold ahead of it was stopped - nothing built is the empty spec", async () => {
@@ -337,7 +341,7 @@ describe("the queue master", () => {
     expect(renderedDiffs).toHaveLength(1);
     expect(renderedDiffs[0]).toContain("TypeScript.");
     expect(renderedDiffs[0]).toContain("Users sign up.");
-    expect(registry.get(second.jobId)!.note).toContain("Rebased when it started");
+    expect(registry.get(second.jobId)!.summary).toBe("backend.plain fs 1: Users sign up.");
   });
 
   it("runs a first build's jobs one after the other, though the spec had no functional specs when the first was queued", async () => {
@@ -352,8 +356,12 @@ describe("the queue master", () => {
     writeFileSync(spec, "***implementation reqs***\n\n- :Implementation: is TypeScript.\n\n***functional specs***\n\n- Users sign up.\n");
     const first = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users sign up.", applied: "already applied", spec: snapshot({ "implementation reqs": [{ markdown: "- TypeScript." }], "functional specs": [{ markdown: "- Users sign up." }] }) });
     await vi.waitFor(() => expect(releaseSlow).toBeDefined());
-    expect(registry.get(scaffold.jobId)!.status).toBe("running");
-    expect(registry.get(first.jobId)!.status).toBe("queued");
+    // Planned together before either started: the scaffold rides with the first functional spec, in one job - the one
+    // that functional spec was queued in.
+    expect(registry.get(first.jobId)!.status).toBe("running");
+    expect(registry.get(first.jobId)!.summary).toBe("backend.plain fs 1: Users sign up.");
+    expect(registry.get(scaffold.jobId)!.status).toBe("stopped");
+    expect(registry.get(scaffold.jobId)!.note).toContain(`is part of ${first.jobId}`);
     releaseSlow!();
     await registry.wait(first.jobId);
   });
@@ -524,7 +532,7 @@ describe("the queue master", () => {
     expect(registry.get(backend.jobId)!.status).not.toBe("running");
   });
 
-  it("stacks renders and spec diffs: each render builds the spec as it was when it was queued, and the spec diff between them its own change - never re-taken", async () => {
+  it("plans renders and spec diffs queued before any starts as one piece of work - the definition as it now is goes with the functional spec that uses it, the old wording never built", async () => {
     const { recordBuiltFunctionality } = await import("../../src/render/state.ts");
     const { plainFileParser } = await import("../../src/plain/parser.ts");
     const { resolveTemplateDirs } = await import("../../src/render/render.ts");
@@ -559,15 +567,18 @@ describe("the queue master", () => {
     writeFileSync(join(dir, "app.plain"), file("a word of welcome, in the user's language", ["Say a :Greeting:.", "Say goodbye."]));
     const second = q.enqueue({ plainFile: "app.plain", frid: "2" });
     release();
-    for (const id of [first.jobId, diff.jobId, second.jobId]) await registry.wait(id);
+    await q.drain();
+    void change;
 
-    // The first render built the definition as it was when it was queued - not the change queued after it.
-    expect(built[0]).toEqual({ frid: "1", greeting: "- :Greeting: is a word of welcome." });
-    // The spec diff rendered its own change, as written: nothing it expected was missing, so nothing was re-taken.
-    expect(renderedDiffs).toEqual([change]);
-    expect(registry.get(diff.jobId)!.note ?? "").not.toContain("Rebased");
-    // The render after it built from the spec with the change in.
-    expect(built[1]).toEqual({ frid: "2", greeting: "- :Greeting: is a word of welcome, in the user's language." });
+    // Nothing built the definition as it was: it goes, as it is now, with the first functional spec - the change to it is no job of its own.
+    const greetings = [...built.map((entry) => entry.greeting), ...renderedDiffs];
+    expect(greetings.some((text) => text.includes("in the user's language"))).toBe(true);
+    expect(greetings.every((text) => !/is a word of welcome\.(\n|$)/.test(text))).toBe(true);
+    // Two jobs built it - a functional spec each - and one of the three queued never ran.
+    expect(greetings).toHaveLength(2);
+    expect([first.jobId, diff.jobId, second.jobId].filter((id) => registry.get(id)!.status === "stopped")).toHaveLength(1);
+    const { readBuiltTree } = await import("../../src/render/state.ts");
+    expect(JSON.stringify(readBuiltTree(buildDir))).toBe(JSON.stringify(plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1]));
   });
 
   describe("functionality renders, reworked by the queue master", () => {

@@ -324,14 +324,21 @@ describe("renders queued behind the interview", () => {
     expect(queue.status().map((entry) => [entry.position, entry.what.startsWith("spec diff: ")])).toEqual([[1, true], [2, true]]);
     await queue.drain();
 
-    expect(jobs.map((job) => registry.get(job.jobId)!.status)).toEqual(["succeeded", "succeeded"]);
-    expect(queue.status().map((entry) => entry.status)).toEqual(["succeeded", "succeeded"]);
+    // Planned again before either started: what is built changed first, then a functional spec a job.
+    expect(queue.status().filter((entry) => entry.status === "succeeded")).toHaveLength(3);
+    expect(queue.status().every((entry) => entry.status === "succeeded" || entry.status === "stopped")).toBe(true);
+    void jobs;
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
-    // Each was built from the spec as it stood with its own change in, not as the file is now.
-    const changes = prompts.filter((prompt) => !prompt.includes("describe_how_to_try_it"));
-    expect(changes[0]).toContain("- Two.");
-    expect(changes[0]).not.toContain("- Three.");
-    expect(changes[1]).toContain("- Three.");
+    const { readBuiltTree } = await import("../../src/render/state.ts");
+    expect(JSON.stringify(readBuiltTree(join(dir, "plain_modules", "app", "code")))).toBe(JSON.stringify(parsed()));
+    // Each job built its own part, never the file as a whole.
+    const changes = prompts.flatMap((prompt) => [...prompt.matchAll(/<spec change>\n([\s\S]*?)<\/spec change>/g)].map((match) => match[1]!));
+    expect(changes).toHaveLength(3);
+    expect(changes[0]).toContain("One, now reworded");
+    expect(changes[0]).not.toContain("Two.");
+    expect(changes[1]).toContain("Two.");
+    expect(changes[2]).toContain("Three.");
+    expect(changes[2]).not.toContain("One, now reworded");
   });
 
   it("record the spec the change was written against - every section - and the diff", async () => {

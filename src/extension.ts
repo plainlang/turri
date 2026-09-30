@@ -943,8 +943,8 @@ function moduleReport(result: RenderModuleResult): string {
 /**
  * The spec changed - however it was changed: the file tools, a skill, the person in an editor. Not a diff to
  * render: a notice. The queue is brought up to the spec as it is now, from what it will leave each module -
- * one spec diff for what changed in what is built or queued, a render per functional spec after it - and the
- * queue master reworks the queue around it, stopping what is running when the change undoes it.
+ * one spec diff for everything not built yet, planned into jobs from its functional specs outward - and the
+ * queue master reviews the plan, stopping what is running when the change undoes it.
  */
 function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
@@ -953,9 +953,9 @@ function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
     description:
       "Tell the render queue that a .plain spec changed - by any means: the file tools, a skill, the user in an " +
       "editor. It takes no diff. The queue is brought up to the spec as it is now, from what it will leave each " +
-      "module: one render spec diff job for what changed in what is built or queued, and a render functionality job " +
-      "for each functional spec after that; the queue master then reworks the queue around it, and may stop the job " +
-      "running when the change undoes it. Nothing to do when the queue already ends on the spec.",
+      "module: the work not started is planned again - cut into jobs of one to three functional specs, each with the " +
+      "definitions and reqs it uses, changes to what is built first - and the queue master reviews the plan, and may " +
+      "stop the job running when the change undoes it. Nothing to do when the queue already ends on the spec.",
     promptSnippet: "spec_changed: tell the render queue a .plain spec changed, so it ends on the spec as it is now",
     promptGuidelines: [
       "Call spec_changed after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: the harness compares what the queue will leave with the spec now.",

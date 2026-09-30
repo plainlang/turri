@@ -5,9 +5,9 @@ import { Type } from "typebox";
 import { formatDuration, type Job, type JobRegistry } from "./render/jobs.ts";
 import { readNotes } from "./render/notes.ts";
 import { modulesRoot, projectDirOf } from "./render/paths.ts";
-import type { RenderQueue } from "./render/queue.ts";
+import { describeBroughtUp, type RenderQueue } from "./render/queue.ts";
 import { snapshotSpec } from "./render/spec-change.ts";
-import { diffSpecText, layoutOf, reachedByRendering, sameSpec, serializeTree } from "./render/spec-steps.ts";
+import { sameSpec } from "./render/spec-steps.ts";
 import { pendingFrids, readBuiltTree } from "./render/state.ts";
 import { getFrids } from "./plain/spec.ts";
 
@@ -195,22 +195,9 @@ export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegist
       const built = readBuiltTree(codebase);
       const say = (text: string, jobIds: string[] = []) => ({ content: [{ type: "text" as const, text }], details: { jobIds } });
       if (built !== null && sameSpec(built, spec.tree)) return say(`${basename(plainFile)}: its code is already built from the spec as it is - nothing to render.`);
-      // Only functional specs added, or nothing built: each is built on the ones before it, one job each.
-      if (reachedByRendering(built, spec.tree)) {
-        const queued = options.queue.catchUp(plainFile);
-        if (queued.length === 0) return say(`${basename(plainFile)}: nothing to render - every functionality is built from its spec, or already queued.`);
-        return say(`Queued ${queued.length} render${queued.length === 1 ? "" : "s"} of ${basename(plainFile)}: ${queued.map((entry) => `functionality ${entry.frid} (job ${entry.jobId})`).join(", ")} - with their conformance tests, when they are on.`, queued.map((entry) => entry.jobId));
-      }
-      // Changed in place: the whole difference as one spec diff.
-      let layout;
-      try {
-        layout = layoutOf(readFileSync(spec.plainFile, "utf8"));
-      } catch {
-        /* the layout is only for how the diff reads */
-      }
-      const diff = diffSpecText(serializeTree(built!), serializeTree(spec.tree), relative(options.cwd, spec.plainFile), layout);
-      const queued = options.queue.enqueueSpecDiff({ plainFile, diff, applied: "already applied", spec });
-      return say(`Queued the difference between what ${basename(plainFile)}'s code is built from and its spec as one spec diff: job ${queued.jobId}.`, queued.parts.map((part) => part.jobId));
+      // Whatever changed - functional specs added, or the spec changed in place: the queue plans it, cut into jobs.
+      const brought = options.queue.bringUpTo(plainFile);
+      return say(describeBroughtUp(brought, basename(plainFile)), brought.jobIds);
     },
   });
 

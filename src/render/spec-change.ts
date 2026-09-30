@@ -353,6 +353,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // what every agent of this change is shown, in place of the raw diff.
   const changes = changesBetween(serializeTree(builtNow), serializeTree(tree));
   const changeText = changes.length > 0 ? describeSpecChange(changes) : undefined;
+  // The coding agent's view of the change leaves its test reqs out: they say how the conformance tests are written -
+  // the conformance job's to read, from the whole change (`changeText`), not the code's.
+  const codingChanges = changes.filter((change) => change.section !== TEST_REQUIREMENTS);
+  const codingText = codingChanges.length > 0 ? describeSpecChange(codingChanges) : undefined;
   const builtFrids = [...getFrids(builtNow)];
   const specificationsBefore: Specifications =
     builtFrids.length > 0 ? getSpecificationsForFrid(builtNow, builtFrids.at(-1)!)[0] : { ...sectionsOf(builtNow), [FUNCTIONAL_REQUIREMENTS]: [] };
@@ -360,7 +364,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     moduleName,
     diff: options.diff,
     // The change as it is to the code: from what it is built from to the spec this job records, section by section.
-    changes,
+    changes: codingChanges,
     specifications: specificationsBefore,
     required: getInheritedFunctionalSpecs(builtNow),
     linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
@@ -460,7 +464,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         atStart: digestsBefore,
         what: `the spec change to module \`${moduleName}\``,
         // As the coding agent had it: the spec the code was built from, and the change.
-        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: changeText ?? options.diff }),
+        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: codingText ?? changeText ?? options.diff }),
         forChange: true,
         label: `${moduleName} spec change`,
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
