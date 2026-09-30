@@ -1769,8 +1769,8 @@ function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): 
       registry: jobs,
       cwd,
       modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
-      // The queue master reasons about the whole queue: it runs on the judge model, and asks the person in the chat.
-      masterModel: modelSpec(projectModels(readProjectConfig(cwd)).judge),
+      // The queue master and its planners reason about the whole queue: they run on the chat's model, and ask the person in the chat.
+      masterModel: () => chatModelOf(from.ctx),
       // How the queue is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
       steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
       askPerson: (question) => (from.ctx.hasUI ? from.ctx.ui.input(`The queue master asks: ${question}`) : Promise.resolve(undefined)),

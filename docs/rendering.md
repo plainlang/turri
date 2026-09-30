@@ -458,8 +458,10 @@ yet, the work is measured from nothing. Whenever a spec diff job is submitted, t
 The harness works out the net change - from the spec the code is built from (or the one the running spec
 diff lands) to the spec as it now is - as numbered changes, and its proposal is that work cut into jobs
 ([above](#how-the-work-is-cut-into-jobs)), each job keeping the id of the waiting job whose functional
-spec it carries. When the change only adds on top and the plan leaves the queue as it was queued, no
-agent is asked. An agent (the judge model, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
+spec it carries. When the new change is all that waits for the codebase and nothing of it is running, or
+when the change only adds on top and the plan leaves the queue as it was queued, no agent is asked: there
+is nothing to fit the change into, and the plan is the queue. An agent (the chat's model in a conversation,
+the coding model under `plainwright module`, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
 every waiting job's diff, the spec before and after the new change and the `.plain` file itself, and
 may delete, merge, reorder, rewrite and insert jobs, or ask the person when it is not sure. Every change
 it is given - the running job's, the new one, each waiting job's - is told section by section, as the

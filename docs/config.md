@@ -45,9 +45,9 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | key | what it sets | unset |
 | --- | --- | --- |
 | `module` | the `.plain` file `plainwright module` and `render_module` build when none is named, from the project root | a file has to be named |
-| `harness-model` | the model `plainwright chat` starts on - the one you talk to - and the one that diagnoses a job that failed for good | pi's configured model |
+| `harness-model` | the model `plainwright chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the queue master and its planners (on whatever model the chat is on when the queue is planned) | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
-| `judge-model` | the judge and the test review of a conformance run, and the queue master | `coding-model` |
+| `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `false`: no conformance tests written, and none of the existing ones run. `true`: on for every module with test reqs | on for every module with test reqs |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |

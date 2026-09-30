@@ -283,8 +283,8 @@ export function createRenderQueue(options: {
    * project's AGENTS.md says of it. Read afresh each plan.
    */
   steering?: (plainFile: string) => Steering[];
-  /** The queue master's model. Default: the model the spec change renders on. */
-  masterModel?: string;
+  /** The queue master's and its planners' model, read afresh each plan - the chat's, in a conversation. Default: the model the spec change renders on. */
+  masterModel?: string | (() => string | undefined);
   /** How the queue master asks the person, when it is not sure. */
   askPerson?: (question: string) => Promise<string | undefined>;
   /** Told what the queue master did, each time it reworks a queue - for the person, in the TUI. */
@@ -631,19 +631,22 @@ export function createRenderQueue(options: {
     // The work not started, cut into jobs from its functional specs outward - whatever the master then makes of it.
     // Said on the jobs that wait for it, so the queue is not a silence while it is planned.
     const plan = await withPlanningShown(waiting, async (): Promise<MasterPlan | undefined> => {
+      const masterModel = (typeof options.masterModel === "function" ? options.masterModel() : options.masterModel) ?? latest.model;
       const agents =
         options.chunkAgents ??
-        (options.queueMaster === false || typeof options.queueMaster === "function" ? undefined : llmChunkAgents({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue planner` }));
+        (options.queueMaster === false || typeof options.queueMaster === "function" ? undefined : llmChunkAgents({ cwd: options.cwd, model: masterModel, label: `${basename(latest.plainFile)} queue planner` }));
       const proposal = await planChunks(input, agents);
       // Only added on top, planned as it was queued - or no master: the plan is the queue, with no agent to ask.
       const asQueued = JSON.stringify(propose(input).filter((job) => job.changes.length > 0).map((job) => job.changes)) === JSON.stringify(proposal.map((job) => job.changes));
-      if (options.queueMaster === false || (instruction === undefined && untouched(input) && asQueued)) {
+      // The new change alone - nothing else waiting, nothing running: there is nothing to fit it into, and the planner's cut is the plan.
+      const alone = waiting.length === 1 && running === undefined;
+      if (options.queueMaster === false || (instruction === undefined && (alone || (untouched(input) && asQueued)))) {
         return proposal.length > 0 ? { jobs: stepsOf(input, proposal), summary: "The queue's work, cut into jobs from its functional specs.", by: "proposal", base: input.base } : undefined;
       }
       reportStage("the queue master reviews the plan");
       return reworkQueue({
         input,
-        agent: options.queueMaster ?? llmQueueMaster({ cwd: options.cwd, model: options.masterModel ?? latest.model, label: `${basename(latest.plainFile)} queue master` }),
+        agent: options.queueMaster ?? llmQueueMaster({ cwd: options.cwd, model: masterModel, label: `${basename(latest.plainFile)} queue master` }),
         askPerson: options.askPerson,
         proposal,
       });

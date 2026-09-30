@@ -181,6 +181,28 @@ describe("the queue master", () => {
     }
   });
 
+  it("is not asked when the new change is all the queue holds - nothing else waits or runs, and the planner's cut is the plan", async () => {
+    const { writeBuiltTree } = await import("../../src/render/state.ts");
+    const buildDir = join(dir, "plain_modules", "backend", "code");
+    const specs = (items: string[]) => ({ "functional specs": items.map((markdown) => ({ markdown })) });
+    writeBuiltTree(buildDir, specs(["- Users sign up."]) as never);
+    writeFileSync(join(dir, "backend.plain"), "***functional specs***\n\n- Users sign up.\n- Users comment on sessions.\n- Users follow each other.\n");
+    const snapshot = (items: string[]) => ({ moduleName: "backend", plainFile: join(dir, "backend.plain"), tree: specs(items), chain: [{ moduleName: "backend", plainFile: join(dir, "backend.plain"), buildDir }] }) as unknown as SpecSnapshot;
+
+    let asked = 0;
+    const master = async () => {
+      asked += 1;
+    };
+    const registry = createJobRegistry();
+    const q = createRenderQueue({ registry, cwd: dir, queueMaster: master as never });
+    const both = q.enqueueSpecDiff({ plainFile: "backend.plain", diff: "+- Users comment on sessions.\n+- Users follow each other.", applied: "already applied", spec: snapshot(["- Users sign up.", "- Users comment on sessions.", "- Users follow each other."]) });
+
+    await vi.waitFor(() => expect(renderedDiffs.join("\n")).toContain("Users follow each other."));
+    expect(asked).toBe(0);
+    expect(renderedDiffs.join("\n")).toContain("Users comment on sessions.");
+    expect(renderedDiffs.join("\n")).toContain("Users follow each other.");
+  });
+
   it("gives a queued job back its own change, edited since - taking the profile link out of the nav bar leaves the nav bar that job's - and runs each job as itself", async () => {
     const { writeBuiltTree } = await import("../../src/render/state.ts");
     const buildDir = join(dir, "plain_modules", "frontend", "code");
