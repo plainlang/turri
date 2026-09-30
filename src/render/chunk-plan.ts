@@ -220,7 +220,7 @@ function titleOf(change: SpecChange): string {
 
 /**
  * Cut the queue's work - from `input.base` to `input.current` - into jobs, as the three steps say. Returns the draft
- * the queue master starts from: checked (checkDraft), or, when nothing holds, the whole work as one job.
+ * the work loop runs: checked (checkDraft), or, when nothing holds, the whole work as one job.
  */
 export async function planChunks(input: MasterInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   const net = netChanges(input.base, input.current);

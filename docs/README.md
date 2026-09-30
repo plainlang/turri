@@ -32,7 +32,7 @@ pages go into each part.
 | how to rebuild one functionality | [running unattended](headless.md#rebuilding-one-functionality) |
 | what goes in which section of a spec | [authoring \*\*\*plain](authoring-plain.md#what-a-spec-is-made-of) |
 | which skill does what | [authoring \*\*\*plain](authoring-plain.md#the-skills) |
-| what happens when a spec changes | [rendering](rendering.md#a-spec-change-as-a-diff) |
+| what happens when a spec changes | [rendering](rendering.md#when-the-spec-changes) |
 | why a test was not allowed to be deleted | [rendering](rendering.md#the-tests-must-actually-pass) |
 | how to try what is built, and what deploy may install | [deploy](deploy.md) |
 | what the agents can and cannot reach | [the sandbox](sandbox.md) |
@@ -51,7 +51,7 @@ pages go into each part.
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |
 | [Rendering](rendering.md) | where things go, one functionality, a whole module, spec diffs, conformance tests, what the code is built from |
-| [The work model (planned)](work-model.md) | the rebuild of the render queue, agreed and in progress: two records, the work derived from them, no queue master, the prompt for each case |
+| [The work model](work-model.md) | how plainwright decides what to build next, and the stages it is being rebuilt in: two records, the work derived from them, the prompt for each case |
 | [The sandbox](sandbox.md) | what an agent can reach, the file-tool fence, the VM, installing what the image lacks |
 | [Skills and gates](skills-and-gates.md) | the gate syntax, what the harness enforces, what a step can do, the rules, trying the gates |
 | [The \*\*\*plain parser](parser.md) | the TypeScript port, `plainwright check`, inheritance, the iterator, fidelity |

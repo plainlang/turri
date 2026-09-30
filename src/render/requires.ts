@@ -6,6 +6,7 @@ import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
 import { resolveTemplateDirs } from "./render.ts";
 import { builtRequiredSpecs, inheritBuiltTree, STATE_FILE, type RequiredSpec } from "./state.ts";
+import { writeCodeRecord } from "./records.ts";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 import { head, historyLog, recordHistory } from "./history.ts";
 import { listFiles } from "./testing.ts";
@@ -106,16 +107,21 @@ export function findCodebaseTip(
   return withParseCache(() => findTip(plainFile, options));
 }
 
-function findTip(
-  plainFile: string,
-  options: { templateDirs?: string[]; buildRoot?: string; inModule?: string; allowNoFunctionalities?: boolean },
-): { tip: ChainEntry; chain: ChainEntry[] } {
-  const templateDirs = options.templateDirs ?? [];
-  const own = resolveRequiresChain(plainFile, templateDirs, options.buildRoot, {
-    allowNoFunctionalities: options.allowNoFunctionalities,
+/**
+ * The chains of the built modules whose requires chain includes `plainFile`'s module, and that no other
+ * built module is built on - where its code lives now, one chain per branch. Empty when nothing built is
+ * built on it. Found by reading every .plain file beside it.
+ */
+export function builtTips(plainFile: string, options: { templateDirs?: string[]; buildRoot?: string } = {}): ChainEntry[][] {
+  return withParseCache(() => {
+    const templateDirs = options.templateDirs ?? [];
+    const self = resolveRequiresChain(plainFile, templateDirs, options.buildRoot, { allowNoFunctionalities: true }).at(-1)!;
+    return tipsOf(builtChainsOver(self.moduleName, plainFile, templateDirs, options.buildRoot));
   });
-  const self = own.at(-1)!;
+}
 
+/** Every chain of a built module whose requires chain includes `moduleName`. */
+function builtChainsOver(moduleName: string, plainFile: string, templateDirs: string[], buildRoot?: string): ChainEntry[][] {
   const candidates: ChainEntry[][] = [];
   const seen = new Set<string>();
   for (const dir of resolveTemplateDirs(plainFile, templateDirs)) {
@@ -131,18 +137,36 @@ function findTip(
       seen.add(file);
       let chain: ChainEntry[];
       try {
-        chain = resolveRequiresChain(file, templateDirs, options.buildRoot);
+        chain = resolveRequiresChain(file, templateDirs, buildRoot);
       } catch {
         // Import modules, and anything that does not parse, are not codebases.
         continue;
       }
       const top = chain.at(-1)!;
-      const includes = chain.some((entry) => entry.moduleName === self.moduleName);
+      const includes = chain.some((entry) => entry.moduleName === moduleName);
       if (includes && listFiles(top.buildDir).length > 0) candidates.push(chain);
     }
   }
+  return candidates;
+}
 
+/** Of built chains, those no other is built on top of. */
+function tipsOf(candidates: ChainEntry[][]): ChainEntry[][] {
   const within = (chain: ChainEntry[]) => chain.slice(0, -1).map((entry) => entry.moduleName);
+  return candidates.filter((chain) => !candidates.some((other) => other !== chain && within(other).includes(chain.at(-1)!.moduleName)));
+}
+
+function findTip(
+  plainFile: string,
+  options: { templateDirs?: string[]; buildRoot?: string; inModule?: string; allowNoFunctionalities?: boolean },
+): { tip: ChainEntry; chain: ChainEntry[] } {
+  const templateDirs = options.templateDirs ?? [];
+  const own = resolveRequiresChain(plainFile, templateDirs, options.buildRoot, {
+    allowNoFunctionalities: options.allowNoFunctionalities,
+  });
+  const self = own.at(-1)!;
+  const candidates = builtChainsOver(self.moduleName, plainFile, templateDirs, options.buildRoot);
+
   if (options.inModule !== undefined) {
     const chosen = candidates.find((chain) => chain.at(-1)!.moduleName === options.inModule);
     if (chosen === undefined) {
@@ -155,9 +179,7 @@ function findTip(
   }
 
   // A tip is a candidate that no other candidate is built on top of.
-  const tips = candidates.filter(
-    (chain) => !candidates.some((other) => other !== chain && within(other).includes(chain.at(-1)!.moduleName)),
-  );
+  const tips = tipsOf(candidates);
   if (tips.length === 0) return { tip: self, chain: own };
   if (tips.length > 1) {
     throw new Error(
@@ -196,6 +218,8 @@ export function copyRequiredCode(
   fromModule: string,
   /** The new module's spec: what of its definitions and reqs the code already implements is recorded as built. */
   spec?: MarshalledPlainSource,
+  /** What to record the new codebase as built from, instead of working it out from the source's record. */
+  record?: MarshalledPlainSource,
 ): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
@@ -211,7 +235,8 @@ export function copyRequiredCode(
   // The working notes describe this code, so they come up with it.
   if (existsSync(notesPath(from)) && !existsSync(notesPath(to))) copyFileSync(notesPath(from), notesPath(to));
   // What the code is built from comes with it, as what the new module inherits - not as its own work.
-  inheritBuiltTree(from, to, fromModule, spec);
+  if (record !== undefined) writeCodeRecord(to, record);
+  else inheritBuiltTree(from, to, fromModule, spec);
 
   // A new module's history starts here: where its code came from, and at which commit.
   const source = basename(dirname(from));

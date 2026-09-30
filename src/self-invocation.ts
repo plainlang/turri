@@ -11,10 +11,10 @@
 
 /** The tool that does what a plainwright subcommand does, from inside the conversation. */
 const TOOL_FOR: Record<string, string> = {
-  render: "render_functionality",
+  render: "render_module",
   module: "render_module",
   regenerate: "regenerate_functionality",
-  conformance: "render_functionality_conformance",
+  conformance: "nothing yet - conformance tests are off in the conversation until their own track lands",
   skill: "run_skill",
   deploy: "deploy",
   forge: "run_skill",
@@ -105,8 +105,8 @@ export function refusal(what: string): string {
 /** The instruction that goes into the conversation's system prompt. */
 export const TOOLS_NOT_CLI = [
   "<plainwright-tools>",
-  "In this conversation, plainwright's work is done with its tools - render_functionality, render_module,",
-  "regenerate_functionality, render_spec_diff, render_functionality_conformance, run_skill and the rest - which run as",
+  "In this conversation, plainwright's work is done with its tools - render_module, spec_changed,",
+  "regenerate_functionality, render_spec_diff, run_skill and the rest - which run as",
   "background jobs the user can watch and stop. To try what is built, deploy - never by hand in plain_modules. Never",
   "run plainwright's command line (plainwright render, module, regenerate, conformance, skill, chat, deploy; npm run",
   "render and the like) or start another pi through bash:",

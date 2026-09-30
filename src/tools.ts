@@ -79,7 +79,7 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 
 
 import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
-import type { RenderQueue } from "./render/queue.ts";
+import { describeModules, type WorkLoop } from "./render/loop.ts";
 import { describeFindings, describeQuestions, type LiveReviewer } from "./review/live.ts";
 
 export type { AskUser, AskUserRequest };
@@ -169,24 +169,19 @@ export type { LiveReviewer };
  * The builds themselves are started by the tool that writes the spec change (`write_spec_diff`):
  * the interview never waits for one, and never starts one on its own.
  */
-export function createRenderTools(queue: RenderQueue, liveReview?: LiveReviewer) {
+export function createRenderTools(loop: WorkLoop, liveReview?: LiveReviewer) {
   const status = defineTool({
     name: "render_status",
     label: "Render status",
-    description: "What has been queued for building so far, in order, and how each one is doing.",
+    description: "What is being built, module by module: the job running, the jobs planned after it, and why nothing runs where nothing does.",
     promptSnippet: "render_status: how the background builds are doing",
     parameters: Type.Object({}),
     async execute() {
-      const entries = queue.status();
-      const text =
-        entries.length === 0
-          ? "Nothing has been queued for building yet."
-          : entries
-              .map((e) => `${e.position}. ${e.what}  ${e.status}  (job ${e.jobId})`)
-              .join("\n");
+      const statuses = loop.status();
+      const text = statuses.length === 0 ? "Nothing has been asked to build yet." : describeModules(statuses);
       return {
         content: [{ type: "text" as const, text: text + reviewNote(liveReview) }],
-        details: { queued: entries.length },
+        details: { modules: statuses.length },
       };
     },
   });

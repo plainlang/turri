@@ -73,7 +73,7 @@ a `<functionality module="…" id="…">`), `<acceptance tests>`, `<linked resou
 `<spec change>`, and the prompts' own words call each section by that name. The `***definitions***`
 headings of a `.plain` file appear only where a spec change could not be told section by section
 and the agent is given the raw diff: it is then told which tag each heading is. A spec in full -
-the queue master's, the spec-steps agent's, the conformance agents' - is laid out in the same tags.
+the planner's, the spec-steps agent's, the conformance agents' - is laid out in the same tags.
 
 A module that `requires` another inherits its functional specs; one that `import`s another
 inherits its definitions, implementation reqs and test reqs.
@@ -133,7 +133,9 @@ starts, so breaking an earlier functionality's test is caught too.
 Passing unit tests prove only what they check, and a coding agent is quick to write tests that check
 next to nothing - that a function exists, that a result is not empty, that a status is 200 - or code
 that no test reaches. So once the unit testing script passes, a reviewer on the judge model reads
-what the work wrote, beside the spec, and changes nothing. It reviews both halves.
+what the work wrote, beside the spec, and changes nothing. It reviews both halves. `review: false` in
+the [config](config.md) turns it off - the conformance tests' review too - and the work goes on once
+its tests pass.
 
 - **The code.** Every behaviour, edge case, validation rule and error the spec states for this work
   is implemented as the spec says it, with nothing left as a stub, a placeholder or a hard-coded
@@ -219,37 +221,35 @@ conformance jobs and regenerations that land make the same offer.
 
 ```bash
 plainwright module <file.plain>
-plainwright module <file.plain> --to 5
 ```
 
-Rendering a module - `render_module` in a conversation, `plainwright module` on the command line -
-is not a job of its own: it queues the jobs that bring the code up to the spec as it is now, in the
-render queue, where the queue master sees and reworks them like any others. For each module of the
-`requires` chain, bottom first, starting from what the queue will leave it - what is built, and
-the jobs already queued for it:
+Rendering a module - `render_module` in a conversation, `plainwright module` on the command line - is
+not a job of its own, and nothing is queued: the work loop (`src/render/loop.ts`, see
+[the work model](work-model.md)) works out what is left to build, has it planned into jobs, and runs
+the first. What is left is the difference between what a codebase's code is built from - its code
+record - and the spec of its requires chain as the `.plain` files have it now. When a job ends, or the
+spec changes, it is worked out again; a plan is kept only while the spec and the record it was cut from
+stay as they were.
 
-- **one spec diff for everything not built yet** - what changed in what is built, and every
-  functional spec after it - which, before anything starts, the queue **cuts into jobs** (see
-  [how the work is cut into jobs](#how-the-work-is-cut-into-jobs)), each followed by its conformance
-  job when conformance tests are on.
+Code accumulates up a `requires` chain: a module is built on a copy of the code of the one it requires.
+So a chain's codebase is its furthest-built module - its tip - and its record holds the whole chain: the
+definitions and implementation reqs of the modules below, each tagged with its module, their functional
+specs among the ones it inherits, and its own. A change to a module below is made there. The codebases
+below the tip are left as they were, their records saying what they are built from; one is brought up
+to its own spec again only when a module not built yet is to start from it - the module below first,
+then the new one on a copy of its code. With no module of a chain built, it is built bottom first, a
+module waiting while the one it is built on has work left or a job running.
 
-A module already built from the spec as it is gets nothing. A spec that spans several modules gets a
-spec diff per module that is not built yet, and a change to a module built on is made in the latest
-codebase built on it - the tip. A module built on another is planned only when its turn comes - once the
-work of the modules below it has landed - from what their code already implements, so the planning of a
-long chain goes a module at a time, bottom up, and never plans a module from nothing. Until then its work is one job,
-named for what it waits on - "top.plain - planned into jobs once base has landed" - with a note that it is
-not planned yet. When a module's plan
-adds jobs, the jobs not started of the modules built on it are queued again behind them, so they still come
-after it - quietly: the copy is the job, and the one it replaces is neither announced nor listed. Parsing a long chain again for every job is avoided: a spec is parsed once, and again only when a
-file it could read has changed.
+A module already built from the spec as it is gets nothing. A job that does not land is rolled back, and
+halts its codebase: nothing more runs there until the spec changes or the module is asked for again. On
+the command line, `plainwright module` runs until nothing more can start, one line as each job starts and
+ends, and exits 1 when any failed.
 
 ### How the work is cut into jobs
 
 A job that renders the whole of a new spec is too big to build well, and a render per functional spec,
 the first carrying every definition and req, is no better: most of the work lands in one job. So the
-work from what the code will be built from - what is built, or what the running job lands - to the spec
-as it is now is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
+work is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
 
 1. **Which new functional specs go together.** An agent groups them: at most three a job, only ones
    next to each other in the spec's order - the specs that build one component or feature together (a component
@@ -257,66 +257,49 @@ as it is now is cut from the functional specs outward (`chunk-plan.ts`), in thre
 2. **The definitions each group uses**, in code: the concepts its functional specs name, and the
    concepts those definitions name in turn. A definition goes with the first group that uses it; later
    groups have it built. One nothing uses goes with the last.
-3. **Where each new req goes.** An agent places each implementation req with the group it is about -
-   or with the first, when it is about everything (the language, the framework) - and each test req
-   with the first group whose conformance tests need it. The coding agent is never shown the test reqs
-   of its change; its conformance job is.
+3. **Where each new implementation req goes.** An agent places each with the group it is about - or with
+   the first, when it is about everything (the language, the framework).
 
 Changes to what is built - an item edited or taken out, a functional spec built worded differently - go
 first, in a job of their own. Every answer is checked: every new functional spec once, in order, next to
 each other, at most three; every req placed once. One that does not hold goes back to its agent, twice at
 most, and then the plan is a functional spec a job with every req in the first. A group past 120 lines
-goes a functional spec a job. A job is named for what it adds: `app.plain fs 3-5: Comments`, and it lands
-whole or not at all, its conformance job with it. Every change to the spec plans the work not started
-again, the running job left alone; the jobs that wait say, in the job panel, that the queue is being
-planned, and what it is at. A codebase whose code has no record of the spec it was built from is not
-planned: its queue stays as it was queued.
+goes a functional spec a job. The planner runs on the chat's model in a conversation, and on the
+harness model under `plainwright module`. No agent reviews its plan: the harness checks it - every
+change in exactly one job, the spec holding together after each, the last ending on the spec as it is.
+
+Each planned job knows its cases - which functional specs it adds, changes (their text, or a concept they
+use) and takes out, or none: reqs and definitions only - and the loop says them, with each job's title,
+where the person looks (`render_status`, and what `render_module` and `spec_changed` return).
 
 **Steering.** How you want the work cut and ordered - "build the batch worker's helpers with the worker",
-"models first" - goes to the grouping and placement agents and the queue master with every plan, as a strong
-preference: it never overrides the limits and checks, and where it would, the master says so. It comes from three
-places, each labelled for them with where it came from: the conversation (`steer_queue`, for the whole project or
-one module, for the session); the project's `AGENTS.md`, every section whose heading names the queue (`## Queue
-guidance`), read afresh with every plan; and whatever queues the work - `render_module`, `spec_changed`,
-`render_spec_diff` and `write_spec_diff` take a `guidance` of their own, which the queue keeps with that work.
-
-Each functionality's conformance job writes its tests and then runs every conformance test in the
-codebase as one suite, with the unit testing script: a functionality that breaks one built before
-it is found at its own job, sent back, or undone there. On the command line, `plainwright module`
-runs the whole queue to the end, one line as each job starts and ends, and exits 1 when any failed.
+"models first" - goes to the grouping and placement agents with every plan, as a strong preference: it
+never overrides the limits and checks. It comes from three places, each labelled with where it came from:
+the conversation (`steer_queue`, for the whole project or one module, for the session); the project's
+`AGENTS.md`, every section whose heading names the queue (`## Queue guidance`), read afresh with every plan;
+and whatever asks for the work - `render_module`, `spec_changed`, `render_spec_diff` and `write_spec_diff`
+take a `guidance` of their own, which the loop keeps with that module.
 
 ### When the spec changes
 
-A spec change is a notice, not a diff to run: **`spec_changed`**, after the spec was edited by any
-means - the file tools, a skill, you in an editor - brings the queue up to the spec as it is now in
-exactly the same way, from what the queue will leave each module, and the queue master reworks the
-queue around what it queued, stopping the job running when the change undoes it. Say a module of
-50 functionalities is rendering and the spec changes while functionality 25 builds: 25 goes on, and
-the work after it is planned again from what 25 will leave - what changed in what is built first, then
-26 to 50 cut into jobs as the spec now has them. `render_spec_diff` and forge-plain's `write_spec_diff` are ways to make an edit and give
-the notice in one call.
+A spec change is a notice, not a diff to run: **`spec_changed`**, after the spec was edited by any means -
+the file tools, a skill, you in an editor - has the loop work out the work again. A job running goes on
+while every change it makes is still part of the work, measured from the same record; one that is making
+something the spec no longer wants is stopped, rolled back, and the work planned again - a fixed rule, no
+agent. Say a module of 50 functionalities is rendering and the spec changes while functionality 25 builds:
+25 goes on if the change leaves it as it is, and the work after it is planned again from what 25 lands.
+`render_spec_diff` and forge-plain's `write_spec_diff` are ways to make an edit and give the notice in one
+call.
 
-### Regenerating after a spec change
+### Regenerating a functionality
 
-```bash
-plainwright regenerate <file.plain> 2
-```
+`regenerate_functionality` builds one functionality again, changed or not: it is taken out of the record
+of every codebase it is built in - committed, so the record says it is not built - and they are brought up
+to their spec, which builds it again. A functionality whose spec changed needs none of it: `spec_changed`
+builds it again by itself.
 
-Re-renders that functionality over the existing code - in the chain's latest codebase - updates
-its conformance tests to the new spec, and then runs every conformance test, not just the ones up
-to this point: a changed spec can break something built later as easily as something built
-earlier. It also rebuilds a functionality whose spec has not changed, as it is. To make it come out
-differently, change its spec first - the spec is what persists.
-When specs change, only the functionalities whose own spec changed are queued for regeneration -
-not everything after them.
-
-The agent is given the functionality's spec as it was built beside its spec now, and every other
-functional spec in the codebase. Its unit tests are run by the harness and reviewed, as a render's
-are. In a conversation it joins the render queue and works as a render and a spec diff do: it lands
-on its unit tests, and its conformance tests - brought in line with the new spec - and the whole
-suite follow as a job of its own right behind it; when that job fails for good, the regeneration is
-undone. Asked to wait, on the command line, or with a build folder or a codebase named, it does all
-of it in one job.
+`plainwright regenerate <file.plain> 2` on the command line is the older path: it re-renders that
+functionality over the existing code in the chain's latest codebase, and runs every conformance test.
 
 ### The testing scripts
 
@@ -383,161 +366,26 @@ the agents wrote runs on this machine there, so it is for projects that ask for 
 told the host's run is the one that counts, and a toolchain the host lacks (exit 69) cannot be
 installed from their sandbox: they say what is missing, for you to install.
 
-### Functionality renders and spec diffs, stacked
+### What a job is given, and what it records
 
-A queue can hold both, in any order - three functionality renders, a spec diff, three more - and
-each builds the spec as it was when it was queued. A spec diff is parsed when it is written; a
-functionality render is pinned the same way: the spec as it is when it is queued is what it builds
-and records, and its conformance job writes its tests from, whatever is written to the file by the
-time its turn comes. So a change queued after a render is rendered after it, by its own job, and
-never recorded as built by the render ahead of it. Each job, render or spec diff, also knows the
-spec the code will be built from when it starts - what the job ahead of it leaves - so a spec diff
-behind renders takes its diff as written.
+Every job is a spec diff: the agent that renders it is given the spec the code is built from - its
+functional specs in `<already implemented>` - and the change to it, in `<spec change>`, section by
+section - not the raw diff: each of `<definitions>`, `<implementation reqs>` and `<functional specs>` in
+its own tag, `<definitions change="1 added, 2 changed">`, saying what is added, what changed with its text
+before and now, and what is removed, measured from what is built to the spec the job ends on. A
+definition is itself by its concept: one reworded or moved is shown as changed, not as removed and added.
+Test reqs and acceptance tests are for conformance only: the code record holds neither, and no coding
+agent is shown them.
 
-In a conversation, rendering and conformance are separate jobs in the render queue. A render spec
-diff job - forge-plain's, `render_spec_diff`'s, `spec_changed`'s, or the one `render_module` queues to
-bring what is built in line - lands the change on its unit tests, and a render spec diff conformance job is queued
-right behind it, which brings the tests in line and runs the whole suite with repairs. It runs only
-if the render landed. A functionality rendered through the queue is followed the same way by a
-render functionality conformance job for it, and both conformance tools queue their jobs there too.
-With conformance off, or no test reqs, no conformance job is queued and the render keeps the
-existing tests passing itself. A call that waits - `wait: true`, or pi's print mode - still does it
-all in one.
+A job lands once its unit tests pass and are reviewed: the code record becomes the spec the job ends on,
+committed with the code. Conformance tests are not written or run in the conversation's jobs until they
+are a track of their own ([the work model](work-model.md#stages)).
 
-The agent that renders a spec diff is given the spec the code is built from - its functional specs
-in `<already implemented>`, as a render's are - and the change to it, in `<spec change>`, section by
-section - not the raw diff: each of `<definitions>`, `<implementation reqs>` and `<functional specs>`
-in its own tag, `<definitions change="1 added, 2 changed">`, saying what is added, what changed with
-its text before and now, and what is removed,
-measured from what is built to the spec the job ends on. A definition is itself by its concept: one
-reworded or moved is shown as changed, not as removed and added. Test reqs are left out of it; they
-are the conformance tests', and reach the conformance job.
-
-When it passes, the tree the code is built from becomes the spec as parsed when the diff went in -
-every section, not only the functional specs - and the diff is committed with it. A diff queued
-behind others is rendered from its own parse, not from the files as they are by the time it runs.
-
-### Restructuring, new required modules, and changes across modules
-
-Not every change to the `.plain` files is a change to the code. Before a spec diff renders, the
-spec the codebase is built from is compared with the spec with the change in, as the parser
-resolves them: the definitions and the implementation and test reqs as sets - in any order, from
-the module's own file or one it imports - and the functional specs in order, those it inherits
-then its own, whichever module each is written in. When they are the same - definitions moved to
-a common module, reqs reordered, specs moved between modules of the chain, only the frontmatter
-description changed - nothing is rendered: the spec is recorded as it is now laid out and
-committed, with no agent, no testing script and no conformance job. In the queue such a job is
-named "spec restructured - nothing to render" from the start, and the queue master leaves it be.
-A spec that is only restructured needs no job at all: `render_module` and `spec_changed` find it the same.
-
-Moving specs into a module the code was not built on is different: a module required now - a new
-module the specs were split into, or an existing one required for the first time - whose code the
-codebase does not hold. No change to the code brings that in, so it is not a spec diff. The queue
-starts the chain's build instead: the new module is built, and every built module above it starts
-again from scratch on its code - its code, conformance tests and record removed and committed, so
-what was there stays in its history. `render_spec_diff` refuses such a change and says to render the module.
-
-A change to several modules lands where each module's code lives. When a diff changes two modules
-of a chain and the one above is not built yet, those are two codebases, so the queue cuts it into
-a spec diff per codebase, bottom of the chain first: the module below renders its part in its own
-codebase, and the one above starts from that code when its part runs. A file a module imports goes
-with the lowest module that reads it. When the module above is built, the whole diff lands in its
-codebase, as before. A part that lands in a codebase holding nothing yet, with nothing queued for
-it, is given its module's whole spec as the change - not the files the modules below it read,
-which come with their code.
-
-### The queue master
-
-Spec diffs queued for one codebase can overlap: a later change can undo, redo or rewrite what an
-earlier one still waiting in the queue would render. Functionality renders are part of the queue it
-reworks: each is the work of adding its functionality, from the spec ahead of it to its pinned
-spec. One it leaves as it was runs as the render it was asked for; one it changes, merges into or
-moves runs as a spec diff in its place - the spec as it now is - and writes its conformance tests
-itself, its functionality conformance job stopped with a note. On a codebase with nothing built
-yet, the work is measured from nothing. Whenever a spec diff job is submitted, the queue is planned again, and the queue master reviews the plan.
-The harness works out the net change - from the spec the code is built from (or the one the running spec
-diff lands) to the spec as it now is - as numbered changes, and its proposal is that work cut into jobs
-([above](#how-the-work-is-cut-into-jobs)), each job keeping the id of the waiting job whose functional
-spec it carries. When the new change is all that waits for the codebase and nothing of it is running, or
-when the change only adds on top and the plan leaves the queue as it was queued, no agent is asked: there
-is nothing to fit the change into, and the plan is the queue. An agent (the chat's model in a conversation,
-the coding model under `plainwright module`, with the ***plain rules from `forge/rules`, as spec-writing agents have them) is given the queue,
-every waiting job's diff, the spec before and after the new change and the `.plain` file itself, and
-may delete, merge, reorder, rewrite and insert jobs, or ask the person when it is not sure. Every change
-it is given - the running job's, the new one, each waiting job's - is told section by section, as the
-coding agents are told it, and its prompt says how to read each block. It commits
-a queue of jobs, each a set of the numbered changes, and the harness holds it to where the queue has
-to end: every change in exactly one job, no job without a change, the spec consistent after every job
-(nothing used before it is defined), and the last job ending exactly on the `.plain` file as it is
-now. A queue that does not check is refused with why; when the agent never commits one that does,
-the harness takes its own proposal, and failing that the whole net change as one job.
-
-In the job panel a reworked job says what it now renders: its note is "Reworked by the queue master -
-it now renders …", its one-line title what it adds - or, when it only takes lines out, what it takes
-out - and a functionality render that moved because one before it was taken out is named by where
-it is now, `fs 8 (was 10)`. What the whole turn did is said once, in the conversation.
-
-A change that only adds on top - every queued job's changes still there as queued, the new job's
-all that is left, as when `spark-plain` writes feature after feature - has nothing to rework, and
-no agent is asked.
-
-The harness's proposal keeps each queued job's own changes with it - as they were queued, or
-edited since: when a later change takes the `My profile` link out of the nav bar a queued job adds,
-the nav bar as it is now is still that job's, and a job only adding the profile page is left with
-nothing. So taking something out of queued work is one spec diff that removes it from every spec
-that names it; the queue master takes out the jobs it undoes and rewrites the ones it touches.
-
-The spec diff rendering right now is not in the queue, and the work is measured from the spec it
-will leave - unless the master stops it. It is told what the running job builds, and may stop it
-when the new change undoes or rewrites most of that: stopping throws away what the job has done
-so far, so a job near its end is left to finish. Stopped, the job ends and its module is put back at
-its last commit before any queued job starts; the work is numbered again from what the code is
-built from, and the running job's change comes back as the first job of the draft, to delete,
-merge or rewrite like any other. A stop counts only with the queue committed after it. A job that
-finishes just as it is stopped has landed: the next job renders from what it built, its diff taken
-again from there. A change that undoes what the running job builds is never taken as only added on
-top, so the master is always asked.
-
-A planned job runs as the queued job it came from, keeping its place and id, wherever the order
-allows; one that has to run earlier takes the place of a job the plan left out, and what does not
-fit goes on after them as a new job. A job the rework leaves out never runs: it says where its
-change went - to another job, or undone - its conformance job with it. A spec diff that has
-started is never touched, and a functionality render still waiting on the codebase leaves the
-queue as it is.
-
-The tool that queued the change - `render_spec_diff`, `write_spec_diff` - waits for the queue
-master's turn, up to two minutes, and says what became of it rather than that it was queued: a
-removal folded into the jobs it touched is not a job of its own, and the jobs taken out and
-rewritten are named. A job the master rewrites without renaming it is named for what it now
-renders. In the TUI each rework is also a notice.
-
-Conformance jobs are part of the queue it reworks. It sees which conformance job follows each spec
-diff, and turns a job's conformance tests off - its conformance job cancelled, and it renders on its
-unit tests alone - or on, when the config has them on and the module has test reqs: then the job
-writes and runs them in its own render, since a conformance job added behind the queue would test
-code that has moved on.
-
-In a conversation, `rework_queue` has the queue master rework a codebase's queued spec diffs and
-their conformance jobs as the person asks - run the feed first, merge two, split one, cancel the
-conformance jobs - held to the same end; what would change
-the spec itself takes a spec diff. Stopping a queued spec diff by hand does not take its change
-out of the `.plain` files, so a spec diff that starts after one ahead of it did not land - stopped,
-or failed - takes its diff again, from what the code is built from to the spec it leaves, and says
-so: what it records is always what it built. On a module nothing is built on yet, what the code is
-built from is the empty spec: the job behind a first scaffold that did not land builds the scaffold
-too, and the queue master can stop a first build and start it again as it can any other. A spec diff
-whose spec holds functional specs that are not built and not in its own change - queued while a
-module build was still running, which then stopped before them - is taken again the same way when
-it starts, so it builds them rather than recording them as built.
-
-`render_spec_diff_conformance` is its conformance half, on its own - what `render_functionality_conformance`
-is to `render_functionality`. It takes the same diff, applies it unless it already is, and has one
-agent bring the conformance tests in line with it: write, change and remove them, from the diff and
-the spec as it now stands. Then the whole suite runs. Nothing of the change itself is rendered, so it
-is for a change that was rendered without conformance, or one only the tests follow - test reqs, an
-acceptance test. The tests go where the code they check lives: the chain's current codebase, even
-when the change is to a module it requires. Which functionalities have tests is read from their
-labels.
+A change that renders nothing - definitions moved to a common module, reqs reordered, specs moved between
+modules of the chain - is recorded, not rendered: the spec is recorded as it is now laid out and committed,
+with no agent and no testing script. Moving specs into a module the code was not built on is different: no
+change to the code brings that module's code in, so the codebase stops, saying its code has to be started
+again on it.
 
 ## Conformance tests
 

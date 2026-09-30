@@ -88,6 +88,15 @@ describe("the project's config.yaml", () => {
     });
   });
 
+  it("turns the review of the code and its tests on or off, and reads nothing else as either", () => {
+    writeFileSync(join(root, "config.yaml"), "review: false\n");
+    expect(readProjectConfig(root).review).toBe(false);
+    writeFileSync(join(root, "config.yaml"), "review: true\n");
+    expect(readProjectConfig(root).review).toBe(true);
+    writeFileSync(join(root, "config.yaml"), "review: sometimes\n");
+    expect(readProjectConfig(root).review).toBeUndefined();
+  });
+
   it("reads model:, from before there were two, as the coding model", () => {
     writeFileSync(join(root, "config.yaml"), "model: amazon-bedrock/eu.anthropic.claude-sonnet-5\n");
     expect(readProjectConfig(root).codingModel).toEqual({ model: "amazon-bedrock/eu.anthropic.claude-sonnet-5" });

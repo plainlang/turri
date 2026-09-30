@@ -173,7 +173,7 @@ its own:
 | skill | phases | how a spec change is written |
 | --- | --- | --- |
 | `forge-plain` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
-| `spark-plain` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs the queue master reworks the queue around |
+| `spark-plain` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs, and what is left to build is worked out again from the spec |
 
 `temper-plain` starts from a spec you already have, rough or hand-written, and runs on its own until
 it is fully rendered - every functionality built from the spec as it stands, its tests passing. It
@@ -190,8 +190,8 @@ For an existing project, `add-feature` works the same way, scoped to one feature
 product → review. After a short feature-intent interview it asks product questions one at a time -
 a trigger and its outcome, an edge case, a rule - and every answer is one spec change, a git diff
 written with `write_spec_diff` and built the moment it is written. A change to something already
-specified, built or still queued, is put to the user first and is a spec diff too; the queue master
-works it into the builds still queued.
+specified, built or still to build, is put to the user first and is a spec diff too: what is left to
+build is worked out again from the spec.
 
 What keeps the interview honest is the harness, not the interviewer:
 

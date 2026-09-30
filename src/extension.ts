@@ -21,16 +21,10 @@ import { createWebTools } from "./render/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
-import { listFrids, resolveTemplateDirs } from "./render/render.ts";
+import { resolveTemplateDirs } from "./render/render.ts";
 import { plainFileParser } from "./plain/parser.ts";
 import { TEST_REQUIREMENTS } from "./plain/spec.ts";
 import { sectionsOf } from "./render/state.ts";
-import { describeConformanceSuite, renderConformanceSuite } from "./render/conformance-suite.ts";
-import type { RenderConformanceTestsResult } from "./render/conformance.ts";
-import { regenerateFunctionality, renderChain, type RenderModuleResult, describeChainStop, describeRegenerationStop } from "./render/module.ts";
-import { describeChain } from "./render/requires.ts";
-import { createProgressTracker } from "./render/progress.ts";
-import { describeDelivery, withTryItLine } from "./render/delivery.ts";
 import { runningDeployed, stopDeployed } from "./render/deploy.ts";
 import { createDeployState, createDeployTools, refuseInstall } from "./deploy-tools.ts";
 import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./render/steering.ts";
@@ -38,7 +32,7 @@ import { vmSummary } from "./render/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
 import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
-import { createRenderQueue, describeBroughtUp, type RenderQueue } from "./render/queue.ts";
+import { createWorkLoop, describeModules, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createSidePanel, type PanelView } from "./render/side-panel.ts";
 import { createJobsTreeState } from "./render/jobs-tree.ts";
@@ -48,14 +42,11 @@ import { defaultBuildDir } from "./render/paths.ts";
 import { describeUsage, type SpecConflict } from "./render/activity.ts";
 import { describeSpecConflict } from "./render/stop-report.ts";
 import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
-import { moduleLanes } from "./render/lanes.ts";
 import { findCodebaseTip } from "./render/requires.ts";
-import { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } from "./render/spec-change.ts";
-import { describeSpecDiffConformance, renderSpecDiffConformance } from "./render/spec-change-conformance.ts";
+import { applySpecDiff, revertSpecDiff } from "./render/spec-change.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock, rulesSummary } from "./rules.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
-import { describeQueuedParts } from "./spec-tools.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
   createJobRegistry,
@@ -169,7 +160,7 @@ export default function (pi: ExtensionAPI) {
   const discoveredSkills = discoverSkills();
 
   // What the background work is doing right now, drawn above the editor while it runs.
-  const panel = createJobPanel(() => jobs.list());
+  const panel = createJobPanel(() => shownJobs(jobs));
 
   // Finished work is announced twice, to two audiences, because pi treats them differently.
   // A message - what the agent reads - is held until the current turn ends, and a skill's
@@ -312,15 +303,12 @@ export default function (pi: ExtensionAPI) {
   registerBranding(pi, rules.length, discoveredSkills);
   registerInterviewLog(pi);
   registerJobTools(pi, jobs, cwd);
-  registerRenderFunctionality(pi, cwd, jobs);
-  registerRenderFunctionalityConformance(pi, cwd, jobs);
   registerCheckPlain(pi, cwd);
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
   registerSpecChanged(pi, cwd, jobs);
   registerBuildVmImage(pi, cwd, jobs);
-  registerRenderSpecDiffConformance(pi, cwd, jobs);
   registerRenderModels(pi);
   registerDeploy(pi, cwd);
   registerSteering(pi, cwd);
@@ -482,12 +470,12 @@ export default function (pi: ExtensionAPI) {
         // Renders queued by a step land in the same registry as everything else, so
         // check_job and list_jobs see them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
-        renderQueue: renderQueueFor(jobs, cwd, ctx),
+        renderQueue: workLoopFor(jobs, cwd, ctx),
         // A skill that waits for its builds and reads what they recorded - temper-plain - sees the same jobs.
         jobs,
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // check_plain too: a skill validates what it wrote with the same check the conversation has.
-        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), renderFunctionalityConformanceTool(cwd, jobs, ctx), ...createWebTools()],
+        sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -536,264 +524,40 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-/**
- * Hand one functionality of a .plain specification to a coding agent.
- *
- * The specification decides what gets built; the tool decides what the agent is shown.
- * The conversational agent only names the file and the functionality - it never
- * assembles the context itself, so the same functionality is always rendered from the
- * same definitions, reqs and acceptance tests.
- */
-function registerRenderFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "render_functionality",
-    label: "Render functionality",
-    description:
-      "Build a .plain specification up to and including one functionality. Anything it depends on is " +
-      "built first: the modules this one requires, and the earlier functionalities of this module that " +
-      "are missing or whose specification has changed since they were built. Work already built from " +
-      "the current specification is skipped. Omit `frid` to list the available functionality IDs " +
-      "instead of building anything.",
-    promptSnippet: "render_functionality: implement one functionality of a .plain specification",
-    promptGuidelines: [
-      "When asked to implement or render a .plain specification, call render_functionality rather than reading the file and writing the code yourself - it assembles the specification context deterministically.",
-      "Call render_functionality without a frid first when the user has not said which functionality they mean; it returns the available IDs.",
-      "Asking for one functionality builds its prerequisites too. Do not call render_functionality repeatedly to walk a module - one call with the last functionality does it.",
-      "Conformance tests are written as each functionality is built wherever the module has test reqs. Pass conformance: false when the user asks to render without them.",
-      "When conformance was off for a module - no test reqs, or the user asked - offer render_functionality_conformance afterwards if the user wants them.",
-      "These tools return a job id and keep working in the background. Say what has started and carry on talking; do not sit waiting for it, and do not claim it finished until the job reports back or check_job says so.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file" }),
-      working_dir: WORKING_DIR_PARAM,
-      frid: Type.Optional(
-        Type.String({ description: "Functionality ID, e.g. \"1\" or \"4\". Omit to list them." }),
-      ),
-      build_dir: Type.Optional(
-        Type.String({ description: "Where the agent works. Default: plain_modules/<module>/code" }),
-      ),
-      conformance: CONFORMANCE_PARAM,
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given);
-      const plainFile = resolve(cwd, params.plain_file);
-      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
-
-      if (params.frid === undefined) {
-        const { moduleName, frids } = listFrids(plainFile);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `${moduleName} has ${frids.length} functionalities: ${frids.join(", ")}.\nCall again with one of these as \`frid\`.`,
-            },
-          ],
-          details: { moduleName, frids },
-        };
-      }
-
-      return deliver(jobs, {
-        kind: "render_functionality",
-        summary: `${basename(params.plain_file)} fs ${params.frid}`,
-        model,
-        wait: params.wait,
-        mode: ctx.mode,
-        lanes: moduleLanes(resolve(cwd, params.plain_file), params.build_dir ? resolve(cwd, params.build_dir) : undefined),
-        onUpdate,
-        run: async (onDelta) => {
-          // Prerequisites are the point: functionality 4 is built on 1 to 3, so asking for
-          // it asks for them. renderChain resolves both kinds - the modules this one
-          // requires, and the earlier functionalities of this module.
-          const result = await renderChain({
-            plainFile,
-            to: params.frid,
-            buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-            model,
-            conformance: conformanceOption(params.conformance, params.plain_file),
-            onDelta,
-          });
-          return {
-            report: chainReport(result),
-            announce: chainAnnouncement(result),
-            details: { passed: result.passed, modules: result.outcomes.map((o) => o.module) },
-          };
-        },
-      });
-    },
-  });
+/** What the loop is doing for a spec's modules, for the conversation - and, waiting, how each module ended. */
+async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: boolean) {
+  if (wait) await loop.drain();
+  const now = wait ? loop.status().filter((status) => statuses.some((asked) => asked.plainFile === status.plainFile)) : statuses;
+  const jobIds = now.flatMap((status) => (status.running !== undefined ? [status.running.jobId] : []));
+  const text = [
+    describeModules(now),
+    "",
+    wait
+      ? "Tell the user how it went."
+      : "It builds in the background: tell the user what runs and what is planned, and carry on. Use check_job with a job's id if they ask how it is going.",
+  ].join("\n");
+  return { content: [{ type: "text" as const, text }], details: { jobIds } };
 }
 
-/**
- * What landed, and how to see it working, for the last functionality a chain built.
- *
- * Leads the report because it is what the person reads when a background render announces
- * itself; the chain and module detail below it is for the agent.
- */
-function deliveryReport(result: RenderModuleResult): string | undefined {
-  const last = result.outcomes.at(-1);
-  if (last === undefined) return undefined;
-  // Everything this run added, not just the last functionality's share: asking for 4
-  // can build 1 to 3 as well, and their files are just as new to the person.
-  const added = [...new Set(result.outcomes.flatMap((outcome) => outcome.render.added))];
-  const removals = last.render.testRemovals;
-  return [
-    describeDelivery({
-      moduleName: result.moduleName,
-      frid: last.frid,
-      functionality: last.render.functionality,
-      buildDir: result.buildDir,
-      added,
-      runs: last.render.runs,
-      conformanceRuns: last.conformance?.runs,
-      passed: last.stoppedAt === null,
-    }),
-    removals.length > 0 ? `\nTests were removed and challenged: ${removals.map((r) => r.file).join(", ")}.` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-/**
- * Write black-box conformance tests for a functionality that has already been rendered.
- *
- * Separate from render_functionality on purpose: the agent that wrote the code is the
- * wrong one to decide whether the code matches the specification. This one may read the
- * implementation, but writes only tests, and takes what they expect from the specification.
- */
-function registerRenderFunctionalityConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool(renderFunctionalityConformanceTool(cwd, jobs));
-}
-
-/**
- * render_functionality_conformance, for the conversation's agent and for a skill's - forge-plain's testing
- * phase starts the conformance tests the person picks. `conversation` is the context to read models
- * and the mode from; omitted, the one the tool is called with.
- */
-function renderFunctionalityConformanceTool(cwd: string, jobs: JobRegistry, conversation?: ExtensionContext) {
-  return defineTool({
-    name: "render_functionality_conformance",
-    label: "Render functionality conformance",
-    description:
-      "Write black-box conformance tests for code that already exists, and run them against it. " +
-      "The tests are written and run in the chain's current codebase - the furthest-built module that requires " +
-      "the one named - since that is where the code now lives; they are carried up to every module built on it " +
-      "later. Rendering and conformance are separate jobs: name one functionality, several, a range, the whole " +
-      "module (the default) or the whole requires chain. The test author may read the code but only writes tests - " +
-      "it works from the specification and the acceptance tests, invoking the built functionality from " +
-      "the outside. Needs test reqs, which is what conformance tests are written from.",
-    promptSnippet: "render_functionality_conformance: black-box tests for a rendered functionality",
-    promptGuidelines: [
-      "render_functionality_conformance requires the functionality to have been rendered first; it fails if the build directory is empty.",
-      "Report a failing conformance test as a mismatch between the code and the specification. Do not edit the tests to make them pass.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file" }),
-      working_dir: WORKING_DIR_PARAM,
-      frids: Type.Optional(
-        Type.Array(Type.String(), {
-          description: 'Functionality ids, e.g. ["1", "3"]. Omit for the whole module.',
-        }),
-      ),
-      range: Type.Optional(
-        Type.String({ description: 'A range of functionalities, inclusive: "2" or "2,5"' }),
-      ),
-      chain: Type.Optional(
-        Type.Boolean({ description: "Every module this one requires, each in full" }),
-      ),
-      in_module: Type.Optional(
-        Type.String({ description: "The codebase to test in, when modules built on this one branch" }),
-      ),
-      build_dir: Type.Optional(
-        Type.String({ description: "The rendered code under test. Default: plain_modules/<module>/code" }),
-      ),
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, onUpdate, called) {
-      const params = fromWorkingDir(cwd, given);
-      const ctx = conversation ?? called;
-      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
-      const scope = params.chain
-        ? "whole chain"
-        : params.frids !== undefined
-          ? `functionality ${params.frids.join(", ")}`
-          : params.range !== undefined
-            ? `functionalities ${params.range}`
-            : "whole module";
-      if (!shouldWait(ctx.mode, params.wait)) {
-        const queued = renderQueueFor(jobs, cwd, ctx).enqueueConformance({
-          plainFile: resolve(cwd, params.plain_file),
-          frids: params.frids,
-          range: params.range,
-          chain: params.chain,
-          inModule: params.in_module,
-          buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-          model,
-          scope,
-        });
-        return queuedReport(jobs, queued.jobId, "render_functionality_conformance");
-      }
-      return deliver(jobs, {
-        kind: "render_functionality_conformance",
-        summary: `${basename(params.plain_file)} conformance, ${scope}`,
-        model,
-        wait: params.wait,
-        mode: ctx.mode,
-        lanes: moduleLanes(
-          params.build_dir === undefined ? codebasePlainFile(resolve(cwd, params.plain_file), params.in_module) : resolve(cwd, params.plain_file),
-          params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-        ),
-        onUpdate,
-        run: async (onDelta) => {
-          const result = await renderConformanceSuite({
-            plainFile: resolve(cwd, params.plain_file),
-            frids: params.frids,
-            range: params.range,
-            chain: params.chain,
-            inModule: params.in_module,
-            buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-            model,
-            onDelta,
-          });
-          return { report: describeConformanceSuite(result), details: { passed: result.passed } };
-        },
-      });
-    },
-  });
-}
-
-/**
- * Build a whole module, functionality by functionality.
- *
- * The gate between one functionality and the next is the regression suite: every
- * functionality built so far must still pass together, not merely have passed on its own
- * the day it was written.
- */
 function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "render_module",
     label: "Render module",
     description:
-      "Build a .plain module and everything it requires, as jobs in the render queue: for each module, bottom of " +
-      "the requires chain first, one render functionality job per functional spec not built yet - each followed by " +
-      "its conformance tests when they are on - and, when what is built no longer matches the spec, one render spec " +
-      "diff job first that brings it in line. The queue master sees and reworks them like any queued job, and a spec " +
-      "changed while they run is worked in around them. Modules already built from the spec as it is get nothing.",
-    promptSnippet: "render_module: queue a job per functionality of a .plain module, and its requires chain",
+      "Build a .plain module and every module it requires, bottom of the requires chain first. What is left to build - " +
+      "from what each module's code is built from to its spec as it is now - is planned into jobs, and they run one " +
+      "after the other; a module built on another waits until that one is built. Modules already built from their " +
+      "spec get nothing. A spec changed while it builds is followed by itself once spec_changed is called.",
+    promptSnippet: "render_module: build a .plain module and its requires chain",
     promptGuidelines: [
-      "Prefer render_module over calling render_functionality for each functionality yourself: it queues them all, in order, in one call.",
-      "render_module returns at once with the jobs it queued. Report them, keep talking, and check_job or list_jobs when the user asks; the jobs themselves report when they finish.",
-      "When the spec changes while its jobs run - by any means - call spec_changed: the queue master works the change in; never stop and re-queue the jobs yourself.",
+      "render_module returns at once with what runs and what is planned. Report it, keep talking, and check_job or list_jobs when the user asks; the jobs report when they finish.",
+      "When the spec changes while it builds - by any means - call spec_changed: the work is worked out again from the spec; never stop and re-queue jobs yourself.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(
         Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" }),
       ),
       working_dir: WORKING_DIR_PARAM,
-      to: Type.Optional(Type.String({ description: "Queue functionalities of this module only up to this id" })),
-      only: Type.Optional(Type.Boolean({ description: "Queue just this module, not the modules it requires" })),
       guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
@@ -812,160 +576,31 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       }
       const plainFile = resolve(located.base, named);
       const model = jobModel(ctx, "functionalities", located.model, plainFile);
-      const brought = renderQueueFor(jobs, cwd, ctx).bringUpTo(plainFile, {
-        ...(located.to !== undefined ? { to: located.to } : {}),
-        ...(located.only === true ? { only: true } : {}),
-        ...(model !== undefined ? { model } : {}),
-        ...(located.guidance !== undefined ? { guidance: located.guidance } : {}),
-      });
-      const text = describeBroughtUp(brought, basename(plainFile));
-      // In print, json and rpc modes the process ends with the answer: wait for the jobs there.
-      if (shouldWait(ctx.mode, located.wait)) {
-        for (const id of brought.jobIds) {
-          try {
-            await jobs.wait(id);
-          } catch {
-            // A failed job reports itself below.
-          }
-        }
-        const ended = brought.jobIds.map((id) => jobs.get(id)).filter((job): job is Job => job !== undefined);
-        return {
-          content: [{ type: "text" as const, text: [text, "", ...ended.map((job) => `- job ${job.id} · ${job.summary}: ${job.status}`)].join("\n") }],
-          details: { jobIds: brought.jobIds, statuses: ended.map((job) => job.status) },
-        };
-      }
-      return { content: [{ type: "text" as const, text }], details: { jobIds: brought.jobIds } };
+      const loop = workLoopFor(jobs, cwd, ctx);
+      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) });
+      return loopReply(loop, statuses, shouldWait(ctx.mode, located.wait));
     },
   });
 }
 
-
-/** For the person: what was built and that it can be tried, or where the chain stopped, why, and what to do. */
-function chainAnnouncement(result: Awaited<ReturnType<typeof renderChain>>): string {
-  const stop = describeChainStop(result);
-  if (stop !== undefined) return stop;
-  const built = result.outcomes.at(-1)?.result;
-  if (built?.queuedSpecDiffs !== undefined) {
-    return `${built.moduleName}: queued ${built.queuedSpecDiffs.length} render spec diff job${built.queuedSpecDiffs.length === 1 ? "" : "s"} - ${built.queuedSpecDiffs.map((step) => step.jobId).join(", ")}.`;
-  }
-  const delivery = built ? deliveryReport(built) : undefined;
-  if (delivery !== undefined) return delivery;
-  return result.passed ? "Everything was already built; nothing to do." : "The chain stopped before building anything.";
-}
-
-function chainReport(result: Awaited<ReturnType<typeof renderChain>>): string {
-  const built = result.outcomes.at(-1)?.result;
-  const delivery = built ? deliveryReport(built) : undefined;
-  const lines = [
-    ...(delivery ? [delivery, ""] : []),
-    result.passed
-      ? `Built the whole chain: ${result.outcomes.map((o) => o.module).join(" -> ")}.`
-      : (describeChainStop(result) ?? "The chain is incomplete."),
-    "",
-    "<chain>",
-    describeChain(result.chain),
-    "</chain>",
-    "",
-    "<modules>",
-  ];
-
-  for (const outcome of result.outcomes) {
-    for (const regenerated of outcome.regenerated ?? []) {
-      lines.push(
-        `${regenerated.moduleName} fs ${regenerated.frid}: spec changed, regenerated in ${outcome.module}'s codebase - ` +
-          (regenerated.passed ? "passes" : `stopped at ${regenerated.stoppedAt}`),
-      );
-    }
-    if (outcome.skipped) {
-      lines.push(`${outcome.module}: already built, skipped`);
-      continue;
-    }
-    const inner = outcome.result;
-    lines.push(
-      `${outcome.module}: ${inner?.passed ? "done" : "incomplete"}` +
-        (inner ? `, ${inner.completed.length}/${inner.frids.length} functionalities` : "") +
-        (inner ? `, conformance ${inner.conformance}` : "") +
-        (outcome.copied > 0 ? `, ${outcome.copied} files copied from ${result.chain.find((c) => c.moduleName === outcome.module)?.requires}` : ""),
-    );
-  }
-  lines.push("</modules>");
-
-  const last = result.outcomes[result.outcomes.length - 1];
-  if (last?.result !== undefined) lines.push("", moduleReport(last.result));
-  return lines.join("\n");
-}
-
-function moduleReport(result: RenderModuleResult): string {
-  if (result.queuedSpecDiffs !== undefined) {
-    return [
-      `${result.moduleName}'s spec had changed in more than new functional specs: queued ${result.queuedSpecDiffs.length} render spec diff job${result.queuedSpecDiffs.length === 1 ? "" : "s"}, rendered one after another as forge-plain's are.`,
-      "",
-      "<spec diffs>",
-      ...result.queuedSpecDiffs.map((step, index) => `${index + 1}. ${step.title}: job ${step.jobId}`),
-      "</spec diffs>",
-    ].join("\n");
-  }
-  if (result.specSteps !== undefined) {
-    const done = result.specSteps.filter((step) => step.result.passed).length;
-    return [
-      result.passed
-        ? `Brought ${result.moduleName} up to its spec in ${result.specSteps.length} spec diff${result.specSteps.length === 1 ? "" : "s"}: the spec had changed in more than new functional specs.`
-        : `${result.moduleName} is not up to its spec: ${done} of the spec diffs planned passed, and the one after them did not.`,
-      `Build in ${result.buildDir}.`,
-      "",
-      "<spec diffs>",
-      ...result.specSteps.map((step, index) =>
-        `${index + 1}. ${step.title} [${step.sections.join(", ")}]: ${step.result.passed ? "done" : `stopped at ${step.result.stoppedAt}`}`,
-      ),
-      "</spec diffs>",
-    ].join("\n");
-  }
-  return [
-    result.passed
-      ? `Built all of ${result.moduleName}: ${result.completed.join(", ")}.`
-      : `${result.moduleName} is incomplete. Completed: ${result.completed.join(", ") || "none"}.`,
-    `Build in ${result.buildDir}, conformance tests in ${result.conformanceRoot}/${result.moduleName}/tests.`,
-    {
-      on: "Conformance tests were written and run.",
-      "off: no test reqs": "Conformance tests were not written: the module has no test reqs.",
-      "off: asked": "Conformance tests were not written, as asked.",
-    }[result.conformance],
-    "",
-    "<functionalities>",
-    ...result.outcomes.map((outcome) => {
-      const repairs = outcome.regression?.repairs.length ?? 0;
-      return `${outcome.frid}: ${outcome.stoppedAt ? `stopped at ${outcome.stoppedAt}` : "done"}${
-        repairs > 0 ? `, ${repairs} regression repair(s)` : ""
-      }`;
-    }),
-    "</functionalities>",
-  ].join("\n");
-}
-
-/**
- * Render a change to the specs, given as a git diff of the .plain files: one agent makes the
- * code match it, then conformance, the whole suite and the record, in that order.
- */
 /**
  * The spec changed - however it was changed: the file tools, a skill, the person in an editor. Not a diff to
- * render: a notice. The queue is brought up to the spec as it is now, from what it will leave each module -
- * one spec diff for everything not built yet, planned into jobs from its functional specs outward - and the
- * queue master reviews the plan, stopping what is running when the change undoes it.
+ * render: a notice. The work loop works out again what is left to build, from the records to the spec as it is
+ * now, plans it, and stops a running job the spec no longer wants.
  */
 function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "spec_changed",
     label: "Spec changed",
     description:
-      "Tell the render queue that a .plain spec changed - by any means: the file tools, a skill, the user in an " +
-      "editor. It takes no diff. The queue is brought up to the spec as it is now, from what it will leave each " +
-      "module: the work not started is planned again - cut into jobs of one to three functional specs, each with the " +
-      "definitions and reqs it uses, changes to what is built first - and the queue master reviews the plan, and may " +
-      "stop the job running when the change undoes it. Nothing to do when the queue already ends on the spec.",
-    promptSnippet: "spec_changed: tell the render queue a .plain spec changed, so it ends on the spec as it is now",
+      "Tell the builds that a .plain spec changed - by any means: the file tools, a skill, the user in an editor. It " +
+      "takes no diff. What is left to build is worked out again, from what each module's code is built from to the " +
+      "spec as it is now, and planned into jobs; a job running that builds something the spec no longer wants is " +
+      "stopped and rolled back. Nothing to do when the code is already built from the spec.",
+    promptSnippet: "spec_changed: tell the builds a .plain spec changed, so they build the spec as it is now",
     promptGuidelines: [
-      "Call spec_changed after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: the harness compares what the queue will leave with the spec now.",
-      "Never stop jobs and re-queue them yourself to follow a spec change: spec_changed has the queue master do it.",
+      "Call spec_changed after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: the harness compares what is built with the spec now.",
+      "Never stop jobs and re-queue them yourself to follow a spec change: spec_changed does it.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module whose spec changed" }),
@@ -977,16 +612,11 @@ function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       const located = fromWorkingDir(cwd, given);
       const plainFile = resolve(located.base, located.plain_file);
       const check = checkPlainFile(plainFile);
-      if (!check.ok) throw new Error(`${located.plain_file} does not parse, so the queue cannot follow it yet: ${check.error}`);
-      const queue = renderQueueFor(jobs, cwd, ctx);
+      if (!check.ok) throw new Error(`${located.plain_file} does not parse, so it cannot be built yet: ${check.error}`);
       const model = jobModel(ctx, "spec_changes", located.model, plainFile);
-      const brought = queue.bringUpTo(plainFile, { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) });
-      const reworked = await queueReworkOf(
-        queue,
-        brought.modules.flatMap((module) => (module.specDiff !== undefined ? [{ jobId: module.specDiff, what: "render" }] : [])),
-      );
-      const text = [describeBroughtUp(brought, basename(plainFile)), ...(reworked !== undefined ? ["", reworked] : [])].join("\n");
-      return { content: [{ type: "text" as const, text }], details: { jobIds: brought.jobIds } };
+      const loop = workLoopFor(jobs, cwd, ctx);
+      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) });
+      return loopReply(loop, statuses, false);
     },
   });
 }
@@ -996,298 +626,69 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
     name: "render_spec_diff",
     label: "Render spec diff",
     description:
-      "Render a change to the ***plain specs, given as a git diff of the .plain files - any change: specs " +
-      "added, changed or removed, in any section, across any number of them; a diff that adds everything " +
-      "builds from scratch. The diff is applied with git unless it already is. One agent, given the diff and " +
-      "every spec as it now stands, makes the code match, in the chain's current codebase. Then the " +
-      "conformance tests are brought in line with it, the whole suite runs, and the build record is rewritten " +
-      "from the spec as parsed when the diff went in - every section, not only the functional specs - with the diff.",
-    promptSnippet: "render_spec_diff: make the code match a git diff of the .plain specs",
+      "Apply a change to the ***plain specs, given as a git diff of the .plain files, and build it - any change: specs " +
+      "added, changed or removed, in any section, across any number of them. The diff is applied with git unless it " +
+      "already is; then, as after spec_changed, what is left to build is worked out from the spec as it now is, " +
+      "planned into jobs, and built.",
+    promptSnippet: "render_spec_diff: apply a git diff of the .plain specs and build it",
     promptGuidelines: [
       "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
-      "Pass conformance: false when the user asks to render without conformance tests.",
-      "A change that takes something out of work still queued - a page the user dropped, from every spec that names it - is one spec diff like any other: the queue master takes the queued jobs it undoes out, and gives the ones it touches their changes as they now are.",
+      "A change that takes something out of what is still to build - a page the user dropped, from every spec that names it - is one spec diff like any other: what is left to build is worked out again, and a job building what it takes out is stopped.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
       working_dir: WORKING_DIR_PARAM,
       diff: Type.String({ description: "The change, as a git diff of the .plain files" }),
-      in_module: Type.Optional(
-        Type.String({ description: "The codebase to render in, when modules built on this one branch" }),
-      ),
-      conformance: CONFORMANCE_PARAM,
       guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, given, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, _onUpdate, ctx) {
       const params = fromWorkingDir(cwd, given);
       const model = jobModel(ctx, "spec_changes", params.model, params.plain_file);
-      const plainFile = resolve(cwd, params.plain_file);
-      // Applied and parsed now, with the call: that parse is what the job builds and records,
-      // whatever changes reach the files while it waits its turn.
-      const applied = applySpecDiff(params.diff, params.base);
-      const spec = snapshotSpec(plainFile, { cwd: params.base, inModule: params.in_module });
-      // In the background it joins the render queue, as forge-plain's changes do - its conformance
-      // tests a job of their own behind it.
-      if (!shouldWait(ctx.mode, params.wait)) {
-        const queued = renderQueueFor(jobs, cwd, ctx).enqueueSpecDiff({
-          plainFile,
-          diff: params.diff,
-          applied,
-          spec,
-          cwd: params.base,
-          inModule: params.in_module,
-          model,
-          conformance: conformanceOption(params.conformance, params.plain_file),
-          ...(params.guidance !== undefined ? { guidance: params.guidance } : {}),
-        });
-        // The queue master reworks the queue around it first: what it made of it is what to tell the user.
-        const reworked = await queueReworkOf(renderQueueFor(jobs, cwd, ctx), queued.parts);
-        if (queued.parts.length === 1 && queued.parts[0]!.what === "render" && reworked === undefined) return queuedReport(jobs, queued.jobId, "render_spec_diff", queued.conformanceJobId);
-        // Split across codebases, only restructured, a rebuild from scratch, or reworked by the queue master: said as it is now.
-        return {
-          content: [
-            {
-              type: "text" as const,
-              // One render the master reworked: what it made of it is the whole story.
-              text: `${reworked !== undefined && queued.parts.length === 1 ? reworked : `${describeQueuedParts(queued.parts)}${reworked !== undefined ? `\n\n${reworked}` : ""}`}\n\nTell the user what became of it - as said here, not as first queued - and carry on. Use check_job with a job's id if they ask how it is going.`,
-            },
-          ],
-          details: { jobId: queued.jobId, jobIds: queued.parts.map((part) => part.jobId), conformanceJobId: queued.conformanceJobId },
-        };
+      const plainFile = resolve(params.base, params.plain_file);
+      applySpecDiff(params.diff, params.base);
+      const check = checkPlainFile(plainFile);
+      if (!check.ok) {
+        revertSpecDiff(params.diff, params.base);
+        throw new Error(`Nothing was changed: with this diff ${params.plain_file} no longer parses. ${check.error}`);
       }
-      return deliver(jobs, {
-        kind: "render_spec_diff",
-        summary: `${basename(params.plain_file)} render spec diff`,
-        diff: params.diff,
-        model,
-        wait: params.wait,
-        mode: ctx.mode,
-        // The job writes the codebase the change lands in, so it claims that chain's modules.
-        lanes: moduleLanes(spec.plainFile),
-        onUpdate,
-        run: async (onDelta) => {
-          const result = await renderSpecDiff({
-            plainFile,
-            diff: params.diff,
-            cwd: params.base,
-            inModule: params.in_module,
-            applied,
-            spec,
-            conformance: conformanceOption(params.conformance, params.plain_file),
-            model,
-            onDelta,
-          });
-          return { report: withTryItLine(describeSpecDiff(result), result.passed && result.restructured !== true), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
-        },
-      });
+      const loop = workLoopFor(jobs, cwd, ctx);
+      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(params.guidance !== undefined ? { guidance: params.guidance } : {}) });
+      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
 }
 
-
-/**
- * Bring the conformance tests in line with a change to the specs, given as a git diff: the spec
- * diff's counterpart of render_functionality_conformance. Nothing of the change itself is rendered.
- */
-function registerRenderSpecDiffConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "render_spec_diff_conformance",
-    label: "Render spec diff conformance",
-    description:
-      "Bring the conformance tests in line with a change to the ***plain specs, given as a git diff of the .plain " +
-      "files - any change: a functional spec, its acceptance tests, the test reqs, a definition the tests rely on. " +
-      "The diff is applied with git unless it already is. One agent, given the diff and every spec as it now " +
-      "stands, writes, changes and removes conformance tests so they check what the spec says; then the whole " +
-      "suite runs. The tests are written in the chain's current codebase - the furthest-built module whose chain " +
-      "includes the one changed - even when the change is to a module it requires. Rendering and conformance are " +
-      "separate jobs: this renders nothing of the change itself. Needs test reqs.",
-    promptSnippet: "render_spec_diff_conformance: bring the conformance tests in line with a git diff of the .plain specs",
-    promptGuidelines: [
-      "Use it for a spec diff that was rendered without conformance, or one only the tests follow - test reqs, acceptance tests.",
-      "A change the code has not been built for yet is rendered first, with render_spec_diff: conformance tests check code, they do not build it.",
-      "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
-      "Report a failing conformance test as a mismatch between the code and the specification.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
-      working_dir: WORKING_DIR_PARAM,
-      diff: Type.String({ description: "The change, as a git diff of the .plain files" }),
-      in_module: Type.Optional(
-        Type.String({ description: "The codebase to test in, when modules built on this one branch" }),
-      ),
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given);
-      const model = jobModel(ctx, "spec_changes", params.model, params.plain_file);
-      const plainFile = resolve(cwd, params.plain_file);
-      // Applied and parsed now, with the call: that parse is what the job tests against, whatever
-      // changes reach the files while it waits its turn.
-      const applied = applySpecDiff(params.diff, params.base);
-      const spec = snapshotSpec(plainFile, { cwd: params.base, inModule: params.in_module });
-      if (!shouldWait(ctx.mode, params.wait)) {
-        const queued = renderQueueFor(jobs, cwd, ctx).enqueueSpecDiffConformance({
-          plainFile, diff: params.diff, applied, spec, cwd: params.base, inModule: params.in_module, model,
-        });
-        return queuedReport(jobs, queued.jobId, "render_spec_diff_conformance");
-      }
-      return deliver(jobs, {
-        kind: "render_spec_diff_conformance",
-        summary: `${basename(params.plain_file)} spec diff conformance`,
-        diff: params.diff,
-        model,
-        wait: params.wait,
-        mode: ctx.mode,
-        // It writes the tests - and, where a test shows it wrong, the code - of the codebase the change lands in.
-        lanes: moduleLanes(spec.plainFile),
-        onUpdate,
-        run: async (onDelta) => {
-          const result = await renderSpecDiffConformance({
-            plainFile,
-            diff: params.diff,
-            cwd: params.base,
-            inModule: params.in_module,
-            applied,
-            spec,
-            model,
-            onDelta,
-          });
-          return { report: describeSpecDiffConformance(result), details: { passed: result.passed, stoppedAt: result.stoppedAt } };
-        },
-      });
-    },
-  });
-}
-
-/** Rebuild one functionality whose specification changed, then re-run the whole suite. */
 function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "regenerate_functionality",
     label: "Regenerate functionality",
     description:
-      "Rebuild one functionality over code that already exists - because its specification changed, or " +
-      "because the user wants it redone even though it did not. The change is " +
-      "made in the current codebase: the furthest-built module whose requires chain includes this one, not " +
-      "this module's own older build. Updates the code, its unit tests and its conformance tests to the " +
-      "current specification, then runs the conformance suite of every module up to that codebase - " +
-      "because a changed specification can break something built later just as easily as earlier. Fails " +
-      "if there is no existing build.",
-    promptSnippet: "regenerate_functionality: rebuild a functionality after its specification changed",
+      "Build one functionality of a module again - its spec changed, or the user wants it redone as it is. It is " +
+      "taken out of what the module's code is recorded as built from, and the module is brought up to its spec: the " +
+      "functionality is built again, in the module's own codebase.",
+    promptSnippet: "regenerate_functionality: build a functionality again",
     promptGuidelines: [
-      "Use regenerate_functionality, not render_functionality, when the code already exists and the specification changed.",
-      "A regression repair means the implementation was changed beyond the functionality asked for; say so when reporting.",
-      "Say which codebase the change was made in when it is a later module's.",
-      "It also rebuilds a functionality whose spec has not changed, as it is. When the user wants it to come out differently, change its spec first - the spec is what persists - then regenerate.",
+      "A functionality whose spec changed is built again by itself once spec_changed is called: use regenerate_functionality when the user wants one redone whose spec did not change.",
+      "When the user wants it to come out differently, change its spec first - the spec is what persists - then call spec_changed.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
       working_dir: WORKING_DIR_PARAM,
-      frid: Type.String({ description: "Functionality id whose specification changed" }),
-      in_module: Type.Optional(
-        Type.String({
-          description:
-            "The module whose codebase to regenerate in. Only needed when modules built on this one sit on " +
-            "different branches; otherwise the furthest-built one is found.",
-        }),
-      ),
-      build_dir: Type.Optional(
-        Type.String({ description: "Regenerate in exactly this build instead of finding the current codebase" }),
-      ),
+      frid: Type.String({ description: "The functionality's id" }),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
-    async execute(_id, given, _signal, onUpdate, ctx) {
+    async execute(_id, given, _signal, _onUpdate, ctx) {
       const params = fromWorkingDir(cwd, given);
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
-      const plainFile = resolve(cwd, params.plain_file);
-      // The job writes the codebase it regenerates in, so it claims that chain's modules.
-      let lanesFrom = plainFile;
-      if (params.build_dir === undefined) {
-        try {
-          lanesFrom = findCodebaseTip(plainFile, { inModule: params.in_module }).tip.plainFile;
-        } catch {
-          // The job itself reports why no codebase could be chosen.
-        }
-      }
-      // In the background it joins the render queue, as a functionality's render does: it lands on its unit tests,
-      // and its conformance tests - brought in line with the new spec - and the whole suite follow as a job of their own.
-      if (!shouldWait(ctx.mode, params.wait) && params.build_dir === undefined && params.in_module === undefined) {
-        const queued = renderQueueFor(jobs, cwd, ctx).enqueue({ plainFile, frid: params.frid, regenerate: true, model });
-        return queuedReport(jobs, queued.jobId, "regenerate_functionality", queued.conformanceJobId);
-      }
-      return deliver(jobs, {
-        kind: "regenerate_functionality",
-        summary: `${basename(params.plain_file)} fs ${params.frid} (rebuild)`,
-        model,
-        wait: params.wait,
-        mode: ctx.mode,
-        lanes: moduleLanes(lanesFrom, params.build_dir ? resolve(cwd, params.build_dir) : undefined),
-        onUpdate,
-        run: async (onDelta) => {
-          const result = await regenerateFunctionality({
-            plainFile,
-            frid: params.frid,
-            inModule: params.in_module,
-            buildDir: params.build_dir ? resolve(cwd, params.build_dir) : undefined,
-            model,
-            // As the project's config.yaml says: off there, no conformance tests written or run.
-            conformance: conformanceOption(undefined, plainFile),
-            onDelta,
-          });
-          return {
-            report: regenerateReport(result),
-            details: { passed: result.passed, stoppedAt: result.stoppedAt },
-          };
-        },
-      });
+      const plainFile = resolve(params.base, params.plain_file);
+      const loop = workLoopFor(jobs, cwd, ctx);
+      const statuses = await loop.regenerate(plainFile, params.frid, model !== undefined ? { model } : {});
+      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
-}
-
-function regenerateReport(result: Awaited<ReturnType<typeof regenerateFunctionality>>): string {
-  const repairs = result.regression?.repairs.length ?? 0;
-  return [
-    result.passed
-      ? `Regenerated ${result.moduleName} functionality ${result.frid}; the whole conformance suite passes.`
-      : (describeRegenerationStop(result) ?? `Regeneration of ${result.moduleName} functionality ${result.frid} stopped at ${result.stoppedAt}.`),
-    repairs > 0 ? `${repairs} regression repair(s) changed the implementation beyond this functionality.` : "",
-    result.codebaseOf !== undefined
-      ? `Regenerated in the codebase of ${result.codebaseOf} (${result.buildDir}), where the chain's code now lives; ` +
-        `${result.moduleName}'s own build was left as it was.`
-      : `Build in ${result.buildDir}.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-
-const CONFORMANCE_PARAM = Type.Optional(
-  Type.Boolean({
-    description:
-      "Write and run black-box conformance tests as each functionality is built. Default: what the project's " +
-      "config.yaml says (conformance-tests), and without it on for every module that has test reqs - which is " +
-      "what they are written from - and off for every module that does not. Set false when the user asks to " +
-      "render without conformance tests, true when they ask for them.",
-  }),
-);
-
-/**
- * The conformance setting for a chain. Off, when asked, for every module. Otherwise each
- * module decides by its own test reqs: a chain can mix modules that have them with modules
- * that do not, and asking for conformance must not fail on the ones that cannot have it.
- */
-/**
- * Whether a render writes and runs conformance tests: as asked, or else as the project's
- * config.yaml says (`conformance-tests:`), or else wherever a module has test reqs. Off means
- * off - none written, and none of the existing ones run.
- */
-function conformanceOption(asked: boolean | undefined, plainFile?: string): false | undefined {
-  if (asked === false) return false;
-  if (asked === true) return undefined;
-  return configOf(plainFile).conformanceTests === false ? false : undefined;
 }
 
 /** The config a spec is built with - its project's, with its module's own over it - or, with no spec, the session folder's. */
@@ -1485,6 +886,9 @@ export function projectConfigBlock(root: string): string {
           : config.conformanceTests === true
             ? "- conformance-tests: true - conformance tests are on, for every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
+        config.review === false
+          ? "- review: false - the code and its tests are not reviewed: a job lands once its tests pass."
+          : `- review: ${config.review === true ? "true" : "not set"} - the code and its tests are reviewed once they pass: two reviews at most, the arbiter weighing the second.`,
         ...(() => {
           // Each as it holds, with what it inherits: judge from coding, coding from harness.
           const models = projectModels(config);
@@ -1520,7 +924,7 @@ const GUIDANCE_PARAM = Type.Optional(
   Type.String({
     description:
       "How to plan the queue for this work, in a sentence or two - which functional specs go together, what first - as " +
-      "the user said it, or as you understood it. A strong preference for the planner and the queue master, within their limits. Omit when there is none.",
+      "the user said it, or as you understood it. A strong preference for the planner, within its limits. Omit when there is none.",
   }),
 );
 
@@ -1750,76 +1154,30 @@ const WAIT_PARAM = Type.Optional(
  * modes the process is gone the moment the answer is written, taking the job with it, so
  * those wait by default.
  */
-/**
- * The conversation's render queue: one, shared by every tool that queues a render or its
- * conformance tests - forge-plain's changes, render_spec_diff, render_module's spec diffs, the
- * conformance tools - so they run in the order they were asked for. Models not named are asked of
- * the conversation it was last queued from.
- */
-const renderQueues = new WeakMap<JobRegistry, { queue: RenderQueue; from: { ctx: ExtensionContext } }>();
+/** The one work loop of a conversation's jobs: every tool that builds brings its modules up through it. */
+const workLoops = new WeakMap<JobRegistry, { loop: WorkLoop; from: { ctx: ExtensionContext } }>();
 
-/** How the conversation wants the queue planned, for the session - set with steer_queue. */
+/** How the conversation wants the work planned, for the session - set with steer_queue. */
 const steeringStore = createSteeringStore();
 
-function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): RenderQueue {
-  let shared = renderQueues.get(jobs);
+function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): WorkLoop {
+  let shared = workLoops.get(jobs);
   if (shared === undefined) {
     const from = { ctx };
-    const queue = createRenderQueue({
+    const loop = createWorkLoop({
       registry: jobs,
       cwd,
-      modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
-      // The queue master and its planners reason about the whole queue: they run on the chat's model, and ask the person in the chat.
-      masterModel: () => chatModelOf(from.ctx),
-      // How the queue is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
+      modelFor: (plainFile) => modelFor(chosenModels, "spec_changes", projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
+      // The planner reasons about the whole of the work: it runs on the chat's model.
+      plannerModel: () => chatModelOf(from.ctx),
+      // How the work is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
       steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
-      askPerson: (question) => (from.ctx.hasUI ? from.ctx.ui.input(`The queue master asks: ${question}`) : Promise.resolve(undefined)),
-      onRework: (report) => {
-        if (!from.ctx.hasUI) return;
-        try {
-          from.ctx.ui.notify(report.split("\n")[0]!, "info");
-        } catch {
-          // A notice is a convenience; the Jobs view says it all the same.
-        }
-      },
     });
-    shared = { queue, from };
-    renderQueues.set(jobs, shared);
+    shared = { loop, from };
+    workLoops.set(jobs, shared);
   }
   shared.from.ctx = ctx;
-  return shared.queue;
-}
-
-/** What the queue master's turn made of a newly queued spec change's jobs, once it is over - or nothing, when it left them. */
-export async function queueReworkOf(queue: RenderQueue, parts: Array<{ jobId: string; what: string }>): Promise<string | undefined> {
-  const reports = await Promise.all(parts.filter((part) => part.what === "render").map((part) => queue.afterRework(part.jobId)));
-  const said = [...new Set(reports.filter((report): report is string => report !== undefined))];
-  return said.length > 0 ? said.join("\n\n") : undefined;
-}
-
-/** What a tool says when it queued its work - and its conformance tests, when they follow as a job of their own. */
-function queuedReport(jobs: JobRegistry, jobId: string, kind: string, conformanceJobId?: string) {
-  const job = jobs.get(jobId);
-  const model = job?.model ? ` on ${job.model}` : "";
-  const when =
-    job?.status === "queued"
-      ? `It is queued behind ${job.waitingOn.map((id) => `job ${id}`).join(" and ")}, and starts when that finishes.`
-      : "It is running now.";
-  const conformance =
-    conformanceJobId !== undefined
-      ? ` Its conformance tests are a job of their own, ${conformanceJobId}, queued right behind it; they run once it lands.`
-      : "";
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text:
-          `Queued ${kind} as background job ${jobId}${model}: ${job?.summary ?? ""}. ${when}${conformance} ` +
-          `Tell the user, and carry on. Use check_job with "${jobId}" if they ask how it is going.`,
-      },
-    ],
-    details: { jobId, status: job?.status, conformanceJobId },
-  };
+  return shared.loop;
 }
 
 async function deliver(
@@ -1908,8 +1266,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     }),
     async execute(_id, params) {
       const existing = jobs.get(params.job_id);
+      const planned = shownJobs(jobs).find((job) => job.id === params.job_id && jobs.get(job.id) === undefined);
+      if (planned !== undefined) {
+        return {
+          content: [{ type: "text" as const, text: `${planned.id} · ${planned.summary}: ${planned.note ?? "planned, not started"}${planned.waitingOn.length > 0 ? ` It runs after ${planned.waitingOn.join(", ")}.` : ""}` }],
+          details: { status: "planned" },
+        };
+      }
       if (existing === undefined) {
-        const known = jobs.list().map((job) => job.id);
+        const known = shownJobs(jobs).map((job) => job.id);
         return {
           content: [
             {
@@ -1959,36 +1324,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     }),
     async execute(_id, params) {
       const text = stopJob(jobs, params.job_id);
-      return { content: [{ type: "text" as const, text }], details: {} };
-    },
-  });
-
-  pi.registerTool({
-    name: "rework_queue",
-    label: "Rework queue",
-    description:
-      "Have the queue master rework the render spec diff jobs waiting for a codebase, and their conformance jobs, as the user " +
-      "asks: reorder them, merge them, split one, rewrite what each renders, cancel conformance jobs or have a job write its " +
-      "conformance tests in its own render, or stop the spec diff rendering now when what it builds is dropped. It works on " +
-      "every waiting spec diff of that codebase at once and " +
-      "is held to where the queue ends: the spec as the .plain files have it now - every change in exactly one job, the " +
-      "spec holding together after each. It does not change the spec. A running job finishes unless it is worth stopping.",
-    promptSnippet: "rework_queue: have the queue master reorder, merge or rewrite the queued spec diffs of a codebase",
-    promptGuidelines: [
-      "Queued spec diffs are reworked by the queue master, never by stopping and re-queueing jobs by hand. To take " +
-        "something out of what is queued - a feature, a page, a link - change the spec: a spec diff that removes it from " +
-        "the .plain files (render_spec_diff). The queue master is told of every new spec diff, and takes the jobs it undoes " +
-        "out and rewrites the ones it touches. rework_queue is for the rest: an order, a merge, a split the user asks for.",
-      "Do not stop a queued spec diff to drop its change: its change stays in the .plain files, and the next job renders it anyway.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "A .plain file of the module whose codebase's queue to rework" }),
-      working_dir: WORKING_DIR_PARAM,
-      instruction: Type.String({ description: "What the user wants of the queue, in their words - e.g. 'run the feed before the nav bar'" }),
-    }),
-    async execute(_id, given, _signal, _onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given);
-      const text = await renderQueueFor(jobs, cwd, ctx).rework(resolve(cwd, params.plain_file), params.instruction);
       return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
@@ -2074,7 +1409,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     void ctx.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
         const view = createSidePanel({
-          jobs: () => jobs.list(),
+          jobs: () => shownJobs(jobs),
           jobId: show?.jobId,
           tree: jobsTree,
           rows: () => tui.terminal.rows,
@@ -2190,9 +1525,9 @@ function stopJob(jobs: JobRegistry, named: string): string {
   // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
   const inSpec =
     target.kind === "render_spec_diff"
-      ? " Its change is still in the .plain files: the next spec diff queued for that codebase renders it along with its own. To " +
-        "drop the change, take it out of the spec with a spec diff (render_spec_diff) - the queue master then reworks the queued " +
-        "jobs around it - and to reorder or merge queued spec diffs, use rework_queue."
+      ? " Its change is still in the .plain files: nothing more is built in that codebase until the spec changes or it is asked " +
+        "for again (render_module, spec_changed) - then it is built with the rest. To drop the change, take it out of the spec " +
+        "with a spec diff (render_spec_diff); to change how the work is cut or ordered, use steer_queue."
       : "";
   return stopped.status === "stopped"
     ? `Stopped ${target.summary} (${target.id}) before it started.${queued}${inSpec}`
@@ -2230,8 +1565,13 @@ function deployedLabel(name: string, what: string): string {
   return `deploy ${name}  running  ${what}`;
 }
 
+/** The jobs as the person is shown them: those started, and those the work loop has planned after them. */
+function shownJobs(jobs: JobRegistry): Job[] {
+  return [...(workLoops.get(jobs)?.loop.planned() ?? []), ...jobs.list()];
+}
+
 function listJobs(jobs: JobRegistry): string {
-  const all = [...jobs.list()].reverse().filter((job) => job.replacedBy === undefined);
+  const all = [...shownJobs(jobs)].reverse().filter((job) => job.replacedBy === undefined);
   const deployed = runningDeployed().map((item) => `deploy ${item.name}  running  ${item.moduleName}: ${item.url ?? item.command}  (pid ${item.pid}, output in ${relative(process.cwd(), item.log) || item.log})`);
   const listed = deployed.length > 0 ? `\n\nRunning from dist - /stop deploy <name> stops one:\n${deployed.join("\n")}` : "";
   if (all.length === 0) return `No jobs have been started.${listed}`;
@@ -2241,11 +1581,13 @@ function listJobs(jobs: JobRegistry): string {
 function jobLines(all: Job[]): string {
   return all
     .map((job) => {
+      // Planned by the work loop, not started: it has no job of the registry's yet.
+      const planned = job.id.startsWith("planned-");
       const time = job.status === "queued" ? "waiting" : formatDuration(job);
-      const after = job.status === "queued" ? `  (after ${job.waitingOn.join(", ")})` : "";
+      const after = job.status === "queued" && job.waitingOn.length > 0 ? `  (after ${job.waitingOn.join(", ")})` : "";
       const spent = describeUsage(job.usage);
       const model = job.model ? `  · ${job.model}` : "";
-      return `${job.id}  ${job.status.padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${model}${after}${spent ? `  · ${spent}` : ""}`;
+      return `${job.id}  ${(planned ? "planned" : job.status).padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${model}${after}${spent ? `  · ${spent}` : ""}`;
     })
     .join("\n");
 }
@@ -2334,7 +1676,7 @@ function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
 
 /**
  * Steering the queue from the conversation: how the person wants the work cut into jobs and ordered, for the whole
- * project or one module, kept for the session and given to the planner and the queue master with every plan - beside
+ * project or one module, kept for the session and given to the planner with every plan - beside
  * what the project's AGENTS.md says of the queue (see render/steering.ts).
  */
 function registerSteering(pi: ExtensionAPI, cwd: string) {
@@ -2345,7 +1687,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
       "Say how the render queue is to be planned from now on - which functional specs are built together, what goes first, how " +
       "big a job may be - for the whole project, or one module: every plan after this follows it as a strong preference, " +
       "within the planner's limits, for the rest of the session. It changes nothing queued by itself: the next plan of the " +
-      "module follows it - spec_changed or rework_queue makes one now. What the project's AGENTS.md says under a heading " +
+      "module follows it - spec_changed makes one now. What the project's AGENTS.md says under a heading " +
       "naming the queue is followed too, with every plan.",
     promptSnippet: "steer_queue: set how the render queue is planned, for the project or one module",
     promptGuidelines: [

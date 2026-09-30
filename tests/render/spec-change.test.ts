@@ -176,6 +176,25 @@ describe("rendering a spec diff", () => {
     expect(Object.keys(JSON.parse(readFileSync(join(result.buildDir, ".plainwright.json"), "utf8"))).sort()).toEqual(["functional specs", "implementation reqs"]);
   });
 
+  it("lands on its unit tests without a review when the config turns the review off - and is reviewed when it does not", async () => {
+    const { ask } = await import("../../src/pi.ts");
+    let reviews = 0;
+    vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+      if (session.tools.some((tool) => tool.name === "submit_review")) reviews += 1;
+      return passingAgent(session, prompt);
+    }) as never);
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    writeFileSync(join(dir, "config.yaml"), "review: false\n");
+    const off = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+    expect(off.passed).toBe(true);
+    expect(reviews).toBe(0);
+
+    writeFileSync(join(dir, "config.yaml"), "review: true\n");
+    const on = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One.", "- Two."]), plain(["- One.", "- Two.", "- Three."])), cwd: dir });
+    expect(on.passed).toBe(true);
+    expect(reviews).toBeGreaterThan(0);
+  });
+
   it("ignores the conformance testing script when conformance is turned off - in the prompt and in the runs", async () => {
     const withTests = (fs: string[]) => plain(fs).replace("***functional specs***", "***test reqs***\n\n- unittest.\n\n***functional specs***");
     writeFileSync(join(dir, "app.plain"), withTests(["- One."]));
@@ -295,50 +314,56 @@ describe("conformance for a spec change", () => {
   });
 });
 
-describe("renders queued behind the interview", () => {
-  it("render a diff that later changes have since gone on top of, without applying it again", async () => {
-    const { createRenderQueue } = await import("../../src/render/queue.ts");
+describe("the work loop rendering spec diffs", () => {
+  it("builds the spec as the files have it, a job at a time - what is built changed first, then a functional spec a job - each told only its own part", async () => {
+    const { createWorkLoop, chainSpec } = await import("../../src/render/loop.ts");
     const { createJobRegistry } = await import("../../src/render/jobs.ts");
-    const one = plain(["- One."]);
-    const two = plain(["- One.", "- Two."]);
-    const three = plain(["- One, now reworded.", "- Two.", "- Three."]);
-    writeFileSync(join(dir, "app.plain"), one);
-
-    // As write_spec_diff does: each diff applied, and the spec parsed, the moment it is written.
-    const first = diffOf(one, two);
-    const second = diffOf(two, three);
-    expect(applySpecDiff(first, dir)).toBe("applied");
-    const afterFirst = snapshotSpec("app.plain", { cwd: dir });
-    expect(applySpecDiff(second, dir)).toBe("applied");
-    const afterSecond = snapshotSpec("app.plain", { cwd: dir });
-    // The first no longer fits the file either way - which is what made its render fail.
-    expect(() => applySpecDiff(first, dir)).toThrow(/does not apply/);
-
+    const { codeTree, readRecord } = await import("../../src/render/records.ts");
+    const { resolveRequiresChain } = await import("../../src/render/requires.ts");
+    writeFileSync(join(dir, "app.plain"), plain(["- Say one number."]));
     const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: dir });
-    const jobs = [
-      queue.enqueueSpecDiff({ plainFile: "app.plain", diff: first, applied: "applied", spec: afterFirst }),
-      queue.enqueueSpecDiff({ plainFile: "app.plain", diff: second, applied: "applied", spec: afterSecond }),
-    ];
-    // Both are on the queue as it is shown - render_status reads this - as spec diffs, in order.
-    expect(queue.status().map((entry) => [entry.position, entry.what.startsWith("spec diff: ")])).toEqual([[1, true], [2, true]]);
-    await queue.drain();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    prompts.length = 0;
 
-    // Planned again before either started: what is built changed first, then a functional spec a job.
-    expect(queue.status().filter((entry) => entry.status === "succeeded")).toHaveLength(3);
-    expect(queue.status().every((entry) => entry.status === "succeeded" || entry.status === "stopped")).toBe(true);
-    void jobs;
-    expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
-    const { readBuiltTree } = await import("../../src/render/state.ts");
-    expect(JSON.stringify(readBuiltTree(join(dir, "plain_modules", "app", "code")))).toBe(JSON.stringify(parsed()));
-    // Each job built its own part, never the file as a whole.
+    // Changes made while nothing runs, one on top of another: the loop sees only the spec as it now is.
+    writeFileSync(join(dir, "app.plain"), plain(["- Say one number, loudly.", "- Two.", "- Three."]));
+    await loop.bringUp("app.plain");
+    await loop.drain();
+
+    const built = readRecord(join(dir, "plain_modules", "app", "code"));
+    expect(built).toEqual(codeTree(chainSpec(resolveRequiresChain(join(dir, "app.plain"))).tree));
     const changes = prompts.flatMap((prompt) => [...prompt.matchAll(/<spec change>\n([\s\S]*?)<\/spec change>/g)].map((match) => match[1]!));
     expect(changes).toHaveLength(3);
-    expect(changes[0]).toContain("One, now reworded");
+    expect(changes[0]).toContain("Say one number, loudly.");
     expect(changes[0]).not.toContain("Two.");
     expect(changes[1]).toContain("Two.");
     expect(changes[2]).toContain("Three.");
-    expect(changes[2]).not.toContain("One, now reworded");
+    expect(changes[2]).not.toContain("loudly");
+    // Each job that landed code says it can be tried.
+    const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
+    const reports = registry.list().map((job) => job.report ?? "");
+    expect(reports).toHaveLength(4);
+    expect(reports.every((report) => report.endsWith(TRY_IT_LINE))).toBe(true);
+  });
+
+  it("offers nothing to try when a job does not land", async () => {
+    const { createWorkLoop } = await import("../../src/render/loop.ts");
+    const { createJobRegistry } = await import("../../src/render/jobs.ts");
+    const { TRY_IT_LINE } = await import("../../src/render/delivery.ts");
+    const { ask } = await import("../../src/pi.ts");
+    // An agent that writes nothing, so the unit tests never pass.
+    vi.mocked(ask).mockImplementation((async () => "Done.") as never);
+    writeFileSync(join(dir, "app.plain"), plain(["- Say one number."]));
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    const [job] = registry.list();
+    expect(job!.details).toMatchObject({ landed: false });
+    expect(job!.report ?? "").not.toContain(TRY_IT_LINE);
+    expect(loop.status()[0]!.why).toMatch(/did not land/);
   });
 
   it("record the spec the change was written against - every section - and the diff", async () => {

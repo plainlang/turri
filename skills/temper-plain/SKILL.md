@@ -96,8 +96,8 @@ context, with `write_spec_diff`. One diff per concern - a functionality's missin
 concept and what it means together - never one diff for everything. Put each where it belongs: a rule
 of one functionality into its functional spec, a policy for many into `***implementation reqs***`, a
 term into `***definitions***`, following `add-concept`, `add-functional-spec` and
-`add-implementation-requirement` for how it is written. Each diff is rendered as a spec diff job, and
-the queue master works it into what is still queued - only what it changes is rendered again.
+`add-implementation-requirement` for how it is written. Each diff is built as it is written: what is left
+to build is worked out again from the spec - only what it changes is rendered again.
 
 **When you are stuck, stop.** The same functionality struggling three times after you clarified the
 spec for it is not something the spec can settle: stop tempering it, and report it. Two cycles in a
@@ -115,5 +115,5 @@ A short account:
 - what was not the spec's - code, environment, plainwright - with what the builds and diagnoses said;
 - what is still open, when you stopped before the goal.
 
-Then say that any further change is asked for in the conversation, as a spec diff the queue master
-works into the builds still queued.
+Then say that any further change is asked for in the conversation, as a spec diff: what is left to build
+is worked out again from the spec.

@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { formatDuration, type Job, type JobRegistry } from "./render/jobs.ts";
 import { readNotes } from "./render/notes.ts";
 import { modulesRoot, projectDirOf } from "./render/paths.ts";
-import { describeBroughtUp, type RenderQueue } from "./render/queue.ts";
+import { describeModules, type WorkLoop } from "./render/loop.ts";
 import { snapshotSpec } from "./render/spec-change.ts";
 import { sameSpec } from "./render/spec-steps.ts";
 import { pendingFrids, readBuiltTree } from "./render/state.ts";
@@ -171,7 +171,7 @@ export function specStatusOf(plainFile: string, cwd: string, jobs: Job[]): { don
   };
 }
 
-export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
+export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
   const startedAt = options.startedAt ?? new Date();
   const mine = () => options.jobs.list().filter((job) => job.queuedAt >= startedAt.getTime());
   /** Findings already handed out, by what they say: each is reported once. */
@@ -182,22 +182,16 @@ export function createTemperTools(options: { queue: RenderQueue; jobs: JobRegist
     name: "render_spec",
     label: "Render the spec",
     description:
-      "Queue the build of everything a module's spec holds that its code is not built from: functionality by " +
-      "functionality when only new functional specs were added - or nothing is built yet - and otherwise one spec diff " +
-      "from what the code is built from to the spec as it is. For a module that requires another, render the one it " +
-      "requires first. Returns the jobs it queued; watch them with watch_jobs.",
+      "Build everything a module's spec holds that its code is not built from, and every module it requires, bottom " +
+      "first: the work is planned into jobs and the first starts. Returns what runs and what is planned; watch the " +
+      "jobs with watch_jobs.",
     promptSnippet: "render_spec: queue the build of what a module's spec holds that is not built",
     parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
     async execute(_id, params) {
       const plainFile = resolve(options.cwd, params.plain_file);
-      const spec = snapshotSpec(plainFile, { cwd: options.cwd });
-      const codebase = spec.chain.at(-1)!.buildDir;
-      const built = readBuiltTree(codebase);
-      const say = (text: string, jobIds: string[] = []) => ({ content: [{ type: "text" as const, text }], details: { jobIds } });
-      if (built !== null && sameSpec(built, spec.tree)) return say(`${basename(plainFile)}: its code is already built from the spec as it is - nothing to render.`);
-      // Whatever changed - functional specs added, or the spec changed in place: the queue plans it, cut into jobs.
-      const brought = options.queue.bringUpTo(plainFile);
-      return say(describeBroughtUp(brought, basename(plainFile)), brought.jobIds);
+      const statuses = await options.loop.bringUp(plainFile);
+      const jobIds = statuses.flatMap((status) => (status.running !== undefined ? [status.running.jobId] : []));
+      return { content: [{ type: "text" as const, text: describeModules(statuses) }], details: { jobIds } };
     },
   });
 

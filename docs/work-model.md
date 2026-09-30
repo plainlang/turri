@@ -1,9 +1,10 @@
-# The work model (planned)
+# The work model
 
-How plainwright is to decide what to build next, once the render queue is rebuilt. This page is the
-design, agreed before the work started; each stage below updates it, and when the last lands it is
-folded into [rendering](rendering.md) and removed. Until then [rendering](rendering.md) describes
-what plainwright does today.
+How plainwright decides what to build next. This page is the design, agreed before the work started,
+and the stages it is being built in; each stage updates it, and when the last lands it is folded into
+[rendering](rendering.md) and removed. Stages 1 and 2 have landed: the code track runs on it, and
+[rendering](rendering.md) describes it. The conformance track, the prompt for each case and the
+cleanup are still to come.
 
 ## Why
 
@@ -24,7 +25,7 @@ Two records per module, both committed in the module's `.plaingit`:
 
 | | |
 | --- | --- |
-| `code/.plainwright.json` | the spec the code is built from - everything but the test reqs |
+| `code/.plainwright.json` | the spec the code is built from - its whole requires chain's, the definitions and implementation reqs of the modules below tagged with their module - everything but the test reqs and acceptance tests |
 | `tests/.plainwright.json` | the functional specs the conformance tests are written for - a subset of the code record's - and the test reqs they were written by |
 
 - The conformance record is always a substate of the code's: conformance tests exercise
@@ -32,7 +33,9 @@ Two records per module, both committed in the module's `.plaingit`:
 - Test reqs are for conformance only. Neither the code record nor any coding prompt has them.
 - Each record has its notes beside it: `code/.plainwright-notes.md` and `tests/.plainwright-notes.md`.
 - A module that requires another inherits both its code and its conformance tests, down the
-  `requires` chain, as code is inherited today.
+  `requires` chain. A chain is built in its tip - its furthest-built module - where a change to a
+  module below is made; the codebases below are left behind, their records saying what they are
+  built from, and one is brought up to its own spec again only when a new module is to start from it.
 - No migration: the old record format is dropped, and projects built with it are rebuilt.
 
 ## The work is derived, not stored
@@ -43,7 +46,7 @@ Two records per module, both committed in the module's `.plaingit`:
   asks for.
 - Only the running job is stored. Everything else - what the panel shows as the queue - is a plan
   worked out again whenever the spec changes or a job ends.
-- A module's work is planned only once every module below it has none left.
+- A module's work is planned only once every module below it that is still to build has none left.
 - `regenerate fs N` takes functional spec N out of the code record, so the next diff builds it again -
   changed or not. `render fs N` is gone: the work always runs to the spec as it is now.
 

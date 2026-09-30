@@ -53,6 +53,61 @@ export function codeTree(tree: MarshalledPlainSource): MarshalledPlainSource {
   });
 }
 
+/** Items of a section, tagged with the module they come from, unless they already say. */
+const taggedWith = (items: Item[], module: string): Item[] => items.map((item) => (item.module !== undefined ? item : { ...item, module }));
+
+/**
+ * The spec a codebase is built from: the spec of its whole requires chain, as its code holds it. A
+ * codebase is built on the code of the modules below it, so its code implements their definitions and
+ * implementation reqs too: those come tagged with their module, bottom of the chain first, and the
+ * module's own untagged after them. An item a lower module already has - the same text, from an import
+ * they share - is not the module's own again: its code implements it already. The functional specs of the
+ * modules below are the ones it inherits, as the parser gives them; its test reqs are its own.
+ *
+ * `trees`: every module of the chain, bottom first - the module itself last.
+ */
+export function chainTree(trees: Array<{ module: string; tree: MarshalledPlainSource }>): MarshalledPlainSource {
+  const own = trees.at(-1);
+  if (own === undefined) return {};
+  const lower = trees.slice(0, -1);
+  const section = (heading: string): Item[] => {
+    const seen = new Set<string>();
+    const out: Item[] = [];
+    for (const { module, tree } of lower) {
+      for (const item of taggedWith(itemsOf(tree, heading), module)) {
+        const text = item.markdown.trim();
+        if (seen.has(text)) continue;
+        seen.add(text);
+        out.push(item);
+      }
+    }
+    for (const item of itemsOf(own.tree, heading)) if (!seen.has(item.markdown.trim())) out.push(item);
+    return out;
+  };
+  return withoutEmpty({
+    ...own.tree,
+    [DEFINITIONS]: section(DEFINITIONS),
+    [NON_FUNCTIONAL_REQUIREMENTS]: section(NON_FUNCTIONAL_REQUIREMENTS),
+  });
+}
+
+/**
+ * What a new module's codebase starts from, copied from the code of the module it requires: that module's
+ * record, as a lower module's - its own definitions and implementation reqs tagged with it, its functional
+ * specs among the ones inherited. The new module has built nothing of its own yet.
+ */
+export function inheritedRecord(source: MarshalledPlainSource, sourceModule: string): MarshalledPlainSource {
+  const inherited = [
+    ...itemsOf(source, REQUIRED_FUNCTIONAL_SPECS),
+    ...itemsOf(source, FUNCTIONAL_REQUIREMENTS).map((item, index) => ({ ...withoutAcceptanceTests(item), module: sourceModule, frid: String(index + 1) })),
+  ];
+  return withoutEmpty({
+    [DEFINITIONS]: taggedWith(itemsOf(source, DEFINITIONS), sourceModule),
+    [NON_FUNCTIONAL_REQUIREMENTS]: taggedWith(itemsOf(source, NON_FUNCTIONAL_REQUIREMENTS), sourceModule),
+    [REQUIRED_FUNCTIONAL_SPECS]: inherited,
+  });
+}
+
 /** Which functional specs are to have conformance tests, by number. Default: every one. */
 export type Chosen = (frid: string) => boolean;
 

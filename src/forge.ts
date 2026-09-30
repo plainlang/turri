@@ -15,7 +15,7 @@ import type { JobRegistry } from "./render/jobs.ts";
 const WRITE_SPEC_DIFF = "write_spec_diff";
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
-import type { RenderQueue } from "./render/queue.ts";
+import type { WorkLoop } from "./render/loop.ts";
 
 export interface EscalationRequest {
   step: string;
@@ -49,7 +49,7 @@ export async function runSkill(opts: {
   /** "provider/model-id" for the executor and the judges. Omitted: pi's default. */
   model?: string;
   /** Lets steps build functionalities in the background while the interview continues. */
-  renderQueue?: RenderQueue;
+  renderQueue?: WorkLoop;
   /** What the user has already said, so the skill does not re-ask it. */
   context?: string;
   /** Pick up the run of this skill that was interrupted here, rather than start a new one. */
@@ -107,7 +107,7 @@ export async function runSkill(opts: {
   // and its build queued in one step.
   const diffs =
     opts.renderQueue !== undefined && skill.allowedTools.includes(WRITE_SPEC_DIFF)
-      ? createSpecDiffTools({ queue: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy, paced: skill.paced })
+      ? createSpecDiffTools({ loop: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy, paced: skill.paced })
       : undefined;
 
   // What the agent says between its questions - a brief to confirm, a plan - reaches the person only with
@@ -131,7 +131,7 @@ export async function runSkill(opts: {
   if (diffs !== undefined) customTools.push(...diffs.tools);
   // A skill that builds what the spec holds, waits for it, and reads back where the builds had to guess.
   if (opts.renderQueue !== undefined && opts.jobs !== undefined && skill.allowedTools.some((tool) => TEMPER_TOOLS.includes(tool))) {
-    customTools.push(...createTemperTools({ queue: opts.renderQueue, jobs: opts.jobs, cwd: opts.cwd }));
+    customTools.push(...createTemperTools({ loop: opts.renderQueue, jobs: opts.jobs, cwd: opts.cwd }));
   }
   customTools.push(...(opts.sharedTools ?? []));
 
@@ -183,7 +183,7 @@ export async function runSkill(opts: {
 
   // Built renders were lost with the process; queue what the specs hold that is not built.
   if (resumed !== undefined && opts.renderQueue !== undefined) {
-    for (const file of plainFilesIn(opts.cwd)) opts.renderQueue.catchUp(file);
+    for (const file of plainFilesIn(opts.cwd)) void opts.renderQueue.bringUp(file).catch(() => undefined);
   }
 
   if (liveStep !== undefined && liveProxy !== undefined) {

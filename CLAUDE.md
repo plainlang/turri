@@ -86,12 +86,16 @@ is reported as pending, not dropped.
   labelled and checked by label. `module.ts` covers regeneration, the regression gate (a repair
   agent that may not touch tests) and the older in-process chain build. `spec-change.ts` and
   `spec-change-conformance.ts` render a spec change given as a git diff.
-- Rendering a module is not a job: `queue.ts` `bringUpTo` queues, per module of the chain, one spec
-  diff for everything not built yet - `render_module`, `plainwright module` and `spec_changed` all go
-  through it. Every change re-plans the work not started: `chunk-plan.ts` cuts it into jobs from the
-  functional specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses,
-  an agent places the reqs), and that plan is the queue master's proposal, which it reviews. Steering
-  (`render/steering.ts`: `steer_queue`, AGENTS.md's queue section, a tool's `guidance`) reaches all three agents. A render is a spec diff that adds one functionality.
+- Nothing is queued (`docs/work-model.md`). `loop.ts` works out what is left to build - `work.ts`
+  `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
+  reqs or acceptance tests) to the spec now - has `chunk-plan.ts` cut it into jobs from the functional
+  specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses, an agent
+  places the reqs), and runs the first; again whenever a job ends or the spec changes. A chain is built in
+  its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
+  (`stillWanted`). `render_module`, `spec_changed`, `render_spec_diff`, `write_spec_diff` and
+  `plainwright module` all go through `bringUp`. Steering (`render/steering.ts`: `steer_queue`, AGENTS.md's
+  queue section, a tool's `guidance`) reaches the planner's agents. `queue-master.ts` is left only for the
+  pure helpers the planner uses.
 - `spec-steps.ts`: when the spec changed in ways other than appending functional specs, it diffs
   the built tree against the current one and has an agent order the changes into spec-diff steps.
 - `state.ts`: `code/.plainwright.json` holds only the marshalled tree the code was built from. A
@@ -126,10 +130,9 @@ host. `installsSoftware` tells installs apart; they run only through `propose_se
 person, and the chat's `bash` refuses them once something is deployed. `start_deployed` owns what
 keeps running, stopped on redeploy, `/stop deploy <name>` and exit.
 
-**Jobs and progress.** In the TUI, render tools start background jobs (`queue.ts`, `jobs.ts`).
+**Jobs and progress.** In the TUI, render tools start background jobs (`loop.ts`, `jobs.ts`).
 `lanes.ts` gives each job its spec's whole `requires` chain as lanes, so jobs whose chains overlap
-wait for each other and the rest run side by side - the render queue included, which claims no lane of
-its own - up to `parallel-jobs` at once (the registry's `maxRunning`). In pi's
+wait for each other and the rest run side by side - up to `parallel-jobs` at once (the registry's `maxRunning`). In pi's
 print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and transcripts flow
 through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportStage`, ...) to
 `job-panel.ts` and `transcript-view.ts` (`/watch`).

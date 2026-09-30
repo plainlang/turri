@@ -23,7 +23,7 @@ export interface Job {
   diff?: string;
   /** For a conformance job: the render job it is the conformance of. */
   follows?: string;
-  /** What the queue master did to it - reworked, merged, inserted, cancelled - and why. */
+  /** A note on it, for the person: why it did not run, or what became of it. */
   note?: string;
   /** "provider/model-id" its agents run on, when known. */
   model?: string;

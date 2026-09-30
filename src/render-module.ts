@@ -4,23 +4,19 @@ import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, readPr
 import { c } from "./module-report.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
 import { createJobRegistry, type Job } from "./render/jobs.ts";
-import { createRenderQueue, describeBroughtUp } from "./render/queue.ts";
+import { createWorkLoop, describeModules } from "./render/loop.ts";
 import { tryItCommand } from "./render/delivery.ts";
 import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
 
 const USAGE = `usage: plainwright module [file.plain] [options]
 
-Builds the module and everything it requires, bottom first, as jobs in the render queue - as the
-chat does: for each module, one render functionality job per functional spec not built yet, each
-followed by its conformance tests when they are on, and - when what is built no longer matches the
-spec - one render spec diff job first that brings it in line. The queue master reworks them like
-any queued job. It runs them all to the end, then says how each went.
+Builds the module and everything it requires, bottom first, as the chat does: what is left to build
+- from what each module's code is built from to its spec as it is - is planned into jobs, and they
+run one after the other until the code is built from the spec. Then it says how each went.
 
 The project's config.yaml, in the current directory, gives the defaults: module (the file to
-build when none is given), coding-model, and conformance-tests (true or false).
+build when none is given), coding-model (the agents that build), and harness-model (the planner).
 
-  --only                   build just this module, ignoring what it requires
-  --to <frid>              queue functionalities of this module only up to this id
   --build-dir <dir>        default: plain_modules/<module>/code
   --model <provider/id>    model for the agents
 
@@ -29,6 +25,8 @@ build when none is given), coding-model, and conformance-tests (true or false).
 /** Options of the build this replaced, and what to do instead. */
 const GONE: Record<string, string> = {
   force: "to build a functionality again, use plainwright regenerate",
+  only: "every module the spec requires is built, bottom first",
+  to: "the whole spec is built: stop the jobs to stop partway",
   from: "every functionality not built is queued; built ones are skipped",
   "conformance-root": "conformance tests are in plain_modules/<module>/tests",
   "max-regression-rounds": "each functionality's conformance job runs the whole suite so far",
@@ -95,14 +93,17 @@ async function main() {
       if (job.status !== "succeeded") console.log(c.dim((job.announce ?? job.report ?? job.error ?? "").trim()));
     },
   });
-  const queue = createRenderQueue({ registry, cwd: process.cwd(), ...(options["build-dir"] !== undefined ? { buildDir: resolve(options["build-dir"]) } : {}), ...(model !== undefined ? { model } : {}) });
-  const brought = queue.bringUpTo(plainFile, {
-    ...(options.to !== undefined ? { to: options.to } : {}),
-    ...(options.only !== undefined ? { only: true } : {}),
-    ...(model !== undefined ? { model } : {}),
+  const planner = modelSpec(projectModels(project).harness);
+  const loop = createWorkLoop({
+    registry,
+    cwd: process.cwd(),
+    ...(options["build-dir"] !== undefined ? { buildDir: resolve(options["build-dir"]) } : {}),
+    ...(model !== undefined ? { modelFor: () => model } : {}),
+    ...(planner !== undefined ? { plannerModel: planner } : {}),
   });
-  console.log(describeBroughtUp(brought, named));
-  await queue.drain();
+  console.log(describeModules(await loop.bringUp(plainFile, model !== undefined ? { model } : {})));
+  await loop.drain();
+  console.log(`\n${describeModules(loop.status())}`);
 
   const ended = registry.list();
   const failed = ended.filter((job) => job.status === "failed");

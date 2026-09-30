@@ -19,7 +19,7 @@ The skills that build from scratch:
 | skill | how it works |
 | --- | --- |
 | `forge-plain` | intent, stack, then testing - conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job the moment it is written, with its conformance tests when they are on |
-| `spark-plain` | its quick twin: asks only what you want to build and confirms a five-line brief, then chooses the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff the queue master works into the builds still queued |
+| `spark-plain` | its quick twin: asks only what you want to build and confirms a five-line brief, then chooses the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
 | `temper-plain` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
 
 `skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
@@ -31,14 +31,11 @@ where it stopped.
 
 | tool | |
 | --- | --- |
-| `render_functionality` | build one functionality - code and unit tests - then keep the existing conformance tests passing |
-| `render_module` | queue the work that brings a module and its chain up to the spec - cut into jobs of one to three functional specs, each with the definitions and reqs it uses, and its conformance job |
-| `steer_queue` | say how the render queue is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
-| `spec_changed` | tell the queue a spec changed, by any means: it is brought up to the spec as it is now, and the queue master reworks it |
-| `regenerate_functionality` | rebuild just one functionality - after its spec changed, or as it is |
-| `render_spec_diff` | make the code match a change to the specs, given as a git diff |
-| `render_functionality_conformance` | write and run black-box tests for a functionality |
-| `render_spec_diff_conformance` | bring the conformance tests in line with a change to the specs, given as a git diff |
+| `render_module` | build a module and its chain up to the spec: what is left to build is planned into jobs of one to three functional specs, each with the definitions and reqs it uses, and they run one after the other |
+| `steer_queue` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
+| `spec_changed` | say a spec changed, by any means: what is left to build is worked out again from the spec as it is now, and a job building what the spec no longer wants is stopped |
+| `regenerate_functionality` | build one functionality again, as it is |
+| `render_spec_diff` | apply a change to the specs, given as a git diff, and build it |
 | `check_plain` | validate a spec without rendering |
 | `set_render_model` | choose the model renders run on - see [below](#choosing-a-model) |
 | `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |
@@ -99,18 +96,18 @@ come waits for a free slot, and says so.
   scrollback.
 - **`/jobs`** lists every job, and what `deploy` has running; **`/stop <id>`** stops one - a queued
   one never starts - and **`/stop deploy <name>`** stops a server `deploy` started.
-- **A change that renders nothing** - definitions moved to a common module, specs moved between
-  modules - is recorded, not rendered: the job says "spec restructured - nothing to render".
-  Specs moved into a module the code was not built on start a rebuild instead: that module, then
-  the codebase from scratch on it. A change to two modules of a chain, the upper one not built
-  yet, is split into a spec diff per codebase, bottom first.
-- **Spec diffs that overlap** are reworked as each one is queued: the queue master merges, drops,
-  reorders or rewrites the waiting ones so they render only what is left of them - a change that
-  undoes a queued one takes that job out - and always end on the spec as it is in the `.plain` file.
-  It may ask you when it is not sure. A job it takes out says so in the Jobs view. To drop something
-  already queued, ask for it to be taken out of the spec - one spec diff - and the queue master
-  takes it out of the queued jobs; to reorder or merge them, ask, and the chat uses `rework_queue`.
-  Stopping a queued spec diff leaves its change in the spec: the next one renders it.
+- **Nothing is queued.** What is left to build is worked out from what each codebase is built from
+  and the spec as it is now - again whenever a job ends or the spec changes - and the first job of
+  it runs; see [the work model](work-model.md). Changes that overlap never pile up: the next job
+  builds the spec as it is. A job building something the spec no longer wants is stopped and rolled
+  back. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
+  in the spec: the codebase waits until the spec changes or it is asked for again.
+- **A change to a module below** is made in the codebase at the tip of the chain, where its code
+  lives; the codebase below is left as it was, and is brought up to its own spec only when a new
+  module is to start from it. Specs moved into a module the code was not built on stop the codebase:
+  its code has to be started again on it.
+- **Conformance tests are off** in the conversation until they are a track of their own
+  ([the work model](work-model.md#stages)): a job lands once its unit tests pass and are reviewed.
 - **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
   stops, and so does every job queued behind it on the same module, without running - the other
   modules' jobs go on. The harness then works out why: an

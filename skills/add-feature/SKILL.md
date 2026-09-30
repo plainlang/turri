@@ -5,8 +5,8 @@ description: >-
   feature-intent interview, then product questions one at a time - a trigger and its outcome, an
   edge case, a rule - where every answer becomes one spec change, written as a git diff of the
   .plain files and built the moment it is written, so the feature appears while the interview is
-  still going. A change that touches what is already specified or queued is a spec diff too, and
-  the queue master works it into the builds still queued. Use when the user wants to add a
+  still going. A change that touches what is already specified or being built is a spec diff too: what
+  is left to build is worked out again from the spec. Use when the user wants to add a
   feature to an existing project. Not for starting a new project (use forge-plain, or spark-plain
   to start fast) or for editing generated code (the .plain specs are the source of truth).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
@@ -135,5 +135,5 @@ A short consistency pass over what the feature changed, then the handover.
 
 Walk `references/checklist.md` once, as a self-audit. Then hand over in a few lines: the feature's
 spec changes in order, the builds they queued and how they stand (`render_status`), and that any
-further change is asked for in the conversation - each one a spec diff the queue master works into
-the builds still queued. The next feature starts again from the intent.
+further change is asked for in the conversation - each one a spec diff, and what is left to build is
+worked out again from the spec. The next feature starts again from the intent.

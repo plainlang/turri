@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { interruptedRun } from "../../src/forge.ts";
 import { compileSkill } from "../../src/graph.ts";
 import { createJobRegistry } from "../../src/render/jobs.ts";
-import { createRenderQueue } from "../../src/render/queue.ts";
+import { createWorkLoop } from "../../src/render/loop.ts";
+import { writeCodeRecord } from "../../src/render/records.ts";
 import type { Skill } from "../../src/skill.ts";
 
 /** An agent session that records what it is asked and answers nothing. */
@@ -104,18 +105,24 @@ describe("a gate the user overrules", () => {
   });
 });
 
-describe("the render queue after a restart", () => {
-  it("queues what the spec holds that is not built, and nothing twice", async () => {
+describe("the builds after a restart", () => {
+  it("build what the spec holds that is not built, and nothing twice", async () => {
     writeFileSync(join(dir, "app.plain"), "***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- One.\n\n- Two.\n");
-    mkdirSync(join(dir, "build"));
-    const ran: string[] = [];
-    const queue = createRenderQueue({
-      registry: createJobRegistry(), cwd: dir, buildDir: join(dir, "build"),
-      run: async (request) => (ran.push(request.frid), { report: "" }),
-    });
-    expect(queue.catchUp("app.plain").map((entry) => entry.frid)).toEqual(["1", "2"]);
-    expect(queue.catchUp("app.plain")).toEqual([]);
-    await queue.drain();
-    expect(ran).toEqual(["1", "2"]);
+    const ran: string[][] = [];
+    const run = async (job: { buildDir: string; spec: { tree: object }; planned: { cases: { add: Array<{ frid: string }> } } }) => {
+      ran.push(job.planned.cases.add.map((spec) => spec.frid));
+      mkdirSync(job.buildDir, { recursive: true });
+      writeFileSync(join(job.buildDir, "app.py"), "\n");
+      writeCodeRecord(job.buildDir, job.spec.tree as never);
+      return { landed: true, report: "" };
+    };
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run: run as never });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    // A new process: what is built is read from the records, so nothing is built again.
+    const again = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run: run as never });
+    await again.bringUp("app.plain");
+    await again.drain();
+    expect(ran).toEqual([["1"], ["2"]]);
   });
 });

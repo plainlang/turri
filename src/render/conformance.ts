@@ -313,6 +313,8 @@ export async function renderConformanceTests(
   let failedReviews = 0;
   let reviewWaived: ReviewProblem[] | undefined;
   /** What each review that sent the tests back found, oldest first: what the arbiter weighs the next one against. */
+  // The config's `review:` - off, the tests are not reviewed.
+  const reviewOn = configForSpec(options.plainFile).review !== false;
   const reviewHistory: ReviewProblem[][] = [];
   let specConflict: RenderConformanceTestsResult["specConflict"];
   /**
@@ -704,8 +706,9 @@ export async function renderConformanceTests(
       // what the spec asks for. It has to pass, as the suite and the unit tests do.
       const testChanges = diffFiles(testsAtStart, digestFiles(conformanceDir));
       const changedTests = [...testChanges.added, ...testChanges.changed];
-      // After the last review's problems were worked on, the tests go on once they pass: not reviewed again.
-      if (changedTests.length > 0 && failedReviews < REVIEW_LIMIT) {
+      // After the last review's problems were worked on, the tests go on once they pass: not reviewed again. With
+      // the review off in the config, they go on once they pass from the first.
+      if (reviewOn && changedTests.length > 0 && failedReviews < REVIEW_LIMIT) {
         stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_LIMIT}): black box, and the acceptance tests doing what the spec says`);
         // One reviewer for the run, made the first time the tests are reviewed.
         reviewer ??= await createTestReviewer({

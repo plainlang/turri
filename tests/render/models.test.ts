@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createJobRegistry } from "../../src/render/jobs.ts";
 import { type CatalogModel, describeChoices, type ModelChoices, modelFor, resolveModel } from "../../src/render/models.ts";
-import { createRenderQueue, type RenderRunner } from "../../src/render/queue.ts";
+import { createWorkLoop, type JobRunner } from "../../src/render/loop.ts";
+import { writeCodeRecord } from "../../src/render/records.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** A catalog like pi's: some providers have credentials here, most do not. */
 const MODELS: CatalogModel[] = [
@@ -75,23 +79,36 @@ describe("the model a job runs on", () => {
     );
   });
 
-  it("is settled when the job is queued: an earlier job keeps its model when the choice changes", async () => {
-    const chosen: ModelChoices = {};
-    const ranOn: Array<string | undefined> = [];
-    const run: RenderRunner = async (request) => {
-      ranOn.push(request.model);
-      return { report: "done" };
-    };
-    const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: ".", run, modelFor: (work) => modelFor(chosen, work, "openai/gpt-5.5") });
-
-    const first = queue.enqueue({ plainFile: "app.plain", frid: "1" });
-    chosen.functionalities = "google/gemini-3.6-flash";
-    const second = queue.enqueue({ plainFile: "app.plain", frid: "2" });
-    await queue.drain();
-
-    expect(ranOn).toEqual(["openai/gpt-5.5", "google/gemini-3.6-flash"]);
-    expect([registry.get(first.jobId)!.model, registry.get(second.jobId)!.model]).toEqual(["openai/gpt-5.5", "google/gemini-3.6-flash"]);
+  it("is settled when a module is brought up: a job keeps its model when the choice changes, and the next one asked for gets the new one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "plainwright-models-"));
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\n");
+      writeFileSync(join(dir, "app.plain"), "***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- One.\n");
+      const chosen: ModelChoices = {};
+      const ranOn: Array<string | undefined> = [];
+      const run: JobRunner = async (job) => {
+        ranOn.push(job.model);
+        mkdirSync(job.buildDir, { recursive: true });
+        writeFileSync(join(job.buildDir, "app.py"), "\n");
+        writeCodeRecord(job.buildDir, job.spec.tree);
+        return { landed: true, report: "done" };
+      };
+      const registry = createJobRegistry();
+      const loop = createWorkLoop({ registry, cwd: dir, planner: false, run, modelFor: () => modelFor(chosen, "spec_changes", "openai/gpt-5.5") });
+      const [first] = await loop.bringUp("app.plain");
+      chosen.spec_changes = "google/gemini-3.6-flash";
+      await loop.drain();
+      writeFileSync(join(dir, "app.plain"), "***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- One.\n\n- Two.\n");
+      const [second] = await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(ranOn).toEqual(["openai/gpt-5.5", "google/gemini-3.6-flash"]);
+      expect([registry.get(first!.running!.jobId)!.model, registry.get(second!.running!.jobId)!.model]).toEqual(["openai/gpt-5.5", "google/gemini-3.6-flash"]);
+    } finally {
+      process.chdir(cwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

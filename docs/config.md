@@ -45,10 +45,11 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | key | what it sets | unset |
 | --- | --- | --- |
 | `module` | the `.plain` file `plainwright module` and `render_module` build when none is named, from the project root | a file has to be named |
-| `harness-model` | the model `plainwright chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the queue master and its planners (on whatever model the chat is on when the queue is planned) | pi's configured model |
+| `harness-model` | the model `plainwright chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `plainwright module`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `false`: no conformance tests written, and none of the existing ones run. `true`: on for every module with test reqs | on for every module with test reqs |
+| `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [rendering](rendering.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
 | `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `plainwright vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |

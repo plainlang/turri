@@ -5,9 +5,9 @@ import { Type } from "typebox";
 import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
 import { importedNames } from "./render/spec-diff-parts.ts";
 import { resolveTemplateDirs } from "./render/render.ts";
-import { applySpecDiff, plainFilesOf, revertSpecDiff, snapshotSpec } from "./render/spec-change.ts";
+import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./render/spec-change.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
-import type { QueuedSpecDiffPart, RenderQueue } from "./render/queue.ts";
+import { describeModules, type WorkLoop } from "./render/loop.ts";
 import { reviewNote, type LiveReviewer } from "./tools.ts";
 
 /** Whether a question has been answered since the last new spec change was written. */
@@ -26,29 +26,14 @@ type AnyTool = ToolDefinition<any, any, any>;
  * build queued in the same call: a change cannot reach the specs without its render being
  * started. A new change needs an answer since the last one; a correction does not.
  */
-/** What a spec change was queued as, in a sentence or two: a job per codebase it lands in. */
-export function describeQueuedParts(parts: QueuedSpecDiffPart[]): string {
-  const one = (part: QueuedSpecDiffPart) => {
-    if (part.what === "restructure") return `job ${part.jobId} records it in ${part.module}'s codebase: the specs are only laid out differently, so there is nothing to render`;
-    if (part.what === "rebuild") {
-      return `job ${part.jobId} builds ${part.newlyRequired!.join(", ")} and then ${part.module} again from scratch on it: ${part.module} now requires a module its code was not built on, which no spec diff can bring in`;
-    }
-    return `job ${part.jobId} renders it in ${part.module}'s codebase${part.fromNothing ? " - nothing is built there yet, so it is given the whole spec as the change, everything written so far" : ""}`;
-  };
-  if (parts.length === 1) return `In the background, ${one(parts[0]!)}.`;
-  return `It lands in ${parts.length} codebases, so it is split into a job for each, bottom of the chain first - each module's part in its own codebase, the one above starting from the code below: ${parts
-    .map((part, index) => `${index + 1}. ${part.files.join(", ")}: ${one(part)}`)
-    .join("; ")}.`;
-}
-
 export function createSpecDiffTools(options: {
-  queue: RenderQueue;
+  loop: WorkLoop;
   cwd: string;
   liveReview?: LiveReviewer;
   /** One new change per answer (the default); false, for a skill that writes the specs on its own. */
   paced?: boolean;
 }): { tools: AnyTool[]; pace: SpecPace } {
-  const { queue, cwd, liveReview } = options;
+  const { loop, cwd, liveReview } = options;
   const paced = options.paced !== false;
   let answeredSinceLastDiff = true;
 
@@ -64,7 +49,7 @@ export function createSpecDiffTools(options: {
     promptGuidelines: [
       "Every change to a .plain file in the product phase goes through write_spec_diff, as a git diff with paths relative to the project root. It writes the change and starts its build in one step.",
       "One change per answer, and a new one only after the user has answered a question about it. Set fixes_earlier to correct something already written.",
-      "To take something out of what is already written and queued - the user drops a page or a feature - write the diff that removes it from every spec that names it, with fixes_earlier. The queue master takes out the queued builds it undoes and rewrites the ones it touches; never stop builds to drop a change - it stays in the files.",
+      "To take something out of what is already written and queued - the user drops a page or a feature - write the diff that removes it from every spec that names it, with fixes_earlier. What is left to build is worked out from the spec each time, and a build the change undoes is stopped by itself; never stop builds to drop a change - it stays in the files.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "The .plain file of the module the change is built for" }),
@@ -76,7 +61,7 @@ export function createSpecDiffTools(options: {
         Type.String({
           description:
             "How to plan the queue for this change, in a sentence or two - which functional specs go together, what first - as the " +
-            "user said it or as the interview settled it. A strong preference for the planner and the queue master. Omit when there is none.",
+            "user said it or as the interview settled it. A strong preference for the planner. Omit when there is none.",
         }),
       ),
     }),
@@ -132,26 +117,16 @@ export function createSpecDiffTools(options: {
       if (params.fixes_earlier !== true) answeredSinceLastDiff = false;
       liveReview?.notice(`${params.plain_file}, after the change to ${touched.join(", ")}`);
 
-      // The spec as it stands with this change in is what its render builds and records.
-      const spec = snapshotSpec(params.plain_file, { cwd });
-      // The first change built into a codebase that holds nothing yet is built from nothing: its
-      // build is told the whole spec as the change - what the earlier phases wrote with the file
-      // tools, as well as this answer - not only the lines this answer changed. The queue works that
-      // out for each codebase the change lands in.
-      const queued = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec, wholeIfUnbuilt: true, ...(params.guidance !== undefined ? { guidance: params.guidance } : {}) });
-      // The queue master reworks the queued builds around it first: what it made of them is what to tell the user.
-      const reports = await Promise.all(queued.parts.filter((part) => part.what === "render").map((part) => queue.afterRework(part.jobId)));
-      const reworked = [...new Set(reports.filter((report): report is string => report !== undefined))];
+      // In the files, the change is work: the loop works out what is left to build and plans it.
+      const statuses = await loop.bringUp(params.plain_file, params.guidance !== undefined ? { guidance: params.guidance } : {});
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
-        // One build the master reworked: what it made of it is the whole story.
-        ...(reworked.length > 0 && queued.parts.length === 1 ? [] : [describeQueuedParts(queued.parts)]),
-        ...(reworked.length > 0 ? [`\n\n${reworked.join("\n\n")}\n\nTell the user what became of it, as said here.`] : []),
+        `Building in the background:\n${describeModules(statuses)}\n`,
         "Carry on with the interview.",
       ];
       return {
         content: [{ type: "text" as const, text: lines.join(" ") + reviewNote(liveReview) }],
-        details: { jobId: queued.jobId, jobIds: queued.parts.map((part) => part.jobId), files: touched },
+        details: { jobIds: statuses.flatMap((status) => (status.running !== undefined ? [status.running.jobId] : [])), files: touched },
       };
     },
   });

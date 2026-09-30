@@ -239,8 +239,13 @@ export interface RenderSpecDiffOptions {
   /** The spec as parsed with the diff in. Taken now, after applying it, when not given. */
   spec?: SpecSnapshot;
   model?: string;
-  /** Review the unit tests once they pass - that they test what the change says. Default true. */
+  /** Review the code and unit tests once they pass - that they do what the change says. Default: the config's `review:`, else true. */
   unitReview?: boolean;
+  /**
+   * false: the change lands once its unit tests pass and are reviewed - the conformance tests, the whole suite
+   * included, are not run here: conformance is a track of its own (docs/work-model.md). Default: they are.
+   */
+  regression?: false;
   /** The unit test review's model. Default: the project's judge-model, else `model`. */
   judgeModel?: string;
   onDelta?: (delta: string) => void;
@@ -458,7 +463,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     verified = await untilPassing();
 
     // The unit tests pass - now whether they test what the change says, so they fail when it breaks.
-    if (verified && options.unitReview !== false) {
+    if (verified && (options.unitReview ?? configForSpec(tip.plainFile).review) !== false) {
       const reviewed = await untilUnitTestsReviewed({
         buildDir,
         atStart: digestsBefore,
@@ -503,6 +508,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     stage(unitReviewStopped ? "the unit tests pass but still leave the change untested - undoing the change" : "unit tests NOT passing - undoing the change");
     abandonWork(unit, moduleName, "the spec change did not pass its unit tests");
     return { ...base, passed: false, stoppedAt: "unit tests" };
+  }
+
+  if (options.regression === false) {
+    stage("unit tests pass - landing the change on them");
+    land();
+    return { ...base, passed: true, stoppedAt: null };
   }
 
   const conformanceRoot = modulesRoot(projectDirOf(tip.plainFile));

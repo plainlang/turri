@@ -6,8 +6,8 @@ description: >-
   making every choice itself where the user said nothing, and queues each feature as a render spec
   diff job the moment it is written. Conformance tests are off unless the user asks for them. No
   interview beyond intent, no gates. The user then keeps
-  talking in the conversation, and every change they ask for is a spec diff the queue master works
-  into the queued builds. Use when the user wants to start a new project fast, or says to just build
+  talking in the conversation, and every change they ask for is a spec diff: what is left to build
+  is worked out again from the spec. Use when the user wants to start a new project fast, or says to just build
   it. For a full interview that settles the stack, the testing and every feature with the user, use
   forge-plain. Not for adding a feature to an existing project (use add-feature).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
@@ -129,4 +129,4 @@ that conformance tests are off unless they were asked for (turning them on later
 `config.yaml`, `conformance-tests: true`, with the test reqs and the script added in the
 conversation), and what the user can do now - try each feature as its build lands (ask to try it, and the chat
 deploys it), and ask for any change in the conversation. A feature added, changed or dropped is one
-spec diff, and the queue master reworks the builds still queued around it.
+spec diff, and what is left to build is worked out again from the spec.

@@ -363,7 +363,7 @@ export async function renderFunctionality(
     let verified = await untilPassing();
 
     // The unit tests pass - now whether they test anything: every behaviour of the spec, so they fail when it breaks.
-    if (verified && options.unitReview !== false) {
+    if (verified && (options.unitReview ?? configForSpec(options.plainFile).review) !== false) {
       const reviewed = await untilUnitTestsReviewed({
         buildDir,
         atStart: codeAtStart,

@@ -5,7 +5,7 @@ import { projectDirOf } from "./paths.ts";
 
 /**
  * How the person wants the queue planned - which functional specs go together, what goes first, how big a job is -
- * given to the planner's agents and the queue master with every plan, as a strong preference.
+ * given to the planner's agents with every plan, as a strong preference.
  *
  * It comes from three places. The conversation sets it (`steer_queue`), for the whole project or one module, and it
  * holds for the session. The project's AGENTS.md can say it once for good: a section whose heading names the queue

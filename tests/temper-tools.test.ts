@@ -11,7 +11,9 @@ vi.mock("../src/render/spec-change.ts", async (importOriginal) => {
     ...actual,
     renderSpecDiff: async (options: { diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
       diffs.push(options.diff ?? "");
-      (await import("../src/render/state.ts")).writeBuiltTree(options.spec!.chain!.at(-1)!.buildDir, options.spec!.tree as never);
+      const buildDir = options.spec!.chain!.at(-1)!.buildDir;
+      writeFileSync(join(buildDir, "app.py"), "# built\n", { flag: "a" });
+      (await import("../src/render/records.ts")).writeCodeRecord(buildDir, options.spec!.tree as never);
       return { passed: true, stoppedAt: null };
     },
     describeSpecDiff: () => "rendered",
@@ -20,9 +22,9 @@ vi.mock("../src/render/spec-change.ts", async (importOriginal) => {
 
 const { collectFindings, createTemperTools, noteStamp } = await import("../src/temper-tools.ts");
 const { createJobRegistry } = await import("../src/render/jobs.ts");
-const { createRenderQueue } = await import("../src/render/queue.ts");
+const { createWorkLoop } = await import("../src/render/loop.ts");
 const { recordNote, NOTES_FILE } = await import("../src/render/notes.ts");
-const { writeBuiltTree } = await import("../src/render/state.ts");
+const { writeCodeRecord } = await import("../src/render/records.ts");
 const { plainFileParser } = await import("../src/plain/parser.ts");
 
 let dir: string;
@@ -71,8 +73,8 @@ describe("what a tempering run reads back", () => {
 
   it("hands each finding out once, numbered - and all of them again when asked", async () => {
     const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
-    const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 60_000) });
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 60_000) });
     recordNote(buildDir(), "assumptions", "Titles are trimmed before they are stored", "app 1");
     const first = text(await tool(tools, "spec_findings").execute("id", {}, undefined, undefined, {} as never));
     expect(first).toContain("f1 · assumption · app (app 1)");
@@ -86,32 +88,34 @@ describe("what a tempering run reads back", () => {
 });
 
 describe("rendering and waiting, from a skill", () => {
-  it("queues a module that is not built yet as the queue plans it - a job a functional spec here - and waits for every build to say how it ended", async () => {
+  it("builds a module that is not built yet as it is planned - a job a functional spec here - and waits for every build to say how it ended", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
-    const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     const queued = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
-    expect(queued).toContain("builds what is not built yet");
+    expect(queued).toMatch(/running: job \w+ - Say hello\./);
+    expect(queued).toContain("1. Say goodbye. - adds fs 2");
+    await loop.drain();
     const waited = text(await tool(tools, "watch_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
     expect(waited).toContain("Every build queued since this run started has finished");
-    expect(waited).toMatch(/app\.plain fs 1: Say hello\. · succeeded after/);
+    expect(waited).toMatch(/app\.plain Say hello\. · succeeded after/);
     expect(diffs).toHaveLength(2);
     expect(diffs[0]).toContain("+- Say hello.");
     expect(diffs[1]).toContain("+- Say goodbye.");
   });
 
-  it("queues a spec changed in place as one spec diff - and nothing when the code is built from it already", async () => {
+  it("builds a spec changed in place - and nothing when the code is built from it already", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello."]));
-    writeBuiltTree(buildDir(), plainFileParser("app.plain", [dir])[1]);
+    writeCodeRecord(buildDir(), plainFileParser("app.plain", [dir])[1]);
     writeFileSync(join(buildDir(), "app.py"), "print('hello')\n");
     const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
-    const tools = createTemperTools({ queue, jobs: registry, cwd: dir });
-    expect(text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never))).toContain("nothing to render");
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    const tools = createTemperTools({ loop, jobs: registry, cwd: dir });
+    expect(text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never))).toContain("built from the spec as it is");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello, loudly."]));
     const changed = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
-    expect(changed).toContain("builds what is not built yet");
+    expect(changed).toContain("running: job");
     expect(registry.list()[0]!.diff).toContain("+- Say hello, loudly.");
     registry.stop(registry.list()[0]!.id);
   });
@@ -132,8 +136,8 @@ describe("watching the builds, for a run that goes on until the spec is built", 
 
   it("comes back as soon as a build struggles - with what it went through - and says each struggle once", async () => {
     const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
-    const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     let release!: () => void;
     const started = registry.start({
       kind: "render",
@@ -161,8 +165,8 @@ describe("watching the builds, for a run that goes on until the spec is built", 
 
   it("stops a struggling build so it is rendered again from the clarified spec", async () => {
     const registry = createJobRegistry();
-    const queue = createRenderQueue({ registry, cwd: dir, queueMaster: false });
-    const tools = createTemperTools({ queue, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false });
+    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     const started = registry.start({ kind: "render", summary: "app.plain fs 2", run: async ({ signal } = {} as never) => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: String(signal) }) });
     const said = text(await tool(tools, "stop_job").execute("id", { job_id: started.id, reason: "the spec now says a duplicate email is refused with 409" }, undefined, undefined, {} as never));
     expect(said).toContain(`Stopped job ${started.id}`);

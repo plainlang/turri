@@ -19,6 +19,7 @@ import { projectDirOf } from "./render/paths.ts";
  * judge-model:                                              # the judge and the test review (default: coding-model)
  *   model: google/gemini-3.1-pro
  * conformance-tests: false                                  # write and run conformance tests (default: when there are test reqs)
+ * review: false                                             # review the code and its tests once they pass (default: true)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * run-testing-scripts-in: host                              # where the testing scripts run: vm (default), or host - see test-scripts.ts
@@ -144,6 +145,11 @@ export interface ProjectConfig {
   judgeModel?: ModelChoice;
   /** Whether conformance tests are written and run. Unset: when the module has test reqs. */
   conformanceTests?: boolean;
+  /**
+   * Whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at
+   * most, the second weighed by the arbiter. false: the work goes on once its tests pass. Unset: true.
+   */
+  review?: boolean;
   /** Path from the root to the unit testing script. */
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
@@ -181,6 +187,7 @@ export const CONFIG_KEYS = {
   codingModel: "coding-model",
   judgeModel: "judge-model",
   conformanceTests: "conformance-tests",
+  review: "review",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
   runTestingScriptsIn: "run-testing-scripts-in",
@@ -308,6 +315,7 @@ function readConfigFile(path: string): ProjectConfig {
     codingModel: modelChoice(raw[CONFIG_KEYS.codingModel]) ?? modelChoice(raw.model),
     judgeModel: modelChoice(raw[CONFIG_KEYS.judgeModel]),
     conformanceTests: typeof conformance === "boolean" ? conformance : undefined,
+    review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     // `testing-scripts:`, its name before, is read the same.
