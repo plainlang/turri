@@ -46,6 +46,16 @@ describe("a queued render whose earlier functionalities are not built", () => {
     expect(registry.get(jobId)!.report!.split(TRY_IT_LINE)).toHaveLength(2);
   });
 
+  it("carries, while it waits, the diff of what it will build - not only its number", async () => {
+    const registry = createJobRegistry();
+    const queue = createRenderQueue({ registry, cwd: dir, buildDir: join(dir, "build") });
+    const { jobId } = queue.enqueue({ plainFile: "app.plain", frid: "1" });
+    const diff = registry.get(jobId)!.diff ?? "";
+    expect(diff).toContain("+- One.");
+    expect(diff).not.toContain("+- Two.");
+    await queue.drain();
+  });
+
   it("builds only what is missing", async () => {
     const [, tree] = plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")));
     recordBuiltFunctionality(join(dir, "build"), tree, "1");

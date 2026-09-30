@@ -21,7 +21,7 @@ export const JOB_PANEL_KEY = "plainwright-jobs";
 
 /** How the side panel is found your way around, as the job panel says it. */
 export const PANEL_HELP =
-  "in the side panel: tab switches jobs · trace · a follows one agent · j the next job · ↑↓ pgup pgdn or the wheel scroll · esc back to the chat · ctrl+j closes it";
+  "in the side panel: ↑↓ move over the jobs · enter opens one - what it builds, whole · o/c open or close them all · t its trace · tab switches jobs · trace · esc back to the chat · ctrl+j closes it";
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -185,10 +185,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
   } else if (expanded) {
-    lines.push("  ctrl+o collapse · ctrl+j inspect the jobs in the side panel: the queue, the agents' traces");
+    lines.push("  ctrl+o collapse · ctrl+j to see what each job builds, and the agents' traces");
     lines.push(`  ${PANEL_HELP}`);
   } else {
-    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ctrl+j inspect the jobs: the queue, the agents' traces`);
+    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ctrl+j to see what each job builds`);
   }
   return lines;
 }

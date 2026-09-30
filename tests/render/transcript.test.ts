@@ -105,6 +105,15 @@ describe("the transcript viewer", () => {
 
 });
 
+/** Open the finished section and the first job in it, with the keys: it starts collapsed. */
+function openFinished(panel: { render(width: number): string[]; handleInput(data: string): void }, width = 100): void {
+  const down = "\x1b[B";
+  for (const key of [down, down, "\r", down, "\r"]) {
+    panel.render(width);
+    panel.handleInput(key);
+  }
+}
+
 describe("the side panel", () => {
   const PLAIN = { heading: (t: string) => t, muted: (t: string) => t, accent: (t: string) => t, error: (t: string) => t, added: (t: string) => t, removed: (t: string) => t };
   const judge = { label: "app 1 judge", model: "bedrock/sonnet-5:medium" };
@@ -125,9 +134,11 @@ describe("the side panel", () => {
     const panel = createSidePanel({ jobs: () => [job], rows: () => 40, style: PLAIN, key: "alt+o", back: () => (back += 1), close: () => (closed = true) });
     const text = () => panel.render(100).join("\n");
 
-    // Jobs first: the queue, with what finished - and what each was about.
+    // Jobs first: the queue, with what finished - and, opened, what each was about.
     expect(text()).toContain("[Jobs]");
-    expect(text()).toContain("── finished");
+    expect(text()).toContain("▸ finished (1)");
+    openFinished(panel);
+    expect(text()).toContain("▾ finished (1)");
     // Everything is shown already: no ctrl+o to expand it, no pointer to the panel it is in.
     expect(text()).not.toContain("ctrl+o");
     expect(text()).not.toContain("in the side panel:");
@@ -174,6 +185,12 @@ describe("the side panel", () => {
     const conformance = registry.start({ kind: "render_spec_diff_conformance", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
     await registry.wait(conformance.id);
     const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 30, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
+    // Newest first: the conformance job, then the spec diff.
+    const down = "\x1b[B";
+    for (const key of [down, down, "\r", down, "\r", down, "\r"]) {
+      panel.render(120);
+      panel.handleInput(key);
+    }
     const lines = panel.render(120).join("\n");
     expect(lines).toContain("backend.plain render spec diff");
     expect(lines).toContain("+- :OrderController: takes the :AuthData: from the request.");
@@ -195,6 +212,11 @@ describe("the side panel", () => {
     await registry.wait(planner.id);
     await registry.wait(step.id);
     const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 40, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
+    const down = "\x1b[B";
+    for (const key of [down, down, "\r", down, "o"]) {
+      panel.render(140);
+      panel.handleInput(key);
+    }
     const lines = panel.render(140).join("\n");
     expect(lines).toContain("planned 1 spec diff:");
     expect(lines).toContain(`1. Implement comments on study sessions → backend.plain render spec diff (job ${step.id}, succeeded)`);

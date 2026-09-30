@@ -40,6 +40,7 @@ import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/c
 import { createRenderQueue, describeBroughtUp, type RenderQueue } from "./render/queue.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createSidePanel, type PanelView } from "./render/side-panel.ts";
+import { createJobsTreeState } from "./render/jobs-tree.ts";
 import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
 import { defaultBuildDir } from "./render/paths.ts";
@@ -2036,6 +2037,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // beside the conversation. Alt+O opens it with the keyboard in it; esc goes back to the chat and
   // leaves it open and live; alt+O again takes the keyboard back to it, and closes it from there.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
+  // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
+  const jobsTree = createJobsTreeState();
 
   const openPanel = (ctx: ExtensionContext, show?: { jobId?: string; view?: PanelView }) => {
     if (panel !== undefined) {
@@ -2050,6 +2053,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         const view = createSidePanel({
           jobs: () => jobs.list(),
           jobId: show?.jobId,
+          tree: jobsTree,
           rows: () => tui.terminal.rows,
           key: PANEL_KEY,
           style: {

@@ -1,17 +1,16 @@
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
-import { describeUsage } from "./activity.ts";
-import { jobPanelLines } from "./job-panel.ts";
+import { Key, matchesKey, truncateToWidth, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { formatDuration, type Job } from "./jobs.ts";
-import { agentsOf, diffLines, roleOf, transcriptLines, type TranscriptStyle } from "./transcript-view.ts";
+import { createJobsTreeState, jobsTreeLines, keepCursorInView, scrollTree, treeKey, type JobsTreeState, type TreeRow } from "./jobs-tree.ts";
+import { agentsOf, roleOf, transcriptLines, type TranscriptStyle } from "./transcript-view.ts";
 
 /**
  * The side panel: what the jobs are doing, beside the conversation rather than instead of it.
  *
- * Two views. Jobs: the whole queue - what runs, what waits and on what, what finished. Trace: a
- * job's agents at work - every
- * prompt, reply, thought and tool call, each agent's turn headed by who it is - all of them, or one
- * agent at a time. It scrolls on its own, by keys and by the wheel, and follows the newest line while
- * at the bottom.
+ * Two views. Jobs: the whole queue as a tree - running, queued, finished, each opened and closed on its
+ * own, a line per job and all of what it builds once opened (see jobs-tree.ts). Trace: a job's agents at
+ * work - every prompt, reply, thought and tool call, each agent's turn headed by who it is - all of them,
+ * or one agent at a time; it follows the newest line while at the bottom. Both scroll by keys and by the
+ * wheel.
  */
 
 export type PanelView = "jobs" | "trace";
@@ -35,23 +34,8 @@ export interface SidePanelOptions {
   close: () => void;
   /** The key that opens and closes it, shown in the footer. */
   key: string;
-}
-
-/** A job as a conformance job names the render it follows: what it was, and its id. */
-function followed(jobs: Job[], id: string): string {
-  const render = jobs.find((job) => job.id === id);
-  return render !== undefined ? `${render.summary} (job ${id}, ${render.status})` : `job ${id}`;
-}
-
-/** The spec diffs a module's render planned and queued, from its details. */
-function plannedOf(job: Job): Array<{ title: string; jobId: string }> {
-  const planned = (job.details as { planned?: Array<{ title: string; jobId: string }> } | undefined)?.planned;
-  return Array.isArray(planned) ? planned : [];
-}
-
-/** The job that planned this spec diff, when one did. */
-function plannerOf(jobs: Job[], id: string): Job | undefined {
-  return jobs.find((job) => plannedOf(job).some((step) => step.jobId === id));
+  /** The Jobs view's tree - what is open, where the cursor is - kept across openings of the panel. */
+  tree?: JobsTreeState;
 }
 
 /** Newest first, whatever order they come in. */
@@ -77,44 +61,13 @@ export function createSidePanel(options: SidePanelOptions) {
 
   const current = () => pick(options.jobs(), jobId);
 
+  /** The Jobs view's tree: kept by the conversation, so it is as it was left when the panel opens again. */
+  const tree = options.tree ?? createJobsTreeState();
+  /** The Jobs view as last drawn: its rows, and where each starts - what the keys move over. */
+  let drawn: { rows: TreeRow[]; rowStarts: number[]; lineCount: number } = { rows: [], rowStarts: [], lineCount: 0 };
+
   const body = (width: number): string[] => {
     const job = current();
-    if (view === "jobs") {
-      const jobs = options.jobs();
-      if (jobs.length === 0) return [style.muted("(no jobs yet)")];
-      const live = jobPanelLines(jobs, { expanded: true, diffStyle: style, hints: false });
-      const finished = newestFirst(jobs)
-        .filter((item) => item.status !== "running" && item.status !== "queued")
-        .flatMap((item) => [
-          `  ${item.status.padEnd(9)} ${item.summary} · ${formatDuration(item)}${describeUsage(item.usage) ? ` · ${describeUsage(item.usage)}` : ""}  (job ${item.id})`,
-          // The render it is the conformance of, for a conformance job.
-          ...(item.follows !== undefined ? [style.muted(`            the conformance of ${followed(jobs, item.follows)}`)] : []),
-          // What the queue master did to it.
-          ...(item.note !== undefined ? wrapTextWithAnsi(item.note, Math.max(10, width - 12)).map((line) => style.accent(`            ${line}`)) : []),
-          // The job that planned it, for a spec diff a module's render queued.
-          ...(plannerOf(jobs, item.id) !== undefined ? [style.muted(`            planned by ${followed(jobs, plannerOf(jobs, item.id)!.id)}`)] : []),
-          // What a planning job planned: the spec diffs it queued, in order.
-          ...plannedOf(item).flatMap((step, index, all) => [
-            ...(index === 0 ? [style.muted(`            planned ${all.length} spec diff${all.length === 1 ? "" : "s"}:`)] : []),
-            style.muted(`              ${index + 1}. ${step.title} → ${followed(jobs, step.jobId)}`),
-          ]),
-          // What it was about, whole: the spec change it rendered, or the functional spec it built.
-          ...(item.diff !== undefined
-            ? diffLines(item.diff, Math.max(10, width - 12), style).map((line) => `            ${line}`)
-            : item.building !== undefined
-              ? [
-                  style.muted(`            ${item.building.label}:`),
-                  ...item.building.text
-                    .trimEnd()
-                    .split("\n")
-                    .flatMap((line) => (line === "" ? [""] : wrapTextWithAnsi(line, Math.max(10, width - 14))))
-                    .map((line) => style.accent(`              ${line}`)),
-                ]
-              : []),
-          "",
-        ]);
-      return [...live, ...(finished.length > 0 ? ["", style.heading("── finished"), ...finished] : [])];
-    }
     if (job === undefined) return [style.muted("(no job yet)")];
     return transcriptLines(job, width, style, agent);
   };
@@ -138,15 +91,29 @@ export function createSidePanel(options: SidePanelOptions) {
             ? ""
             : `${job.summary} · ${job.status} · ${formatDuration(job)}${view === "trace" ? ` · ${agent !== undefined ? roleOf(agent) : "every agent"}` : ""}`;
 
-      const lines = body(width);
-      const maxScroll = Math.max(0, lines.length - bodyHeight);
-      fromBottom[view] = Math.min(fromBottom[view], maxScroll);
-      const end = lines.length - fromBottom[view];
-      const visible = lines.slice(Math.max(0, end - bodyHeight), end);
+      let visible: string[];
+      let where: string;
+      if (view === "jobs") {
+        // The tree scrolls to keep the cursor in sight, and only that far.
+        const tree_ = jobsTreeLines(options.jobs(), tree, width, style);
+        drawn = { rows: tree_.rows, rowStarts: tree_.rowStarts, lineCount: tree_.lines.length };
+        keepCursorInView(tree, tree_.rowStarts, tree_.lines.length, bodyHeight);
+        visible = tree_.lines.slice(tree.top, tree.top + bodyHeight);
+        where = tree_.lines.length > bodyHeight ? `${tree.top + 1}-${Math.min(tree_.lines.length, tree.top + bodyHeight)} of ${tree_.lines.length}` : "all shown";
+      } else {
+        const lines = body(width);
+        const maxScroll = Math.max(0, lines.length - bodyHeight);
+        fromBottom[view] = Math.min(fromBottom[view], maxScroll);
+        const end = lines.length - fromBottom[view];
+        visible = lines.slice(Math.max(0, end - bodyHeight), end);
+        where = fromBottom[view] === 0 ? "following" : `${fromBottom[view]} lines up`;
+      }
       while (visible.length < bodyHeight) visible.push("");
 
-      const where = fromBottom[view] === 0 ? "following" : `${fromBottom[view]} lines up`;
-      const keys = ["tab view", ...(view === "trace" ? ["a agent", "j job"] : []), "↑↓ pgup pgdn scroll", "esc chat", `${options.key} close`];
+      const keys =
+        view === "jobs"
+          ? ["↑↓ move", "enter open/close", "←→", "o/c all", "t trace", "pgup pgdn scroll", "tab view", "esc chat", `${options.key} close`]
+          : ["tab view", "a agent", "j job", "↑↓ pgup pgdn scroll", "esc chat", `${options.key} close`];
       return [
         truncateToWidth(tabs, width),
         style.muted(truncateToWidth(about, width)),
@@ -161,7 +128,37 @@ export function createSidePanel(options: SidePanelOptions) {
       if (matchesKey(data, Key.escape)) options.back();
       else if (matchesKey(data, Key.tab)) view = VIEWS[(VIEWS.findIndex((item) => item.view === view) + 1) % VIEWS.length]!.view;
       else if (matchesKey(data, Key.shift("tab"))) view = VIEWS[(VIEWS.findIndex((item) => item.view === view) + VIEWS.length - 1) % VIEWS.length]!.view;
-      else if (data === "a" && view === "trace") {
+      else if (view === "jobs") {
+        const key = matchesKey(data, Key.up)
+          ? "up"
+          : matchesKey(data, Key.down)
+            ? "down"
+            : matchesKey(data, Key.enter) || data === " "
+              ? "toggle"
+              : matchesKey(data, Key.right)
+                ? "open"
+                : matchesKey(data, Key.left)
+                  ? "close"
+                  : data === "o"
+                    ? "openAll"
+                    : data === "c"
+                      ? "closeAll"
+                      : data === "t"
+                        ? "trace"
+                        : undefined;
+        if (key !== undefined) {
+          const action = treeKey(tree, drawn.rows, key);
+          if (action.kind === "trace") {
+            jobId = action.jobId;
+            agent = undefined;
+            fromBottom.trace = 0;
+            view = "trace";
+          }
+        } else if (matchesKey(data, Key.pageUp)) scrollTree(tree, -page, drawn.rowStarts, drawn.lineCount, lastBodyHeight);
+        else if (matchesKey(data, Key.pageDown)) scrollTree(tree, page, drawn.rowStarts, drawn.lineCount, lastBodyHeight);
+        else if (matchesKey(data, Key.home) || data === "g") tree.cursor = 0;
+        else if (matchesKey(data, Key.end) || data === "G") tree.cursor = Math.max(0, drawn.rows.length - 1);
+      } else if (data === "a" && view === "trace") {
         // Every agent, then each in the order they first spoke, then every agent again.
         const job = current();
         const agents = job !== undefined ? agentsOf(job) : [];
@@ -185,7 +182,8 @@ export function createSidePanel(options: SidePanelOptions) {
     /** The wheel scrolls the panel wherever the keyboard is. */
     handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
       if (event.type !== "wheel" || event.wheelDelta === undefined) return undefined;
-      scroll(-event.wheelDelta * 3);
+      if (view === "jobs") scrollTree(tree, event.wheelDelta * 3, drawn.rowStarts, drawn.lineCount, lastBodyHeight);
+      else scroll(-event.wheelDelta * 3);
       return { handled: true };
     },
 

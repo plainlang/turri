@@ -1005,6 +1005,9 @@ export function createRenderQueue(options: {
         // Short enough to read in a one-line queue: the file's name, not its path.
         summary: `${basename(plainFile)} fs ${request.frid}${request.regenerate ? " (rebuild)" : ""}`,
         lanes: renderLanesOf(request.regenerate ? codebaseOf(plainFile) : plainFile),
+        // What it builds, as a diff - from what the code will be built from by its turn to the spec with it in - so a
+        // queued render shows what it adds, not only its number. The queue master's reworks keep it current.
+        ...(work !== undefined ? { diff: work.diff } : {}),
         run: async (onDelta) => {
           // Where it started, for its conformance job to take it back to.
           const landsIn = work?.codebase ?? codebase;

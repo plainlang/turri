@@ -77,7 +77,15 @@ come waits for a free slot, and says so.
   inserts one; pi outside plainwright keeps it, and a `tui.input.newLine` of your own in
   `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with two views - `tab`
   switches between them:
-  - **Jobs** - the whole queue: what runs, what waits and on what, what finished, with time and cost;
+  - **Jobs** - the whole queue as three sections - running, queued, finished - each opened and closed on
+    its own (running and queued start open). A job is one line: what it is and what it changes, with time
+    and cost - a running one adds its stage. Opened, it shows all of what it builds: the spec diff, or for
+    a render the diff of the functional spec it adds, coloured, and running, what its agents are doing.
+    `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
+    (`←` on a closed job goes to its section), `o` and `c` open or close every job of the section, `t`
+    opens a job's trace, `pgup` `pgdn` and the wheel scroll. The cursor stays on its row when the job under
+    it moves on; a job opened closes when it moves to another section. What is open is kept while the
+    panel is closed;
   - **Trace** - a job's agents at work: every prompt, reply, thought and tool call, each agent's
     turn headed by who it is and the model it runs on. `a` follows one agent at a time, `j` switches
     job.
