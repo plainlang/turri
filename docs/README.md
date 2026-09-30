@@ -51,6 +51,7 @@ pages go into each part.
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |
 | [Rendering](rendering.md) | where things go, one functionality, a whole module, spec diffs, conformance tests, what the code is built from |
+| [The work model (planned)](work-model.md) | the rebuild of the render queue, agreed and in progress: two records, the work derived from them, no queue master, the prompt for each case |
 | [The sandbox](sandbox.md) | what an agent can reach, the file-tool fence, the VM, installing what the image lacks |
 | [Skills and gates](skills-and-gates.md) | the gate syntax, what the harness enforces, what a step can do, the rules, trying the gates |
 | [The \*\*\*plain parser](parser.md) | the TypeScript port, `plainwright check`, inheritance, the iterator, fidelity |
