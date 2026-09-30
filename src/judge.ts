@@ -1,5 +1,5 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { ask, createJudge } from "./pi.ts";
+import { ask, BEGIN, createJudge } from "./pi.ts";
 import { createVerdictTool, type Verdict } from "./tools.ts";
 import type { ReviewSpec } from "./skill.ts";
 
@@ -59,10 +59,11 @@ export async function runGate(opts: {
         modelSpec: review.model ?? opts.defaultModel,
         borrowAuthFrom: opts.executor,
         extraTools: review.judgeTools,
+        task: judgePrompt(opts.rubric, opts.artifactPath, opts.artifact),
       });
       opts.onJudgeStart?.(index, modelNote);
       try {
-        await ask(session, judgePrompt(opts.rubric, opts.artifactPath, opts.artifact));
+        await ask(session, BEGIN);
       } finally {
         session.dispose();
       }

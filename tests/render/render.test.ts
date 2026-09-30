@@ -323,13 +323,13 @@ describe("functionalities, by the module they belong to", () => {
 describe("the build's identity, and the code's build files", () => {
   it("sends every failure back with how to fix it: understand, find the root cause, reproduce, fix, check the whole suite, note it", async () => {
     const { scriptFailure } = await import("../../src/render/test-scripts.ts");
-    const { codeFixPrompt, testsFixPrompt } = await import("../../src/render/conformance-agents.ts");
+    const { codeFixerTask, testsFixPrompt } = await import("../../src/render/conformance-agents.ts");
     const run = { command: "run_unittests.sh", exitCode: 1, output: "FAILED test_app.py::test_x - AssertionError", timeoutMs: 1 };
     const prompts = [
       scriptFailure(run, "unit testing"),
       scriptFailure(run, "conformance testing"),
       testsFixPrompt({ run, reason: "The test expects 400; the spec says nothing of it." }),
-      codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." }, run, reason: "r", first: true }),
+      codeFixerTask({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." } }),
     ];
     for (const prompt of prompts) {
       expect(prompt).toContain("1. Understand the failure.");
@@ -347,13 +347,13 @@ describe("the build's identity, and the code's build files", () => {
 
   it("never loses why something failed: every coding agent keeps the cause, the judge blames code that hides it, and the fixer makes it show first", async () => {
     const { buildRenderPrompt } = await import("../../src/render/prompt.ts");
-    const { codeFixPrompt, judgePrompt } = await import("../../src/render/conformance-agents.ts");
+    const { codeFixerTask, judgePrompt } = await import("../../src/render/conformance-agents.ts");
     const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- pytest."], "functional specs": ["- Take an order."] };
     const run = { command: "c", exitCode: 1, output: '{"error": "failed"}', timeoutMs: 1 };
     const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
     expect(render).toContain("Never lose why something failed");
     expect(render).toContain("Never make the code behave differently when a test runs it");
-    const fix = codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." }, run, reason: "r", first: true });
+    const fix = codeFixerTask({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." } });
     expect(fix).toContain("Never lose why something failed");
     expect(fix).toContain("make it show first");
     const judge = judgePrompt({ buildDir: "/b", conformanceDir: "/t", spec: { moduleName: "app", text: "- Take an order." }, run, invocation: "i", scope: { functionalities: [] }, notes: "" });
@@ -362,12 +362,12 @@ describe("the build's identity, and the code's build files", () => {
 
   it("is kept by every agent that writes code, and handed whole to the conformance agent", async () => {
     const { buildRenderPrompt, buildConformancePrompt } = await import("../../src/render/prompt.ts");
-    const { codeFixPrompt } = await import("../../src/render/conformance-agents.ts");
+    const { codeFixerTask } = await import("../../src/render/conformance-agents.ts");
     const { buildManifests } = await import("../../src/render/conformance.ts");
     const specifications = { definitions: [], "implementation reqs": [], "test reqs": ["- pytest."], "functional specs": ["- Take an order."] };
     const render = buildRenderPrompt({ moduleName: "app", frid: "1", specifications, linkedResources: [] });
     expect(render).toContain("Keep the build's identity as it is: its name, coordinates, version, package and main class.");
-    const fix = codeFixPrompt({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." }, run: { command: "c", exitCode: 1, output: "x", timeoutMs: 1 }, reason: "r", first: true });
+    const fix = codeFixerTask({ buildDir: "/b", spec: { moduleName: "app", text: "- Take an order." } });
     expect(fix).toContain("Keep the build's identity as it is");
 
     const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");

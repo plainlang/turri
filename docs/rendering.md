@@ -87,7 +87,8 @@ from there as after any turn. The arguments are compared whatever order they com
 
 The agents with one thing to decide have a budget of tool calls: the judge 30, the test review and the
 explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
-with what it knows; past twice the budget its turn is stopped. And every turn of an agent a render
+with what it knows; past twice the budget its turn is stopped. Handing the decision over starts the
+count again - a reviewer kept for the next review gets its whole budget for it. And every turn of an agent a render
 starts has two minutes (PLAINWRIGHT_TURN_LIMIT, in seconds; 0 for none). It is told so, and when they
 are up its turn ends where it is and the harness takes it from there - it runs the tests, and judges.
 A code fix has to build and pass the code's unit tests before the conformance suite runs again: one
@@ -146,17 +147,32 @@ For a spec change, what it adds or changes is what needs code and tests, and a c
 behaviour needs neither. Code written another way than the reviewer would have written it is not a
 problem, as long as it does what the spec says.
 
-The review is told what to inspect, so it does not have to guess. It gets:
+The review is told what to inspect, so it does not have to guess. One reviewer does every review of
+the work - one session for the loop (see [agent sessions](#agent-sessions)) - so a review after the
+first starts from what it already read and raised. Its instructions hold:
 
 - **The spec as the coding agent had it**, laid out the same way: how to read a spec,
   `<definitions>`, `<implementation reqs>` and `<already implemented>`. What this work built is
   apart, in `<new in this work>`: for a functionality, its `<functionality module="m" id="N">` with
   its `<acceptance tests>`; for a spec change, the `<spec change>`, section by section.
-- **The code the work wrote**: a diff of the code folder from the module's last commit, where every
-  unit of work starts. It covers code and tests, and new files are shown whole. Lockfiles and the
-  harness's own files are left out. The diff is worked out again before every review, since the
-  coding agent changes the code between reviews. Past 80,000 characters it is cut, and the files
+
+And each review is shown:
+
+- **The code the work wrote**, the first time: a diff of the code folder from the module's last
+  commit, where every unit of work starts. It covers code and tests, and new files are shown whole.
+  Lockfiles and the harness's own files are left out. Past 80,000 characters it is cut, and the files
   left out are named, to be read whole.
+- **What changed since its last review**, every time after: the harness takes a snapshot of the code
+  folder at each review - a git tree in `.plaingit`, no commit, the module's index untouched - and
+  shows the diff from it. With it, the problems of the last review that went to the coding agent, and
+  what the arbiter let go of it, not to be raised again.
+- **The coding agent's account.** The coding agent ends each turn that goes to review with
+  `submit_work`: what it did and why, and for each problem the last review raised, by its number,
+  fixed or declined, why, and the files. It is a claim, and the reviewer is told so: it checks it
+  against the diff, which the harness takes itself - a problem said to be fixed that the code does not
+  fix is still a problem, and one declined is weighed on its reason. An account that leaves a problem
+  unanswered sends the coding agent back once; with no account at all, the reviewer is told so and goes
+  by the diff.
 
 The reviewer is the exacting developer, opinionated about everything: it raises every problem it
 finds, however small. Its problems go back to the coding agent, the unit testing script has to pass
@@ -550,8 +566,11 @@ allow, never mocking or replacing any part of the software under test - that eve
 the spec says, with no placeholder that cannot fail, and that each acceptance test does every step it
 lists and asserts every expectation it states. It must pass, as the suite and the unit tests must:
 when it does not, the conformance agent gets exactly what is missing and what is bad, file by file, and
-the round goes again. The first review is asked for every problem at once; each after it is given what
-the last one found, checks that first, and raises something new only when it is serious - a test that
+the round goes again. One reviewer does every review of the run, as the unit tests' does: the first time
+it is shown the diff of the tests folder from the module's last commit, each time after the diff since its
+last review, and every time the conformance agent's account through `submit_work` - checked against the
+diff, never taken instead of it. The first review is asked for every problem at once; each after it is
+given what the last one found, checks that first, and raises something new only when it is serious - a test that
 cannot fail, mocks the software, or leaves out what the spec asks for. It asks only for what can be seen
 from outside: where the spec says one part calls another, the outcome, never the call. The reviewer is
 the exacting developer, as the unit tests' is, and marks each problem blocking or not: blocking when the
@@ -662,9 +681,35 @@ self.assertEqual(completed.stdout.strip(), "hello, world")
 Code that prints `goodbye` instead fails the test; the agent fixes the code, and the harness's own
 runs - the suite, then the unit tests - pass (`tests/render/conformance-loop.test.ts`).
 
+## Agent sessions
+
+An agent's task - the spec, how to read it, what to do, the rules, the working notes as they were - is
+its **system prompt**, not its first message: every agent plainwright starts opens with a one-line
+"begin". Compaction sums up the conversation and never the system prompt, so however long an agent
+works, what it works from stays word for word as it was, and stays in the cached prefix of every call.
+The one exception is a skill's executor, which is given a step at a time.
+
+The agents that work through a job keep **one session for it**: the coding agent of a render or a spec
+change, its unit test reviewer, the conformance agent, its test reviewer, the code fixer of a
+conformance run, and the regression repair agent. The code fixer used to start fresh for every fix; now
+each fix starts from what the ones before it tried. The agents whose value is having taken no side stay
+fresh, given what they need as text: the arbiter, the judge that says whether the code, the tests or the
+spec is wrong, the explorer, the planners, the diagnosis and a skill's review judges. A job that fails
+and is retried is undone whole, and every agent of the retry starts fresh.
+
+An agent kept through a job re-reads everything it has done on every call. So between turns, once its
+conversation - what it has done, past its instructions - passes `compact-at` tokens (100,000 unless
+[the project config](config.md) says otherwise), the harness compacts it, with instructions for its role:
+the coding agent and the fixer keep what is done, what still fails and why, the decisions and every
+review problem's fate; a reviewer keeps every problem it raised and where each stands, and what it has
+already checked. pi's own compaction, when the context window is nearly full, stays on beneath it.
+
+What each agent of a job did - its turns, its compactions, its tokens and cost - is at the end of the
+job's log in `.plainwright/jobs/`, and in `check_job`.
+
 ## Working notes
 
-Every agent is a fresh session, and without help each one would spend its first turns finding its
+Every job's agents start fresh, and without help each one would spend its first turns finding its
 bearings. So each agent working on a codebase - render, spec change, conformance, regression repair -
 starts with the notes the agents before it left, and before it finishes it updates them: a line
 added, changed or removed, never the whole thing rewritten. Four sections:

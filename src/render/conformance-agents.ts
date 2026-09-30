@@ -1,7 +1,7 @@
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
 import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
@@ -9,6 +9,8 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { ERROR_CAUSE_RULES, fixMethod, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
 import { REVIEW_LESSON } from "./notes.ts";
+import { CODER_COMPACTION, REVIEWER_COMPACTION } from "./compaction.ts";
+import { SUBMIT_AFTER_REVIEW } from "./submit-work.ts";
 
 /**
  * The agents a conformance run needs beside the one that writes the tests.
@@ -265,11 +267,12 @@ export async function exploreInvocation(options: {
     model: options.model,
     label: `${options.label} explorer`,
     system: fence.note,
+    task: explorePrompt(options.buildDir, options.spec, options.scope, options.testingScripts, options.question),
     budget: { calls: EXPLORER_CALLS, finish: ["submit_exploration"] },
   });
   const replies: string[] = [];
   try {
-    replies.push(await ask(session, explorePrompt(options.buildDir, options.spec, options.scope, options.testingScripts, options.question), options.onDelta));
+    replies.push(await ask(session, BEGIN, options.onDelta));
     for (let again = 0; again < EXPLORATION_SUBMISSIONS; again += 1) {
       const problems = explorationProblems(exploration, options.scope, options.spec.moduleName, options.acceptance);
       if (problems.length === 0 || submissions >= EXPLORATION_SUBMISSIONS) break;
@@ -397,22 +400,29 @@ export interface ReviewProblem {
  * they test, or skip what the spec asks for. It reads the tests and the code and changes neither.
  * No verdict is no pass: a gate that cannot say yes stays shut.
  */
-export async function reviewTests(options: {
+export interface TestReviewer {
+  /** One review: what it is shown (`testReviewRequest`), and its verdict. No verdict is no pass. */
+  review(request: string): Promise<{ pass: boolean; problems: ReviewProblem[] }>;
+  dispose(): void;
+}
+
+/**
+ * The reviewer, one session for the whole conformance run: a review after the first starts from what it already
+ * read and raised. Its task is its instructions; each review is shown the diff of the tests - the whole of what the
+ * run wrote first, what changed since after - and the conformance agent's account of it.
+ */
+export async function createTestReviewer(options: {
   buildDir: string;
   conformanceDir: string;
   spec: SpecContext;
-  /** The test files this run added or changed, relative to the tests folder. */
-  changed: string[];
   /** The functionality under test - or, for a spec change, those it touches - with their acceptance tests. */
   functionalities: Array<{ frid: string; acceptanceTests: string[] }>;
   forChange?: boolean;
   invocation: string;
-  /** What the review before this one found, sent back and worked on since: what this one checks first. */
-  earlier?: ReviewProblem[];
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
-}): Promise<{ pass: boolean; problems: ReviewProblem[] }> {
+}): Promise<TestReviewer> {
   let verdict: { pass: boolean; problems: ReviewProblem[] } | undefined;
   const submit = defineTool({
     name: "submit_review",
@@ -462,31 +472,38 @@ export async function reviewTests(options: {
     model: options.model,
     label: `${options.label} test reviewer`,
     system: fence.note,
+    task: testReviewTask(options),
+    compaction: { instructions: REVIEWER_COMPACTION },
     budget: { calls: REVIEWER_CALLS, finish: ["submit_review"] },
   });
-  try {
-    await ask(session, reviewPrompt(options), options.onDelta);
-    if (verdict === undefined) await ask(session, "You have not called submit_review. Call it now: pass, or every problem.", options.onDelta);
-  } finally {
-    session.dispose();
-  }
-  return (
-    verdict ?? {
-      pass: false,
-      problems: [{ file: "(all)", kind: "bad", what: "The review gave no verdict. Check every test you added or changed against the rules above yourself." }],
-    }
-  );
+  return {
+    async review(request) {
+      verdict = undefined;
+      await ask(session, request, options.onDelta);
+      if (verdict === undefined) await ask(session, "You have not called submit_review. Call it now: pass, or every problem.", options.onDelta);
+      return (
+        verdict ?? {
+          pass: false,
+          problems: [{ file: "(all)", kind: "bad", what: "The review gave no verdict. Check every test you added or changed against the rules above yourself." }],
+        }
+      );
+    },
+    dispose: () => session.dispose(),
+  };
 }
 
-export function reviewPrompt(options: {
+function problemText(problem: ReviewProblem): string {
+  return `${problem.blocking === true ? "BLOCKING · " : ""}${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`;
+}
+
+/** The reviewer's task, for its instructions: word for word through every review of the run. */
+export function testReviewTask(options: {
   buildDir: string;
   conformanceDir: string;
   spec: SpecContext;
-  changed: string[];
   functionalities: Array<{ frid: string; acceptanceTests: string[] }>;
   forChange?: boolean;
   invocation: string;
-  earlier?: ReviewProblem[];
 }): string {
   const withAcceptance = options.functionalities.filter((item) => item.acceptanceTests.length > 0);
   const whose = options.forChange
@@ -494,8 +511,8 @@ export function reviewPrompt(options: {
     : `functionality ${options.functionalities[0]?.frid ?? ""} of module \`${options.spec.moduleName}\``;
   return [
     specPrimer({ testReqs: true }),
-    `The conformance tests of the \`${options.spec.moduleName}\` specification pass - and the unit tests with them. Before that counts,`,
-    "review the tests this run added or changed. Passing tests prove nothing when they assert nothing, mock the software",
+    `You review the conformance tests of the \`${options.spec.moduleName}\` specification a conformance run adds or changes, each time`,
+    "they pass - and the unit tests with them. Passing tests prove nothing when they assert nothing, mock the software",
     "they test, or leave out what the specification asks for.",
     "",
     "You are the exacting reviewer: opinionated, thorough, and hard to satisfy. Raise every problem you find with",
@@ -504,11 +521,13 @@ export function reviewPrompt(options: {
     "",
     `The tests are in ${options.conformanceDir}; the code is in ${options.buildDir}. Read both; change neither.`,
     "",
-    "<tests added or changed>",
-    options.changed.join("\n"),
-    "</tests added or changed>",
+    "You review the same tests more than once. The first time you are shown everything the run wrote in the tests",
+    "folder; each time after, what changed since your last review, and what the conformance agent says it did about",
+    "each problem you raised. The diff is the harness's, not the agent's; <the conformance agent's account> is a claim -",
+    "check it against the diff and the files. A problem it says is fixed that the tests do not fix is still a problem;",
+    "one it declined, weigh its reason - it may be right.",
     "",
-    "Check every one of them:",
+    "Check every test the run added or changed:",
     "- Black box: it reaches the software only the way the test reqs have it - its API, its command, its public",
     "  classes where the test reqs say so - and never mocks, stubs or replaces any part of the software under test:",
     "  no mocked beans, services or clients of its own. A real external service the test reqs say not to mock is",
@@ -534,30 +553,19 @@ export function reviewPrompt(options: {
     "  checks the outcome that follows - what comes back, what is stored, what the other service received - never",
     "  that the call was made. Asking for a test of how the code works inside is not a problem to raise.",
     "",
-    ...(options.earlier !== undefined && options.earlier.length > 0
-      ? [
-          "The review before this one sent the tests back with these problems, and they have been worked on since:",
-          "",
-          ...options.earlier.map((problem) => `- ${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
-          "",
-          "Check each of them first: fixed, or still there. Raise a problem that review did not only when it is one of",
-          "the above - a test that cannot fail, mocks the software, or leaves out or misdoes what the specification or an",
-          "acceptance test asks for. Not a matter of style or thoroughness the last review let pass: the review is not",
-          "done again from the start.",
-          "",
-        ]
-      : [
-          "Find every problem now, in this one review - the tests go back once with all of them, and the next review",
-          "checks that they were fixed rather than starting over.",
-          "",
-        ]),
-    "Then call submit_review once: pass when nothing is missing and nothing is bad; otherwise every problem - the",
-    'file, the test, its kind - "missing" for a test that is not there, "bad" for one that is weak, wrong or not black',
-    "box - and exactly what, with what the specification says instead. Be specific: the",
-    "agent that fixes them gets your list and nothing else. Mark a problem blocking when because of it the",
-    "functionality is not yet tested black box - a test or an acceptance test missing, cut down or skipping what it",
-    "checks, the software mocked or not reached from outside, a test that cannot fail. Those are worked on first; the",
-    "rest - ways to make tests that already do that better - are let go after a few reviews.",
+    "The first review finds every problem, in that one review - the tests go back once with all of them. A review after",
+    "it checks each problem you raised last first - fixed, or still there - and raises a new one only when it is one of",
+    "the above - a test that cannot fail, mocks the software, or leaves out or misdoes what the specification or an",
+    "acceptance test asks for. Not a matter of style or thoroughness the last review let pass: the review is not done",
+    "again from the start.",
+    "",
+    "Each review ends with submit_review, once: pass when nothing is missing and nothing is bad; otherwise every problem",
+    '- the file, the test, its kind - "missing" for a test that is not there, "bad" for one that is weak, wrong or not',
+    "black box - and exactly what, with what the specification says instead. Be specific: the agent that fixes them gets",
+    "your list and nothing else. Mark a problem blocking when because of it the functionality is not yet tested black",
+    "box - a test or an acceptance test missing, cut down or skipping what it checks, the software mocked or not reached",
+    "from outside, a test that cannot fail. Those are worked on first; the rest - ways to make tests that already do",
+    "that better - are let go after a few reviews.",
     "",
     "<specification>",
     options.spec.text.trim(),
@@ -567,15 +575,58 @@ export function reviewPrompt(options: {
   ].join("\n");
 }
 
+/** What one review of the tests is shown: the whole of what the run wrote first; after that, what changed since. */
+export function testReviewRequest(options: {
+  /** First review: the tests the run wrote (`workDiff`). After it: the diff since the last review (`diffSinceSnapshot`). */
+  diff: string;
+  /** The test files this run added or changed, relative to the tests folder. */
+  changed: string[];
+  account: string;
+  /** The problems of the last review the conformance agent was given - given, this is a review after it. */
+  earlier?: ReviewProblem[];
+  /** What the arbiter let go of the last review. */
+  letGo?: ReviewProblem[];
+}): string {
+  const diff = options.diff.trim();
+  const again = options.earlier !== undefined;
+  return [
+    again
+      ? "The conformance suite and the unit tests pass again, after the conformance agent worked on the problems your last review raised. Review the tests again."
+      : "The conformance suite and the unit tests pass. Review the tests the run added or changed.",
+    "",
+    again ? "<what changed since your last review - a diff of the tests folder>" : "<the tests this run wrote - a diff of the tests folder from where the run started>",
+    diff !== "" ? diff : again ? "(nothing changed since your last review)" : "(no diff - read the files listed below)",
+    again ? "</what changed since your last review>" : "</the tests this run wrote>",
+    "",
+    "<tests added or changed by the run>",
+    options.changed.join("\n"),
+    "</tests added or changed by the run>",
+    "",
+    "<the conformance agent's account>",
+    options.account,
+    "</the conformance agent's account>",
+    ...(again && options.earlier!.length > 0
+      ? ["", "The problems of your last review the conformance agent was given:", ...options.earlier!.map((problem, index) => `${index + 1}. ${problemText(problem)}`)]
+      : []),
+    ...(options.letGo !== undefined && options.letGo.length > 0
+      ? ["", "The arbiter weighed your last review and let these go - they are settled, do not raise them again:", ...options.letGo.map((problem) => `- ${problemText(problem)}`)]
+      : []),
+    "",
+    "Then call submit_review.",
+  ].join("\n");
+}
+
 /** The review's problems, for the conformance agent to fix. */
 export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
   return [
     "The conformance suite and the unit tests pass. A review of the tests found how to make them better - each, exactly:",
     "",
-    ...problems.map((problem) => `- ${problem.blocking === true ? "BLOCKING · " : ""}${problem.kind === "missing" ? "MISSING" : "BAD"} · ${problem.file}${problem.test ? ` · ${problem.test}` : ""}: ${problem.what.trim()}`),
+    ...problems.map((problem, index) => `${index + 1}. ${problemText(problem)}`),
     "",
     "Fix every one: implement what is missing, and make what is bad test the software black box and as the",
-    "specification says. Then run the suite. Never mock the software under test or loosen a test to pass.",
+    "specification says. Then run the suite. Never mock the software under test or loosen a test to pass. One you are",
+    "sure the review is wrong about, decline, and say why.",
+    ...SUBMIT_AFTER_REVIEW,
     ...INTEGRITY_RULES,
     ...REVIEW_LESSON,
   ].join("\n");
@@ -762,10 +813,11 @@ export async function judgeFailure(options: {
     model: options.model,
     label: `${options.label} judge`,
     system: fence.note,
+    task: judgePrompt(options),
     budget: { calls: JUDGE_CALLS, finish: ["submit_verdict"] },
   });
   try {
-    await ask(session, judgePrompt(options), options.onDelta);
+    await ask(session, BEGIN, options.onDelta);
     for (let again = 0; again < 2; again += 1) {
       if (verdict === undefined) {
         await ask(session, "You have not called submit_verdict. Call it now: code, tests or spec, and why.", options.onDelta);
@@ -879,7 +931,8 @@ export function judgePrompt(options: {
  * The coding agent a conformance run sends the code to, when the judge says the code is wrong: it
  * works in the code folder and its VM, may read the tests but never changes them, and keeps the unit
  * tests passing.
- * Made the first time it is needed, and kept for the rest of the run.
+ * Made the first time it is needed, and kept for the rest of the run: each fix after the first starts from what the
+ * ones before it tried. Its task is its instructions; its work is compacted as it grows.
  */
 export async function createCodeFixer(options: {
   buildDir: string;
@@ -889,6 +942,8 @@ export async function createCodeFixer(options: {
   logsDir?: string;
   label: string;
   model?: string;
+  /** The specification it fixes the code to: in its task. */
+  spec: SpecContext;
   /** Its own tools beyond the file tools: running the unit tests, its notes. */
   tools: ToolDefinition[];
   toolNames: string[];
@@ -905,29 +960,24 @@ export async function createCodeFixer(options: {
     model: options.model,
     label: `${options.label} coding agent`,
     system: fence.note,
+    task: codeFixerTask(options),
+    compaction: { instructions: CODER_COMPACTION },
   });
 }
 
-export function codeFixPrompt(options: { buildDir: string; conformanceDir?: string; spec: SpecContext; run: ScriptRun; reason: string; first: boolean }): string {
+/**
+ * The code fixer's task, for its instructions: whose code it is, the specification, and how a fix is made. It stays
+ * word for word through every fix of the run; each failure comes as a message (`codeFixPrompt`).
+ */
+export function codeFixerTask(options: { buildDir: string; conformanceDir?: string; spec: SpecContext }): string {
   return [
-    ...(options.first
-      ? [
-          specPrimer({ testReqs: false }),
-          `You are the coding agent of the \`${options.spec.moduleName}\` specification. Its code is in ${options.buildDir}.`,
-          "",
-          "<specification>",
-          options.spec.text.trim(),
-          "</specification>",
-          "",
-        ]
-      : []),
-    `Its conformance tests failed, and the code is what is wrong (exit ${options.run.exitCode}):`,
+    specPrimer({ testReqs: false }),
+    `You are the coding agent of the \`${options.spec.moduleName}\` specification. Its code is in ${options.buildDir}. When its`,
+    "conformance tests fail and the code is what is wrong, you are sent the failure, and fix the code.",
     "",
-    `<why the code>\n${options.reason.trim()}\n</why the code>`,
-    "",
-    `<failing run command="${options.run.command}">`,
-    options.run.output.trimEnd(),
-    "</failing run>",
+    "<specification>",
+    options.spec.text.trim(),
+    "</specification>",
     "",
     ...fixMethod({ what: "conformance tests", fixes: "code", runTool: "run_conformance_tests" }),
     "",
@@ -954,6 +1004,21 @@ export function codeFixPrompt(options: { buildDir: string; conformanceDir?: stri
     "the code for the next agent, not an account of this fix: the harness records the attempts itself.",
     ...INTEGRITY_RULES,
     ...ERROR_CAUSE_RULES,
+  ].join("\n");
+}
+
+/** One failure for the code fixer: the run, and why the code is what is wrong. */
+export function codeFixPrompt(options: { run: ScriptRun; reason: string }): string {
+  return [
+    `The conformance tests failed, and the code is what is wrong (exit ${options.run.exitCode}):`,
+    "",
+    `<why the code>\n${options.reason.trim()}\n</why the code>`,
+    "",
+    `<failing run command="${options.run.command}">`,
+    options.run.output.trimEnd(),
+    "</failing run>",
+    "",
+    "Fix the code, run the conformance tests and the unit tests, and finish.",
   ].join("\n");
 }
 

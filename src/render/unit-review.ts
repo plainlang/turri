@@ -7,7 +7,9 @@ import { diffFiles, digestFiles } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { REVIEWER_CALLS, reviewKind } from "./conformance-agents.ts";
 import { readNotes, recordNote, reflectOnReview, REVIEW_LESSON } from "./notes.ts";
-import { workDiff } from "./history.ts";
+import { diffSinceSnapshot, workDiff, workSnapshot } from "./history.ts";
+import { REVIEWER_COMPACTION } from "./compaction.ts";
+import { describeAccounts, SUBMIT_AFTER_REVIEW, unanswered, unansweredPrompt, type WorkLedger } from "./submit-work.ts";
 import { INTEGRITY_RULES } from "./prompt.ts";
 import { ARBITER_AFTER, arbitrateReview, dismissedNote, problemLine, REVIEW_LIMIT } from "./arbiter.ts";
 import { TEST_FILE_PATTERN } from "./testing.ts";
@@ -58,22 +60,21 @@ export function changedUnitTests(buildDir: string, atStart: Map<string, string>)
   return [...added, ...changed].filter((file) => TEST_FILE_PATTERN.test(basename(file)));
 }
 
-export function unitReviewPrompt(options: {
+/**
+ * The reviewer's task, for its instructions: what it reviews, against which specification, and how. It stays word for
+ * word through every review of the loop; what each review is shown comes as a message (`unitReviewRequest`).
+ */
+export function unitReviewTask(options: {
   buildDir: string;
-  changed: string[];
   /** What the work built: "functionality 3 of module `m`", "the spec change to module `m`". */
   what: string;
   /** The specification it built, as the coding agent had it, what is new in this work apart (`reviewedSpec`). */
   spec: string;
   /** The work is a spec change, not a functionality. */
   forChange?: boolean;
-  /** What the coding agent wrote: the diff of the code folder from where the work started (`workDiff`). */
-  code?: string;
-  earlier?: UnitReviewProblem[];
 }): string {
-  const code = options.code?.trim() ?? "";
   return [
-    `The unit tests of ${options.what} pass. Before that counts, review the work: passing tests prove only what they`,
+    `You review the work on ${options.what}, each time its unit tests pass: passing tests prove only what they`,
     "check - a test that checks next to nothing passes whatever the code does, and code no test reaches is not checked",
     "at all. Review both: that the code does what the specification says, and that its unit tests test it.",
     "",
@@ -83,28 +84,24 @@ export function unitReviewPrompt(options: {
     "",
     `The code and its unit tests are in ${options.buildDir}. Read them; change nothing.`,
     "",
-    "How to read what follows:",
+    "You review the same work more than once. The first time you are shown everything it wrote; each time after, what",
+    "it changed since your last review, and what the coding agent says it did about each problem you raised.",
+    "",
+    "How to read it:",
     "- <specification> is the specification exactly as the coding agent had it: <definitions>, <implementation reqs>,",
     "  <already implemented> - what the code already does - and <new in this work>: what this work built, a",
     "  <functionality> with its <acceptance tests>, or a <spec change>. Review the work against <new in this work>; the",
     "  rest is there so you know what the words mean and what was there before.",
-    "- <the code this work wrote> is every change the coding agent made in the code folder since the work started -",
-    "  code and tests - as a diff, new files whole. It is exactly what to inspect: start from it, and read a file",
-    "  whole where the diff shows too little of it, or to see how the new code fits what was there. Do not guess",
-    "  what the code does - it is all here.",
-    "- <unit tests added or changed> lists the test files among them.",
+    "- The diff you are shown is exactly what changed in the code folder - code and tests - new files whole. It is",
+    "  taken by the harness, not by the agent: start from it, and read a file whole where the diff shows too little of",
+    "  it, or to see how the new code fits what was there. Do not guess what the code does - it is all there.",
+    "- <the coding agent's account> is what the agent that did the work says it did. It is a claim: check every part of",
+    "  it against the diff and the files. A problem it says is fixed that the code does not fix is still a problem; one",
+    "  it declined, weigh its reason - it may be right.",
     "",
     "<specification>",
     options.spec.trim(),
     "</specification>",
-    "",
-    "<the code this work wrote - a diff of the code folder from where the work started>",
-    code !== "" ? code : "(nothing - the code folder is as the work found it)",
-    "</the code this work wrote>",
-    "",
-    "<unit tests added or changed>",
-    options.changed.length > 0 ? options.changed.join("\n") : "(none - no unit test was added or changed)",
-    "</unit tests added or changed>",
     "",
     "Check that the code does what the specification states for this work:",
     "- Every behaviour, edge case, validation rule and error it states is implemented, and implemented as it says -",
@@ -139,41 +136,83 @@ export function unitReviewPrompt(options: {
     "works inside rather than what it does, is not a problem to raise; nor is code written another way than you",
     "would have, as long as it does what the specification says.",
     "",
-    ...(options.earlier !== undefined && options.earlier.length > 0
-      ? [
-          "The review before this one sent the tests back with these problems, and they have been worked on since:",
-          "",
-          ...options.earlier.map((problem) => `- ${problemLine(problem)}`),
-          "",
-          "Check each of them first: fixed, or still there. Raise a new problem only when it is one of the above - a",
-          "behaviour not implemented or implemented wrong, a behaviour untested, or a test that cannot fail. The review",
-          "is not done again from the start.",
-          "",
-        ]
-      : ["Find every problem now, in this one review: the tests go back once with all of them.", ""]),
-    "Then call submit_review once: pass when the code does what the specification says and nothing is missing or weak;",
-    'otherwise every problem - the file, the test or the function, its kind - "wrong" for code that does not do what',
-    'the specification says, "missing" for a test that is not there, "bad" for one that is weak or wrong - and',
-    "exactly what, with what the specification says instead. Be specific: the agent that fixes them gets your list and",
-    "nothing else. Mark a problem blocking when because of it a behaviour the specification states is not implemented,",
-    "implemented wrong, or not tested - no test for it, or one that cannot fail. Those are worked on first; the rest -",
-    "ways to make code or tests that already do it better - are let go after a few reviews.",
+    "The first review finds every problem, in that one review: the tests go back once with all of them. A review after",
+    "it checks each problem you raised last first - fixed, or still there - and raises a new one only when it is a",
+    "behaviour not implemented or implemented wrong, a behaviour untested, or a test that cannot fail: it is not done",
+    "again from the start.",
+    "",
+    "Each review ends with submit_review, once: pass when the code does what the specification says and nothing is",
+    'missing or weak; otherwise every problem - the file, the test or the function, its kind - "wrong" for code that does',
+    'not do what the specification says, "missing" for a test that is not there, "bad" for one that is weak or wrong -',
+    "and exactly what, with what the specification says instead. Be specific: the agent that fixes them gets your list",
+    "and nothing else. Mark a problem blocking when because of it a behaviour the specification states is not",
+    "implemented, implemented wrong, or not tested - no test for it, or one that cannot fail. Those are worked on first;",
+    "the rest - ways to make code or tests that already do it better - are let go after a few reviews.",
   ].join("\n");
 }
 
-/** The review: a read-only agent, on the judge model, that says pass or every problem. No verdict is no pass. */
-export async function reviewUnitTests(options: {
-  buildDir: string;
+/** What one review is shown: the whole work the first time; after that, what changed since the last, and the problems it raised. */
+export function unitReviewRequest(options: {
+  /** First review: the whole work (`workDiff`). After it: the diff since the last review (`diffSinceSnapshot`). */
+  diff: string;
   changed: string[];
+  /** The coding agent's account of its work since the last review (`describeAccounts`). */
+  account: string;
+  /** The problems the last review raised that went to the coding agent - given, this is a review after it. */
+  earlier?: UnitReviewProblem[];
+  /** What the arbiter let go of the last review: not to be raised again. */
+  letGo?: UnitReviewProblem[];
+}): string {
+  const diff = options.diff.trim();
+  const again = options.earlier !== undefined;
+  return [
+    again
+      ? "The unit tests pass again, after the coding agent worked on the problems your last review raised. Review it again."
+      : "The unit tests pass. Review the work.",
+    "",
+    again ? "<what changed since your last review - a diff of the code folder>" : "<the code this work wrote - a diff of the code folder from where the work started>",
+    diff !== "" ? diff : again ? "(nothing changed since your last review)" : "(nothing - the code folder is as the work found it)",
+    again ? "</what changed since your last review>" : "</the code this work wrote>",
+    "",
+    "<unit tests added or changed by the work>",
+    options.changed.length > 0 ? options.changed.join("\n") : "(none - no unit test was added or changed)",
+    "</unit tests added or changed by the work>",
+    "",
+    "<the coding agent's account>",
+    options.account,
+    "</the coding agent's account>",
+    ...(again && options.earlier!.length > 0
+      ? ["", "The problems of your last review the coding agent was given:", ...options.earlier!.map((problem, index) => `${index + 1}. ${problemLine(problem)}`)]
+      : []),
+    ...(options.letGo !== undefined && options.letGo.length > 0
+      ? ["", "The arbiter weighed your last review and let these go - they are settled, do not raise them again:", ...options.letGo.map((problem) => `- ${problemLine(problem)}`)]
+      : []),
+    "",
+    "Then call submit_review.",
+  ].join("\n");
+}
+
+
+export interface UnitReviewer {
+  /** One review: what it is shown (`unitReviewRequest`), and its verdict. No verdict is no pass. */
+  review(request: string): Promise<{ pass: boolean; problems: UnitReviewProblem[] }>;
+  dispose(): void;
+}
+
+/**
+ * The reviewer: a read-only agent, on the judge model, that says pass or every problem - one session for the whole
+ * loop, so a review after the first starts from what it already read and raised, not from nothing. Its task is its
+ * instructions; its work is compacted as it grows.
+ */
+export async function createUnitReviewer(options: {
+  buildDir: string;
   what: string;
   spec: string;
   forChange?: boolean;
-  code?: string;
-  earlier?: UnitReviewProblem[];
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
-}): Promise<{ pass: boolean; problems: UnitReviewProblem[] }> {
+}): Promise<UnitReviewer> {
   let verdict: { pass: boolean; problems: UnitReviewProblem[] } | undefined;
   const submit = defineTool({
     name: "submit_review",
@@ -223,20 +262,24 @@ export async function reviewUnitTests(options: {
     model: options.model,
     label: `${options.label} reviewer`,
     system: fence.note,
+    task: unitReviewTask(options),
+    compaction: { instructions: REVIEWER_COMPACTION },
     budget: { calls: REVIEWER_CALLS, finish: ["submit_review"] },
   });
-  try {
-    await ask(session, unitReviewPrompt(options), options.onDelta);
-    if (verdict === undefined) await ask(session, "You have not called submit_review. Call it now: pass, or every problem.", options.onDelta);
-  } finally {
-    session.dispose();
-  }
-  return (
-    verdict ?? {
-      pass: false,
-      problems: [{ file: "(all)", kind: "bad", what: "The review gave no verdict. Check the code and every unit test you added or changed against the specification yourself." }],
-    }
-  );
+  return {
+    async review(request) {
+      verdict = undefined;
+      await ask(session, request, options.onDelta);
+      if (verdict === undefined) await ask(session, "You have not called submit_review. Call it now: pass, or every problem.", options.onDelta);
+      return (
+        verdict ?? {
+          pass: false,
+          problems: [{ file: "(all)", kind: "bad", what: "The review gave no verdict. Check the code and every unit test you added or changed against the specification yourself." }],
+        }
+      );
+    },
+    dispose: () => session.dispose(),
+  };
 }
 
 /** The review's problems, for the coding agent. */
@@ -245,11 +288,13 @@ export function unitReviewFeedbackPrompt(problems: UnitReviewProblem[]): string 
     "The unit tests pass. A review of the work found where the code does not yet do what the specification says, or its",
     "tests do not yet test it - each, exactly:",
     "",
-    ...problems.map((problem) => `- ${problemLine(problem)}`),
+    ...problems.map((problem, index) => `${index + 1}. ${problemLine(problem)}`),
     "",
     "Fix every one: make the code WRONG names do what the specification says, write the tests that are missing, and",
     "make the weak ones assert what the specification says - the exact outcome, so they fail when it breaks. Then run",
-    "the unit tests. Never loosen a test, delete one, or mock the unit under test to make it pass.",
+    "the unit tests. Never loosen a test, delete one, or mock the unit under test to make it pass. One you are sure the",
+    "review is wrong about, decline, and say why.",
+    ...SUBMIT_AFTER_REVIEW,
     ...INTEGRITY_RULES,
     ...REVIEW_LESSON,
   ].join("\n");
@@ -278,20 +323,47 @@ export async function untilUnitTestsReviewed(options: {
   untilPassing: () => Promise<boolean>;
   stage: (label: string) => void;
   onDelta?: (delta: string) => void;
-}): Promise<{ passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[] }> {
+  /** What the coding agent handed over through submit_work: its account, beside the diff, for the reviewer. */
+  work?: WorkLedger;
+  /** Send the coding agent back once for problems its account left unanswered. Default true when `work` is given. */
+  askForAnswers?: boolean;
+}): Promise<{ passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[]; reviews: number }> {
+  const reviewer = await createUnitReviewer(options);
+  try {
+    return await reviewLoop(options, reviewer);
+  } finally {
+    reviewer.dispose();
+  }
+}
+
+async function reviewLoop(
+  options: Parameters<typeof untilUnitTestsReviewed>[0],
+  reviewer: UnitReviewer,
+): Promise<{ passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[]; reviews: number }> {
   let earlier: UnitReviewProblem[] | undefined;
   const history: UnitReviewProblem[][] = [];
   const waived: UnitReviewProblem[] = [];
+  /** What the reviewer saw last: the next review is shown only what changed since. */
+  let seen: string | undefined;
+  /** What the arbiter dismissed of the last review: the reviewer is told, so it does not raise them again. */
+  let letGo: UnitReviewProblem[] = [];
   const said = (problems: UnitReviewProblem[]) => problems.map((problem) => `${problem.file}${problem.test ? ` ${problem.test}` : ""}: ${problem.what.trim()}`).join("; ").slice(0, 600);
   for (let reviews = 0; reviews < UNIT_REVIEW_LIMIT; reviews += 1) {
     const changed = changedUnitTests(options.buildDir, options.atStart);
-    // What the coding agent has written by now: it changes between reviews.
+    // What the coding agent has written by now: it changes between reviews. The arbiter, fresh each time, reads it whole.
     const code = workDiff(options.buildDir);
+    const account = describeAccounts(options.work?.take() ?? [], earlier);
+    const request =
+      seen === undefined || earlier === undefined
+        ? unitReviewRequest({ diff: code, changed, account })
+        : unitReviewRequest({ diff: diffSinceSnapshot(options.buildDir, seen), changed, account, earlier, letGo });
+    seen = workSnapshot(options.buildDir);
+    letGo = [];
     options.stage(`reviewing the code and its unit tests (review ${reviews + 1}): does the code do what the spec says, and does each test fail when that breaks`);
-    const review = await reviewUnitTests({ ...options, changed, code, ...(earlier !== undefined ? { earlier } : {}) });
+    const review = await reviewer.review(request);
     if (review.pass) {
       options.stage("the review has nothing left to improve in the code or its unit tests");
-      return waived.length > 0 ? { passed: true, waived } : { passed: true };
+      return waived.length > 0 ? { passed: true, waived, reviews: reviews + 1 } : { passed: true, reviews: reviews + 1 };
     }
     let problems = review.problems;
     // From the third review that sends them back, the arbiter weighs it first: only what it upholds goes to the coding agent.
@@ -321,10 +393,11 @@ export async function untilUnitTestsReviewed(options: {
         if (ruling.dismissed.length > 0) recordNote(options.buildDir, "pitfalls", dismissedNote(ruling, "unit test"), `${options.label} unit tests`);
         if (ruling.upheld.length === 0) {
           options.stage("the arbiter approved the code and its unit tests as they are - what the review still raised is let go, and in the notes");
-          return { passed: true, waived };
+          return { passed: true, waived, reviews: reviews + 1 };
         }
         options.stage(`the arbiter upheld ${ruling.upheld.length} of the review's ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"} - the coding agent fixes ${ruling.upheld.length === 1 ? "it" : "those"}`);
         problems = ruling.upheld.map((entry) => entry.problem);
+        letGo = ruling.dismissed.map((entry) => entry.problem);
       }
     }
     history.push(review.problems);
@@ -341,9 +414,14 @@ export async function untilUnitTestsReviewed(options: {
     earlier = problems;
     const pitfalls = readNotes(options.buildDir).pitfalls;
     await options.send(unitReviewFeedbackPrompt(problems));
+    // Every problem answered - fixed, or declined and why - so the reviewer knows what became of each: sent back once.
+    if (options.work !== undefined && options.askForAnswers !== false) {
+      const missing = unanswered(options.work.peek(), problems.length);
+      if (missing.length > 0) await options.send(unansweredPrompt(missing));
+    }
     // The lesson, left for the agents after it: the next functionality's tests start from it.
     await reflectOnReview(options.buildDir, pitfalls, options.send);
-    if (!(await options.untilPassing())) return { passed: false, problems };
+    if (!(await options.untilPassing())) return { passed: false, problems, reviews: reviews + 1 };
   }
   // An optimiser, not a gate: what it still finds after the last review is noted, and the work goes on.
   options.stage(`the review is still not satisfied after ${UNIT_REVIEW_LIMIT} reviews - going on; what it last found is in the notes`);
@@ -353,5 +431,5 @@ export async function untilUnitTestsReviewed(options: {
     `the unit tests went on after ${UNIT_REVIEW_LIMIT} reviews that still found: ${said(earlier ?? [])}`,
     `${options.label} unit tests`,
   );
-  return { passed: true, waived: [...waived, ...(earlier ?? [])] };
+  return { passed: true, waived: [...waived, ...(earlier ?? [])], reviews: UNIT_REVIEW_LIMIT };
 }

@@ -3,7 +3,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -19,7 +19,9 @@ import {
 } from "../plain/spec.ts";
 import { reportActivity, reportSpec, reportStage, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
-import { abandonWork, moduleDirOf, recordHistory, startWork, type WorkStart } from "./history.ts";
+import { abandonWork, diffSinceSnapshot, moduleDirOf, recordHistory, startWork, workDiff, workSnapshot, type WorkStart } from "./history.ts";
+import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unansweredPrompt } from "./submit-work.ts";
+import { CONFORMANCE_COMPACTION } from "./compaction.ts";
 import { notesForSession, readNotes, reflectOnReview, withNotes } from "./notes.ts";
 import { labelsPrompt, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
@@ -42,7 +44,9 @@ import {
   exploreInvocation,
   judgeFailure,
   SPEC_CONFLICT_RAISES,
-  reviewTests,
+  createTestReviewer,
+  testReviewRequest,
+  type TestReviewer,
   reviewFeedbackPrompt,
   type ReviewProblem,
   testsFixPrompt,
@@ -302,6 +306,10 @@ export async function renderConformanceTests(
   let stuck: RenderConformanceTestsResult["stuck"];
   /** What the review last found, while it has not passed. */
   let lastReview: ReviewProblem[] | undefined;
+  /** The run's test reviewer, made at its first review and kept; what it saw last; what the arbiter let go of its last review. */
+  let reviewer: TestReviewer | undefined;
+  let reviewSeen: string | undefined;
+  let reviewLetGo: ReviewProblem[] = [];
   let failedReviews = 0;
   let reviewWaived: ReviewProblem[] | undefined;
   /** What each review that sent the tests back found, oldest first: what the arbiter weighs the next one against. */
@@ -387,19 +395,25 @@ export async function renderConformanceTests(
     createScriptTool({ kind: "conformance", script: scripts.conformance, run: () => runConformanceScript(buildDir, [conformanceDir], scripts), runs: [] }),
     RUNS_PER_TURN,
   );
+  // What it hands over at the end of a turn, for its reviewer.
+  const work = createWorkLedger();
   stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);
+  // One session for the whole run: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
       notes.tool,
+      work.tool,
       ...createWebTools(),
       ...fence.tools,
       conformanceRuns.tool,
     ],
-    tools: [...fence.names, "run_conformance_tests", "update_notes", ...WEB_TOOLS],
+    tools: [...fence.names, "run_conformance_tests", "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
     system: fence.note,
+    task: [withNotes(agentPrompt, buildDir), "", ...SUBMIT_WORK_NOTE].join("\n"),
+    compaction: { instructions: CONFORMANCE_COMPACTION },
   });
 
   /** A turn of the conformance agent: a fresh count of its runs of the suite. */
@@ -411,14 +425,14 @@ export async function renderConformanceTests(
   // The coding agent, made the first time the code is what is wrong.
   let fixer: AgentSession | undefined;
   const fixerNotes = notesForSession(buildDir, `${label} conformance code fix`);
-  const askFixer = async (text: (first: boolean) => string) => {
-    const first = fixer === undefined;
+  const askFixer = async (text: string) => {
     fixer ??= await createCodeFixer({
       buildDir,
       conformanceDir,
       logsDir,
       label,
       model: options.model,
+      spec: specContext,
       // The unit tests, and the conformance suite - to reproduce the failure and check the fix, seeing only its output.
       tools: [
         fixerNotes.tool,
@@ -428,7 +442,7 @@ export async function renderConformanceTests(
       toolNames: ["run_unit_tests", "run_conformance_tests", "update_notes"],
     });
     fixerConformanceRuns.newTurn();
-    return ask(fixer, withNotes(text(first), buildDir), options.onDelta);
+    return ask(fixer, withNotes(text, buildDir), options.onDelta);
   };
 
   try {
@@ -445,7 +459,7 @@ export async function renderConformanceTests(
           ? "plainwright is bringing the conformance tests in line with the spec change"
           : "plainwright is writing conformance tests from the spec",
     );
-    let response = await askConformance(withNotes(agentPrompt, buildDir), options.onDelta);
+    let response = await askConformance(BEGIN, options.onDelta);
 
     const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
     let verified = false;
@@ -469,7 +483,7 @@ export async function renderConformanceTests(
       if (unitRemovals.length > 0 && fixer !== undefined) {
         stage(`justifying ${unitRemovals.length} removed unit test${unitRemovals.length === 1 ? "" : "s"}`);
         testRemovals.push(...unitRemovals);
-        await askFixer(() => removalChallengePrompt(unitRemovals, "unit tests"));
+        await askFixer(removalChallengePrompt(unitRemovals, "unit tests"));
         continue;
       }
 
@@ -511,7 +525,7 @@ export async function renderConformanceTests(
       const misplaced = misplacedConformanceTests(buildDir);
       if (misplaced.length > 0) {
         stage(`conformance tests in the code folder - the coding agent removes ${misplaced.length === 1 ? "it" : "them"}`);
-        await askFixer(() => misplacedTestsPrompt(misplaced, buildDir, conformanceDir));
+        await askFixer(misplacedTestsPrompt(misplaced, buildDir, conformanceDir));
         continue;
       }
 
@@ -651,12 +665,9 @@ export async function renderConformanceTests(
         } else if (verdict.culprit === "code") {
           reportActivity(`  the code: ${reason}`);
           stage("the code is wrong - the coding agent fixes it");
-          // Each fix starts a fresh session: what earlier ones tried is in the notes' pitfalls, and one
-          // session carried through the run re-reads every earlier fix and suite output on every call -
-          // past a million tokens a call by the seventh.
-          fixer?.dispose();
-          fixer = undefined;
-          const fixed = await changing(() => askFixer((first) => codeFixPrompt({ buildDir, conformanceDir, spec: specContext, run: recheck, reason: verdict.reason, first })));
+          // One fixer for the run, starting each fix from what the ones before it tried: its work is compacted as it
+          // grows, so a session carried through the run does not re-read every earlier fix and suite output whole.
+          const fixed = await changing(() => askFixer(codeFixPrompt({ run: recheck, reason: verdict.reason })));
           recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
           // The fix has to build and pass its own unit tests before the suite runs again: a build
           // error is the coding agent's to fix, not a judge's to work out from the suite's output.
@@ -666,7 +677,7 @@ export async function renderConformanceTests(
             if (unit.ok) break;
             stage("the fix does not build or pass its unit tests - back to the coding agent");
             await changing(() =>
-              askFixer(() => `Your fix does not build or pass the code's unit tests - it has to before the conformance suite runs again.\n\n${unit.prompt}`),
+              askFixer(`Your fix does not build or pass the code's unit tests - it has to before the conformance suite runs again.\n\n${unit.prompt}`),
             );
           }
         } else {
@@ -685,7 +696,7 @@ export async function renderConformanceTests(
       const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
       if (!unit.ok) {
         stage("unit tests NOT passing - the coding agent fixes the code");
-        await askFixer(() => `The conformance tests pass, but the code's unit tests do not - and both have to.\n\n${unit.prompt}`);
+        await askFixer(`The conformance tests pass, but the code's unit tests do not - and both have to.\n\n${unit.prompt}`);
         continue;
       }
       stage("unit tests pass too");
@@ -695,19 +706,26 @@ export async function renderConformanceTests(
       const changedTests = [...testChanges.added, ...testChanges.changed];
       if (changedTests.length > 0) {
         stage(`optimising the tests (review ${failedReviews + 1} of at most ${REVIEW_LIMIT}): black box, and the acceptance tests doing what the spec says`);
-        const review = await reviewTests({
+        // One reviewer for the run, made the first time the tests are reviewed.
+        reviewer ??= await createTestReviewer({
           buildDir,
           conformanceDir,
           spec: specContext,
-          changed: changedTests,
           functionalities: forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }],
           forChange,
           invocation,
-          ...(lastReview !== undefined ? { earlier: lastReview } : {}),
           label,
           model: judgeModel,
           onDelta: options.onDelta,
         });
+        const account = describeAccounts(work.take(), lastReview);
+        const request =
+          reviewSeen === undefined || lastReview === undefined
+            ? testReviewRequest({ diff: workDiff(conformanceDir), changed: changedTests, account })
+            : testReviewRequest({ diff: diffSinceSnapshot(conformanceDir, reviewSeen), changed: changedTests, account, earlier: lastReview, letGo: reviewLetGo });
+        reviewSeen = workSnapshot(conformanceDir);
+        reviewLetGo = [];
+        const review = await reviewer.review(request);
         if (!review.pass) {
           failedReviews += 1;
           let problems = review.problems;
@@ -747,6 +765,7 @@ export async function renderConformanceTests(
               reviewWaived = [...(reviewWaived ?? []), ...ruling.dismissed.map((entry) => entry.problem)];
               stage(`the arbiter upheld ${ruling.upheld.length} of the review's ${review.problems.length} problem${review.problems.length === 1 ? "" : "s"} - the conformance agent fixes ${ruling.upheld.length === 1 ? "it" : "those"}`);
               problems = ruling.upheld.map((entry) => entry.problem);
+              reviewLetGo = ruling.dismissed.map((entry) => entry.problem);
             }
           }
           // An optimiser, not a gate: past the last review, what it still finds is noted, and the run goes on.
@@ -770,7 +789,12 @@ export async function renderConformanceTests(
               : `the review found ${problems.length} way${problems.length === 1 ? "" : "s"} to improve the tests - the conformance agent improves them`,
           );
           const pitfalls = readNotes(buildDir).pitfalls;
-          const fixed = await changing(() => askConformance(reviewFeedbackPrompt(problems), options.onDelta));
+          const fixed = await changing(async () => {
+            const answered = await askConformance(reviewFeedbackPrompt(problems), options.onDelta);
+            // Every problem answered - fixed, or declined and why - so the reviewer knows what became of each: sent back once.
+            const missing = unanswered(work.peek(), problems.length);
+            return missing.length > 0 ? askConformance(unansweredPrompt(missing), options.onDelta) : answered;
+          });
           // The lesson, left for the agents after it: the next functionality's conformance tests start from it.
           await reflectOnReview(buildDir, pitfalls, (prompt) => askConformance(prompt, options.onDelta));
           response = fixed.result;
@@ -826,6 +850,7 @@ export async function renderConformanceTests(
   } finally {
     executor.dispose();
     fixer?.dispose();
+    reviewer?.dispose();
   }
 }
 

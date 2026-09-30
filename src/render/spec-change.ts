@@ -14,7 +14,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
@@ -23,6 +23,8 @@ import { ensureRegressionPasses, type RegressionResult } from "./module.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
 import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec } from "./prompt.ts";
 import { abandonWork, recordHistory, startWork } from "./history.ts";
+import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
+import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
   createScriptTool,
@@ -370,19 +372,27 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const runs: TestRun[] = [];
   const fence = confinedTools({ workdir: buildDir });
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
+  // What it hands over at the end of a turn, for its reviewer.
+  const work = createWorkLedger();
+  // The scripts its work is judged by: the conformance testing script only when conformance runs.
+  const task = [withNotes(withTestingScripts(prompt, scripts, conformanceOn ? ["unit", "conformance"] : ["unit"], root), buildDir), "", ...SUBMIT_WORK_NOTE].join("\n");
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
+  // One session for the whole change: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [
       notes.tool,
+      work.tool,
       ...createWebTools(),
       createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs }),
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests", "update_notes", ...WEB_TOOLS],
+    tools: [...fence.names, "run_unit_tests", "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
     system: fence.note,
+    task,
+    compaction: { instructions: CODER_COMPACTION },
   });
 
   let response: string;
@@ -397,12 +407,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   try {
     stage("plainwright is implementing the spec change");
     let inventory = inventoryTests(buildDir);
-    response = await ask(
-      executor,
-      // The scripts its work is judged by: the conformance testing script only when conformance runs.
-      withNotes(withTestingScripts(prompt, scripts, conformanceOn ? ["unit", "conformance"] : ["unit"], root), buildDir),
-      options.onDelta,
-    );
+    response = await ask(executor, BEGIN, options.onDelta);
     // Back and forth until the harness's run of the unit testing script passes - whatever the
     // agent ran, and whether it ran anything - or the rounds run out. Picks up where it left off
     // when called again.
@@ -465,7 +470,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         untilPassing,
         stage,
         onDelta: options.onDelta,
+        work,
       });
+      stage(`the review took ${reviewed.reviews} review${reviewed.reviews === 1 ? "" : "s"}`);
       verified = reviewed.passed;
       if (!reviewed.passed) unitReviewStopped = true;
     }

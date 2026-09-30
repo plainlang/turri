@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { abandonWork, head, historyLog, historyShow, markWork, recordHistory, resetToLastCommit, startWork, workDiff } from "../../src/render/history.ts";
+import { abandonWork, diffSinceSnapshot, head, historyLog, historyShow, markWork, recordHistory, resetToLastCommit, startWork, workDiff, workSnapshot } from "../../src/render/history.ts";
 import { copyRequiredCode } from "../../src/render/requires.ts";
 
 let root: string;
@@ -213,5 +213,39 @@ describe("a unit of work", () => {
     expect(diff).not.toContain("code/");
     recordHistory(code, "render app fs 2");
     expect(workDiff(code)).toBe("");
+  });
+});
+
+describe("what changed since a review", () => {
+  it("is only what the work changed since the snapshot - not the rest of the work, and never the module's index", () => {
+    writeFileSync(join(code, "app.py"), "print('one')\n");
+    recordHistory(code, "render app fs 1");
+    writeFileSync(join(code, "app.py"), "print('two')\n");
+    writeFileSync(join(code, "extra.py"), "x = 1\n");
+    const seen = workSnapshot(code)!;
+    expect(seen).toMatch(/^[0-9a-f]{40}$/);
+    expect(diffSinceSnapshot(code, seen)).toBe("");
+
+    writeFileSync(join(code, "extra.py"), "x = 2\n");
+    writeFileSync(join(code, "new.py"), "y = 1\n");
+    const since = diffSinceSnapshot(code, seen);
+    expect(since).toContain("-x = 1\n+x = 2");
+    expect(since).toContain("+y = 1");
+    // What changed before the snapshot is not in it.
+    expect(since).not.toContain("print('two')");
+    // The whole work is still what the work changed since the last commit.
+    expect(workDiff(code)).toContain("print('two')");
+    // Nothing was staged for the next commit.
+    const staged = spawnSync("git", ["--git-dir", join(root, "plain_modules", "app", ".plaingit"), "--work-tree", join(root, "plain_modules", "app"), "diff", "--cached", "--name-only"], { encoding: "utf8" }).stdout.trim();
+    expect(staged).toBe("");
+  });
+
+  it("leaves out the harness's files and lockfiles, as the whole work's diff does", () => {
+    writeFileSync(join(code, "app.py"), "print('one')\n");
+    recordHistory(code, "render app fs 1");
+    const seen = workSnapshot(code)!;
+    writeFileSync(join(code, "package-lock.json"), "{}\n");
+    writeFileSync(join(code, ".plainwright-notes.md"), "- notes\n");
+    expect(diffSinceSnapshot(code, seen)).toBe("");
   });
 });

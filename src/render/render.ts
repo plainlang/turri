@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -22,6 +22,8 @@ import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../confi
 import { untilUnitTestsReviewed, type UnitReviewProblem } from "./unit-review.ts";
 import { abandonWork, recordHistory, startFromLastCommit, type WorkStart } from "./history.ts";
 import { notesForSession, withNotes } from "./notes.ts";
+import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
+import { CODER_COMPACTION } from "./compaction.ts";
 import { createScriptTool, findTestScripts, projectRootFor, requireTestScripts, runUnitScript, withTestingScripts } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
@@ -242,6 +244,7 @@ export async function renderFunctionality(
   // script when conformance tests are written for this build.
   prompt = withTestingScripts(prompt, scripts, conformance ? ["unit", "conformance"] : ["unit"], root);
   prompt = withNotes(prompt, buildDir);
+  prompt = [prompt, "", ...SUBMIT_WORK_NOTE].join("\n");
 
   if (options.dryRun) {
     return {
@@ -276,14 +279,19 @@ export async function renderFunctionality(
   // nowhere else. Nothing above `plain_modules` is reachable, including this repo.
   const fence = confinedTools({ workdir: buildDir });
   const notes = notesForSession(buildDir, `${moduleName} ${frid}`);
+  // What it hands over at the end of a turn, for its reviewer.
+  const work = createWorkLedger();
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
+  // One session for the whole render: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({
     cwd: buildDir,
-    customTools: [runTests, notes.tool, ...createWebTools(), ...fence.tools],
-    tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes", ...WEB_TOOLS],
+    customTools: [runTests, notes.tool, work.tool, ...createWebTools(), ...fence.tools],
+    tools: [...fence.names, ...EXTRA_CODING_TOOLS, "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} ${frid} coding agent`,
     system: fence.note,
+    task: prompt,
+    compaction: { instructions: CODER_COMPACTION },
   });
 
   try {
@@ -296,7 +304,7 @@ export async function renderFunctionality(
     let unitReview: RenderFunctionalityResult["unitReview"];
 
     stage("plainwright is writing the code and its unit tests");
-    let response = await ask(executor, prompt, options.onDelta);
+    let response = await ask(executor, BEGIN, options.onDelta);
 
     const maxFollowUps = options.maxFollowUps ?? DEFAULT_MAX_FOLLOW_UPS;
     let followUp = 0;
@@ -369,7 +377,9 @@ export async function renderFunctionality(
         untilPassing,
         stage,
         onDelta: options.onDelta,
+        work,
       });
+      stage(`the review took ${reviewed.reviews} review${reviewed.reviews === 1 ? "" : "s"}`);
       verified = reviewed.passed;
       if (!reviewed.passed || reviewed.waived !== undefined) unitReview = reviewed;
     }

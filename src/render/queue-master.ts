@@ -2,7 +2,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import type { MarshalledPlainSource } from "../plain/spec.ts";
 import { validateConcepts } from "../plain/concepts.ts";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { describeSpecChange } from "./prompt.ts";
 import {
   applyChanges,
@@ -640,10 +640,11 @@ export function llmQueueMaster(options: { cwd: string; model?: string; label?: s
       label: options.label ?? "queue master",
       // It judges how spec changes depend on each other - concepts, definitions, requires, test reqs - by the rules.
       rules: true,
+      task: prompt,
       budget: { calls: 30, finish: ["commit_queue", "ask_person"] },
     });
     try {
-      await ask(session, prompt);
+      await ask(session, BEGIN);
     } finally {
       session.dispose();
     }

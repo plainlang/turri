@@ -11,7 +11,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
-import { splitModelSpec } from "./config.ts";
+import { readProjectConfig, splitModelSpec } from "./config.ts";
 import { projectRootOf, sessionsDir } from "./render/paths.ts";
 import {
   currentStopSignal,
@@ -20,6 +20,7 @@ import {
   JobStoppedError,
   reportActivity,
   reportNow,
+  reportAgent,
   reportTranscript,
   reportUsage,
 } from "./render/activity.ts";
@@ -168,6 +169,8 @@ export class ProviderError extends Error {
  * merely unfinished. It is raised instead.
  */
 export async function ask(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
+  // Between turns, not during one: the work so far, summed up, once it has grown past the threshold.
+  await compactIfDue(session);
   // A provider that is overloaded or unreachable for a moment is waited out, longer than pi's own
   // retries do, rather than failing the whole run; the agent carries on where it was.
   let prompt = text;
@@ -224,7 +227,11 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // Every entry says which agent it is from, and what it runs on - for reading one agent at a time.
   const agent = agentOf(session);
   const transcript = (entry: Parameters<typeof reportTranscript>[0]) => reportTranscript(agent !== undefined ? { ...entry, agent } : entry);
-  transcript({ kind: "prompt", text });
+  // Its task is in its instructions, not in the conversation: the first turn shows it, for reading back.
+  const task = pendingTask.get(session);
+  pendingTask.delete(session);
+  transcript({ kind: "prompt", text: task !== undefined ? `${task}\n\n${text}` : text });
+  if (agent !== undefined) reportAgent({ label: agent.label, ...(agent.model !== undefined ? { model: agent.model } : {}), turns: 1 });
 
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "message_update") {
@@ -289,7 +296,9 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
       };
       if (message.role === "assistant" && message.usage !== undefined) {
         const { input, output, cacheRead, cacheWrite, cost } = message.usage;
-        reportUsage({ input, output, cacheRead, cacheWrite, cost: cost?.total ?? 0 });
+        const spent = { input, output, cacheRead, cacheWrite, cost: cost?.total ?? 0 };
+        reportUsage(spent);
+        if (agent !== undefined) reportAgent({ label: agent.label, usage: spent });
       }
       if (message.role === "assistant" && message.stopReason === "error") {
         providerError = message.errorMessage ?? "the provider returned an error";
@@ -314,7 +323,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // A timed turn is ended where it is when the time is up. The agent is not told: a turn cut short is taken up again
   // by the harness, and a clock in the prompt only hurries the work.
   const timed = timedSessions.has(session) && TURN_LIMIT_MS > 0;
-  const prompt = text;
+  const prompt = task !== undefined ? `${task}\n\n${text}` : text;
   let outOfTime = false;
   const timer = timed
     ? setTimeout(() => {
@@ -327,7 +336,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   debug?.prompt(prompt);
 
   try {
-    await session.prompt(prompt, { expandPromptTemplates: false });
+    await session.prompt(text, { expandPromptTemplates: false });
   } catch (error) {
     debug?.note(`turn failed after ${seconds(Date.now() - turnStarted)}: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
@@ -360,6 +369,82 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
  * it, in seconds; 0 turns it off.
  */
 export const TURN_LIMIT_MS = Number(process.env.PLAINWRIGHT_TURN_LIMIT ?? 120) * 1000;
+
+/** A session's task, in its instructions, until its first turn shows it in the transcript. */
+const pendingTask = new WeakMap<object, string>();
+
+/**
+ * What an agent opens with when its task is in its instructions. The task - the spec, how to read it, what to do
+ * and the rules - is its system prompt, not its first message: compaction sums up the conversation and never the
+ * system prompt, so what the agent works from stays word for word as it was, however long the work runs, and stays
+ * in the cached prefix of every call.
+ */
+export const BEGIN = "Begin. Your task is in your instructions.";
+
+/** How a session's work is summed up when it grows past the threshold: what the summary has to keep, for its role. */
+export interface Compaction {
+  instructions: string;
+  /** Tokens of conversation - past the system prompt - past which it is compacted. Default: the project's compact-at, else DEFAULT_COMPACT_AT. */
+  atTokens?: number;
+}
+
+/** Tokens of conversation past which a session that keeps working is compacted, when the project does not say. */
+export const DEFAULT_COMPACT_AT = 100_000;
+
+const compactions = new WeakMap<object, Required<Compaction>>();
+
+/** Have a session compacted between turns, as `compaction` says: what createExecutor does for an agent given one. */
+export function keepCompacted(session: object, compaction: Required<Compaction>): void {
+  compactions.set(session, compaction);
+}
+
+/** A rough count, as pi's own estimate makes it: four characters a token. */
+function tokensIn(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function thousands(tokens: number): string {
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : `${tokens}`;
+}
+
+/**
+ * Compact a session's work when its conversation - what it has done, not its instructions - has grown past its
+ * threshold. An agent that keeps its session through a job re-reads everything it did on every call: this keeps
+ * that bounded, as pi's own compaction does only when the context window is nearly full. The summary keeps what
+ * its role needs; its instructions are untouched. A compaction that fails leaves the session as it was.
+ */
+export async function compactIfDue(session: AgentSession): Promise<boolean> {
+  const settings = compactions.get(session);
+  if (settings === undefined) return false;
+  let tokens: number | null | undefined;
+  try {
+    tokens = session.getContextUsage()?.tokens;
+  } catch {
+    return false;
+  }
+  if (tokens === null || tokens === undefined) return false;
+  const conversation = tokens - tokensIn(session.systemPrompt ?? "");
+  if (conversation < settings.atTokens) return false;
+  const agent = agentOf(session);
+  const who = agent?.label ?? "the agent";
+  reportActivity(`  compacting ${who}'s work: ${thousands(conversation)} tokens of it, past ${thousands(settings.atTokens)}`);
+  try {
+    const result = await session.compact(settings.instructions);
+    const usage = result.usage as { input: number; output: number; cacheRead: number; cacheWrite: number; cost?: { total: number } } | undefined;
+    if (usage !== undefined) {
+      const spent = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, cost: usage.cost?.total ?? 0 };
+      reportUsage(spent);
+      if (agent !== undefined) reportAgent({ label: agent.label, usage: spent });
+    }
+    if (agent !== undefined) reportAgent({ label: agent.label, compactions: 1 });
+    reportActivity(`  compacted ${who}'s work${result.estimatedTokensAfter !== undefined ? ` to about ${thousands(result.estimatedTokensAfter)} tokens` : ""}`);
+    debugLogOf(session)?.note(`compacted: ${result.tokensBefore} tokens before${result.estimatedTokensAfter !== undefined ? `, about ${result.estimatedTokensAfter} after` : ""}`);
+    return true;
+  } catch (error) {
+    reportActivity(`  could not compact ${who}'s work - it goes on as it is: ${error instanceof Error ? error.message.slice(0, 160) : String(error)}`);
+    return false;
+  }
+}
 
 /** The sessions whose turns are timed: the agents a render starts, not the conversation or a skill's. */
 const timedSessions = new WeakSet<object>();
@@ -418,7 +503,8 @@ export interface CallBudget {
  *
  * With a budget, an agent that has one thing to decide - a verdict, a review, an account - is told
  * to decide once it has made that many calls: every tool but the one that hands it over refuses,
- * and past twice the budget its turn is stopped.
+ * and past twice the budget its turn is stopped. Handing it over starts the count again, and forgets
+ * the looks: a reviewer kept for the next review reads the files as they are by then.
  */
 export function guardRepeats(tools: ToolDefinition[], session: () => AgentSession | undefined, budget?: CallBudget): ToolDefinition[] {
   let last: string | undefined;
@@ -473,7 +559,15 @@ export function guardRepeats(tools: ToolDefinition[], session: () => AgentSessio
             `After ${REPEATS_BEFORE_STOP} your turn is stopped.`,
         );
       }
-      return tool.execute(...args);
+      const result = await tool.execute(...args);
+      // The decision handed over ends the round: a session kept for the next one starts it with its whole budget.
+      if (budget?.finish.includes(tool.name)) {
+        calls = 0;
+        last = undefined;
+        times = 0;
+        looks.clear();
+      }
+      return result;
     },
   })) as ToolDefinition[];
 }
@@ -499,6 +593,13 @@ export async function createExecutor(opts: {
   /** Added to its system prompt: its sandbox, above all - what it can reach (see confine.ts sandboxNote). */
   system?: string;
   /**
+   * Its task - everything its first prompt used to say: the spec, how to read it, what to do, the rules. It goes
+   * into its system prompt, after `system`, so compaction never sums it up; open the session with BEGIN.
+   */
+  task?: string;
+  /** Given, the session keeps working through a job and is compacted between turns once its work grows past the threshold. */
+  compaction?: Compaction;
+  /**
    * What the agent is, e.g. "app 3 coding agent". Given, the agent is one a render started: its
    * whole conversation is streamed to a log named after it (see debug-log.ts).
    */
@@ -518,8 +619,10 @@ export async function createExecutor(opts: {
     tools: opts.tools,
     customTools: guardRepeats(opts.customTools, () => session, opts.budget),
     sessionManager,
-    resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, opts.system),
+    resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, [opts.system, opts.task].filter((part) => part !== undefined && part !== "").join("\n\n") || undefined),
   });
+  if (opts.task !== undefined) pendingTask.set(session, opts.task);
+  if (opts.compaction !== undefined) keepCompacted(session, { instructions: opts.compaction.instructions, atTokens: opts.compaction.atTokens ?? compactAtFor(opts.cwd) });
 
   const chosen = splitModelSpec(opts.model);
   if (chosen.model !== undefined) {
@@ -547,6 +650,15 @@ export async function createExecutor(opts: {
   return session;
 }
 
+/** The project's compact-at, for an agent working in `cwd`: from its config.yaml, else the default. */
+function compactAtFor(cwd: string): number {
+  try {
+    return readProjectConfig(projectRootOf(cwd)).compactAt ?? DEFAULT_COMPACT_AT;
+  } catch {
+    return DEFAULT_COMPACT_AT;
+  }
+}
+
 function findModel(session: AgentSession, spec: string) {
   const slash = spec.indexOf("/");
   if (slash === -1) throw new Error(`Model must be "provider/model-id", got "${spec}"`);
@@ -565,6 +677,8 @@ export async function createJudge(opts: {
   borrowAuthFrom: AgentSession;
   /** Read-only tools the rubric needs. Empty keeps the judge unable to touch anything. */
   extraTools?: string[];
+  /** What it judges and by which rubric: its instructions, as an executor's task is. Open the session with BEGIN. */
+  task?: string;
 }): Promise<{ session: AgentSession; modelNote: string }> {
   const modelRuntime = opts.borrowAuthFrom.modelRuntime;
   let model;
@@ -592,7 +706,8 @@ export async function createJudge(opts: {
     customTools: [opts.verdictTool],
     sessionManager: SessionManager.inMemory(opts.cwd),
     // Judges assess specs against the rules, so they have them too.
-    resourceLoader: await subAgentResources(opts.cwd, true),
+    resourceLoader: await subAgentResources(opts.cwd, true, opts.task),
   });
+  if (opts.task !== undefined) pendingTask.set(session, opts.task);
   return { session, modelNote };
 }

@@ -9,17 +9,23 @@ const reviewPrompts: string[] = [];
 /** What the stand-in arbiter rules, weighing after weighing - by problem number - and every prompt it was given. */
 const rulings: Array<Array<{ problem: number; uphold: boolean; why: string }> | undefined> = [];
 const arbiterPrompts: string[] = [];
+/** Each reviewer session's task - its instructions - one per review loop. */
+const reviewerTasks: string[] = [];
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
-  type Session = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
+  type Session = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: Session["tools"] }) => ({ tools: opts.customTools, dispose() {} }),
+    createExecutor: async (opts: { customTools: Session["tools"]; task?: string }) => {
+      if (opts.customTools.some((tool) => tool.name === "submit_review")) reviewerTasks.push(opts.task ?? "");
+      return { tools: opts.customTools, task: opts.task, dispose() {} };
+    },
     ask: vi.fn(async (session: Session, prompt: string) => {
       const arbiter = session.tools.find((tool) => tool.name === "submit_ruling");
       if (arbiter !== undefined) {
-        arbiterPrompts.push(prompt);
+        // Fresh each time: its task is all it is given.
+        arbiterPrompts.push(session.task ?? prompt);
         const ruling = rulings.shift();
         if (ruling !== undefined) await arbiter.execute("id", { rulings: ruling });
         return "Ruled.";
@@ -49,6 +55,7 @@ beforeEach(() => {
   reviewPrompts.length = 0;
   rulings.length = 0;
   arbiterPrompts.length = 0;
+  reviewerTasks.length = 0;
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -56,7 +63,7 @@ const weak = { file: "test_app.py", kind: "bad" as const, what: "only checks tha
 const better = { file: "test_app.py", kind: "bad" as const, what: "could check the error message too", blocking: false };
 
 /** The stand-in coding agent: it takes each prompt, and - when it reflects - leaves the review's lesson in the notes. */
-function loop(sent: string[], passing = true, reflects = true, fixes?: () => void) {
+function loop(sent: string[], passing = true, reflects = true, fixes?: () => void, work?: import("../../src/render/submit-work.ts").WorkLedger) {
   writeFileSync(join(dir, "main.py"), "import app\n");
   recordHistory(dir, "render app fs 0");
   const atStart = digestFiles(dir);
@@ -79,6 +86,7 @@ function loop(sent: string[], passing = true, reflects = true, fixes?: () => voi
     },
     untilPassing: async () => passing,
     stage: () => {},
+    ...(work !== undefined ? { work } : {}),
   });
 }
 
@@ -95,20 +103,21 @@ describe("the unit test review", () => {
     verdicts.push({ pass: false, problems: [weak] }, { pass: true, problems: [] });
     const sent: string[] = [];
     const result = await loop(sent);
-    expect(result).toEqual({ passed: true });
+    expect(result).toEqual({ passed: true, reviews: 2 });
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("BLOCKING · BAD · test_app.py: only checks that register returns something");
-    expect(reviewPrompts[0]).toContain("<unit tests added or changed>\ntest_app.py\n</unit tests added or changed>");
-    expect(reviewPrompts[0]).toContain("A visitor registers with an email");
-    // The next review checks what the last one found, first.
-    expect(reviewPrompts[1]).toContain("The review before this one sent the tests back with these problems");
+    expect(sent[0]).toContain("1. BLOCKING · BAD · test_app.py: only checks that register returns something");
+    expect(reviewPrompts[0]).toContain("<unit tests added or changed by the work>\ntest_app.py\n</unit tests added or changed by the work>");
+    expect(reviewerTasks[0]).toContain("A visitor registers with an email");
+    // The next review checks what the last one found, first - the same reviewer, which read the work already.
+    expect(reviewPrompts[1]).toContain("The problems of your last review the coding agent was given:\n1. BLOCKING · BAD · test_app.py");
+    expect(reviewerTasks).toHaveLength(1);
   });
 
-  it("shows the reviewer the spec as the coding agent had it, what is new in this work apart, and the code the work wrote - afresh each review", async () => {
+  it("shows the reviewer the spec as the coding agent had it and the code the work wrote - then only what changed since its last review", async () => {
     verdicts.push({ pass: false, problems: [weak] }, { pass: true, problems: [] });
     await loop([], true, true, () => writeFileSync(join(dir, "test_app.py"), "def test_register(): assert register('a@b.c') == {'email': 'a@b.c'}\n"));
-    expect(reviewPrompts[0]).toContain("How to read what follows:");
-    expect(reviewPrompts[0]).toContain(
+    expect(reviewerTasks[0]).toContain("How to read it:");
+    expect(reviewerTasks[0]).toContain(
       '<new in this work>\n<functionality module="app" id="1">\n- A visitor registers with an email; the user is stored with it.\n</functionality>',
     );
     expect(reviewPrompts[0]).toContain("<the code this work wrote - a diff of the code folder from where the work started>\ndiff --git a/app.py b/app.py");
@@ -116,8 +125,10 @@ describe("the unit test review", () => {
     // The code it left alone is not in the diff.
     expect(reviewPrompts[0]).not.toContain("+import app");
     expect(reviewPrompts[0]).toContain("+def test_register(): assert register('a@b.c')\n");
-    // The fix the coding agent made after the first review is what the second one reads.
+    // The fix the coding agent made after the first review is what the second one reads - and only that.
+    expect(reviewPrompts[1]).toContain("<what changed since your last review - a diff of the code folder>");
     expect(reviewPrompts[1]).toContain("+def test_register(): assert register('a@b.c') == {'email': 'a@b.c'}");
+    expect(reviewPrompts[1]).not.toContain("+def register(email)");
   });
 
   it("reviews the code too - code that does not do what the spec says goes back to the coding agent to fix", async () => {
@@ -126,10 +137,10 @@ describe("the unit test review", () => {
       { pass: true, problems: [] },
     );
     const sent: string[] = [];
-    expect(await loop(sent)).toEqual({ passed: true });
-    expect(reviewPrompts[0]).toContain("Check that the code does what the specification states for this work:");
-    expect(reviewPrompts[0]).toContain("When the work wrote no code at all, or none for a behaviour, that behaviour is not implemented: raise it.");
-    expect(sent[0]).toContain("- BLOCKING · WRONG · app.py · register: stores nothing");
+    expect(await loop(sent)).toEqual({ passed: true, reviews: 2 });
+    expect(reviewerTasks[0]).toContain("Check that the code does what the specification states for this work:");
+    expect(reviewerTasks[0]).toContain("When the work wrote no code at all, or none for a behaviour, that behaviour is not implemented: raise it.");
+    expect(sent[0]).toContain("1. BLOCKING · WRONG · app.py · register: stores nothing");
     expect(sent[0]).toContain("make the code WRONG names do what the specification says");
   });
 
@@ -190,14 +201,55 @@ describe("the unit test review", () => {
     rulings.push(undefined);
     const sent: string[] = [];
     const result = await loop(sent);
-    expect(result).toEqual({ passed: true });
+    expect(result).toEqual({ passed: true, reviews: UNIT_REVIEW_ROUNDS + 1 });
     expect(sent.filter((prompt) => prompt.includes("A review of the work found"))).toHaveLength(UNIT_REVIEW_ROUNDS);
   });
 
   it("gives the reviewer the voice of the exacting developer, who raises everything and leaves the weighing to the arbiter", async () => {
     verdicts.push({ pass: true, problems: [] });
     await loop([]);
-    expect(reviewPrompts[0]).toContain("You are the exacting reviewer: opinionated, thorough, and hard to satisfy.");
+    expect(reviewerTasks[0]).toContain("You are the exacting reviewer: opinionated, thorough, and hard to satisfy.");
+  });
+
+  it("gives the reviewer the coding agent's account beside the diff, as a claim to check - and says when it gave none", async () => {
+    const { createWorkLedger } = await import("../../src/render/submit-work.ts");
+    const work = createWorkLedger();
+    const hand = (params: object) => (work.tool.execute as unknown as (id: string, params: object) => Promise<unknown>)("id", params);
+    verdicts.push({ pass: false, problems: [weak] }, { pass: true, problems: [] });
+    await hand({ summary: "Wrote register and its test." });
+    await loop([], true, true, () => void hand({ summary: "Made the test assert the stored user.", answers: [{ problem: 1, outcome: "fixed", why: "asserts the dict", files: ["test_app.py"] }] }), work);
+    expect(reviewPrompts[0]).toContain("<the coding agent's account>\nWrote register and its test.\n</the coding agent's account>");
+    expect(reviewPrompts[1]).toContain("- problem 1 (only checks that register returns something");
+    expect(reviewPrompts[1]).toContain("fixed - asserts the dict [test_app.py]");
+    expect(reviewerTasks[0]).toContain("It is a claim: check every part of");
+
+    verdicts.push({ pass: true, problems: [] });
+    await loop([], true, true, undefined, createWorkLedger());
+    expect(reviewPrompts.at(-1)).toContain("(the agent that did the work gave no account - go by the diff)");
+  });
+
+  it("sends the coding agent back once for a problem its account left unanswered", async () => {
+    const { createWorkLedger } = await import("../../src/render/submit-work.ts");
+    const work = createWorkLedger();
+    verdicts.push({ pass: false, problems: [weak, better] }, { pass: true, problems: [] });
+    const sent: string[] = [];
+    const hand = (params: object) => (work.tool.execute as unknown as (id: string, params: object) => Promise<unknown>)("id", params);
+    await loop(sent, true, true, () => void hand({ summary: "Fixed the first.", answers: [{ problem: 1, outcome: "fixed", why: "asserts the dict" }] }), work);
+    const back = sent.filter((prompt) => prompt.includes("Your account answers no problem"));
+    expect(back).toHaveLength(1);
+    expect(back[0]).toContain("no problem 2 of the review's list");
+  });
+
+  it("tells the reviewer what the arbiter let go, so it does not raise it again", async () => {
+    for (let i = 0; i < UNIT_REVIEW_ROUNDS; i += 1) verdicts.push({ pass: false, problems: [weak, better] });
+    verdicts.push({ pass: true, problems: [] });
+    rulings.push([
+      { problem: 1, uphold: true, why: "untested" },
+      { problem: 2, uphold: false, why: "a nitpick" },
+    ]);
+    await loop([]);
+    expect(reviewPrompts[UNIT_REVIEW_ROUNDS]).toContain("The arbiter weighed your last review and let these go");
+    expect(reviewPrompts[UNIT_REVIEW_ROUNDS]).toContain("could check the error message too");
   });
 
   it("is an optimiser, not a gate: a behaviour still untested after its last review is let go, noted, and the work goes on", async () => {

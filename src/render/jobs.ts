@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { withVmLease } from "./vm.ts";
-import { JobStoppedError, withActivity, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
+import { addAgentReport, describeAgents, JobStoppedError, withActivity, type AgentReport, type AgentTally, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
 import { startJobLog, type JobLog } from "./job-log.ts";
 
 /**
@@ -48,6 +48,8 @@ export interface Job {
   now?: { label: string; since: number };
   /** Every model response its agents have had, added up. */
   usage: UsageReport;
+  /** Each of its agents: turns, compactions and what it cost - a row per agent, in the order they first worked. */
+  agents: AgentTally[];
   /** The whole conversation of its agents, oldest dropped first past a size limit. */
   transcript: TranscriptEntry[];
   /** It failed, and failed again when retried - or a job ahead of it did: the queue behind it fails too. */
@@ -191,6 +193,7 @@ export function createJobRegistry(options?: {
         tail: "",
         activity: [],
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+        agents: [],
         transcript: [],
       };
       jobs.set(job.id, job);
@@ -260,6 +263,9 @@ export function createJobRegistry(options?: {
             cost: job.usage.cost + spent.cost,
           };
           changed();
+        },
+        agent(report: AgentReport) {
+          addAgentReport(job.agents, report);
         },
         now(label: string | undefined, opts?: { keepSince?: boolean }) {
           job.now =
@@ -386,7 +392,7 @@ export function createJobRegistry(options?: {
             giveSlot();
           }
           finished.finishedAt = Date.now();
-          log?.end(finished.status === "succeeded" ? "finished" : finished.status === "stopped" ? "stopped" : "finished - failed", finished.announce ?? finished.report ?? finished.error);
+          log?.end(finished.status === "succeeded" ? "finished" : finished.status === "stopped" ? "stopped" : "finished - failed", finished.announce ?? finished.report ?? finished.error, describeAgents(finished.agents));
           // A failing listener must not take the job down with it; the result is
           // already recorded and can still be collected by asking.
           try {
@@ -471,7 +477,8 @@ export function describeJob(job: Job): string {
   }
   if (job.status === "failed") return `${header}\n\n${job.error ?? "no error recorded"}`;
   if (job.status === "stopped") return `${header}\n\nStopped on request. Whatever it changed before it stopped is still on disk.`;
-  return `${header}\n\n${job.report ?? "(no report)"}`;
+  const agents = describeAgents(job.agents ?? []);
+  return `${header}\n\n${job.report ?? "(no report)"}${agents.length > 0 ? `\n\n<its agents>\n${agents.join("\n")}\n</its agents>` : ""}`;
 }
 
 

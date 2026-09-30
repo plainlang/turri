@@ -6,14 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /** The judge, stubbed to give the verdicts queued in `verdicts`, one per turn. */
 const verdicts: Array<Record<string, unknown>> = [];
 const prompts: string[] = [];
-type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
+type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: StubSession["tools"] }) => ({ tools: opts.customTools, dispose() {} }),
+    createExecutor: async (opts: { customTools: StubSession["tools"]; task?: string }) => ({ tools: opts.customTools, task: opts.task, dispose() {} }),
     ask: async (session: StubSession, prompt: string) => {
-      prompts.push(prompt);
+      // Its task is its instructions: the turn that begins it reads as the task.
+      prompts.push(prompt === actual.BEGIN ? (session.task ?? prompt) : prompt);
       const next = verdicts.shift();
       if (next !== undefined) await session.tools.find((tool) => tool.name === "submit_verdict")!.execute("id", next);
       return "Done.";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec } from "../../src/render/prompt.ts";
-import { unitReviewPrompt } from "../../src/render/unit-review.ts";
+import { unitReviewTask } from "../../src/render/unit-review.ts";
 import { changesBetween, serializeTree } from "../../src/render/spec-steps.ts";
 
 const tree = (definitions: string[], reqs: string[], specs: string[]) => ({
@@ -58,7 +58,7 @@ describe("a spec change, as the coding agent reads it", () => {
 
   it("is what the unit test review is shown too, told that behaviour is what a functional spec, an acceptance test or a req states", () => {
     const spec = reviewedSpec({ moduleName: "app", specifications: { definitions: [], "implementation reqs": [], "test reqs": [], "functional specs": [] } as never, change: text });
-    const prompt = unitReviewPrompt({ buildDir: "/code", changed: ["src/app.test.ts"], what: "the spec change to module `app`", spec, forChange: true });
+    const prompt = unitReviewTask({ buildDir: "/code", what: "the spec change to module `app`", spec, forChange: true });
     expect(prompt).toContain(`<new in this work>\n<spec change>\n${text}\n</spec change>\n</new in this work>`);
     expect(prompt).toContain("Behaviour is what a functional spec, an acceptance test or an implementation req states.");
     expect(prompt).toContain("a page, a component or a record that only <definitions> name");

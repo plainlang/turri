@@ -77,8 +77,9 @@ is reported as pending, not dropped.
 - `render.ts` renders one functionality. `prompt.ts` builds the only thing the agent sees; it can't
   read `.plain` files. The agent works, then the harness runs the project's unit testing script
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
-  Once they pass, `unit-review.ts` has a read-only reviewer check, from a diff of what the work wrote,
-  that the code does what the spec says and its unit tests test it - an optimiser, not a gate: from the third review that sends them back an arbiter
+  Once they pass, `unit-review.ts` has a read-only reviewer - one session for the loop, shown the
+  whole work diff first, then the diff since its last review (`workSnapshot`) and the coder's
+  `submit_work` account (`submit-work.ts`) - check that the code does what the spec says and its unit tests test it - an optimiser, not a gate: from the third review that sends them back an arbiter
   agent weighs each one and passes on only what it upholds, and after ten all is let go - as spec
   changes do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
@@ -109,6 +110,13 @@ and shut down when idle or when the project moves to another module. There is no
 except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. plainwright turns off `AGENTS.md`/`CLAUDE.md`
 loading for every agent it starts (`noContextFiles` in `src/pi.ts`).
 
+**Agent sessions.** An agent's whole initial prompt is its system prompt (`createExecutor`'s `task`,
+opened with `BEGIN`), so pi's compaction never sums it up. The coding agent, the conformance agent,
+the code fixer, the repair agent and both reviewers keep one session per job and are compacted by
+the harness between turns past `compact-at` (`compactIfDue` in `pi.ts`, instructions per role in
+`render/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
+agents (`reportAgent`, `Job.agents`) into its log.
+
 **Deploy (`render/deploy.ts`, `deploy-tools.ts`, `deploy-cli.ts`).** Trying what is built: `deploy`
 exports the tip module's last `.plaingit` commit (`git archive` of `code/`) to `<project>/dist/<module>`
 and the chat model - or `plainwright deploy`'s one-off agent on `harness-model` - starts it on the
@@ -135,7 +143,9 @@ documents every key.
 
 - No test calls a model. Agent behaviour is scripted with
   `vi.mock("../../src/pi.ts", ...)` replacing `createExecutor` / `ask` with a stub that calls the
-  session's tools directly (`write`, `run_unit_tests`, `update_notes`, ...). The module under test is
+  session's tools directly (`write`, `run_unit_tests`, `update_notes`, ...). An agent's task comes as
+  `opts.task` to `createExecutor` and its first `ask` is `BEGIN`: a stub that checks prompts reads the
+  task from the session it made. The module under test is
   then loaded with a dynamic `await import(...)` after the mock. `tests/render/conformance-loop.test.ts`
   is the reference example.
 - `tests/test-scripts.ts` `writeTestScripts()` gives a temp project minimal Python testing scripts.

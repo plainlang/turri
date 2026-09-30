@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { plainFileParser } from "../plain/parser.ts";
 import { getFrids,
   getSpecificationItems,
@@ -17,6 +17,7 @@ import { confinedTools } from "./confine.ts";
 import { defaultBuildDir, modulesRoot, projectRootOf, projectDirOf } from "./paths.ts";
 import { buildRegressionFixPrompt } from "./prompt.ts";
 import { abandonWork, markWork, recordHistory, startFromLastCommit, startWork, type WorkStart } from "./history.ts";
+import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
   findTestScripts,
@@ -219,6 +220,22 @@ async function repairRegression(input: {
     model: input.model,
     label: `${input.step} repair agent`,
     system: fence.note,
+    task: withNotes(
+      withTestingScripts(
+        buildRegressionFixPrompt({
+          moduleName: input.moduleName,
+          frids: input.frids,
+          specifications,
+          required: input.required,
+          failure: input.failure,
+        }),
+        input.scripts,
+        ["conformance", "unit"],
+        projectRootOf(input.buildDir),
+      ),
+      input.buildDir,
+    ),
+    compaction: { instructions: CODER_COMPACTION },
   });
 
   try {
@@ -226,26 +243,7 @@ async function repairRegression(input: {
     const { report, restored } = await keepingTestsUnchanged({
       dirs: input.testsDirs,
       label: input.moduleName,
-      start: () =>
-        ask(
-          session,
-          withNotes(
-            withTestingScripts(
-              buildRegressionFixPrompt({
-                moduleName: input.moduleName,
-                frids: input.frids,
-                specifications,
-                required: input.required,
-                failure: input.failure,
-              }),
-              input.scripts,
-              ["conformance", "unit"],
-              projectRootOf(input.buildDir),
-            ),
-            input.buildDir,
-          ),
-          input.onDelta,
-        ),
+      start: () => ask(session, BEGIN, input.onDelta),
       again: (prompt) => ask(session, prompt, input.onDelta),
     });
     if (restored.length > 0) reportActivity(`  put back ${restored.length} conformance test file(s) the repair agent changed`);

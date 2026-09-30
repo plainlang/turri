@@ -305,3 +305,42 @@ export function workDiff(dir: string): string {
   const rest = [...changed, ...added].filter((path) => !NOT_REVIEWED.test(path) && !kept.includes(` b/${path}\n`));
   return `${kept}\n\n(the diff goes on past what is shown: read these files whole - ${rest.join(", ")})`;
 }
+
+/**
+ * The work in `dir` as it is now - the code folder, or the tests folder - as a git tree, without a commit and without
+ * touching the module's index: what a review saw, so the next review is shown only what changed since. Undefined
+ * when there is no history.
+ */
+export function workSnapshot(dir: string): string | undefined {
+  const moduleDir = moduleDirOf(dir);
+  if (!existsSync(join(moduleDir, HISTORY_DIR))) return undefined;
+  const folder = basename(dir);
+  // An index of its own, so the module's - what the next commit is made from - is never touched.
+  const env = { ...process.env, GIT_INDEX_FILE: join(moduleDir, HISTORY_DIR, "plainwright-snapshot-index") };
+  const run = (args: string[]) => spawnSync("git", ["--git-dir", join(moduleDir, HISTORY_DIR), "--work-tree", moduleDir, ...args], { cwd: moduleDir, encoding: "utf8", env });
+  if (run(["read-tree", "--empty"]).status !== 0) return undefined;
+  if (run(["add", "-A", "--", folder]).status !== 0) return undefined;
+  const tree = run(["write-tree"]);
+  return tree.status === 0 ? tree.stdout.trim() : undefined;
+}
+
+/**
+ * What changed in `dir` since a snapshot of it (`workSnapshot`): a unified diff of every file changed, added or
+ * removed since, as `workDiff` shows the whole work. Empty when nothing changed, or there is no history.
+ */
+export function diffSinceSnapshot(dir: string, snapshot: string): string {
+  const now = workSnapshot(dir);
+  if (now === undefined) return "";
+  if (now === snapshot) return "";
+  const moduleDir = moduleDirOf(dir);
+  const folder = basename(dir);
+  const files = git(moduleDir, ["diff", "--no-color", "--name-only", `--relative=${folder}`, snapshot, now, "--", folder]).stdout.split("\n").filter((path) => path !== "" && !NOT_REVIEWED.test(path));
+  const parts = files.map((file) => git(moduleDir, ["diff", "--no-color", `--relative=${folder}`, snapshot, now, "--", `${folder}/${file}`]).stdout.trimEnd());
+  const diff = parts.filter(Boolean).join("\n");
+  if (diff.length <= WORK_DIFF_MAX) return diff;
+  const shown = diff.slice(0, WORK_DIFF_MAX);
+  const cut = shown.lastIndexOf("\ndiff --git ");
+  const kept = cut > 0 ? shown.slice(0, cut) : shown;
+  const rest = files.filter((path) => !kept.includes(` b/${path}\n`));
+  return `${kept}\n\n(the diff goes on past what is shown: read these files whole - ${rest.join(", ")})`;
+}

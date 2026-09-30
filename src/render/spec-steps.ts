@@ -17,7 +17,7 @@ import {
 } from "../plain/spec.ts";
 import { validateConcepts } from "../plain/concepts.ts";
 import { sectionsOf, specStateFor } from "./state.ts";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { sectionTag } from "./prompt.ts";
 
 /**
@@ -790,9 +790,10 @@ export function llmPlanner(options: { cwd: string; model?: string; label?: strin
       tools: ["submit_plan"],
       model: options.model,
       label: options.label ?? "spec steps planner",
+      task: planPrompt(request),
     });
     try {
-      await ask(session, planPrompt(request));
+      await ask(session, BEGIN);
     } finally {
       session.dispose();
     }

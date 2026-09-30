@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { reportStage, reportTranscript } from "../../src/render/activity.ts";
-import { createJobRegistry } from "../../src/render/jobs.ts";
+import { reportAgent, reportStage, reportTranscript } from "../../src/render/activity.ts";
+import { createJobRegistry, describeJob } from "../../src/render/jobs.ts";
 
 let root: string;
 let lane: string;
@@ -15,6 +15,32 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("a job's log", () => {
+  it("ends with each of its agents - turns, compactions and what it cost - and check_job says the same", async () => {
+    const jobs = createJobRegistry();
+    const spent = { input: 1000, output: 200, cacheRead: 5000, cacheWrite: 0, cost: 0.05 };
+    const job = jobs.start({
+      kind: "render",
+      summary: "app.plain fs 1",
+      lanes: [lane],
+      run: async () => {
+        for (let turn = 0; turn < 3; turn += 1) reportAgent({ label: "app 1 coding agent", model: "anthropic/claude-sonnet-5", turns: 1, usage: spent });
+        reportAgent({ label: "app 1 coding agent", compactions: 1 });
+        reportAgent({ label: "app 1 reviewer", turns: 2, usage: spent });
+        return { report: "Built it." };
+      },
+    });
+    await jobs.wait(job.id);
+    const finished = jobs.get(job.id)!;
+    expect(finished.agents.map((agent) => [agent.label, agent.turns, agent.compactions])).toEqual([
+      ["app 1 coding agent", 3, 1],
+      ["app 1 reviewer", 2, 0],
+    ]);
+    const dir = join(root, ".plainwright", "jobs");
+    const text = readFileSync(join(dir, readdirSync(dir)[0]!), "utf8");
+    expect(text).toContain("── its agents\n  app 1 coding agent · 3 turns · 1 compaction · 18.6k tok · $0.15 · anthropic/claude-sonnet-5\n  app 1 reviewer · 2 turns · 6.2k tok · $0.05");
+    expect(describeJob(finished)).toContain("<its agents>\napp 1 coding agent · 3 turns");
+  });
+
   it("is what /watch shows, whole: the harness's stages, every prompt, reply, thought and tool call, unclipped, and how it ended", async () => {
     const jobs = createJobRegistry();
     const longResult = `${"x".repeat(5000)}\nFAILED test_app.py`;

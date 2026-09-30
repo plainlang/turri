@@ -53,6 +53,7 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
 | `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `plainwright vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
 | `system-packages` | Alpine packages every VM of the project installs when it starts - a library or tool a build needs, `sqlite`, `jq` | none |
+| `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](rendering.md#agent-sessions) |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the machine's memory holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
 | `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](rendering.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
 
@@ -164,7 +165,7 @@ How a module's config is made:
 - **By the codebase it runs in.** What runs in a codebase follows that codebase's module - a
   required module's spec rebuilt up the chain is tested with the scripts of the module it is rebuilt
   in.
-- **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:`, `vm-image:` and
+- **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:`, `compact-at:`, `vm-image:` and
   `system-packages:` are read only from `config.yaml` - there is one conversation, one module built
   when none is named, one machine, and one image for the project's VMs. An import module is never built and has
   no config.

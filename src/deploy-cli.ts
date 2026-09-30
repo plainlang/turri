@@ -13,7 +13,7 @@ import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./co
 import { createDeployState, createDeployTools, DEPLOY_TOOLS, deployGuide, refuseInstall, type Approve } from "./deploy-tools.ts";
 import { listDeployed, runningDeployed, shortPath, stopDeployed } from "./render/deploy.ts";
 import { projectDirOf } from "./render/paths.ts";
-import { ask, createExecutor } from "./pi.ts";
+import { ask, BEGIN, createExecutor } from "./pi.ts";
 
 const USAGE = `usage: plainwright deploy [file.plain] [options]
 
@@ -155,10 +155,11 @@ async function main() {
       "You get software that was just built running on the person's own machine, so they can try it. They are at this terminal.",
       `Your file tools and your shell start in ${dir}: the code, as it was last built. Your shell is the person's own - not a sandbox.`,
     ].join("\n"),
+    task: `${deployed}\n\nThe person is at the terminal, and reads what you say last.`,
   });
   try {
     console.log(c.dim(`\nworking out how to start it${model !== undefined ? ` (${model})` : ""}…\n`));
-    await ask(executor, `${deployed}\n\nThe person is at the terminal, and reads what you say last.`, (delta) => process.stdout.write(delta));
+    await ask(executor, BEGIN, (delta) => process.stdout.write(delta));
   } finally {
     executor.dispose();
   }

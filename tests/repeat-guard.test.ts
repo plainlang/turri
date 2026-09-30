@@ -77,10 +77,22 @@ describe("an agent going round in a circle", () => {
     const call = (tool: ToolDefinition, path: string) => (tool.execute as unknown as (id: string, params: { path: string }) => Promise<unknown>)("id", { path });
     for (let n = 0; n < 3; n += 1) await call(readTool!, `f${n}`);
     await expect(call(readTool!, "f3")).rejects.toThrow(/you have made 3 tool calls, which is all you have\. Decide now with what you know: call submit_verdict/);
-    await expect(call(submitTool!, "")).resolves.toBeDefined();
-    await call(readTool!, "f4").catch(() => {});
-    await expect(call(readTool!, "f5")).rejects.toThrow(/Stopped: 7 tool calls, past the budget of 3/);
+    for (let n = 4; n < 6; n += 1) await call(readTool!, `f${n}`).catch(() => {});
+    await expect(call(readTool!, "f6")).rejects.toThrow(/Stopped: 7 tool calls, past the budget of 3/);
     expect(aborted).toBe(1);
+    // The decision still goes through past the budget.
+    await expect(call(submitTool!, "")).resolves.toBeDefined();
+  });
+
+  it("gives an agent kept for its next decision its whole budget again once it hands one over - and lets it read again what it read before", async () => {
+    const read = { name: "read", execute: async () => ({ content: [{ type: "text", text: "x" }] }) };
+    const submit = { name: "submit_review", execute: async () => ({ content: [{ type: "text", text: "Recorded." }] }) };
+    const [readTool, submitTool] = guardRepeats([read, submit] as unknown as ToolDefinition[], () => undefined, { calls: 3, finish: ["submit_review"] });
+    const call = (tool: ToolDefinition, path: string) => (tool.execute as unknown as (id: string, params: { path: string }) => Promise<unknown>)("id", { path });
+    for (const path of ["a", "a", "a"]) await call(readTool!, path);
+    await call(submitTool!, "");
+    // The next review: the same file, changed since by the agent it reviews, read three times more - within budget.
+    for (const path of ["a", "a", "a"]) await expect(call(readTool!, path)).resolves.toBeDefined();
   });
 });
 

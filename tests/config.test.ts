@@ -123,6 +123,20 @@ describe("parallel-jobs", () => {
   });
 });
 
+describe("compact-at", () => {
+  it("is how much of an agent's work it keeps before it is compacted - the project's alone, and a number worth compacting at", () => {
+    writeFileSync(join(root, "config.yaml"), "compact-at: 150000\n");
+    expect(readProjectConfig(root).compactAt).toBe(150_000);
+    writeFileSync(join(root, "config.yaml"), "compact-at: 12\n");
+    expect(readProjectConfig(root).compactAt).toBeUndefined();
+    writeFileSync(join(root, "config.yaml"), "compact-at: lots\n");
+    expect(readProjectConfig(root).compactAt).toBeUndefined();
+    writeFileSync(join(root, "config.yaml"), "compact-at: 150000\n");
+    writeFileSync(join(root, "config.backend.yaml"), "compact-at: 50000\n");
+    expect(readProjectConfig(root, "backend").compactAt).toBe(150_000);
+  });
+});
+
 describe("a module's own config file", () => {
   /** cognio: a Python backend and a React frontend side by side, importing one common module. */
   beforeEach(() => {

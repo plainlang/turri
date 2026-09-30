@@ -23,6 +23,8 @@ export interface ActivitySink {
   now(label: string | undefined, options?: { keepSince?: boolean }): void;
   /** What one model response cost. */
   usage(usage: UsageReport): void;
+  /** One agent's share of the work: a turn it took, a compaction, what a model call of it cost. */
+  agent?(tally: AgentReport): void;
   /** One piece of the full conversation, for reading it back while it happens. */
   transcript(entry: TranscriptEntry): void;
   /** Aborted when the job is asked to stop. */
@@ -132,6 +134,64 @@ export function unitOf(moduleName: string, frid?: string): string {
 
 export function reportUsage(usage: UsageReport): void {
   store.getStore()?.usage(usage);
+}
+
+/** What one agent of a job did, added to what it did before: counted by its label. */
+export interface AgentReport {
+  label: string;
+  model?: string;
+  turns?: number;
+  compactions?: number;
+  usage?: UsageReport;
+}
+
+/** Each agent of a job, as the job adds it up: how many turns it took, how often its work was compacted, what it cost. */
+export interface AgentTally {
+  label: string;
+  model?: string;
+  turns: number;
+  compactions: number;
+  usage: UsageReport;
+}
+
+export function reportAgent(report: AgentReport): void {
+  store.getStore()?.agent?.(report);
+}
+
+/** Add one agent report to a job's tally, by label - its first report starts its row. */
+export function addAgentReport(tallies: AgentTally[], report: AgentReport): void {
+  let tally = tallies.find((entry) => entry.label === report.label);
+  if (tally === undefined) {
+    tally = { label: report.label, turns: 0, compactions: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 } };
+    tallies.push(tally);
+  }
+  if (report.model !== undefined) tally.model = report.model;
+  tally.turns += report.turns ?? 0;
+  tally.compactions += report.compactions ?? 0;
+  const spent = report.usage;
+  if (spent !== undefined) {
+    tally.usage = {
+      input: tally.usage.input + spent.input,
+      output: tally.usage.output + spent.output,
+      cacheRead: tally.usage.cacheRead + spent.cacheRead,
+      cacheWrite: tally.usage.cacheWrite + spent.cacheWrite,
+      cost: tally.usage.cost + spent.cost,
+    };
+  }
+}
+
+/** A job's agents, a line each: "app 1 reviewer · 3 turns · 1 compaction · 210.4k tok · $0.41". */
+export function describeAgents(tallies: AgentTally[]): string[] {
+  return tallies.map((tally) => {
+    const spent = describeUsage(tally.usage);
+    return [
+      tally.label,
+      `${tally.turns} turn${tally.turns === 1 ? "" : "s"}`,
+      ...(tally.compactions > 0 ? [`${tally.compactions} compaction${tally.compactions === 1 ? "" : "s"}`] : []),
+      ...(spent !== "" ? [spent] : []),
+      ...(tally.model !== undefined ? [tally.model] : []),
+    ].join(" · ");
+  });
 }
 
 /** "1.2k tok · $0.03", or "" when nothing has been spent yet. */

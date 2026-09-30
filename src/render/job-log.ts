@@ -17,7 +17,8 @@ import { ensureInScratch, MODULES_DIR, projectRootOf, scratchDir } from "./paths
 export interface JobLog {
   readonly file: string;
   entry(entry: TranscriptEntry): void;
-  end(status: string, report: string | undefined): void;
+  /** `agents`: a line per agent - its turns, compactions and cost. */
+  end(status: string, report: string | undefined, agents?: string[]): void;
 }
 
 /** The folder a job's log goes in: the project of the first module it writes, from its lanes. */
@@ -102,9 +103,10 @@ export function startJobLog(job: { id: string; kind: string; summary: string; mo
           break;
       }
     },
-    end(status, report) {
+    end(status, report, agents = []) {
       last = undefined;
       write(`\n\n${stamp()} ── ${status}\n${(report ?? "").trimEnd()}\n`);
+      if (agents.length > 0) write(`\n── its agents\n${agents.map((line) => `  ${line}`).join("\n")}\n`);
     },
   };
 }

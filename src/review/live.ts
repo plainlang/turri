@@ -1,5 +1,5 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { ask, createJudge } from "../pi.ts";
+import { ask, BEGIN, createJudge } from "../pi.ts";
 import type { ContinuousSpec } from "../skill.ts";
 import { createVerdictTool, type Verdict } from "../tools.ts";
 
@@ -110,9 +110,10 @@ function defaultJudge(opts: {
       modelSpec: opts.spec.model ?? opts.defaultModel,
       borrowAuthFrom: opts.executor,
       extraTools: opts.spec.judgeTools,
+      task: prompt,
     });
     try {
-      await ask(session, prompt);
+      await ask(session, BEGIN);
     } finally {
       session.dispose();
     }

@@ -1,6 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
 
 /**
@@ -73,10 +73,11 @@ export async function diagnoseFailure(options: {
     model: options.model,
     label: `${options.job.summary} diagnosis`,
     system: fence.note,
+    task: diagnosisPrompt(options),
     budget: { calls: DIAGNOSIS_CALLS, finish: ["submit_diagnosis"] },
   });
   try {
-    await ask(session, diagnosisPrompt(options));
+    await ask(session, BEGIN);
     if (diagnosis === undefined) await ask(session, "You have not called submit_diagnosis. Call it now, with what you know.");
   } catch {
     // Without a diagnosis the person still gets both failures, as they were.

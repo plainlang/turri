@@ -167,6 +167,11 @@ export interface ProjectConfig {
    * every VM of the project runs it. The project's alone.
    */
   vmImage?: { packages?: string[]; add: string[]; remove: string[]; mirror?: string; repositories?: string[] };
+  /**
+   * Tokens of conversation - what an agent has done, past its instructions - after which an agent that keeps its
+   * session through a job is compacted between turns. The project's alone. Unset: 100k.
+   */
+  compactAt?: number;
 }
 
 /** The config keys, as written in the file. */
@@ -182,6 +187,7 @@ export const CONFIG_KEYS = {
   parallelJobs: "parallel-jobs",
   systemPackages: "system-packages",
   vmImage: "vm-image",
+  compactAt: "compact-at",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function whereScriptsRun(value: unknown): "vm" | "host" | undefined {
@@ -203,7 +209,7 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
   // The project's alone: one conversation, one module built when none is named.
   const merged: ProjectConfig = { ...project };
   for (const key of Object.keys(CONFIG_KEYS) as Array<keyof ProjectConfig>) {
-    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "vmImage" || own[key] === undefined) continue;
+    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "vmImage" || key === "compactAt" || own[key] === undefined) continue;
     (merged as Record<string, unknown>)[key] = own[key];
   }
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
@@ -310,6 +316,10 @@ function readConfigFile(path: string): ProjectConfig {
     systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
       ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())
       : undefined,
+    compactAt:
+      typeof raw[CONFIG_KEYS.compactAt] === "number" && Number.isInteger(raw[CONFIG_KEYS.compactAt]) && (raw[CONFIG_KEYS.compactAt] as number) >= 1000
+        ? (raw[CONFIG_KEYS.compactAt] as number)
+        : undefined,
     parallelJobs:
       typeof raw[CONFIG_KEYS.parallelJobs] === "number" && Number.isInteger(raw[CONFIG_KEYS.parallelJobs]) && (raw[CONFIG_KEYS.parallelJobs] as number) >= 1
         ? (raw[CONFIG_KEYS.parallelJobs] as number)

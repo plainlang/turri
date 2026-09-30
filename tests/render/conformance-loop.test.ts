@@ -9,7 +9,7 @@ import { writeTestScripts } from "../test-scripts.ts";
  * sees the code - writes the tests from the spec, a test fails because the code is wrong, a judge
  * says so, and the coding agent fixes the code. Stubbed agents, but every run is real, in the VMs.
  */
-type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; role: string };
+type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; role: string; task?: string; asked?: boolean };
 /** What each agent was asked, by who it is. */
 const asked: Array<{ role: string; prompt: string }> = [];
 let codeDir = "";
@@ -24,17 +24,24 @@ let arbiterRules: (() => Array<{ problem: number; uphold: boolean; why: string }
 let writesNothing = false;
 /** When set, each time the tests are sent back, the stub's test fails the other way: A, B, A, B - as the artifact ping-pong did. */
 let pingPong = 0;
+/** How many of the coding agent's fixes miss before one makes the app print hello. */
+let coderMisses = 0;
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: vi.fn(async (opts: { customTools: StubSession["tools"]; label?: string }) => ({
+    createExecutor: vi.fn(async (opts: { customTools: StubSession["tools"]; label?: string; task?: string }) => ({
       tools: opts.customTools,
+      task: opts.task,
       role: opts.label?.split(" ").at(-1) === "agent" ? opts.label.split(" ").slice(-2).join(" ") : (opts.label?.split(" ").at(-1) ?? ""),
       dispose() {},
     })),
-    ask: vi.fn(async (session: StubSession, prompt: string) => {
+    ask: vi.fn(async (session: StubSession, given: string) => {
+      // Its task is its instructions: an agent's first turn reads as it and what it is asked, and a reviewer's every review too.
+      const first = session.asked !== true;
+      session.asked = true;
+      const prompt = session.task !== undefined && (first || session.role === "reviewer") ? (given === actual.BEGIN ? session.task : `${session.task}\n\n${given}`) : given;
       const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
       // Asked to leave notes, it does - and that is not a turn the test is about.
       if (prompt.startsWith("Before you finish: call update_notes")) {
@@ -65,8 +72,10 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         return "Done.";
       }
       if (session.role === "coding agent") {
-        // The code is what is wrong: fixed, its unit tests kept passing.
-        await tool("write").execute("id", { path: join(codeDir, "app.py"), content: "print('hello')\n" });
+        // The code is what is wrong: fixed, its unit tests kept passing - once the misses queued are spent.
+        const missed = coderMisses > 0;
+        if (missed) coderMisses -= 1;
+        await tool("write").execute("id", { path: join(codeDir, "app.py"), content: missed ? "print('hell')\n" : "print('hello')\n" });
         await tool("run_unit_tests").execute("id", {});
         return "Done.";
       }
@@ -131,6 +140,7 @@ beforeEach(() => {
   judgeSays = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye.", spec_says: "The app prints hello." });
   testedFrid = "1";
   pingPong = 0;
+  coderMisses = 0;
   writesNothing = false;
   reviewSays = () => ({ pass: true, problems: [] });
   arbiterRules = undefined;
@@ -162,7 +172,9 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     // ...and, once the suite and the unit tests pass, the review gate.
     expect(asked.map((turn) => turn.role)).toEqual(["explorer", "conformance agent", "conformance agent", "judge", "coding agent", "reviewer"]);
     const review = asked.at(-1)!.prompt;
-    expect(review).toContain("<tests added or changed>");
+    expect(review).toContain("<tests added or changed by the run>");
+    // The tests the run wrote, as the harness's diff - not only their names.
+    expect(review).toContain("<the tests this run wrote - a diff of the tests folder from where the run started>");
     expect(review).toContain("test_acceptance_hello.py");
     expect(review).toContain("never mocks, stubs or replaces any part of the software under test");
     expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
@@ -261,6 +273,23 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(lastJudge).toMatch(/app 2 conformance attempt 2\] attempt 2: failed with "[^"]*" → judged a spec conflict between functionalities app 1 & app 2/);
   });
 
+  it("keeps one code fixer for the run: a second fix goes to the agent that made the first, its task given once", async () => {
+    const { createExecutor } = await import("../../src/pi.ts");
+    const made = (createExecutor as unknown as { mock: { calls: Array<[{ label?: string; task?: string }]> } }).mock.calls;
+    const before = made.length;
+    coderMisses = 1;
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(true);
+    const coders = asked.filter((turn) => turn.role === "coding agent");
+    expect(coders.length).toBeGreaterThanOrEqual(2);
+    const fixers = made.slice(before).filter(([opts]) => opts.label?.endsWith("coding agent"));
+    expect(fixers).toHaveLength(1);
+    // Its task holds the spec, word for word; each fix is only the failure.
+    expect(fixers[0]![0].task).toContain("<specification>");
+    expect(coders[1]!.prompt).toContain("The conformance tests failed, and the code is what is wrong");
+    expect(coders[1]!.prompt).not.toContain("<specification>");
+  });
+
   it("stops when nothing changes: the same failure judged the same way asks the explorer again, and then ends the run", async () => {
     // The judge always blames the tests, and the stub's tests never change - so the failure never does.
     judgeSays = () => ({ culprit: "tests", reason: "The tests are wrong." });
@@ -295,6 +324,9 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
   });
 
   it("does not finish until the tests pass review - a placeholder acceptance test goes back with exactly what is wrong", async () => {
+    const { createExecutor } = await import("../../src/pi.ts");
+    const made = (createExecutor as unknown as { mock: { calls: Array<[{ label?: string }]> } }).mock.calls;
+    const reviewersBefore = made.filter(([opts]) => opts.label?.endsWith("test reviewer")).length;
     let reviews = 0;
     reviewSays = () =>
       (reviews += 1) === 1
@@ -305,11 +337,16 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const reviewTurns = asked.filter((turn) => turn.role === "reviewer");
     expect(reviewTurns).toHaveLength(2);
     // The first finds everything at once; the second checks what the first sent back, rather than starting over.
-    expect(reviewTurns[0]!.prompt).toContain("Find every problem now, in this one review");
-    expect(reviewTurns[1]!.prompt).toContain("The review before this one sent the tests back with these problems");
-    expect(reviewTurns[1]!.prompt).toContain("- BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing");
+    expect(reviewTurns[0]!.prompt).toContain("The first review finds every problem, in that one review");
+    expect(reviewTurns[0]!.prompt).toContain("The conformance suite and the unit tests pass. Review the tests the run added or changed.");
+    expect(reviewTurns[1]!.prompt).toContain("The problems of your last review the conformance agent was given:");
+    expect(reviewTurns[1]!.prompt).toContain("1. BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing");
+    expect(reviewTurns[1]!.prompt).toContain("<what changed since your last review - a diff of the tests folder>");
     const feedback = asked.find((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better"))!;
-    expect(feedback.prompt).toContain("- BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing: assertTrue(true) is a placeholder");
+    expect(feedback.prompt).toContain("1. BAD · test_acceptance_hello.py · test_prints_hello_and_exits_0: It asserts nothing: assertTrue(true) is a placeholder");
+    expect(feedback.prompt).toContain("call submit_work, last: an answer for each problem");
+    // One reviewer for the run: its task once, its reviews as turns of the same session.
+    expect(made.filter(([opts]) => opts.label?.endsWith("test reviewer")).length - reviewersBefore).toBe(1);
   });
 
   it("for a spec change, labels, shows and reviews the acceptance tests of the functionalities it touches", async () => {
@@ -366,7 +403,7 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(asked.filter((turn) => turn.role === "arbiter")).toHaveLength(8);
     expect(result.reviewWaived).toEqual([missing]);
     const feedback = asked.filter((turn) => turn.role === "conformance agent" && turn.prompt.includes("found how to make them better")).at(-1)!;
-    expect(feedback.prompt).toContain("- BLOCKING · MISSING · test_acceptance_hello.py: The acceptance test skips the backup it checks.");
+    expect(feedback.prompt).toContain("1. BLOCKING · MISSING · test_acceptance_hello.py: The acceptance test skips the backup it checks.");
     expect(readFileSync(join(codeDir, ".plainwright-notes.md"), "utf8")).toContain("the conformance tests went on after 10 reviews");
   });
 

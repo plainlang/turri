@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeTestScripts } from "../test-scripts.ts";
 import { NOTES_FILE, readNotes } from "../../src/render/notes.ts";
+import { BEGIN } from "../../src/pi.ts";
 
 /** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
 const prompts: string[] = [];
-type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
+type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
   // Asked to leave notes, it does - and that is not a turn the test is about.
   if (prompt.startsWith("Before you finish: call update_notes")) {
@@ -16,7 +17,8 @@ async function agentRunning(command: string, session: StubSession, prompt: strin
     });
     return "Done.";
   }
-  prompts.push(prompt);
+  // Its task is its instructions: the turn that begins it reads as the task.
+  prompts.push(prompt === BEGIN ? (session.task ?? prompt) : prompt);
   // The coding agent checks its unit tests; the conformance agent, which has no code, its suite.
   const check = session.tools.find((tool) => tool.name === "run_unit_tests") ?? session.tools.find((tool) => tool.name === "run_conformance_tests")!;
   await check.execute("id", { command });
@@ -50,8 +52,9 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> }) => ({
+    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string }) => ({
       tools: opts.customTools,
+      task: opts.task,
       dispose() {},
     }),
     ask: vi.fn(passingAgent),

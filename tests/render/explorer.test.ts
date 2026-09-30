@@ -6,14 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /** The explorer, stubbed: each turn writes a reply and hands over the next exploration queued, if any. */
 const turns: Array<{ reply: string; submit?: Record<string, unknown> }> = [];
 const prompts: string[] = [];
-type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
+type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: StubSession["tools"] }) => ({ tools: opts.customTools, dispose() {} }),
+    createExecutor: async (opts: { customTools: StubSession["tools"]; task?: string }) => ({ tools: opts.customTools, task: opts.task, dispose() {} }),
     ask: async (session: StubSession, prompt: string) => {
-      prompts.push(prompt);
+      // Its task is its instructions: the turn that begins it reads as the task.
+      prompts.push(prompt === actual.BEGIN ? (session.task ?? prompt) : prompt);
       const turn = turns.shift() ?? { reply: "" };
       if (turn.submit !== undefined) await session.tools.find((tool) => tool.name === "submit_exploration")!.execute("id", turn.submit);
       return turn.reply;

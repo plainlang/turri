@@ -1,6 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ask, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
 import { REVIEWER_CALLS } from "./conformance-agents.ts";
 
@@ -152,10 +152,11 @@ export async function arbitrateReview<P extends ReviewedProblem>(options: Arbite
     model: options.model,
     label: `${options.label} arbiter`,
     system: fence.note,
+    task: arbiterPrompt(options),
     budget: { calls: REVIEWER_CALLS, finish: ["submit_ruling"] },
   });
   try {
-    await ask(session, arbiterPrompt(options), options.onDelta);
+    await ask(session, BEGIN, options.onDelta);
     if (ruling === undefined) await ask(session, "You have not called submit_ruling. Call it now, with every problem by its number.", options.onDelta);
   } finally {
     session.dispose();
