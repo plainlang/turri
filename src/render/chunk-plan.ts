@@ -4,7 +4,7 @@ import { DEFAULT_CONCEPTS, extractConceptsFromDefinition, extractConceptsFromSpe
 import { ACCEPTANCE_TESTS, DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { reportActivity, reportStage } from "./activity.ts";
-import { checkDraft, netChanges, propose, type DraftJob, type MasterInput } from "./queue-master.ts";
+import { checkDraft, netChanges, propose, steeringBlock, type DraftJob, type MasterInput, type Steering } from "./queue-master.ts";
 import type { SpecChange } from "./spec-steps.ts";
 
 /**
@@ -45,6 +45,8 @@ export interface GroupAnswer {
 }
 
 export interface PlaceInput {
+  /** How the person or the harness wants the queue planned. */
+  steering?: Steering[];
   groups: Array<{ number: number; title: string; specs: string[]; definitions: string[] }>;
   /** What is built already changes too: a job for that goes first, and a req can go with it. */
   built: boolean;
@@ -62,7 +64,7 @@ export interface PlaceAnswer {
 
 /** The two judgements, each asked again with what was wrong with its answer. Injectable, so the plan is testable without a model. */
 export interface ChunkAgents {
-  group(specs: NewSpec[], check: (answer: GroupAnswer) => string[]): Promise<GroupAnswer | undefined>;
+  group(specs: NewSpec[], check: (answer: GroupAnswer) => string[], steering?: Steering[]): Promise<GroupAnswer | undefined>;
   place(input: PlaceInput, check: (answer: PlaceAnswer) => string[]): Promise<PlaceAnswer | undefined>;
 }
 
@@ -245,7 +247,7 @@ export async function planChunks(input: MasterInput, agents?: ChunkAgents): Prom
   // 1. Which functional specs go together.
   reportStage(`planning the queue: which of the ${specs.length} new functional spec${specs.length === 1 ? "" : "s"} go together`);
   const numbered: NewSpec[] = specs.map((change) => ({ number: change.position, text: textOf(change) }));
-  const grouped = (await agents?.group(numbered, (answer) => groupProblems(numbered, answer)).catch(() => undefined)) ?? undefined;
+  const grouped = (await agents?.group(numbered, (answer) => groupProblems(numbered, answer), input.steering).catch(() => undefined)) ?? undefined;
   const groups =
     grouped !== undefined && groupProblems(numbered, grouped).length === 0
       ? grouped.groups
@@ -268,6 +270,7 @@ export async function planChunks(input: MasterInput, agents?: ChunkAgents): Prom
   if (implementationReqs.length + testReqs.length > 0) {
     reportStage(`planning the queue: where each of ${implementationReqs.length + testReqs.length} new req${implementationReqs.length + testReqs.length === 1 ? "" : "s"} goes`);
     const placeInput: PlaceInput = {
+      ...(input.steering !== undefined ? { steering: input.steering } : {}),
       groups: newChunks().map((chunk, index) => ({ number: index + 1, title: chunk.title, specs: chunk.specs.map(textOf), definitions: chunk.definitions.map(textOf) })),
       built: hasBuilt,
       implementationReqs: implementationReqs.map((change, index) => ({ number: index + 1, text: textOf(change) })),
@@ -331,7 +334,7 @@ export async function planChunks(input: MasterInput, agents?: ChunkAgents): Prom
 // ---------------------------------------------------------------------------------------------
 // The agents.
 
-export function groupPrompt(specs: NewSpec[]): string {
+export function groupPrompt(specs: NewSpec[], steering?: Steering[]): string {
   return [
     "You plan how new work on a codebase is built: which of its new functional specs are built together, in one job.",
     "",
@@ -343,6 +346,7 @@ export function groupPrompt(specs: NewSpec[]): string {
     "Only functional specs next to each other go together, and they stay in the order the spec has them: the order is",
     "what each is built on. Give each group a short title that says what it builds.",
     "",
+    ...steeringBlock(steering),
     "The new functional specs, by their number in the spec:",
     "",
     ...specs.map((spec) => `<functional spec number="${spec.number}">\n${spec.text.trim()}\n</functional spec>`),
@@ -362,6 +366,7 @@ export function placePrompt(input: PlaceInput): string {
     "- A test req goes with the first group whose conformance tests need it; one about all the tests to \"all\".",
     ...(input.built ? ['- "built" is the job that changes what is built already, and goes first: a req about the code there already goes there.'] : []),
     "",
+    ...steeringBlock(input.steering),
     ...input.groups.map((group) =>
       [
         `<group number="${group.number}" title="${group.title}">`,
@@ -402,12 +407,12 @@ async function askStep<A>(options: { cwd: string; model?: string; label: string;
 export function llmChunkAgents(options: { cwd: string; model?: string; label?: string }): ChunkAgents {
   const label = options.label ?? "queue planner";
   return {
-    group: (specs, check) =>
+    group: (specs, check, steering) =>
       askStep<GroupAnswer>({
         cwd: options.cwd,
         model: options.model,
         label: `${label} grouping`,
-        task: groupPrompt(specs),
+        task: groupPrompt(specs, steering),
         check,
         tool: (take) =>
           defineTool({

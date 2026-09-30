@@ -33,6 +33,7 @@ import { createProgressTracker } from "./render/progress.ts";
 import { describeDelivery, withTryItLine } from "./render/delivery.ts";
 import { runningDeployed, stopDeployed } from "./render/deploy.ts";
 import { createDeployState, createDeployTools, refuseInstall } from "./deploy-tools.ts";
+import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./render/steering.ts";
 import { vmSummary } from "./render/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
@@ -320,6 +321,7 @@ export default function (pi: ExtensionAPI) {
   registerRenderSpecDiffConformance(pi, cwd, jobs);
   registerRenderModels(pi);
   registerDeploy(pi, cwd);
+  registerSteering(pi, cwd);
 
   const { skills, pending } = discoveredSkills;
   if (skills.length === 0) return;
@@ -790,6 +792,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
       working_dir: WORKING_DIR_PARAM,
       to: Type.Optional(Type.String({ description: "Queue functionalities of this module only up to this id" })),
       only: Type.Optional(Type.Boolean({ description: "Queue just this module, not the modules it requires" })),
+      guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -811,6 +814,7 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
         ...(located.to !== undefined ? { to: located.to } : {}),
         ...(located.only === true ? { only: true } : {}),
         ...(model !== undefined ? { model } : {}),
+        ...(located.guidance !== undefined ? { guidance: located.guidance } : {}),
       });
       const text = describeBroughtUp(brought, basename(plainFile));
       // In print, json and rpc modes the process ends with the answer: wait for the jobs there.
@@ -964,6 +968,7 @@ function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module whose spec changed" }),
       working_dir: WORKING_DIR_PARAM,
+      guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
     }),
     async execute(_id, given, _signal, _onUpdate, ctx) {
@@ -973,7 +978,7 @@ function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       if (!check.ok) throw new Error(`${located.plain_file} does not parse, so the queue cannot follow it yet: ${check.error}`);
       const queue = renderQueueFor(jobs, cwd, ctx);
       const model = jobModel(ctx, "spec_changes", located.model, plainFile);
-      const brought = queue.bringUpTo(plainFile, model !== undefined ? { model } : {});
+      const brought = queue.bringUpTo(plainFile, { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) });
       const reworked = await queueReworkOf(
         queue,
         brought.modules.flatMap((module) => (module.specDiff !== undefined ? [{ jobId: module.specDiff, what: "render" }] : [])),
@@ -1009,6 +1014,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
         Type.String({ description: "The codebase to render in, when modules built on this one branch" }),
       ),
       conformance: CONFORMANCE_PARAM,
+      guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -1032,6 +1038,7 @@ function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry
           inModule: params.in_module,
           model,
           conformance: conformanceOption(params.conformance, params.plain_file),
+          ...(params.guidance !== undefined ? { guidance: params.guidance } : {}),
         });
         // The queue master reworks the queue around it first: what it made of it is what to tell the user.
         const reworked = await queueReworkOf(renderQueueFor(jobs, cwd, ctx), queued.parts);
@@ -1506,6 +1513,15 @@ export function projectConfigBlock(root: string): string {
   ].join("\n");
 }
 
+/** How the queue is to be planned, for the work this call queues - see render/steering.ts. */
+const GUIDANCE_PARAM = Type.Optional(
+  Type.String({
+    description:
+      "How to plan the queue for this work, in a sentence or two - which functional specs go together, what first - as " +
+      "the user said it, or as you understood it. A strong preference for the planner and the queue master, within their limits. Omit when there is none.",
+  }),
+);
+
 const WORKING_DIR_PARAM = Type.Optional(
   Type.String({
     description:
@@ -1740,6 +1756,9 @@ const WAIT_PARAM = Type.Optional(
  */
 const renderQueues = new WeakMap<JobRegistry, { queue: RenderQueue; from: { ctx: ExtensionContext } }>();
 
+/** How the conversation wants the queue planned, for the session - set with steer_queue. */
+const steeringStore = createSteeringStore();
+
 function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): RenderQueue {
   let shared = renderQueues.get(jobs);
   if (shared === undefined) {
@@ -1750,6 +1769,8 @@ function renderQueueFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): 
       modelFor: (work, plainFile) => modelFor(chosenModels, work, projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
       // The queue master reasons about the whole queue: it runs on the judge model, and asks the person in the chat.
       masterModel: modelSpec(projectModels(readProjectConfig(cwd)).judge),
+      // How the queue is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
+      steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
       askPerson: (question) => (from.ctx.hasUI ? from.ctx.ui.input(`The queue master asks: ${question}`) : Promise.resolve(undefined)),
       onRework: (report) => {
         if (!from.ctx.hasUI) return;
@@ -2307,6 +2328,61 @@ function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
   // The web, for the conversation too - a library's documentation, an API, an error; curl is its
   // bash. Run here, like the rendering agents' (see render/web.ts).
   for (const tool of createWebTools()) pi.registerTool(tool);
+}
+
+/**
+ * Steering the queue from the conversation: how the person wants the work cut into jobs and ordered, for the whole
+ * project or one module, kept for the session and given to the planner and the queue master with every plan - beside
+ * what the project's AGENTS.md says of the queue (see render/steering.ts).
+ */
+function registerSteering(pi: ExtensionAPI, cwd: string) {
+  pi.registerTool({
+    name: "steer_queue",
+    label: "Steer queue",
+    description:
+      "Say how the render queue is to be planned from now on - which functional specs are built together, what goes first, how " +
+      "big a job may be - for the whole project, or one module: every plan after this follows it as a strong preference, " +
+      "within the planner's limits, for the rest of the session. It changes nothing queued by itself: the next plan of the " +
+      "module follows it - spec_changed or rework_queue makes one now. What the project's AGENTS.md says under a heading " +
+      "naming the queue is followed too, with every plan.",
+    promptSnippet: "steer_queue: set how the render queue is planned, for the project or one module",
+    promptGuidelines: [
+      "When the user says how the work should be cut or ordered - 'build the batch worker's helpers with the worker', 'models first' - for more than one change, call steer_queue with it in their words. For one change only, pass it as the guidance of the tool that queues it.",
+    ],
+    parameters: Type.Object({
+      action: Type.Union([Type.Literal("add"), Type.Literal("set"), Type.Literal("clear"), Type.Literal("show")], {
+        description: "add: one more wish; set: replace them all; clear: drop them; show: say what they are",
+      }),
+      text: Type.Optional(Type.String({ description: "The wish, in the user's words - for add and set" })),
+      module: Type.Optional(Type.String({ description: "A module's .plain file or name. Omit: every module of the project" })),
+    }),
+    async execute(_id, params) {
+      const scope = params.module !== undefined ? moduleNameOf(params.module) : EVERY_MODULE;
+      const where = scope === EVERY_MODULE ? "every module" : scope;
+      const text = params.text?.trim() ?? "";
+      if ((params.action === "add" || params.action === "set") && text === "") throw new Error(`Say what to ${params.action}: text is empty.`);
+      if (params.action === "add") steeringStore.set(scope, [...steeringStore.get(scope), text]);
+      if (params.action === "set") steeringStore.set(scope, [text]);
+      if (params.action === "clear") steeringStore.set(scope, []);
+      const now = steeringStore.scopes().flatMap((key) => steeringStore.get(key).map((wish) => `- ${key === EVERY_MODULE ? "every module" : key}: ${wish}`));
+      const agents = existsSync(join(cwd, "AGENTS.md")) ? queueSectionOf(readFileSync(join(cwd, "AGENTS.md"), "utf8")) : "";
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              params.action === "show" ? "How the queue is planned:" : `${params.action === "clear" ? "Cleared" : "Noted"} for ${where}. How the queue is planned now:`,
+              ...(now.length > 0 ? now : ["- (nothing from the conversation)"]),
+              ...(agents !== "" ? ["", "And from AGENTS.md, every plan:", agents] : []),
+              "",
+              "The next plan of each module follows it; nothing queued changes until then.",
+            ].join("\n"),
+          },
+        ],
+        details: { scope, steering: now },
+      };
+    },
+  });
 }
 
 /**

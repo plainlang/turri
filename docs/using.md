@@ -33,6 +33,7 @@ where it stopped.
 | --- | --- |
 | `render_functionality` | build one functionality - code and unit tests - then keep the existing conformance tests passing |
 | `render_module` | queue the work that brings a module and its chain up to the spec - cut into jobs of one to three functional specs, each with the definitions and reqs it uses, and its conformance job |
+| `steer_queue` | say how the render queue is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
 | `spec_changed` | tell the queue a spec changed, by any means: it is brought up to the spec as it is now, and the queue master reworks it |
 | `regenerate_functionality` | rebuild just one functionality - after its spec changed, or as it is |
 | `render_spec_diff` | make the code match a change to the specs, given as a git diff |

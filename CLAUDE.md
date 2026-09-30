@@ -90,7 +90,8 @@ is reported as pending, not dropped.
   diff for everything not built yet - `render_module`, `plainwright module` and `spec_changed` all go
   through it. Every change re-plans the work not started: `chunk-plan.ts` cuts it into jobs from the
   functional specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses,
-  an agent places the reqs), and that plan is the queue master's proposal, which it reviews. A render is a spec diff that adds one functionality.
+  an agent places the reqs), and that plan is the queue master's proposal, which it reviews. Steering
+  (`render/steering.ts`: `steer_queue`, AGENTS.md's queue section, a tool's `guidance`) reaches all three agents. A render is a spec diff that adds one functionality.
 - `spec-steps.ts`: when the spec changed in ways other than appending functional specs, it diffs
   the built tree against the current one and has an agent order the changes into spec-diff steps.
 - `state.ts`: `code/.plainwright.json` holds only the marshalled tree the code was built from. A

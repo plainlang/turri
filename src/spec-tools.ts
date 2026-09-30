@@ -72,6 +72,13 @@ export function createSpecDiffTools(options: {
       fixes_earlier: Type.Optional(
         Type.Boolean({ description: "This corrects something already written - a contradiction, a review finding" }),
       ),
+      guidance: Type.Optional(
+        Type.String({
+          description:
+            "How to plan the queue for this change, in a sentence or two - which functional specs go together, what first - as the " +
+            "user said it or as the interview settled it. A strong preference for the planner and the queue master. Omit when there is none.",
+        }),
+      ),
     }),
     async execute(_id, params) {
       if (paced && params.fixes_earlier !== true && !answeredSinceLastDiff) {
@@ -131,7 +138,7 @@ export function createSpecDiffTools(options: {
       // build is told the whole spec as the change - what the earlier phases wrote with the file
       // tools, as well as this answer - not only the lines this answer changed. The queue works that
       // out for each codebase the change lands in.
-      const queued = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec, wholeIfUnbuilt: true });
+      const queued = queue.enqueueSpecDiff({ plainFile: params.plain_file, diff: params.diff, applied: result, spec, wholeIfUnbuilt: true, ...(params.guidance !== undefined ? { guidance: params.guidance } : {}) });
       // The queue master reworks the queued builds around it first: what it made of them is what to tell the user.
       const reports = await Promise.all(queued.parts.filter((part) => part.what === "render").map((part) => queue.afterRework(part.jobId)));
       const reworked = [...new Set(reports.filter((report): report is string => report !== undefined))];

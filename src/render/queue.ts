@@ -27,7 +27,7 @@ import type { Job, JobRegistry } from "./jobs.ts";
 import { reportStage, unitOf } from "./activity.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { abandonWork, markWork, resetToLastCommit, type WorkStart } from "./history.ts";
-import { llmQueueMaster, netChanges, propose, reworkQueue, stepsOf, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent } from "./queue-master.ts";
+import { llmQueueMaster, netChanges, propose, reworkQueue, stepsOf, untouched, type MasterInput, type MasterPlan, type QueueMasterAgent, type Steering } from "./queue-master.ts";
 import { llmChunkAgents, planChunks, type ChunkAgents } from "./chunk-plan.ts";
 import { withActivity, type ActivitySink } from "./activity.ts";
 import { inheritedTree, readBuiltTree, withBuiltFunctionality } from "./state.ts";
@@ -55,6 +55,8 @@ export interface RenderRequest {
   regenerate?: boolean;
   /** "provider/model-id" to render it on, settled when it was queued. */
   model?: string;
+  /** How whoever queued it wants the queue planned: a strong preference, for every plan of its codebase while it waits. */
+  guidance?: string;
   /** Its conformance tests follow as a job of their own - set by the queue: a regeneration lands on its unit tests. */
   conformanceLater?: boolean;
 }
@@ -118,7 +120,7 @@ export interface RenderQueue {
    * specs outward (chunk-plan.ts). Rendering a module is this, and so is being told the spec changed: the queue
    * master reviews the plan, as around any change. Says what it queued.
    */
-  bringUpTo(plainFile: string, options?: { to?: string; only?: boolean; model?: string }): BroughtUp;
+  bringUpTo(plainFile: string, options?: { to?: string; only?: boolean; model?: string; guidance?: string }): BroughtUp;
   /** The entry for a functionality that is queued or building right now, if there is one. */
   inFlight(plainFile: string, frid: string): QueuedRender | undefined;
   /** What has been queued, in order, with each job's current state. */
@@ -240,6 +242,8 @@ export interface SpecDiffRequest {
   model?: string;
   /** false: no conformance tests for it, and no conformance job after it. */
   conformance?: false;
+  /** How whoever queued it wants the queue planned: a strong preference, for every plan of its codebase while it waits. */
+  guidance?: string;
   /**
    * A part that lands in a codebase holding nothing yet, with nothing queued for it before, is
    * given the whole spec of its module as the change - what was written before, as well as this.
@@ -274,6 +278,11 @@ export function createRenderQueue(options: {
    * master is a stand-in or off - then the plan is a functional spec a job, and no model is asked.
    */
   chunkAgents?: ChunkAgents;
+  /**
+   * How the queue of a spec's codebase is to be planned, for every plan: the conversation's steering, and what the
+   * project's AGENTS.md says of it. Read afresh each plan.
+   */
+  steering?: (plainFile: string) => Steering[];
   /** The queue master's model. Default: the model the spec change renders on. */
   masterModel?: string;
   /** How the queue master asks the person, when it is not sure. */
@@ -603,6 +612,7 @@ export function createRenderQueue(options: {
       specText,
       conformanceAvailable: !conformanceOff(latest.plainFile) && hasTestReqs(latest.spec),
       ...(instruction !== undefined ? { instruction } : {}),
+      steering: steeringFor(latest.plainFile, waiting),
       ...(running !== undefined
         ? {
             running: {
@@ -925,6 +935,29 @@ export function createRenderQueue(options: {
   };
 
   /**
+   * The steering a plan of this codebase follows: the conversation's and AGENTS.md's, then what each job waiting in it
+   * was queued with - once each.
+   */
+  const steeringFor = (plainFile: string, waiting: SpecDiffWork[]): Steering[] => {
+    let given: Steering[] = [];
+    try {
+      given = options.steering?.(plainFile) ?? [];
+    } catch {
+      // Steering that cannot be read is no steering: the plan goes on without it.
+    }
+    const requested = waiting
+      .filter((work) => work.guidance !== undefined)
+      .map((work) => ({ source: `the request that queued job ${work.jobId}`, text: work.guidance! }));
+    const seen = new Set<string>();
+    return [...given, ...requested].filter((entry) => {
+      const key = entry.text.trim();
+      if (key === "" || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  /**
    * Say on a job not planned yet what it is: one job with the module's whole diff, until it is planned, would read as
    * the module built at once.
    */
@@ -978,6 +1011,7 @@ export function createRenderQueue(options: {
         before,
         turnAt: turns.get(codebase)?.count ?? 0,
         render: { original: serializeTree(after), off, frid: request.frid },
+        ...(request.guidance !== undefined && request.guidance.trim() !== "" ? { guidance: request.guidance.trim() } : {}),
       };
     } catch {
       // A functionality the pinned spec does not have fails in the render, with its own error.
@@ -1029,6 +1063,7 @@ export function createRenderQueue(options: {
       restructure,
       before,
       turnAt: turns.get(codebase)?.count ?? 0,
+      ...(request.guidance !== undefined && request.guidance.trim() !== "" ? { guidance: request.guidance.trim() } : {}),
     };
     const started = startSpecDiff(work);
     const job = options.registry.get(started.jobId);
@@ -1316,6 +1351,7 @@ export function createRenderQueue(options: {
             applied: "already applied",
             spec: { moduleName: entry.moduleName, plainFile: entry.plainFile, tree: target, chain: chain.slice(0, chain.indexOf(entry) + 1) },
             ...(bring.model !== undefined ? { model: bring.model } : {}),
+            ...(bring.guidance !== undefined ? { guidance: bring.guidance } : {}),
           });
           module.specDiff = queuedDiff.jobId;
           brought.jobIds.push(...queuedDiff.parts.map((part) => part.jobId));
@@ -1480,6 +1516,8 @@ interface SpecDiffWork {
   landedAnyway?: boolean;
   /** Built on a module with work still to land: planned when its turn comes, not when it was queued. */
   planLater?: boolean;
+  /** How whoever queued it wants the queue planned. */
+  guidance?: string;
   /**
    * A functionality render, not a spec diff: the spec it leaves as queued, and whether conformance was off. Left as
    * it was, it runs as the render it was asked for; reworked, it runs as a spec diff.

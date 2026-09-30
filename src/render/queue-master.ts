@@ -63,9 +63,30 @@ export interface DraftJob {
   conformance?: boolean;
 }
 
+/** How the person or the harness wants the queue planned: a strong preference, each with where it came from. */
+export interface Steering {
+  source: string;
+  text: string;
+}
+
+/** The steering, for an agent's task: each with where it came from, and how binding it is. */
+export function steeringBlock(steering: Steering[] | undefined): string[] {
+  if (steering === undefined || steering.length === 0) return [];
+  return [
+    "<how the queue is to be planned - the person's or the harness's wishes>",
+    ...steering.map((entry) => `<from source="${entry.source}">\n${entry.text.trim()}\n</from>`),
+    "</how the queue is to be planned>",
+    "Follow these as a strong preference: they say how the person wants the work cut and ordered. They never override the",
+    "limits and checks the plan is held to; where one would, keep to the limit, and say so where you give your answer.",
+    "",
+  ];
+}
+
 export interface MasterInput {
   /** What the person asked of the queue, when they asked the master themselves - not a new change. */
   instruction?: string;
+  /** How the queue is to be planned, from the conversation, AGENTS.md or the request that queued the work. */
+  steering?: Steering[];
   /**
    * The spec diff rendering right now, when there is one: `base` is the spec it leaves. The master may
    * stop it; then the work is measured from `built`, and it comes back into the draft as the first job.
@@ -481,9 +502,11 @@ export function masterPrompt(input: MasterInput, proposal: DraftJob[]): string {
     "Read the changes as ***plain, by the rules in your system prompt: what a concept's definition, an imported or required",
     "module, an implementation or test req means for the functional specs that use it, and so what has to go first or together.",
     "",
-    "Keep jobs small and about one thing a person would name; never more jobs than there are queued now unless the change",
-    "really adds a separate piece of work. When the queue is right as proposed, commit it as it is.",
+    "Keep jobs small and about one thing a person would name. The draft is the work cut into jobs by the planner - its",
+    "functional specs in groups, each with the definitions and reqs it uses - so change it only where it is wrong: a",
+    "dependency it missed, or what the person asks. When the queue is right as proposed, commit it as it is.",
     "",
+    ...steeringBlock(input.steering),
     ...(input.instruction !== undefined
       ? [
           "<what the person asks of the queue>",

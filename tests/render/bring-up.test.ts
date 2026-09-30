@@ -182,6 +182,25 @@ describe("bringing the queue up to the spec", () => {
     expect(topDiffs[0]).not.toContain("+- :Implementation: is Python.");
   });
 
+  it("hands the planner the steering - the conversation's and the request's - with every plan", async () => {
+    writeFileSync(join(dir, "app.plain"), spec("is Python.", ["Say hello.", "Say goodbye."]));
+    const given: unknown[] = [];
+    const registry = createJobRegistry();
+    const q = createRenderQueue({
+      registry,
+      cwd: dir,
+      queueMaster: false,
+      steering: () => [{ source: "the conversation", text: "Greetings go together." }],
+      chunkAgents: { group: async (_specs, _check, steering) => (given.push(steering), undefined), place: async () => undefined },
+    });
+    q.bringUpTo("app.plain", { guidance: "Hello before goodbye." });
+    await q.drain();
+    expect(given[0]).toEqual([
+      { source: "the conversation", text: "Greetings go together." },
+      { source: expect.stringMatching(/^the request that queued job /), text: "Hello before goodbye." },
+    ]);
+  });
+
   it("queues nothing when what is built already is the spec", () => {
     writeFileSync(join(dir, "app.plain"), spec("is Python.", ["Say hello."]));
     builtUpTo(1);

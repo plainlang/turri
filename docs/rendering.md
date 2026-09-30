@@ -271,6 +271,14 @@ again, the running job left alone; the jobs that wait say, in the job panel, tha
 planned, and what it is at. A codebase whose code has no record of the spec it was built from is not
 planned: its queue stays as it was queued.
 
+**Steering.** How you want the work cut and ordered - "build the batch worker's helpers with the worker",
+"models first" - goes to the grouping and placement agents and the queue master with every plan, as a strong
+preference: it never overrides the limits and checks, and where it would, the master says so. It comes from three
+places, each labelled for them with where it came from: the conversation (`steer_queue`, for the whole project or
+one module, for the session); the project's `AGENTS.md`, every section whose heading names the queue (`## Queue
+guidance`), read afresh with every plan; and whatever queues the work - `render_module`, `spec_changed`,
+`render_spec_diff` and `write_spec_diff` take a `guidance` of their own, which the queue keeps with that work.
+
 Each functionality's conformance job writes its tests and then runs every conformance test in the
 codebase as one suite, with the unit testing script: a functionality that breaks one built before
 it is found at its own job, sent back, or undone there. On the command line, `plainwright module`
