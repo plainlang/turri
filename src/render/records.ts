@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
@@ -51,6 +52,61 @@ export function codeTree(tree: MarshalledPlainSource): MarshalledPlainSource {
     [FUNCTIONAL_REQUIREMENTS]: itemsOf(tree, FUNCTIONAL_REQUIREMENTS).map(withoutAcceptanceTests),
     [REQUIRED_FUNCTIONAL_SPECS]: itemsOf(tree, REQUIRED_FUNCTIONAL_SPECS).map(withoutAcceptanceTests),
   });
+}
+
+/** A linked resource as the trees compared have it: its link, and the hash of what its file holds. */
+interface DigestedResource {
+  text: string;
+  target: string;
+  digest?: string;
+}
+
+/** Every linked resource in a tree, wherever an item has them - a functional spec, its acceptance tests, a definition, a req. */
+function mapResources(value: unknown, map: (resource: DigestedResource) => DigestedResource): unknown {
+  if (Array.isArray(value)) return value.map((entry) => mapResources(entry, map));
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) =>
+      key === "linked_resources" && Array.isArray(entry) ? [key, (entry as DigestedResource[]).map(map)] : [key, mapResources(entry, map)],
+    ),
+  );
+}
+
+/**
+ * A module's tree with the hash of each linked resource's content beside its link: the file is part of the spec,
+ * so a change to what it holds is a change to the item that links it - and, a definition linking it, to every
+ * functional spec using the concept. Found as the parser finds it: the spec's own folder first, then the other
+ * template folders, then the current directory.
+ */
+export function withResourceDigests(tree: MarshalledPlainSource, dirs: string[]): MarshalledPlainSource {
+  return mapResources(tree, (resource) => {
+    for (const path of [...dirs.map((dir) => resolve(dir, resource.target)), resolve(resource.target)]) {
+      try {
+        return { ...resource, digest: createHash("sha256").update(readFileSync(path)).digest("hex") };
+      } catch {
+        /* not here */
+      }
+    }
+    return resource;
+  }) as MarshalledPlainSource;
+}
+
+/**
+ * A record written before linked resources were hashed, with the hashes of `spec` where its links are the same:
+ * what it was built from is taken to be the resource as it is now, rather than every item linking one built again.
+ */
+export function adoptDigests(record: MarshalledPlainSource | null, spec: MarshalledPlainSource): MarshalledPlainSource | null {
+  if (record === null) return null;
+  const digests = new Map<string, string>();
+  mapResources(spec, (resource) => {
+    if (resource.digest !== undefined) digests.set(`${resource.text}\n${resource.target}`, resource.digest);
+    return resource;
+  });
+  return mapResources(record, (resource) => {
+    if (resource.digest !== undefined) return resource;
+    const digest = digests.get(`${resource.text}\n${resource.target}`);
+    return digest === undefined ? resource : { ...resource, digest };
+  }) as MarshalledPlainSource;
 }
 
 /** Items of a section, tagged with the module they come from, unless they already say. */

@@ -143,6 +143,16 @@ describe("placing a spec diff's lines in their files", () => {
     expect(files.map((file) => [file.file, file.added])).toEqual([["hubspot.plain", 1]]);
   });
 
+  it("shows a linked resource whose content changed as a file of its own, under its name - not with the lines found in no file", async () => {
+    const { resourceDiff } = await import("../../src/render/spec-steps.ts");
+    const item = (digest: string) => JSON.stringify({ markdown: "- :HubSpotMapping: is described in `[resource]resources/mapping.md`.", linked_resources: [{ digest, target: "resources/mapping.md", text: "resources/mapping.md" }] });
+    const resource = resourceDiff([{ id: "1", section: "definitions", kind: "change", before: item("a1"), after: item("b2"), position: 1 }], "hubspot.plain");
+    expect(resource).toContain("+resources/mapping.md, linked by :HubSpotMapping: in hubspot.plain: its content changed, sha256 b2");
+    const both = `${spec}${resource}`;
+    const files = diffFiles(both, 60, undefined, locateDiffLines(both, [own, common]));
+    expect(files.map((file) => [file.file, file.added])).toEqual([["hubspot.plain", 1], ["resources/mapping.md", 1]]);
+  });
+
   it("puts a line found in no file with the lines found in no file - last, named as such - not with the file of the line before it", () => {
     const lost = ["--- a/hubspot.plain", "+++ b/hubspot.plain", "@@ -1,2 +1,3 @@", " - :Provider: is a CRM.", "+- Written nowhere as it reads.", ""].join("\n");
     const files = diffFiles(lost, 60, undefined, locateDiffLines(lost, [own, common]));

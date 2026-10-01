@@ -12,7 +12,7 @@ import { acceptanceLabel, acceptanceText, conformanceLabel } from "./test-kinds.
 import { codeCasesBlock, conformanceCasesBlock } from "./cases.ts";
 import type { JobCases } from "./work.ts";
 import type { RequiredSpec } from "./state.ts";
-import type { SpecChange } from "./spec-steps.ts";
+import { resourcesChanged, type SpecChange } from "./spec-steps.ts";
 
 /**
  * Everything already in the code: the required modules' functional specs, bottom of the
@@ -314,7 +314,7 @@ export function describeSpecChange(changes: SpecChange[]): string {
   for (const { key, title } of sections) {
     const here = changes.filter((change) => change.section === key);
     if (here.length === 0) continue;
-    const changed: Array<{ label: string; before: string; after: string }> = [];
+    const changed: Array<{ label: string; before: string; after: string; resources?: string[] }> = [];
     // A definition "changed" into another concept is one removed and another added: a definition is itself by its concept.
     const split = here.flatMap((change): SpecChange[] =>
       key === DEFINITIONS && change.kind === "change" && conceptOf(itemText(change.before)) !== conceptOf(itemText(change.after))
@@ -325,7 +325,8 @@ export function describeSpecChange(changes: SpecChange[]): string {
     let removed = split.filter((change) => change.kind === "remove");
     for (const change of split.filter((item) => item.kind === "change")) {
       const label = key === FUNCTIONAL_REQUIREMENTS ? `functionality ${change.position}` : key === DEFINITIONS ? (conceptOf(itemText(change.after)) ?? `item ${change.position}`) : `item ${change.position}`;
-      changed.push({ label, before: itemText(change.before), after: itemText(change.after) });
+      const resources = resourcesChanged(change.before, change.after).map((resource) => resource.target);
+      changed.push({ label, before: itemText(change.before), after: itemText(change.after), ...(resources.length > 0 ? { resources } : {}) });
     }
     // A definition removed and added again under the same concept is that definition changed.
     if (key === DEFINITIONS) {
@@ -343,7 +344,12 @@ export function describeSpecChange(changes: SpecChange[]): string {
     const lines = [`<${title} change="${counts.join(", ")}">`];
     if (changed.length > 0) {
       lines.push("Changed:");
-      for (const change of changed) lines.push(`  ${change.label}`, "    before:", indent(change.before, "      "), "    now:", indent(change.after, "      "));
+      for (const change of changed) {
+        // What a file it links holds changed: said, since its text may read as it did.
+        const held = change.resources?.map((target) => `    what ${target} holds changed - it is in <linked resources> as it is now: make the code match it`) ?? [];
+        if (change.before === change.after && held.length > 0) lines.push(`  ${change.label}`, "    its text is as it was:", indent(change.after, "      "), ...held);
+        else lines.push(`  ${change.label}`, "    before:", indent(change.before, "      "), "    now:", indent(change.after, "      "), ...held);
+      }
     }
     if (added.length > 0) {
       lines.push("Added:");

@@ -112,6 +112,8 @@ interface ReadLine {
   section?: string;
   /** It is a section's header itself. */
   header: boolean;
+  /** The file the diff's header it comes under names. */
+  under?: string;
 }
 
 /**
@@ -170,7 +172,7 @@ export function diffFiles(diff: string, width: number, paint: DiffPaint = PLAIN_
     if (header && sign !== "-") sectionAfter = text.trim();
     const at = where?.[index];
     const section = at?.section ?? (sign === "-" ? sectionBefore : sectionAfter);
-    read.push({ index, sign, coloured, file: at?.file ?? headerFile ?? "", header, ...(at !== undefined ? { at } : {}), ...(section !== undefined ? { section } : {}) });
+    read.push({ index, sign, coloured, file: at?.file ?? headerFile ?? "", header, ...(headerFile !== undefined ? { under: headerFile } : {}), ...(at !== undefined ? { at } : {}), ...(section !== undefined ? { section } : {}) });
   }
   // A line placed nowhere is never put in a file on a guess. A removed one - in no file now - is in the file of the
   // change it is part of: the lines placed in its own run of removed and added lines, or else the line right beside
@@ -178,6 +180,11 @@ export function diffFiles(diff: string, width: number, paint: DiffPaint = PLAIN_
   // With nothing placed at all - a diff of the files themselves - its own headers say which file each line is in.
   for (const [at, line] of read.entries()) {
     if (line.at !== undefined || where === undefined) continue;
+    // Under a header of another file than the one rendered - a linked resource whose content changed - it is that file's.
+    if (line.under !== undefined && line.under !== rendered) {
+      line.file = line.under;
+      continue;
+    }
     line.file = NOT_FOUND;
     // A blank line says nothing of where it is: it goes with the line before it in the diff, or else the one after it.
     // Never a line of its own under "not found": beside nothing placed, it goes with the file being rendered.

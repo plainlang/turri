@@ -580,3 +580,57 @@ describe("a preview of the next job", () => {
     expect(busy).toEqual(["app"]);
   });
 });
+
+describe("a linked resource", () => {
+  const spec = () =>
+    "***definitions***\n\n- :Api: is the API the app calls, defined by [api.yaml](api.yaml).\n\n" +
+    "***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- Call :Api: for the users.\n\n- Say hello.\n";
+
+  it("is hashed in the record, on its own: a change to what it holds patches the functional specs using what links it - the job's diff and the agent's change say so", async () => {
+    writeFileSync(join(dir, "api.yaml"), "paths:\n  /users: {}\n");
+    writeFileSync(join(dir, "app.plain"), spec());
+    const code = runner();
+    const jobs: Array<{ textDiff: string; changes: string }> = [];
+    const { describeSpecChange } = await import("../../src/render/prompt.ts");
+    const loop = createWorkLoop({
+      registry: createJobRegistry(),
+      cwd: dir,
+      planner: false,
+      run: async (job, onDelta) => (jobs.push({ textDiff: job.planned.step.textDiff, changes: describeSpecChange(job.planned.step.changes) }), code.run(job, onDelta)),
+    });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(JSON.stringify(readRecord(codeDir()))).toMatch(/"target":"api.yaml","digest":"[0-9a-f]{64}"|"digest":"[0-9a-f]{64}"[^}]*"target":"api.yaml"/);
+    const built = code.ran.length;
+
+    // Nothing in the .plain file changes: only what the file it links holds.
+    writeFileSync(join(dir, "api.yaml"), "paths:\n  /v2/users: {}\n");
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(code.ran.slice(built)).toEqual([expect.objectContaining({ add: [], patch: ["1"] })]);
+    const job = jobs.at(-1)!;
+    expect(job.textDiff).toContain("diff --git a/api.yaml b/api.yaml");
+    expect(job.textDiff).toMatch(/\+api\.yaml, linked by :Api: in app\.plain: its content changed, sha256 [0-9a-f]{64}/);
+    expect(job.changes).toContain("its text is as it was:");
+    expect(job.changes).toContain("what api.yaml holds changed - it is in <linked resources> as it is now");
+  });
+
+  it("in a record written before resources were hashed, is taken as its file is now - hashed and committed, nothing built again", async () => {
+    writeFileSync(join(dir, "api.yaml"), "paths:\n  /users: {}\n");
+    writeFileSync(join(dir, "app.plain"), spec());
+    const code = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run: code.run });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    // As an earlier plainwright wrote it: the links without their hashes.
+    const record = readRecord(codeDir())!;
+    writeCodeRecord(codeDir(), JSON.parse(JSON.stringify(record), (key, value) => (key === "digest" ? undefined : value)));
+    recordHistory(codeDir(), "an older record");
+    expect(JSON.stringify(readRecord(codeDir()))).not.toContain("digest");
+    const built = code.ran.length;
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(code.ran).toHaveLength(built);
+    expect(JSON.stringify(readRecord(codeDir()))).toContain("digest");
+  });
+});

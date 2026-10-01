@@ -430,6 +430,18 @@ A functional spec is patched when a concept it uses changed as well as when its 
 harness follows each functional spec's concepts through the definitions. Fresh is only where nothing
 exists: a module that requires another starts from what it inherits, and its first job adds or patches.
 
+**Linked resources.** A file the spec links is part of it, so what it holds is compared too: each linked
+resource is hashed on its own (sha256 of its content) beside its link, in the trees the loop compares and in
+both records. A change to the file - an API surface `openapi.yaml` defines - changes the item that links it,
+with no change to the `.plain` text: a functional spec linking it is patched, and a definition linking it
+patches every functional spec using its concept. The job's diff has a hunk of its own for each such file,
+under the file's name - shown as a file of its own where the job is shown - saying which item links it, in which
+spec file (`resources/hubspot/openapi.yaml, linked by :HubSpotRestAPI: in hubspot.plain`), and that its content
+changed, with both hashes; the agent is told which file holds something else now, beside the item's
+unchanged text, and reads the file as it is now in `<linked resources>`. The records keep the hash, not the
+content, so what the file held before is not shown. A record written before resources were hashed is taken
+as built from the files as they are now: the loop hashes its links and commits it, building nothing again.
+
 A job lands once its unit tests pass and are reviewed: the code record becomes the spec the job ends on,
 committed with the code. Its conformance tests are not the code job's: they are a track of their own
 ([conformance tests in the work loop](#conformance-tests-in-the-work-loop)).

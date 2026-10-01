@@ -42,7 +42,7 @@ import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } fro
 import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { sectionsOf } from "./state.ts";
-import { inheritedRecord, readRecord, writeCodeRecord } from "./records.ts";
+import { inheritedRecord, readRecord, withResourceDigests, writeCodeRecord } from "./records.ts";
 import { changesBetween, sameSpec, serializeTree } from "./spec-steps.ts";
 import { untilUnitTestsReviewed } from "./unit-review.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
@@ -188,10 +188,10 @@ export function snapshotSpec(
   const { tip, chain } = withParseCache(() =>
     findCodebaseTip(resolve(cwd, plainFile), { templateDirs, inModule: options.inModule, allowNoFunctionalities: true }),
   );
-  const [moduleName, tree] = plainFileParser(basename(tip.plainFile), resolveTemplateDirs(tip.plainFile, templateDirs), {
-    allowNoFunctionalities: true,
-  });
-  return { moduleName, plainFile: tip.plainFile, tree, chain };
+  const dirs = resolveTemplateDirs(tip.plainFile, templateDirs);
+  const [moduleName, parsed] = plainFileParser(basename(tip.plainFile), dirs, { allowNoFunctionalities: true });
+  // What a linked resource holds is part of the spec: hashed beside its link, as the work loop has it.
+  return { moduleName, plainFile: tip.plainFile, tree: withResourceDigests(parsed, dirs), chain };
 }
 
 export interface RenderSpecDiffOptions {

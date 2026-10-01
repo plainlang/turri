@@ -515,6 +515,70 @@ export function diffSpecText(before: string, after: string, file = "spec.plain",
   return gitDiff(`${plainText(before, layout)}\n`, `${plainText(after, layout)}\n`, 3, [file, file]);
 }
 
+/** The linked resources of a changed item whose content is different now - each hashed on its own: by their path, with both hashes. */
+export function resourcesChanged(before: string | undefined, after: string | undefined): Array<{ target: string; was?: string; now?: string }> {
+  const resources = (line: string | undefined): Array<{ target: string; digest?: string }> => {
+    try {
+      return (JSON.parse(line ?? "") as { linked_resources?: Array<{ target: string; digest?: string }> }).linked_resources ?? [];
+    } catch {
+      return [];
+    }
+  };
+  const was = new Map(resources(before).map((resource) => [resource.target, resource.digest]));
+  return resources(after)
+    .filter((resource) => was.has(resource.target) && was.get(resource.target) !== resource.digest)
+    .map((resource) => ({ target: resource.target, ...(was.get(resource.target) !== undefined ? { was: was.get(resource.target)! } : {}), ...(resource.digest !== undefined ? { now: resource.digest } : {}) }));
+}
+
+/**
+ * The linked resources a step's changes find changed, as a diff of their own beside the spec's: a file the spec links
+ * holds something else now, though the spec's text may read as it did. The trees keep each one's hash, not what it
+ * held before - so the hunk says that it changed, and what it holds now is the file itself.
+ */
+export function resourceDiff(changes: SpecChange[], file = "spec.plain"): string {
+  // Each resource once, with every item that links it: which spec file, and what in it.
+  const byTarget = new Map<string, { was?: string; now?: string; links: string[] }>();
+  for (const change of changes.filter((entry) => entry.kind === "change")) {
+    for (const resource of resourcesChanged(change.before, change.after)) {
+      const entry = byTarget.get(resource.target) ?? { ...(resource.was !== undefined ? { was: resource.was } : {}), ...(resource.now !== undefined ? { now: resource.now } : {}), links: [] };
+      const link = linkedBy(change, file);
+      if (!entry.links.includes(link)) entry.links.push(link);
+      byTarget.set(resource.target, entry);
+    }
+  }
+  return [...byTarget.entries()]
+    .map(([target, { was, now, links }]) =>
+      [
+        `diff --git a/${target} b/${target}`,
+        `--- a/${target}`,
+        `+++ b/${target}`,
+        "@@ -1 +1 @@",
+        `-${target}, linked by ${links.join(" and ")}: its content, sha256 ${was ?? "unknown"}`,
+        `+${target}, linked by ${links.join(" and ")}: its content changed, sha256 ${now ?? "unknown"}`,
+        "",
+      ].join("\n"),
+    )
+    .join("");
+}
+
+/** The item a change is to, as the person finds it: its concept or its number, in the spec file it is in - a module below's by its name. */
+function linkedBy(change: SpecChange, file: string): string {
+  let item: { markdown?: string; module?: string } = {};
+  try {
+    item = JSON.parse(change.after ?? change.before ?? "") as typeof item;
+  } catch {
+    /* a header: no item */
+  }
+  const concept = /^-?\s*(:[^:\s]+:)/.exec(item.markdown?.trim() ?? "")?.[1];
+  const what =
+    change.section === DEFINITIONS && concept !== undefined
+      ? concept
+      : change.section === FUNCTIONAL_REQUIREMENTS
+        ? `functional spec ${change.position}`
+        : `${sectionTag(change.section).replace(/s$/, "")} ${change.position}`;
+  return `${what} in ${item.module !== undefined ? `${item.module}.plain` : file}`;
+}
+
 export function makeStep(title: string, reason: string, changes: SpecChange[], before: string, after: string, file: string, layout?: SpecLayout): SpecStep {
   return {
     title,
@@ -524,7 +588,8 @@ export function makeStep(title: string, reason: string, changes: SpecChange[], b
     after,
     tree: parseTree(after),
     diff: diffTrees(before, after),
-    textDiff: diffSpecText(before, after, file, layout),
+    // What a linked resource holds changed shows in the step's diff, after the spec's own.
+    textDiff: `${diffSpecText(before, after, file, layout)}${resourceDiff(changes, file)}`,
     sections: [...new Set(changes.map((change) => change.section))],
   };
 }

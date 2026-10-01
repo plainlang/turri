@@ -8,7 +8,20 @@ import { recordHistory, resetToLastCommit } from "./history.ts";
 import { createJobRegistry, type Job, type JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
 import type { Steering } from "./steering.ts";
-import { chainTree, codeTree, conformanceTarget, inheritedRecord, notBuilt, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord, type Chosen } from "./records.ts";
+import {
+  adoptDigests,
+  chainTree,
+  codeTree,
+  conformanceTarget,
+  inheritedRecord,
+  notBuilt,
+  readRecord,
+  RECORD_FILE,
+  withResourceDigests,
+  writeCodeRecord,
+  writeTestsRecord,
+  type Chosen,
+} from "./records.ts";
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./spec-change-conformance.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { modulesRoot } from "./paths.ts";
@@ -178,10 +191,11 @@ const started = (entry: ChainEntry) => listFiles(entry.buildDir).length > 0 || r
 
 /** The spec a codebase is built from, as the .plain files have it now: its whole requires chain's. */
 export function chainSpec(chain: ChainEntry[]): SpecSnapshot {
-  const trees = chain.map((entry) => ({
-    module: entry.moduleName,
-    tree: plainFileParser(basename(entry.plainFile), resolveTemplateDirs(entry.plainFile), { allowNoFunctionalities: true })[1],
-  }));
+  // Each module's linked resources hashed where its links point: what a file holds is part of the spec.
+  const trees = chain.map((entry) => {
+    const dirs = resolveTemplateDirs(entry.plainFile);
+    return { module: entry.moduleName, tree: withResourceDigests(plainFileParser(basename(entry.plainFile), dirs, { allowNoFunctionalities: true })[1], dirs) };
+  });
   const tip = tipOf(chain);
   return { moduleName: tip.moduleName, plainFile: tip.plainFile, tree: chainTree(trees), chain };
 }
@@ -515,6 +529,23 @@ export function createWorkLoop(options: {
     void tick();
   };
 
+  /**
+   * A record written before linked resources were hashed has the hashes of the files as they are now - committed, with
+   * nothing running there - so the code is taken to be built from them, rather than everything linking one built again.
+   */
+  const hashResources = (state: ModuleState, spec: SpecSnapshot) => {
+    // A dry run only reads.
+    if (options.dryRun === true) return;
+    const code = tipEntry(state).buildDir;
+    for (const dir of [code, testsDirOf(state)]) {
+      const record = readRecord(dir);
+      const hashed = adoptDigests(record, spec.tree);
+      if (record === null || hashed === null || serializeTree(hashed) === serializeTree(record)) continue;
+      (dir === code ? writeCodeRecord : writeTestsRecord)(dir, hashed);
+      recordHistory(dir, "the record's linked resources hashed, as their files are now");
+    }
+  };
+
   /** What a conformance halt holds for: the spec and what the code is built from, as they are. */
   const conformanceKey = (state: ModuleState): string => {
     try {
@@ -599,6 +630,7 @@ export function createWorkLoop(options: {
       }
       return;
     }
+    hashResources(state, spec);
     if (state.halted !== undefined) {
       if (state.halted.specKey === specKey) {
         state.why = state.halted.why;
