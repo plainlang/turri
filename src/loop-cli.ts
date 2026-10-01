@@ -6,9 +6,8 @@ import { c } from "./module-report.ts";
 import { tryItCommand } from "./render/delivery.ts";
 import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
 import { createJobRegistry, type Job } from "./render/jobs.ts";
-import { createWorkLoop, describeModules, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
+import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
 import { projectDirOf } from "./render/paths.ts";
-import { renderSpecDiff } from "./render/spec-change.ts";
 
 /**
  * What every command that builds - `plainwright module`, `regenerate`, `conformance`, `spec-diff` - does around its own
@@ -89,16 +88,7 @@ export async function runLoop(options: {
         console.log(c.dim("A conformance job's prompt is built from what the code it tests holds once it is built: not shown before."));
         continue;
       }
-      // The coding agent's task, built as the render builds it - and all it did rolled back.
-      const result = await renderSpecDiff({
-        plainFile: first.plainFile,
-        diff: first.planned.step.textDiff,
-        applied: "already applied",
-        spec: first.spec,
-        cases: first.planned.cases,
-        dryRun: true,
-      });
-      console.log(result.task ?? "(no task)");
+      console.log((await promptOf(first)) ?? "(no task)");
     }
     process.exit(0);
   }

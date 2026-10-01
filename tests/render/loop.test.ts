@@ -391,3 +391,38 @@ describe("a codebase built without a module it now requires", () => {
     await expect(loop.startOver("app.plain")).rejects.toThrow("Nothing of app has to be started over");
   });
 });
+
+describe("a preview of the next job", () => {
+  it("plans on a loop of its own and starts nothing - the job each codebase would start, with its coding agent's prompt - and copies nothing up", async () => {
+    const { previewJobs } = await import("../../src/render/loop.ts");
+    const { existsSync } = await import("node:fs");
+    const { writeTestScripts } = await import("../test-scripts.ts");
+    writeTestScripts(dir);
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { run } = runner();
+    const real = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    await real.bringUp("app.plain");
+    await real.drain();
+    // A module on top of it, not started: a dry run reads what it would start from, and writes nothing.
+    writeFileSync(join(dir, "greet.plain"), `---\nrequires:\n  - app\n---\n\n${app(["Say goodbye."])}`);
+
+    const { previews, busy } = await previewJobs({ plainFile: join(dir, "greet.plain"), cwd: dir, plannerModel: undefined });
+    expect(busy).toEqual([]);
+    expect(previews).toHaveLength(1);
+    expect(previews[0]).toMatchObject({ module: "greet", track: "code" });
+    expect(previews[0]!.task).toContain("Say goodbye.");
+    // What it starts from is app's code, as it would be copied up.
+    expect(previews[0]!.task).toContain('<functionality module="app" id="1" status="implemented">');
+    expect(existsSync(join(dir, "plain_modules", "greet"))).toBe(false);
+  });
+
+  it("leaves out a codebase with a job running: its next job depends on what that one lands", async () => {
+    const { previewJobs } = await import("../../src/render/loop.ts");
+    const { writeTestScripts } = await import("../test-scripts.ts");
+    writeTestScripts(dir);
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { previews, busy } = await previewJobs({ plainFile: join(dir, "app.plain"), cwd: dir, busy: (module) => module === "app" });
+    expect(previews).toEqual([]);
+    expect(busy).toEqual(["app"]);
+  });
+});

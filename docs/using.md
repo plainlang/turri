@@ -43,6 +43,8 @@ where it stopped.
 | `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |
 | `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
 | `check_job`, `list_jobs`, `stop_job` | the background jobs |
+| `preview_job` | the job a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
+| `why_failed` | why a job did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
 | `module_history` | what each render, regeneration and conformance run changed in a module |
 
 What each render does, in order, is in [rendering](rendering.md).

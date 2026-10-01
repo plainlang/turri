@@ -34,11 +34,14 @@ import {
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
+import { createMyDiffTool } from "./self-check.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   codeFixPrompt,
   conflictKey,
   createCodeFixer,
+  answerAsExplorer,
+  createAskExplorerTool,
   exploreInvocation,
   judgeFailure,
   SPEC_CONFLICT_RAISES,
@@ -410,8 +413,15 @@ export async function renderConformanceTests(
       ...createWebTools(),
       ...fence.tools,
       conformanceRuns.tool,
+      createMyDiffTool({ dir: conformanceDir, what: "tests" }),
+      createAskExplorerTool({
+        ask: (question) => {
+          stage("the conformance agent asks the explorer");
+          return answerAsExplorer({ buildDir, spec: specContext, account: invocation, question, label, model: options.model, onDelta: options.onDelta });
+        },
+      }),
     ],
-    tools: [...fence.names, "run_conformance_tests", "update_notes", "submit_work", ...WEB_TOOLS],
+    tools: [...fence.names, "run_conformance_tests", "my_diff", "ask_explorer", "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
     system: fence.note,

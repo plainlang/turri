@@ -14,6 +14,10 @@ import { ARBITER_AFTER, arbitrateReview, dismissedNote, problemLine, REVIEW_LIMI
 import { codeReviewCasesBlock } from "./cases.ts";
 import type { JobCases } from "./work.ts";
 import { TEST_FILE_PATTERN } from "./testing.ts";
+import { createCanItFailTool } from "./self-check.ts";
+
+/** How many times the reviewer runs can_it_fail in a review session: each is a run of the unit testing script. */
+export const REVIEWER_CAN_IT_FAIL_RUNS = 3;
 
 /**
  * The review of the work: once its unit tests pass, does the code do what the spec says, and do the tests test it?
@@ -75,6 +79,8 @@ export function unitReviewTask(options: {
   forChange?: boolean;
   /** What the work does to each functional spec (work.ts): each part held to its own case. */
   cases?: JobCases;
+  /** It has can_it_fail, to check that a test it doubts can fail. */
+  canItFail?: boolean;
 }): string {
   const mechanical = options.cases?.mechanical === true;
   return [
@@ -122,6 +128,13 @@ export function unitReviewTask(options: {
           "  file or a field exists; that a result is not null, is truthy, has a type or a length; that a status is 200",
           "  and nothing about the body; `assert True`, an empty or skipped test, an exception caught and swallowed, an",
           "  assertion so loose any answer passes, an expected value computed the way the code computes it.",
+          ...(options.canItFail === true
+            ? [
+                "- A test you doubt can fail, check: can_it_fail puts a bug in a copy of the code - a condition turned round, a",
+                "  value changed - and runs the unit tests on it. A test that still passes cannot fail: raise it as bad, with the",
+                `  bug it missed. ${REVIEWER_CAN_IT_FAIL_RUNS} runs a session: spend them on the tests the work rests on.`,
+              ]
+            : []),
           "- It tests the code, not a stand-in: what is outside the unit - a network service, a clock, a database the",
           "  unit does not own - may be replaced; the unit under test itself never is, and a test that asserts only",
           "  what a mock was told to return tests the mock.",
@@ -220,6 +233,8 @@ export async function createUnitReviewer(options: {
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
+  /** The unit testing script, where it runs in the VM: the reviewer checks with can_it_fail that a test it doubts can fail. */
+  unitScript?: string;
 }): Promise<UnitReviewer> {
   let verdict: { pass: boolean; problems: UnitReviewProblem[] } | undefined;
   const submit = defineTool({
@@ -263,14 +278,16 @@ export async function createUnitReviewer(options: {
     },
   }) as ToolDefinition;
   const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [], noBash: true });
+  // A test it doubts, it checks: whether the tests catch a bug put in a copy of the code - the code itself untouched.
+  const canItFail = options.unitScript !== undefined ? [createCanItFailTool({ buildDir: options.buildDir, script: options.unitScript, runs: REVIEWER_CAN_IT_FAIL_RUNS })] : [];
   const session = await createExecutor({
     cwd: options.buildDir,
-    customTools: [submit, ...fence.tools],
-    tools: [...fence.names, "submit_review"],
+    customTools: [submit, ...canItFail, ...fence.tools],
+    tools: [...fence.names, ...canItFail.map((tool) => tool.name), "submit_review"],
     model: options.model,
     label: `${options.label} reviewer`,
     system: fence.note,
-    task: unitReviewTask(options),
+    task: unitReviewTask({ ...options, canItFail: options.unitScript !== undefined }),
     compaction: { instructions: REVIEWER_COMPACTION },
     budget: { calls: REVIEWER_CALLS, finish: ["submit_review"] },
   });
@@ -335,6 +352,8 @@ export async function untilUnitTestsReviewed(options: {
   work?: WorkLedger;
   /** Send the coding agent back once for problems its account left unanswered. Default true when `work` is given. */
   askForAnswers?: boolean;
+  /** The unit testing script, where it runs in the VM: the reviewer checks with can_it_fail that a test it doubts can fail. */
+  unitScript?: string;
 }): Promise<{ passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[]; reviews: number }> {
   const reviewer = await createUnitReviewer(options);
   try {

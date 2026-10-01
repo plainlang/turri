@@ -32,7 +32,8 @@ import { vmSummary } from "./render/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
 import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
-import { createWorkLoop, describeModules, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
+import { whyFailed } from "./render/why-failed.ts";
+import { createWorkLoop, describeModules, previewJobs, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
 import { plainPaint } from "./render/plain-palette.ts";
 import { createJobPanel } from "./render/job-panel.ts";
 import { createSidePanel, type PanelView } from "./render/side-panel.ts";
@@ -307,6 +308,7 @@ export default function (pi: ExtensionAPI) {
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
   registerStartOver(pi, cwd, jobs);
+  registerPreviewJob(pi, cwd, jobs);
   registerRenderConformance(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
   registerSpecChanged(pi, cwd, jobs);
@@ -720,6 +722,55 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       const loop = workLoopFor(jobs, cwd, ctx);
       const statuses = await loop.regenerate(plainFile, params.frid, model !== undefined ? { model } : {});
       return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
+    },
+  });
+}
+
+function registerPreviewJob(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "preview_job",
+    label: "Preview the next job",
+    description:
+      "Plan the work of a module as render_module would, and show the job each codebase would start next and the whole " +
+      "prompt its coding agent would get - starting nothing. A codebase with a job running is left out: what its next job " +
+      "is given depends on what the running one lands.",
+    promptSnippet: "preview_job: the next job of a module and its coding agent's whole prompt, starting nothing",
+    promptGuidelines: [
+      "Use preview_job when the user wants to see what a job will be told before it runs, or to check a plan before steering it with steer_queue.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "Path to the .plain file" }),
+      working_dir: WORKING_DIR_PARAM,
+    }),
+    async execute(_id, given, _signal, _onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
+      const plainFile = resolve(params.base, params.plain_file);
+      const running = new Set(workLoopFor(jobs, cwd, ctx).status().filter((status) => status.running !== undefined).map((status) => status.module));
+      const planner = chatModelOf(ctx);
+      const model = modelFor(chosenModels, "spec_changes", projectModel(ctx, plainFile) ?? planner);
+      const { statuses, previews, busy } = await previewJobs({
+        plainFile,
+        cwd,
+        ...(model !== undefined ? { model } : {}),
+        ...(planner !== undefined ? { plannerModel: planner } : {}),
+        steering: (file) => steeringFor(file, cwd, steeringStore),
+        busy: (module) => running.has(module),
+      });
+      const text = [
+        describeModules(statuses),
+        ...busy.map((module) => `\n${module} has a job running: its next job is planned from what that one lands - preview it once it has.`),
+        ...previews.map((preview) =>
+          [
+            "",
+            `<next job module="${preview.module}" track="${preview.track}" title="${preview.title}">`,
+            preview.task ?? "A conformance job's prompt is built from what the code it tests holds once it is built: it is not shown before.",
+            "</next job>",
+          ].join("\n"),
+        ),
+        "",
+        "Nothing was started. Tell the user what the next job is and what it will be told - the parts they are likely to care about, not the whole prompt unless they ask.",
+      ].join("\n");
+      return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
 }
@@ -1313,6 +1364,23 @@ async function deliver(
 
 /** Looking in on work that is still running, and collecting what finished. */
 function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
+  pi.registerTool({
+    name: "why_failed",
+    label: "Why a job failed",
+    description:
+      "Why a job did not land, from its whole transcript: how it ended and its diagnosis, the stages that went wrong, the " +
+      "last failing test run with its output, the last review that sent the work back, and the tool calls that failed - " +
+      "and where the whole log is.",
+    promptSnippet: "why_failed: why a job did not land, from its transcript",
+    promptGuidelines: ["When a job failed or did not land, call why_failed before you explain it or change the spec: go by what happened, not by the report alone."],
+    parameters: Type.Object({ job_id: Type.String({ description: "The job's id" }) }),
+    async execute(_id, params) {
+      const job = jobs.get(params.job_id);
+      if (job === undefined) return { content: [{ type: "text" as const, text: `No job ${params.job_id} has run in this session.` }], details: { status: "unknown" } };
+      return { content: [{ type: "text" as const, text: whyFailed(job) }], details: { status: job.status as string } };
+    },
+  });
+
   pi.registerTool({
     name: "check_job",
     label: "Check job",

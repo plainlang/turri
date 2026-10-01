@@ -22,6 +22,7 @@ import { projectDirOf } from "./render/paths.ts";
  * review: false                                             # review the code and its tests once they pass (default: true)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
+ * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters - see test-scripts.ts
  * run-testing-scripts-in: host                              # where the testing scripts run: vm (default), or host - see test-scripts.ts
  * ```
  *
@@ -154,6 +155,8 @@ export interface ProjectConfig {
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
   conformanceTestsScript?: string;
+  /** Path from the root to the static checks script - optional: the coding agent's to run, never a gate. */
+  staticChecksScript?: string;
   /**
    * Where the harness runs the testing scripts: in the sandbox VM (the default), or in place on
    * this machine - for an integration embedded in a host codebase the VM does not hold.
@@ -190,6 +193,7 @@ export const CONFIG_KEYS = {
   review: "review",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
+  staticChecksScript: "static-checks-script",
   runTestingScriptsIn: "run-testing-scripts-in",
   parallelJobs: "parallel-jobs",
   systemPackages: "system-packages",
@@ -318,6 +322,7 @@ function readConfigFile(path: string): ProjectConfig {
     review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
+    staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),
     // `testing-scripts:`, its name before, is read the same.
     runTestingScriptsIn: whereScriptsRun(raw[CONFIG_KEYS.runTestingScriptsIn] ?? raw["testing-scripts"]),
     vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),

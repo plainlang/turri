@@ -24,6 +24,7 @@ import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import {
   createScriptTool,
+  findStaticChecks,
   findTestScripts,
   projectRootFor,
   requireTestScripts,
@@ -32,6 +33,7 @@ import {
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
+import { createCanItFailTool, createMyDiffTool, createStaticChecksTool, selfCheckNote } from "./self-check.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
@@ -39,7 +41,7 @@ import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } fro
 import { loadLinkedResources } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { sectionsOf } from "./state.ts";
-import { readRecord, writeCodeRecord } from "./records.ts";
+import { inheritedRecord, readRecord, writeCodeRecord } from "./records.ts";
 import { changesBetween, sameSpec, serializeTree } from "./spec-steps.ts";
 import { untilUnitTestsReviewed } from "./unit-review.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
@@ -261,15 +263,17 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);
   // The change is made to the codebase's last known good state, not to what an interrupted
   // run left half-written.
-  stage("starting from the codebase's last commit");
+  // A dry run only reads: another job may be at work in the codebase.
+  const dryRun = options.dryRun === true;
+  if (!dryRun) stage("starting from the codebase's last commit");
   // The change is one unit - its code and its unit tests - landed whole, with the spec it was built from, or
   // undone whole. Its conformance tests are a job of their own, after it (docs/rendering.md).
-  const unit = startWork([tip.buildDir], moduleName);
+  const unit = dryRun ? undefined : startWork([tip.buildDir], moduleName);
   // Only laid out differently - definitions moved to a common module, specs moved between modules
   // of the chain: the code already is what the spec says. Nothing to render; the spec is recorded
   // as it is now laid out.
   const builtBefore = readRecord(tip.buildDir, { onDisk: true });
-  if (builtBefore !== null && sameSpec(builtBefore, tree)) {
+  if (builtBefore !== null && sameSpec(builtBefore, tree) && !dryRun) {
     stage("the specs were only restructured - nothing to render; recording the spec as it is now laid out");
     writeCodeRecord(tip.buildDir, tree);
     recordHistory(tip.buildDir, `spec restructured: ${summarizeDiff(options.diff)}`, options.diff);
@@ -297,21 +301,25 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const lastFrid = [...getFrids(tree)].at(-1);
   const buildDir = tip.buildDir;
   // From scratch there is no build directory yet, and everything the agent runs runs in it.
-  mkdirSync(buildDir, { recursive: true });
+  if (!dryRun) mkdirSync(buildDir, { recursive: true });
   const empty = listFiles(buildDir).length === 0;
-  if (empty && tip.requires !== null) {
-    const source = chain.find((entry) => entry.moduleName === tip.requires);
-    if (source !== undefined) {
-      stage(`no code here yet - starting from ${source.moduleName}'s code`);
-      copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName);
-    }
+  const source = empty && tip.requires !== null ? chain.find((entry) => entry.moduleName === tip.requires) : undefined;
+  if (source !== undefined && !dryRun) {
+    stage(`no code here yet - starting from ${source.moduleName}'s code`);
+    copyRequiredCode(source.buildDir, buildDir, moduleName, source.moduleName);
   }
+  // What the agent is shown it starts from: a dry run copies nothing, and reads the code it would start from where it is.
+  const seen = dryRun && source !== undefined ? source.buildDir : buildDir;
 
   stage("mapping the codebase and writing the prompt");
   // The agent is given the spec the code is built from - the state before the change - and the change: the spec
   // before it, plus the diff, is the spec after it. Read from the codebase as it is now, code copied up from a
   // required module included; with nothing built, there is no spec before, and the change is all of it.
-  const builtNow = readRecord(buildDir, { onDisk: true }) ?? {};
+  const builtNow =
+    (seen === buildDir ? readRecord(buildDir, { onDisk: true }) : (() => {
+      const below = readRecord(seen);
+      return below !== null ? inheritedRecord(below, source!.moduleName) : null;
+    })()) ?? {};
   // The change as it is to the code - from what it is built from to the spec this job records - section by section:
   // what every agent of this change is shown, in place of the raw diff.
   const changes = changesBetween(serializeTree(builtNow), serializeTree(tree));
@@ -331,8 +339,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     specifications: specificationsBefore,
     required: getInheritedFunctionalSpecs(builtNow),
     linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
-    codebase: codebaseMap(buildDir),
-    empty: listFiles(buildDir).length === 0,
+    codebase: codebaseMap(seen),
+    empty: listFiles(seen).length === 0,
     ...(options.cases !== undefined ? { cases: options.cases } : {}),
   });
 
@@ -342,11 +350,17 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
+  // What it checks its own work with: the diff its reviewer is shown, the static checks when the project has them,
+  // and whether a test catches a bug - none of them decides anything.
+  const staticChecks = findStaticChecks(root, tip.plainFile, buildDir);
+  const selfChecks = [
+    createMyDiffTool({ dir: buildDir, what: "code" }),
+    ...(staticChecks !== undefined ? [createStaticChecksTool({ buildDir, script: staticChecks })] : []),
+    ...(scripts.runTestingScriptsIn !== "host" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
+  ];
   // The script its work is judged by.
-  const task = [withNotes(withTestingScripts(prompt, scripts, ["unit"], root), buildDir), "", ...SUBMIT_WORK_NOTE].join("\n");
-  if (options.dryRun === true) {
-    // Nothing of it stays: a copy of the code below, the folder made.
-    abandonWork(unit, moduleName, "a dry run");
+  const task = [withNotes(withTestingScripts(prompt, scripts, ["unit"], root), buildDir), "", ...selfCheckNote(selfChecks.map((tool) => tool.name)), ...SUBMIT_WORK_NOTE].join("\n");
+  if (dryRun) {
     return { moduleName, buildDir, diff: applied, response: "", runs: [], attempts: 0, testRemovals: [], files: { added: [], changed: [], removed: [] }, passed: false, stoppedAt: null, task };
   }
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
@@ -358,9 +372,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       work.tool,
       ...createWebTools(),
       createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs }),
+      ...selfChecks,
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests", "update_notes", "submit_work", ...WEB_TOOLS],
+    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
     system: fence.note,
@@ -437,6 +452,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         forChange: true,
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
+        ...(scripts.runTestingScriptsIn !== "host" ? { unitScript: scripts.unit! } : {}),
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
         send: async (next) => {
           response = await ask(executor, next, options.onDelta);

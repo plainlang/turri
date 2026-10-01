@@ -61,6 +61,8 @@ export interface Job {
   transcript: TranscriptEntry[];
   /** It failed, and failed again when retried - or a job ahead of it did: the queue behind it fails too. */
   failedForGood?: boolean;
+  /** Its whole transcript, on disk: `.plainwright/jobs/` in the project. */
+  logFile?: string;
   /** Why it failed for good, and what to do, as the diagnosis found. */
   diagnosis?: string;
   /** What to tell the agent when it asks how the job went. */
@@ -372,7 +374,10 @@ export function createJobRegistry(options?: {
             changed();
           }
           log = startJobLog(job, claimed);
-          if (log !== undefined) sink.activity(`job log: ${log.file}`);
+          if (log !== undefined) {
+            job.logFile = log.file;
+            sink.activity(`job log: ${log.file}`);
+          }
           // The job holds the VMs it uses until it ends, and no longer.
           return guarded ? runGuarded() : runOnce();
         })

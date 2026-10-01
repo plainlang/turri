@@ -300,6 +300,88 @@ export async function exploreInvocation(options: {
   return explorationText(exploration, complete ? [] : found);
 }
 
+/** How many questions the test author may put to the explorer in one conformance run, and how long an answer may be. */
+export const EXPLORER_QUESTIONS = 3;
+const ANSWER_CALLS = 20;
+const MAX_ANSWER_CHARS = 4_000;
+
+/**
+ * The test author's question to the explorer, answered: a fresh explorer, in the code's folder and VM - it reads the
+ * code and runs it, and changes nothing - given what was handed over so far and the question, answering in words.
+ */
+export async function answerAsExplorer(options: {
+  buildDir: string;
+  spec: SpecContext;
+  /** What the explorer handed over: the account the tests are written from. */
+  account: string;
+  question: string;
+  label: string;
+  model?: string;
+  onDelta?: (delta: string) => void;
+}): Promise<string> {
+  let answer: string | undefined;
+  const submit = defineTool({
+    name: "submit_answer",
+    label: "Submit the answer",
+    description: "Hand the answer to the test author. Call this once.",
+    parameters: Type.Object({ answer: Type.String({ description: `The answer, in words, with the exact names - under ${MAX_ANSWER_CHARS} characters` }) }),
+    async execute(_id, params) {
+      answer = (params as { answer: string }).answer;
+      return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
+    },
+  }) as ToolDefinition;
+  const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
+  const session = await createExecutor({
+    cwd: options.buildDir,
+    customTools: [submit, ...fence.tools],
+    tools: [...fence.names, "submit_answer"],
+    model: options.model,
+    label: `${options.label} explorer`,
+    system: fence.note,
+    task: [
+      `You explored the built code of the \`${options.spec.moduleName}\` specification, in ${options.buildDir}, for the`,
+      "person writing its black-box conformance tests, and handed over the account below. They are writing the tests from it",
+      "now and have a question. Answer it from the code: read it, and run it to see where reading is not enough - change",
+      "nothing. Answer only what is asked, in words, with the exact names - routes, fields, commands, paths, versions - as",
+      `the code has them, never guessed. Under ${MAX_ANSWER_CHARS} characters. Call submit_answer once.`,
+      "",
+      `<your account>\n${options.account.trim()}\n</your account>`,
+      "",
+      `<question>\n${options.question.trim()}\n</question>`,
+    ].join("\n"),
+    budget: { calls: ANSWER_CALLS, finish: ["submit_answer"] },
+  });
+  let reply = "";
+  try {
+    reply = await ask(session, BEGIN, options.onDelta);
+  } finally {
+    session.dispose();
+  }
+  const given = (answer ?? reply).trim();
+  return given === "" ? "The explorer could not answer. Work it out from the account and the code, which you can read." : given.slice(0, MAX_ANSWER_CHARS * 2);
+}
+
+/** ask_explorer, for the conformance agent: a question about the software, answered by the explorer. */
+export function createAskExplorerTool(options: { ask: (question: string) => Promise<string>; questions?: number }): ToolDefinition {
+  let left = options.questions ?? EXPLORER_QUESTIONS;
+  return defineTool({
+    name: "ask_explorer",
+    label: "Ask the explorer",
+    description:
+      "Ask the explorer - who read and ran the code, and wrote the account of it you were given - something the account " +
+      "does not say: how a functionality is reached, what a field is called, what the software needs around it. It reads " +
+      `and runs the code to answer. ${options.questions ?? EXPLORER_QUESTIONS} questions a run: ask what reading the code yourself would take long to find.`,
+    promptSnippet: "ask_explorer: a question about how the software is reached, answered by the explorer from the code",
+    parameters: Type.Object({ question: Type.String({ description: "What you need to know, exactly" }) }),
+    async execute(_id, params) {
+      if (left <= 0) return { content: [{ type: "text" as const, text: "No questions left in this run: work it out from the account and the code." }], details: {} };
+      left -= 1;
+      const answer = await options.ask((params as { question: string }).question);
+      return { content: [{ type: "text" as const, text: `${answer}\n\n(${left} question${left === 1 ? "" : "s"} left)` }], details: {} };
+    },
+  }) as ToolDefinition;
+}
+
 export function explorePrompt(
   buildDir: string,
   spec: SpecContext,

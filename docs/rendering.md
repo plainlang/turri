@@ -109,7 +109,7 @@ no section is refused with the four that are.
 While it works, the agent runs tests however it likes with `bash` - one file, one case, any
 configuration - in the [sandbox](sandbox.md). Before it finishes, it calls `run_unit_tests`: a final
 check that takes no command and runs the project's unit testing script exactly as the harness will.
-But a functionality is not done on the agent's run, whatever it ran: after each turn **the harness
+But a job is not done on the agent's run, whatever it ran: after each turn **the harness
 runs the unit testing script itself**, and only that run counts (see
 [the testing scripts](#the-testing-scripts)). It sends the agent back, up to 20 times, when:
 
@@ -132,6 +132,24 @@ A test may go only when it asserts nothing meaningful - it cannot fail, exactly 
 another, or tests something the spec does not require. Inconvenient, slow or failing are not
 grounds. Justified removals are reported, not silent. The baseline is taken before the agent
 starts, so breaking an earlier functionality's test is caught too.
+
+### Checking its own work
+
+The coding agent has tools to check its work before the harness and the reviewer do. None of them decides
+anything - the unit testing script, run by the harness, still does - and its task says when to use each:
+
+- **`my_diff`**: the diff of the code folder from the commit the job started from, new files whole - exactly
+  what the reviewer is shown. Read before handing the work in: every part of the change in it, and nothing else.
+- **`can_it_fail`**: whether the unit tests catch a bug. The agent gives one change to a code file - a
+  condition turned round, a value changed - and the unit testing script runs on a fresh copy of the code with
+  it, in the VM; the code itself is never touched. If every test still passes, no test catches that bug. Six
+  runs a job. Not where the testing scripts run on the host, in place: there is no copy to change.
+- **`run_static_checks`**: the project's type checker and linter, when it has a script for them -
+  `static-checks-script:` in the [config](config.md), or the one `run_static_checks*.sh` beside the testing
+  scripts. Optional: with none, the agent has no such tool.
+
+The reviewer has `can_it_fail` too, three runs a review session: a test it doubts can fail, it checks, and
+raises as bad with the bug it missed.
 
 ### The code and its unit tests are reviewed
 
@@ -497,7 +515,10 @@ spec. `run_conformance_tests` puts
 the whole suite together with a copy of the build in a throwaway directory, in the tests' VM, so
 tests cannot accumulate state between attempts and nothing they write reaches the code.
 
-This is the same for a functionality's conformance tests and a spec diff's.
+While it writes the tests, the conformance agent can put a question to the explorer - `ask_explorer`, three
+times a run: how a functionality is reached, what a field is called. A fresh explorer, in the code's folder and
+VM, given the account it handed over and the question, reads and runs the code and answers in words; it changes
+nothing. And `my_diff` shows it the tests folder's diff from where the run started, as its reviewer is shown it.
 
 ### When a conformance test fails
 

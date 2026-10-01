@@ -159,6 +159,32 @@ export function findTestScripts(root: string, plainFile?: string, buildDir?: str
   return found;
 }
 
+/**
+ * The project's static checks - a type checker, a linter - when it has them: `static-checks-script:` in the config, else
+ * the one `run_static_checks*.sh` at the root or in `test_scripts/`. Optional, and never a gate: the coding agent runs
+ * it to check its work before the tests do. `run_static_checks_<lang>.sh <build>`, as the unit testing script is run.
+ */
+export function findStaticChecks(root: string, plainFile?: string, buildDir?: string): string | undefined {
+  const inModules = buildDir !== undefined && resolve(buildDir).split(sep).includes("plain_modules");
+  const module =
+    (inModules ? configModuleOfBuild(root, basename(dirname(resolve(buildDir!)))) : undefined) ??
+    (plainFile !== undefined ? configModuleOf(root, plainFile) : undefined);
+  const named = readProjectConfig(root, module).staticChecksScript;
+  if (named !== undefined) {
+    const path = resolve(root, named.trim());
+    // Agents write in plain_modules: a script there could be changed by the work it checks.
+    return !path.split(sep).includes("plain_modules") && isFile(path) ? path : undefined;
+  }
+  for (const dir of [root, join(root, SCRIPTS_DIR)]) {
+    if (!existsSync(dir)) continue;
+    const candidates = readdirSync(dir).filter((name) => STATIC_CHECKS.test(name) && isFile(join(dir, name)));
+    if (candidates.length === 1) return join(dir, candidates[0]!);
+  }
+  return undefined;
+}
+
+const STATIC_CHECKS = /^run_static_?checks[^/]*\.sh$/i;
+
 const SKILL: Record<ScriptKind, { skill: string; file: string; what: string }> = {
   unit: { skill: "implement-unit-testing-script", file: "run_unittests", what: "unit testing script" },
   conformance: { skill: "implement-conformance-testing-script", file: "run_conformance_tests", what: "conformance testing script" },
@@ -433,13 +459,25 @@ async function runInModuleVm(stagingRoot: string, script: string, args: string[]
  * scripts are ever run.
  */
 export async function runUnitScript(buildDir: string, script: string): Promise<ScriptRun> {
+  return runOnCode(buildDir, script, "unit testing script");
+}
+
+/**
+ * A script that takes the code folder - the unit testing script, the static checks - run where the testing scripts
+ * run. `change`: what to do to the fresh copy before it runs - only in the VM, where there is a copy; never in place.
+ */
+export async function runOnCode(buildDir: string, script: string, what: string, change?: (copy: string) => void): Promise<ScriptRun> {
   const project = projectOfBuild(buildDir);
-  if (project.inPlace) return runOnHost(project.root, script, [resolve(buildDir)], buildDir);
+  if (project.inPlace) {
+    if (change !== undefined) throw new Error("This runs only where the testing scripts run in the VM: here they run in place, on the code itself.");
+    return runOnHost(project.root, script, [resolve(buildDir)], buildDir);
+  }
   const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
   ensureInVmScratch(buildDir, staging.root);
   try {
-    reportActivity(`  copying ${stageBuild(buildDir, staging.build)} files of the code for the unit testing script`);
+    reportActivity(`  copying ${stageBuild(buildDir, staging.build)} files of the code for the ${what}`);
+    change?.(staging.build);
     return await runInModuleVm(staging.root, script, [staging.build], buildDir, buildDir);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });

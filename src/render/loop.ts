@@ -5,7 +5,7 @@ import { FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, 
 import { reportActivity, reportStage } from "./activity.ts";
 import { llmChunkAgents, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
 import { recordHistory, resetToLastCommit } from "./history.ts";
-import type { Job, JobRegistry } from "./jobs.ts";
+import { createJobRegistry, type Job, type JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
 import type { Steering } from "./steering.ts";
 import { chainTree, codeTree, conformanceTarget, inheritedRecord, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "./records.ts";
@@ -729,6 +729,73 @@ function casesText(cases: JobCases): string {
 }
 
 /** The codebases the loop looks after, as the person reads them: what runs, what is planned after it, and why nothing does. */
+/**
+ * The coding agent's task for a dry run's first job, built as the render builds it - and all it did rolled back. Not for
+ * a conformance job: its prompt is built from what the code holds once it is built.
+ */
+export async function promptOf(first: ReturnType<WorkLoop["firsts"]>[number]): Promise<string | undefined> {
+  if (first.planned.track !== "code") return undefined;
+  const result = await renderSpecDiff({
+    plainFile: first.plainFile,
+    diff: first.planned.step.textDiff,
+    applied: "already applied",
+    spec: first.spec,
+    cases: first.planned.cases,
+    dryRun: true,
+  });
+  return result.task;
+}
+
+/** The first job a codebase would start, and the prompt its coding agent would get. */
+export interface JobPreview {
+  module: string;
+  title: string;
+  track: Track;
+  cases: JobCases;
+  /** The coding agent's task, whole. Not for a conformance job: it is built from what the code holds once it is built. */
+  task?: string;
+}
+
+/**
+ * What bringing a spec's module up would start, in each codebase, and the prompt of each - planned on a loop of its own
+ * that starts nothing. A codebase `busy` says is running a job is left out: a dry run starts from its last commit, and
+ * what the next job there is given depends on what the running one lands.
+ */
+export async function previewJobs(options: {
+  plainFile: string;
+  cwd: string;
+  buildDir?: string;
+  model?: string;
+  plannerModel?: string;
+  steering?: (plainFile: string) => Steering[];
+  /** Whether a codebase, by its module, has a job running. */
+  busy?: (module: string) => boolean;
+}): Promise<{ statuses: ModuleStatus[]; previews: JobPreview[]; busy: string[] }> {
+  const loop = createWorkLoop({
+    registry: createJobRegistry(),
+    cwd: options.cwd,
+    dryRun: true,
+    ...(options.buildDir !== undefined ? { buildDir: options.buildDir } : {}),
+    ...(options.model !== undefined ? { modelFor: () => options.model } : {}),
+    ...(options.plannerModel !== undefined ? { plannerModel: options.plannerModel } : {}),
+    ...(options.steering !== undefined ? { steering: options.steering } : {}),
+  });
+  const statuses = await loop.bringUp(options.plainFile, options.model !== undefined ? { model: options.model } : {});
+  const previews: JobPreview[] = [];
+  const busy: string[] = [];
+  for (const first of loop.firsts()) {
+    if (options.busy?.(first.module) === true) {
+      busy.push(first.module);
+      continue;
+    }
+    const preview: JobPreview = { module: first.module, title: first.planned.title, track: first.planned.track, cases: first.planned.cases };
+    const task = await promptOf(first);
+    if (task !== undefined) preview.task = task;
+    previews.push(preview);
+  }
+  return { statuses, previews, busy };
+}
+
 export function describeModules(statuses: ModuleStatus[], options: { for?: "chat" | "command line" } = {}): string {
   if (statuses.length === 0) return "Nothing is being built.";
   const startOver = (status: ModuleStatus): string[] => {
