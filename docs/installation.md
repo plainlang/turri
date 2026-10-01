@@ -1,7 +1,7 @@
 # Installation
 
 ```bash
-git clone git@github.com:plainlang/plainwright.git && cd plainwright
+git clone git@github.com:plainlang/turri.git && cd turri
 npm install
 npm link              # puts `turri` on your PATH, pointing at this clone
 turri setup     # checks the machine, fixes what it can, asks before each change
