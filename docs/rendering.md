@@ -14,12 +14,15 @@ started: a project that keeps its specs in `plain/`, with `plain/config.yaml` an
 `plain/plain_modules/`, builds `plain/hubspot.plain` in `plain/plain_modules/hubspot/`, named from
 the folder above. Links in a spec are relative to the spec.
 
-### Modules on different stacks
+Every path below is in the project. What the person writes:
 
-One project can hold modules that share nothing but a common module - a Python backend and a React
-frontend side by side, each importing `base`, neither requiring the other. Each gets its testing
-scripts, models and conformance in its own `config.<module>.yaml`, laid over `config.yaml`: see
-[the project config](config.md#modules-on-different-stacks).
+| | |
+| --- | --- |
+| `config.yaml`, `config.<module>.yaml` | the project config, and a module's own laid over it - see [the project config](config.md) |
+| `test_scripts/run_unittests_<lang>.sh`, `test_scripts/run_conformance_tests_<lang>.sh` | the testing scripts, the only judges of pass or fail - where `config.yaml` names them, else in the project folder, else in `test_scripts/` - see [below](#the-testing-scripts) |
+| `AGENTS.md` | optional: a section whose heading names the queue steers how the work is cut - see [how the work is cut into jobs](#how-the-work-is-cut-into-jobs) |
+
+What a module is - each module's folder, its own git history:
 
 | | |
 | --- | --- |
@@ -27,8 +30,8 @@ scripts, models and conformance in its own `config.<module>.yaml`, laid over `co
 | `plain_modules/<module>/tests/` | the black-box conformance tests, organised however suits them |
 | `plain_modules/<module>/code/.plainwright.json` | the code record: the spec the code is built from - see [below](#what-the-code-is-built-from) |
 | `plain_modules/<module>/tests/.plainwright.json` | the tests record: what the conformance tests are written for - see [below](#what-the-code-is-built-from) |
-| `plain_modules/<module>/code/.plainwright-notes.md` | the agents' working notes - see [below](#working-notes) |
-| `plain_modules/<module>/.plaingit` | the module's history - see [using](using.md#module-history) |
+| `plain_modules/<module>/code/.plainwright-notes.md` | the working notes of every agent of the module - the conformance agent's and the judge's too: one file, in `code/`, none in `tests/` - see [below](#working-notes) |
+| `plain_modules/<module>/.plaingit` | the module's history: code, tests and both records, committed together - see [using](using.md#module-history) |
 
 A module that `requires` another starts from a copy of that module's code and tests, and builds on
 top of it; the latest module built in a chain is where later changes to any module of the chain
@@ -36,6 +39,29 @@ are made. What that code implements comes with it, as built: the other module's 
 implementation reqs, tagged with it, and its functional specs, as ones the new module inherits. A
 definition or req of the module's own spec that a module below already has, word for word, is not new
 work for it: the code implements it already.
+
+The harness's scratch - each ignores itself, and is never part of a module's history:
+
+| | |
+| --- | --- |
+| `plain_modules/.plainwright/` | what the VM needs beside the code, the one folder outside a module it holds - see [sandbox](sandbox.md) |
+| `plain_modules/.plainwright/cache/` | the package caches, so a dependency is fetched once |
+| `plain_modules/.plainwright/scripts/` | the copies each testing script run happens in, one folder a run |
+| `plain_modules/.plainwright/logs/` | each testing script run's whole output, by time and script |
+| `plain_modules/.plainwright/system-packages.json` | the system packages the agents installed, installed again by every VM of the project |
+| `.plainwright/jobs/` | each job's log: its diff, its stages, its agents and what they cost |
+| `.plainwright/debug/` | each agent's log: its prompt, every tool call and every answer |
+| `.plainwright/sessions/` | the agents' saved sessions |
+| `.plainwright/runs/<skill>/` | a gated skill's run: what an interrupted one resumes from, and its gates' evidence |
+| `.plainwright/deploy/` | the output of what `deploy` started |
+| `dist/<module>/` | what `deploy` puts out: the module's code as its last commit has it, replaced whole each time - see [deploy](deploy.md) |
+
+### Modules on different stacks
+
+One project can hold modules that share nothing but a common module - a Python backend and a React
+frontend side by side, each importing `base`, neither requiring the other. Each gets its testing
+scripts, models and conformance in its own `config.<module>.yaml`, laid over `config.yaml`: see
+[the project config](config.md#modules-on-different-stacks).
 
 ## One job
 
