@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
 import { FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
@@ -15,7 +15,7 @@ import { modulesRoot } from "./paths.ts";
 import { configForSpec } from "../config.ts";
 import { describeSpecChange } from "./prompt.ts";
 import { resolveTemplateDirs } from "./paths.ts";
-import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, type ChainEntry } from "./requires.ts";
+import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, startFromScratch, type ChainEntry } from "./requires.ts";
 import { withTryItLine } from "./delivery.ts";
 import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./spec-change.ts";
 import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
@@ -75,6 +75,12 @@ export interface ModuleStatus {
   planned: Array<{ title: string; cases: JobCases; track: Track }>;
   /** Why nothing runs there, when nothing does. */
   why?: string;
+  /**
+   * It now requires modules its code was not built on - `requires` - and is built only once its code is started
+   * over on them: these codebases' code and tests taken out, kept in their history, and built again from the
+   * bottom of the chain. Never done unasked: `startOver` does it.
+   */
+  startOver?: { requires: string[]; codebases: string[] };
 }
 
 interface ModuleState {
@@ -101,6 +107,8 @@ interface ModuleState {
   why?: string;
   /** The module below it that it waits for, while it does: not planned until that one is built. */
   waitsFor?: string;
+  /** Its code has to be started over on modules it was not built on - see `ModuleStatus.startOver`. */
+  startOver?: ModuleStatus["startOver"];
 }
 
 export interface WorkLoop {
@@ -123,6 +131,13 @@ export interface WorkLoop {
    * again, it clears a halt. Says what it planned.
    */
   conformance(plainFile: string, options?: { frids?: string[]; model?: string }): Promise<ModuleStatus[]>;
+  /**
+   * Start over the codebases of a spec's module that now require a module their code was not built on (see
+   * `ModuleStatus.startOver`): their code and conformance tests taken out - committed, so their history keeps
+   * them - and the module brought up, from the bottom of its chain. Destructive: asked for only once the person
+   * agreed. Says what it planned.
+   */
+  startOver(plainFile: string, options?: { model?: string }): Promise<ModuleStatus[]>;
   /** Every codebase the loop looks after, bottom of each chain first. */
   status(): ModuleStatus[];
   /**
@@ -265,7 +280,7 @@ export function createWorkLoop(options: {
       ...(options.steering?.(state.askedFile) ?? []),
       ...state.guidance.map((text) => ({ source: "the request that asked for the work", text })),
     ];
-    const input: PlanInput = { base: from, current, specFile, specText, steering };
+    const input: PlanInput = { base: from, current, specFile, specText, steering, track };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into jobs`);
@@ -449,9 +464,13 @@ export function createWorkLoop(options: {
       state.halted = undefined;
     }
     const fresh = newlyRequired(state.chain);
+    state.startOver = undefined;
     if (fresh !== undefined && fresh.rebuild.some((entry) => entry.buildDir === tip.buildDir)) {
-      const rebuild = fresh.rebuild.map((entry) => relative(options.cwd, dirname(entry.buildDir))).join(", ");
-      state.why = `it now requires ${fresh.modules.join(", ")}, which its code was not built on - its code has to be started again on it: remove ${rebuild} and it is built again, from the bottom of the chain`;
+      const codebases = fresh.rebuild.map((entry) => entry.moduleName);
+      state.startOver = { requires: fresh.modules, codebases };
+      state.why =
+        `it now requires ${fresh.modules.join(", ")}, which its code was not built on: it is built only once ` +
+        `${codebases.join(", ")} ${codebases.length === 1 ? "is" : "are"} started over - code and conformance tests taken out, kept in the history, and built again on ${fresh.modules.join(", ")}`;
       return;
     }
     const below = waitingOn(state);
@@ -509,6 +528,7 @@ export function createWorkLoop(options: {
       ...(state.running !== undefined ? { running: { jobId: state.running.jobId, title: state.running.planned.title } } : {}),
       planned: (state.running !== undefined ? planned.slice(1) : planned).map((job) => ({ title: job.title, cases: job.cases, track: job.track })),
       ...(state.running === undefined && state.why !== undefined ? { why: state.why } : {}),
+      ...(state.running === undefined && state.startOver !== undefined ? { startOver: state.startOver } : {}),
     };
   };
 
@@ -581,6 +601,31 @@ export function createWorkLoop(options: {
       }
       await tick();
       return [...new Set(states)].map(statusOf);
+    },
+    async startOver(plainFile, request = {}) {
+      const file = resolve(options.cwd, plainFile);
+      const own = resolveRequiresChain(file, [], undefined, { allowNoFunctionalities: true });
+      const rebuild = new Map<string, { entry: ChainEntry; requires: string[] }>();
+      for (const chain of [...chainsFor(file), own]) {
+        const fresh = newlyRequired(chain);
+        for (const entry of fresh?.rebuild ?? []) rebuild.set(entry.buildDir, { entry, requires: fresh!.modules });
+      }
+      if (rebuild.size === 0) throw new Error(`Nothing of ${tipOf(own).moduleName} has to be started over: its code is built on every module it requires.`);
+      for (const { entry } of rebuild.values()) {
+        if (modules.get(entry.buildDir)?.running !== undefined) throw new Error(`${entry.moduleName} has a job running: ask again once it is done.`);
+      }
+      for (const { entry, requires } of rebuild.values()) {
+        startFromScratch(entry, `it now requires ${requires.join(", ")}, which its code was not built on`);
+        const state = modules.get(entry.buildDir);
+        if (state !== undefined) {
+          state.plan = undefined;
+          state.conformancePlan = undefined;
+          state.halted = undefined;
+          state.conformanceHalted = undefined;
+          state.startOver = undefined;
+        }
+      }
+      return loop.bringUp(plainFile, request);
     },
     status() {
       return order.map((key) => statusOf(modules.get(key)!));
@@ -684,14 +729,27 @@ function casesText(cases: JobCases): string {
 }
 
 /** The codebases the loop looks after, as the person reads them: what runs, what is planned after it, and why nothing does. */
-export function describeModules(statuses: ModuleStatus[]): string {
+export function describeModules(statuses: ModuleStatus[], options: { for?: "chat" | "command line" } = {}): string {
   if (statuses.length === 0) return "Nothing is being built.";
+  const startOver = (status: ModuleStatus): string[] => {
+    if (status.startOver === undefined) return [];
+    const { requires, codebases } = status.startOver;
+    return options.for === "command line"
+      ? [`  plainwright module ${basename(status.plainFile)} --start-over starts ${codebases.join(", ")} over`]
+      : [
+          `  Ask the user whether to start ${codebases.join(", ")} over, and say why: ${codebases.join(", ")} was built without ` +
+            `${requires.join(", ")}, so no change to its code can bring ${requires.join(", ")} in - its code and conformance ` +
+            "tests are taken out, kept in its history, and built again from the bottom of the chain. Only if they agree, " +
+            `call start_over with ${basename(status.plainFile)}.`,
+        ];
+  };
   return statuses
     .map((status) => {
       const lines = [`${status.module} (${basename(status.plainFile)}):`];
       if (status.running !== undefined) lines.push(`  running: job ${status.running.jobId} - ${status.running.title}`);
       status.planned.forEach((job, index) => lines.push(`  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - ${casesText(job.cases)}`));
       if (status.why !== undefined) lines.push(`  ${status.why}`);
+      lines.push(...startOver(status));
       return lines.join("\n");
     })
     .join("\n");

@@ -10,9 +10,10 @@ Applies a change to the specs, given as a git diff of the .plain files, and buil
 counterpart of render_spec_diff. The diff is applied first, unless it is already in; then, as
 plainwright module does, what is left to build is planned into jobs and built.
 
-  --model <provider/id>    model for the agents (default: config.yaml's coding-model)`;
+  --model <provider/id>    model for the agents (default: config.yaml's coding-model)
+  --start-over             start over, without asking, a codebase built without a module it now requires`;
 
-const { positional, options } = parseArgs(process.argv.slice(2), [], USAGE);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--start-over"], USAGE);
 const [plainFile, diffFile] = positional;
 if (plainFile === undefined || diffFile === undefined) {
   console.error(USAGE);
@@ -30,6 +31,7 @@ if (!check.ok) {
 runLoop({
   plainFile,
   ...(options.model !== undefined ? { model: options.model } : {}),
+  startOver: options["start-over"] !== undefined,
   ask: (loop) => loop.bringUp(plainFile, options.model !== undefined ? { model: options.model } : {}),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

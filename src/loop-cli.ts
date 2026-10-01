@@ -1,3 +1,4 @@
+import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
@@ -21,6 +22,8 @@ export async function runLoop(options: {
   model?: string;
   buildDir?: string;
   dryRun?: boolean;
+  /** Start over, unasked, a codebase that has to be on a module it now requires (`--start-over`). */
+  startOver?: boolean;
   /** The request: bring up, regenerate, conformance. */
   ask: (loop: WorkLoop) => Promise<ModuleStatus[]>;
 }): Promise<never> {
@@ -58,8 +61,26 @@ export async function runLoop(options: {
     ...(planner !== undefined ? { plannerModel: planner } : {}),
     ...(options.dryRun === true ? { dryRun: true } : {}),
   });
-  const planned = await options.ask(loop);
-  console.log(describeModules(planned));
+  let planned = await options.ask(loop);
+  console.log(describeModules(planned, { for: "command line" }));
+
+  // A codebase built without a module it now requires is started over only when the person says so.
+  const toStartOver = planned.filter((status) => status.startOver !== undefined);
+  if (toStartOver.length > 0 && options.dryRun !== true) {
+    const why = toStartOver
+      .map(({ startOver }) => `${startOver!.codebases.join(", ")} was built without ${startOver!.requires.join(", ")}, which it now requires: no change to its code can bring it in.`)
+      .join("\n");
+    const agreed =
+      options.startOver === true ||
+      (await askAtTerminal(
+        "Start over?",
+        `${why}\nStarting over takes its code and conformance tests out - they stay in its history - and builds it again from the bottom of the chain.`,
+      ));
+    if (agreed === true) {
+      planned = await loop.startOver(plainFile, model !== undefined ? { model } : {});
+      console.log(describeModules(planned, { for: "command line" }));
+    }
+  }
 
   if (options.dryRun === true) {
     for (const first of loop.firsts()) {
@@ -83,7 +104,7 @@ export async function runLoop(options: {
   }
 
   await loop.drain();
-  console.log(`\n${describeModules(loop.status())}`);
+  console.log(`\n${describeModules(loop.status(), { for: "command line" })}`);
   const ended = registry.list();
   const failed = ended.filter((job) => job.status === "failed");
   console.log(`\n${failed.length === 0 ? c.green(c.bold("all jobs done")) : c.red(c.bold(`${failed.length} job${failed.length === 1 ? "" : "s"} failed`))}`);
@@ -106,4 +127,16 @@ export function parseArgs(argv: string[], flags: string[], usage: string): { pos
     else positional.push(arg);
   }
   return { positional, options };
+}
+
+/** Yes or no at the terminal - or undefined when there is none, and so no one to ask. */
+async function askAtTerminal(title: string, body: string): Promise<boolean | undefined> {
+  if (process.stdin.isTTY !== true) return undefined;
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(`\n${c.bold(title)}\n${body}\n\n${c.bold("Go ahead? [y/N] ")}`);
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
 }

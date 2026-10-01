@@ -354,3 +354,40 @@ describe("the work loop", () => {
     });
   });
 });
+
+describe("a codebase built without a module it now requires", () => {
+  it("is left as it is until starting it over is asked for - then its code goes, kept in its history, and the chain is built from the bottom", async () => {
+    const { describeModules } = await import("../../src/render/loop.ts");
+    const { historyLog } = await import("../../src/render/history.ts");
+    const { existsSync } = await import("node:fs");
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { ran, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    // Its spec is split: saying hello moves into a module app now requires.
+    writeFileSync(join(dir, "greeting.plain"), app(["Say hello."]));
+    writeFileSync(join(dir, "app.plain"), `---\nrequires:\n  - greeting\n---\n\n${app(["Say goodbye."])}`);
+
+    const [status] = await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(status).toMatchObject({ module: "app", startOver: { requires: ["greeting"], codebases: ["app"] } });
+    expect(ran).toHaveLength(1);
+    expect(existsSync(join(codeDir(), "app.py"))).toBe(true);
+    // The chat is told to ask, and why; the command line, how.
+    expect(describeModules([status!])).toContain("Ask the user whether to start app over, and say why: app was built without greeting");
+    expect(describeModules([status!], { for: "command line" })).toContain("plainwright module app.plain --start-over");
+
+    await loop.startOver("app.plain");
+    await loop.drain();
+    expect(ran.slice(1).map((job) => job.module)).toEqual(["greeting", "app"]);
+    expect(historyLog(codeDir())).toContain("start from scratch: it now requires greeting");
+    expect(loop.status().find((entry) => entry.module === "app")).toMatchObject({ planned: [], why: "built from the spec as it is" });
+  });
+
+  it("is not started over when nothing has to be", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run: runner().run });
+    await expect(loop.startOver("app.plain")).rejects.toThrow("Nothing of app has to be started over");
+  });
+});

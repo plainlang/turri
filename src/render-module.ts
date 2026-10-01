@@ -14,6 +14,7 @@ build when none is given), coding-model (the agents that build), harness-model (
 conformance-tests.
 
   --dry-run                plan the work and print the prompt of the first job, and run nothing
+  --start-over             start over, without asking, a codebase built without a module it now requires
   --build-dir <dir>        default: plain_modules/<module>/code
   --model <provider/id>    model for the agents
 
@@ -33,7 +34,7 @@ const GONE: Record<string, string> = {
   "template-dir": "set PLAIN_TEMPLATE_DIRS",
 };
 
-const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run"], USAGE);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run", "--start-over"], USAGE);
 for (const [name, instead] of Object.entries(GONE)) {
   if (options[name] !== undefined) console.log(c.dim(`--${name} is no longer an option: ${instead}.`));
 }
@@ -52,6 +53,7 @@ runLoop({
   ...(options.model !== undefined ? { model: options.model } : {}),
   ...(options["build-dir"] !== undefined ? { buildDir: options["build-dir"] } : {}),
   dryRun: options["dry-run"] !== undefined,
+  startOver: options["start-over"] !== undefined,
   ask: (loop) => loop.bringUp(named, options.model !== undefined ? { model: options.model } : {}),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

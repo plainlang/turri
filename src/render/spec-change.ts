@@ -254,8 +254,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   if (fresh !== undefined) {
     throw new Error(
       `${tip.moduleName} now requires ${fresh.modules.join(", ")}, which its code was not built on, so a spec diff cannot bring the change in. ` +
-        `Its code has to be started again on it: remove ${fresh.rebuild.map((entry) => relative(cwd, dirname(entry.buildDir))).join(", ")} and render the ` +
-        `module (render_module ${relative(cwd, tip.plainFile)}), which builds it from the bottom of the chain.`,
+        `Its code has to be started over on it - ${fresh.rebuild.map((entry) => entry.moduleName).join(", ")} taken out, kept in the history, and built ` +
+        `again from the bottom of the chain: start_over in the chat, once the user agrees, or plainwright module ${relative(cwd, tip.plainFile)} --start-over.`,
     );
   }
   stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);

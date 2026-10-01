@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
@@ -267,4 +267,16 @@ export function newlyRequired(chain: ChainEntry[]): { modules: string[]; rebuild
     }
   }
   return undefined;
+}
+
+/**
+ * Take a module back to nothing - its code, its conformance tests and what they were built from -
+ * so it is built again from the start, on the module it now requires. Committed, so the code that
+ * was there is in its history.
+ */
+export function startFromScratch(entry: ChainEntry, why: string): void {
+  const testsDir = join(dirname(entry.buildDir), "tests");
+  for (const dir of [entry.buildDir, testsDir]) rmSync(dir, { recursive: true, force: true });
+  mkdirSync(entry.buildDir, { recursive: true });
+  recordHistory(entry.buildDir, `start from scratch: ${why}`);
 }

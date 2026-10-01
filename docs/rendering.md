@@ -408,8 +408,11 @@ committed with the code. Its conformance tests are not the code job's: they are 
 A change that renders nothing - definitions moved to a common module, reqs reordered, specs moved between
 modules of the chain - is recorded, not rendered: the spec is recorded as it is now laid out and committed,
 with no agent and no testing script. Moving specs into a module the code was not built on is different: no
-change to the code brings that module's code in, so the codebase stops, saying its code has to be started
-again on it.
+change to the code brings that module's code in, so the codebase stops: it has to be started over - its code
+and conformance tests taken out, committed so its history keeps them, and the chain built again from the
+bottom. That is never done unasked. In the chat the model asks the person, saying why, and calls
+`start_over` once they agree; `plainwright module` and `spec-diff` ask at the terminal, and `--start-over`
+agrees in advance - with no terminal and no flag, nothing more is built there.
 
 ## Conformance tests
 
@@ -434,7 +437,9 @@ tests, the definitions and implementation reqs they were written against, and th
 and the work is from that record to what they are to be: of the functional specs the code is built from,
 those chosen - every one, or those `render_conformance` names - as the spec has them, with its test reqs. A
 functional spec whose code is behind the spec keeps its tests until the code lands. The work is cut into jobs
-as the code's is, anchored on functional specs, and a conformance job runs on the module's lane before its
+as the code's is, anchored on functional specs - every conformance job tests at least one, and the definitions
+and reqs they are written against go with the first that needs them, never in a job of their own; only work that
+touches no functional spec at all, the test reqs changed say, is a job without one - and a conformance job runs on the module's lane before its
 next code job: after a job lands, the tests of what it built come before anything is built on it.
 
 A conformance job is a spec diff's conformance run: the tests of its change written, changed or taken out,

@@ -35,6 +35,7 @@ where it stopped.
 | `steer_queue` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
 | `spec_changed` | say a spec changed, by any means: what is left to build is worked out again from the spec as it is now, and a job building what the spec no longer wants is stopped |
 | `regenerate_functionality` | build one functionality again, as it is |
+| `start_over` | start over a codebase built without a module it now requires - only once you agree |
 | `render_conformance` | write and run a module's conformance tests - or some functional specs' - on the code as built, whatever the config says |
 | `render_spec_diff` | apply a change to the specs, given as a git diff, and build it |
 | `check_plain` | validate a spec without rendering |
@@ -122,7 +123,10 @@ come waits for a free slot, and says so.
 - **A change to a module below** is made in the codebase at the tip of the chain, where its code
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new
   module is to start from it. Specs moved into a module the code was not built on stop the codebase:
-  its code has to be started again on it.
+  no change to its code brings that module in, so it has to be started over - its code and
+  conformance tests taken out, kept in its history, and built again from the bottom of the chain.
+  That is never done unasked: the chat asks you, saying why, and `start_over` does it once you agree;
+  on the command line `plainwright module` asks at the terminal, and `--start-over` agrees in advance.
 - **Conformance tests are a track of their own.** A code job lands once its unit tests pass and are
   reviewed. Then, before the next one builds on it, a conformance job writes and runs the tests of what it
   built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one

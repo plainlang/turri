@@ -306,6 +306,7 @@ export default function (pi: ExtensionAPI) {
   registerCheckPlain(pi, cwd);
   registerRenderModule(pi, cwd, jobs);
   registerRegenerateFunctionality(pi, cwd, jobs);
+  registerStartOver(pi, cwd, jobs);
   registerRenderConformance(pi, cwd, jobs);
   registerRenderSpecDiff(pi, cwd, jobs);
   registerSpecChanged(pi, cwd, jobs);
@@ -718,6 +719,35 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       const plainFile = resolve(params.base, params.plain_file);
       const loop = workLoopFor(jobs, cwd, ctx);
       const statuses = await loop.regenerate(plainFile, params.frid, model !== undefined ? { model } : {});
+      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
+    },
+  });
+}
+
+function registerStartOver(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerTool({
+    name: "start_over",
+    label: "Start a codebase over",
+    description:
+      "Start over the codebase of a module that now requires a module its code was not built on - a module the specs were " +
+      "split into, say: its code and conformance tests are taken out, committed so its history keeps them, and the module " +
+      "is built again from the bottom of its chain. Destructive: only once the user agreed.",
+    promptSnippet: "start a codebase over on a module it now requires",
+    promptGuidelines: [
+      "Only when a module's status says it has to be started over, and only after asking the user and telling them why: its code was built without the module it now requires, so no change to the code brings that module in. If they do not agree, leave it: nothing else is built there until it is.",
+    ],
+    parameters: Type.Object({
+      plain_file: Type.String({ description: "Path to the .plain file of the module whose status says to start it over" }),
+      working_dir: WORKING_DIR_PARAM,
+      model: MODEL_PARAM,
+      wait: WAIT_PARAM,
+    }),
+    async execute(_id, given, _signal, _onUpdate, ctx) {
+      const params = fromWorkingDir(cwd, given);
+      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
+      const plainFile = resolve(params.base, params.plain_file);
+      const loop = workLoopFor(jobs, cwd, ctx);
+      const statuses = await loop.startOver(plainFile, model !== undefined ? { model } : {});
       return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
