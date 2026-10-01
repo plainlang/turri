@@ -333,6 +333,48 @@ describe("the work loop", () => {
       expect(tests.ran.at(-1)).toMatchObject({ add: [], patch: [] });
     });
 
+    it("under conformance-tests: chosen, are written for a functional spec with acceptance tests, and for the rest only once the conversation chooses them - and kept", async () => {
+      const withAcceptance = "Say hello.\n\n  ***acceptance tests***\n\n  - It prints hello.";
+      writeFileSync(join(dir, "app.plain"), app([withAcceptance, "Say goodbye."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const registry = createJobRegistry();
+      const loop = createWorkLoop({ registry, cwd: dir, planner: false, conformanceOn: () => true, conformanceChosen: () => true, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      // Only the one with acceptance tests is tested; the code job that built the other says so, for the conversation to choose.
+      expect(tests.ran.map((job) => job.add)).toEqual([["1"]]);
+      const reports = registry.list().map((job) => job.report ?? "");
+      expect(reports.find((report) => report.includes("conformance-tests: chosen"))).toContain("- fs 2: Say goodbye.");
+      expect(reports.filter((report) => report.includes("- fs 1:"))).toEqual([]);
+
+      await loop.conformance("app.plain", { frids: ["2"] });
+      await loop.drain();
+      expect(tests.ran.map((job) => job.add)).toEqual([["1"], ["2"]]);
+      // Chosen once, kept: its changed text has its tests rewritten, with nothing asked again.
+      writeFileSync(join(dir, "app.plain"), app([withAcceptance, "Say goodbye politely."]));
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(tests.ran.at(-1)).toMatchObject({ patch: ["2"] });
+    });
+
+    it("named in the conversation one after the other, are written for every one named - never taking out the tests of those named before", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      await loop.conformance("app.plain", { frids: ["1"] });
+      await loop.drain();
+      await loop.conformance("app.plain", { frids: ["2"] });
+      await loop.drain();
+      const tested = JSON.stringify(readRecord(testsDir()));
+      expect(tested).toContain("Say hello.");
+      expect(tested).toContain("Say goodbye.");
+      expect(tests.ran.flatMap((job) => job.add)).toEqual(["1", "2"]);
+    });
+
     it("halt on their own when they do not pass - the code goes on being built - until the spec or the code changes", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
       const code = runner();

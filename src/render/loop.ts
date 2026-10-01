@@ -1,14 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
-import { FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
+import { ACCEPTANCE_TESTS, FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { llmChunkAgents, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
 import { recordHistory, resetToLastCommit } from "./history.ts";
 import { createJobRegistry, type Job, type JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
 import type { Steering } from "./steering.ts";
-import { chainTree, codeTree, conformanceTarget, inheritedRecord, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "./records.ts";
+import { chainTree, codeTree, conformanceTarget, inheritedRecord, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord, type Chosen } from "./records.ts";
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./spec-change-conformance.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { modulesRoot } from "./paths.ts";
@@ -22,7 +22,7 @@ import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
 import { projectDirOf } from "./paths.ts";
 import { changesBetween, parseTree, serializeTree, type SpecStep } from "./spec-steps.ts";
 import { listFiles } from "./testing.ts";
-import { casesOf, codeWork, stillWanted, type JobCases } from "./work.ts";
+import { casesOf, codeWork, stillWanted, type JobCases, type TouchedSpec } from "./work.ts";
 
 /**
  * The work loop - see docs/rendering.md.
@@ -203,6 +203,11 @@ export function createWorkLoop(options: {
   runConformance?: JobRunner;
   /** Whether the config has a module's conformance tests on. Default: its `conformance-tests:`, on unless false. */
   conformanceOn?: (plainFile: string) => boolean;
+  /**
+   * Whether a module's conformance tests are for the functional specs chosen, not every one: those with acceptance
+   * tests, those the conversation asked for, and those tested already. Default: `conformance-tests: chosen`.
+   */
+  conformanceChosen?: (plainFile: string) => boolean;
   /** Plan, and keep the job each codebase would start (`firsts`) - but start none. */
   dryRun?: boolean;
 }): WorkLoop {
@@ -211,6 +216,7 @@ export function createWorkLoop(options: {
   const run: JobRunner = options.run ?? defaultRunner;
   const runConformance: JobRunner = options.runConformance ?? defaultConformanceRunner;
   const configConformance = options.conformanceOn ?? ((plainFile: string) => configForSpec(plainFile).conformanceTests !== false);
+  const configChosen = options.conformanceChosen ?? ((plainFile: string) => configForSpec(plainFile).conformanceTests === "chosen");
   // One tick at a time: each reads the records and the spec, and decides.
   let ticking: Promise<void> = Promise.resolve();
 
@@ -238,8 +244,36 @@ export function createWorkLoop(options: {
 
   /** What the conformance tests are to be written for now: of what the code is built from, what is chosen, with the test reqs as the spec has them. */
   const conformanceOf = (state: ModuleState, spec: SpecSnapshot): MarshalledPlainSource => {
-    const chosen = state.conformance?.chosen;
-    return conformanceTarget(readRecord(tipEntry(state).buildDir), readRecord(testsDirOf(state)), spec.tree, chosen === undefined ? undefined : (frid) => chosen.has(frid));
+    const tests = readRecord(testsDirOf(state));
+    return conformanceTarget(readRecord(tipEntry(state).buildDir), tests, spec.tree, chosenOf(state, spec, tests));
+  };
+
+  /**
+   * Which functional specs the conformance tests are for: every one - unless the config has them for the chosen ones,
+   * or the conversation named some over a config that has them off. Then: those named, those with acceptance tests
+   * when the config chooses, and those tested already - a choice is kept, and tests are never taken out because
+   * other functional specs were named.
+   */
+  const chosenOf = (state: ModuleState, spec: SpecSnapshot, tests: MarshalledPlainSource | null): Chosen | undefined => {
+    const named = state.conformance?.chosen;
+    const choosing = configChosen(tipEntry(state).plainFile);
+    if (!choosing && (state.conformance === undefined || named === undefined || configConformance(tipEntry(state).plainFile))) return undefined;
+    if (choosing && state.conformance !== undefined && named === undefined) return undefined;
+    const tested = new Set(((tests?.[FUNCTIONAL_REQUIREMENTS] as Array<{ frid?: string }> | undefined) ?? []).map((item) => item.frid));
+    const specs = (spec.tree[FUNCTIONAL_REQUIREMENTS] as Array<{ [ACCEPTANCE_TESTS]?: unknown[] }> | undefined) ?? [];
+    const accepted = (frid: string) => (specs[Number(frid) - 1]?.[ACCEPTANCE_TESTS] ?? []).length > 0;
+    return (frid) => tested.has(frid) || named?.has(frid) === true || (choosing && accepted(frid));
+  };
+
+  /**
+   * Under `conformance-tests: chosen`: the functional specs a code job built or changed that no conformance test is
+   * for or is to be for - for the conversation to choose from.
+   */
+  const toChoose = (state: ModuleState, planned: PlannedJob, spec: SpecSnapshot): TouchedSpec[] => {
+    if (planned.track !== "code" || !configChosen(tipEntry(state).plainFile)) return [];
+    const chosen = chosenOf(state, spec, readRecord(testsDirOf(state)));
+    if (chosen === undefined) return [];
+    return [...planned.cases.add, ...planned.cases.patch].filter((touched) => !chosen(touched.frid));
   };
 
   /** Whether a codebase's conformance tests are written: asked for, or on in the config - with test reqs to write them from, and code to test. */
@@ -326,7 +360,13 @@ export function createWorkLoop(options: {
           { plainFile: tip.plainFile, moduleName: tip.moduleName, buildDir: tip.buildDir, spec: conformance ? spec : { ...spec, tree: planned.step.tree }, planned, model: state.model, cwd: options.cwd },
           onDelta,
         );
-        return { report: result.report, details: { passed: result.landed, landed: result.landed } };
+        // Under conformance-tests: chosen, what it built that no conformance test is for is the conversation's to choose.
+        const choose = result.landed ? toChoose(state, planned, spec) : [];
+        const report =
+          choose.length > 0
+            ? `${result.report}\n\n${chooseNote(tip.plainFile, choose)}`
+            : result.report;
+        return { report, details: { passed: result.landed, landed: result.landed } };
       },
     });
     // Its lines where they are written: the module's .plain file, those it imports, and those of the modules below it.
@@ -593,9 +633,12 @@ export function createWorkLoop(options: {
       );
       const tip = states.at(-1);
       for (const state of states) {
-        // The functional specs named are the module's own: they are chosen in its codebase, the rest as they were.
-        const named = state === tip && request.frids !== undefined && request.frids.length > 0 ? new Set(request.frids) : undefined;
-        state.conformance = { ...(named !== undefined ? { chosen: named } : {}) };
+        // The functional specs named are the module's own: they are chosen in its codebase, beside those chosen before.
+        const named = state === tip && request.frids !== undefined && request.frids.length > 0 ? request.frids : undefined;
+        const before = state.conformance;
+        // Asked for every one before, or now: every one.
+        const all = (before !== undefined && before.chosen === undefined) || named === undefined;
+        state.conformance = all ? {} : { chosen: new Set([...(before?.chosen ?? []), ...named]) };
         state.conformanceHalted = undefined;
         state.halted = undefined;
       }
@@ -794,6 +837,18 @@ export async function previewJobs(options: {
     previews.push(preview);
   }
   return { statuses, previews, busy };
+}
+
+/** What the conversation is told, after a code job lands, of what it built that no conformance test is for yet. */
+export function chooseNote(plainFile: string, specs: TouchedSpec[]): string {
+  return [
+    "conformance-tests: chosen - the conformance tests are for the functional specs chosen. This job built or changed these,",
+    "and no conformance test is for them yet:",
+    ...specs.map((touched) => `- fs ${touched.frid}: ${touched.text}`),
+    `Decide which of them black-box conformance tests are worth it for - what a user or a client of ${basename(plainFile)} relies on,`,
+    "not an internal detail its unit tests already cover - and say why. For those, call render_conformance with their",
+    "numbers; the rest stay without. A functional spec with acceptance tests always has them.",
+  ].join("\n");
 }
 
 export function describeModules(statuses: ModuleStatus[], options: { for?: "chat" | "command line" } = {}): string {

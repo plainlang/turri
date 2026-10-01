@@ -477,7 +477,13 @@ tests the module inherits with them. Passing, the tests record is written and co
 otherwise all of it - code fixes included - is rolled back, and the module's conformance tests halt until
 the spec or the code changes, or `render_conformance` asks again. The code goes on being built meanwhile.
 With `conformance-tests: false` none is written unless the conversation asks with `render_conformance`, for
-the session. A module built on another starts with an empty tests record: the tests it inherits are the
+the session. With `conformance-tests: chosen` they are written for the functional specs chosen: every one with
+acceptance tests - the author said what to check - and those the chat model chooses. After a code job lands,
+its report lists what it built or changed that no conformance test is for; the chat model decides which are
+worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why, and
+calls `render_conformance` with them. The ones named are added to those chosen before, and a functional spec
+that has conformance tests keeps them: they are rewritten when it changes, never taken out because others were
+named. Code jobs and conformance jobs are planned apart, each track on its own: a job is one or the other. A module built on another starts with an empty tests record: the tests it inherits are the
 module below's, and none of its own is written yet.
 
 ### Conformance tests and acceptance tests, kept apart

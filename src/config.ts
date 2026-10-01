@@ -18,7 +18,7 @@ import { projectDirOf } from "./render/paths.ts";
  *   thinking: medium
  * judge-model:                                              # the judge and the test review (default: coding-model)
  *   model: google/gemini-3.1-pro
- * conformance-tests: false                                  # write and run conformance tests (default: when there are test reqs)
+ * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chat chose) or false (default: all, with test reqs)
  * review: false                                             # review the code and its tests once they pass (default: true)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
@@ -144,8 +144,12 @@ export interface ProjectConfig {
    * the code, the tests or the spec is wrong, and the test review. Unset: the coding model.
    */
   judgeModel?: ModelChoice;
-  /** Whether conformance tests are written and run. Unset: when the module has test reqs. */
-  conformanceTests?: boolean;
+  /**
+   * Whether conformance tests are written and run, and for what. true (`all`): every functional spec the code is built
+   * from. "chosen": the ones with acceptance tests, and those the conversation chose with render_conformance - kept once
+   * their tests land. false: none, unless the conversation asks. Unset: all, when the module has test reqs.
+   */
+  conformanceTests?: boolean | "chosen";
   /**
    * Whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at
    * most, the second weighed by the arbiter. false: the work goes on once its tests pass. Unset: true.
@@ -203,6 +207,13 @@ export const CONFIG_KEYS = {
 
 function whereScriptsRun(value: unknown): "vm" | "host" | undefined {
   return value === "host" ? "host" : value === "vm" ? "vm" : undefined;
+}
+
+/** `conformance-tests:` - true or all, chosen, false. Anything else is not read. */
+function conformanceSetting(value: unknown): boolean | "chosen" | undefined {
+  if (typeof value === "boolean") return value;
+  const word = typeof value === "string" ? value.trim().toLowerCase() : undefined;
+  return word === "all" ? true : word === "chosen" ? "chosen" : word === "false" ? false : word === "true" ? true : undefined;
 }
 
 function text(value: unknown): string | undefined {
@@ -318,7 +329,7 @@ function readConfigFile(path: string): ProjectConfig {
     harnessModel: modelChoice(raw[CONFIG_KEYS.harnessModel]),
     codingModel: modelChoice(raw[CONFIG_KEYS.codingModel]) ?? modelChoice(raw.model),
     judgeModel: modelChoice(raw[CONFIG_KEYS.judgeModel]),
-    conformanceTests: typeof conformance === "boolean" ? conformance : undefined,
+    conformanceTests: conformanceSetting(conformance),
     review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),

@@ -88,6 +88,19 @@ describe("the project's config.yaml", () => {
     });
   });
 
+  it("has conformance tests for all the functional specs, for the chosen ones, or for none - true read as all", () => {
+    const read = (value: string) => {
+      writeFileSync(join(root, "config.yaml"), `conformance-tests: ${value}\n`);
+      return readProjectConfig(root).conformanceTests;
+    };
+    expect(read("all")).toBe(true);
+    expect(read("true")).toBe(true);
+    expect(read("chosen")).toBe("chosen");
+    expect(read("Chosen")).toBe("chosen");
+    expect(read("false")).toBe(false);
+    expect(read("some")).toBeUndefined();
+  });
+
   it("turns the review of the code and its tests on or off, and reads nothing else as either", () => {
     writeFileSync(join(root, "config.yaml"), "review: false\n");
     expect(readProjectConfig(root).review).toBe(false);

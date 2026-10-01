@@ -676,11 +676,12 @@ function registerRenderConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegis
     promptSnippet: "write and run a module's conformance tests, on the code as it is built",
     promptGuidelines: [
       "When the user asks for conformance tests - for a module, or some of its functional specs - call render_conformance. Never edit config.yaml for it, and never regenerate a functionality to get them.",
+      "Under conformance-tests: chosen, a code job's report lists the functional specs it built or changed that have no conformance tests: decide which are worth black-box tests, say why, and call render_conformance with their numbers. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module" }),
       working_dir: WORKING_DIR_PARAM,
-      frids: Type.Optional(Type.Array(Type.String(), { description: "The functional specs to test, by id. Omitted: every one" })),
+      frids: Type.Optional(Type.Array(Type.String(), { description: "The functional specs to test, by id - added to those chosen before. Omitted: every one" })),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -827,11 +828,12 @@ export function conformanceStatus(root: string): string | undefined {
   const modules = modulesWithConfig(project);
   const perModule = modules.map((module) => [module, readProjectConfig(project, module).conformanceTests] as const);
   if (perModule.some(([, on]) => on !== config.conformanceTests)) {
-    const state = (on: boolean | undefined) => (on === false ? "off" : on === true ? "on" : "on with test reqs");
+    const state = (on: boolean | "chosen" | undefined) => (on === false ? "off" : on === "chosen" ? "on for the chosen" : on === true ? "on" : "on with test reqs");
     return `conformance: ${perModule.map(([module, on]) => `${module} ${state(on)}`).join(", ")}`;
   }
   if (config.conformanceTests === false) return "conformance off (config.yaml)";
   if (config.conformanceTests === true) return "conformance on (config.yaml)";
+  if (config.conformanceTests === "chosen") return "conformance on for the chosen (config.yaml)";
   if (config.module === undefined) return "conformance on where there are test reqs";
   try {
     const file = resolve(project, config.module);
@@ -996,8 +998,10 @@ export function projectConfigBlock(root: string): string {
         config.module !== undefined && of !== "module" ? `- module: ${config.module}${where} - the module to build when the user does not name one.` : undefined,
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
-          : config.conformanceTests === true
-            ? "- conformance-tests: true - conformance tests are on, for every module that has test reqs."
+          : config.conformanceTests === "chosen"
+            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with render_conformance after a code job lands - its report lists what it built that has none. Once chosen, a functional spec keeps them."
+            : config.conformanceTests === true
+            ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
         config.review === false
           ? "- review: false - the code and its tests are not reviewed: a job lands once its tests pass."
