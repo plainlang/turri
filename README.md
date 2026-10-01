@@ -1,5 +1,9 @@
 <p align="center"><img src="docs/images/turri-banner.png" alt="turri - coding agent with the power of regenerative software: regrow, drift, rejuvenate, lineage"></p>
 
+<br>
+
+<h1 align="center">turri<br>coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
+
 You and **turri** write down what the system should do, as [\*\*\*plain](https://plainlang.org/) specs. **turri** builds
 the code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
