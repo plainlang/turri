@@ -8,7 +8,8 @@ You and **turri** write down what the system should do, as [\*\*\*plain](https:/
 the code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
 
-**turri** is named after *Turritopsis dohrnii*, the immortal jellyfish - see [the name](#the-name).
+**turri** is named after *Turritopsis dohrnii*, the immortal jellyfish that regrows itself from its young
+form, again and again - as **turri** regrows the code from the spec - see [the name](#the-name).
 
 ## Quick start
 
