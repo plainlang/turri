@@ -48,6 +48,8 @@ export interface PlanInput {
    * Default: the code's.
    */
   track?: "code" | "conformance";
+  /** For the conformance tests: functional specs, by number, whose tests are written in one job - as the conversation scheduled them. */
+  together?: string[][];
 }
 
 /** One job of a plan: a title, why, and the changes it makes, by id. */
@@ -303,7 +305,38 @@ function titleOf(change: SpecChange): string {
  */
 export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   const draft = await cut(input, agents);
-  return input.track === "conformance" ? anchored(draft, netChanges(input.base, input.current)) : draft;
+  if (input.track !== "conformance") return draft;
+  const net = netChanges(input.base, input.current);
+  return joined(anchored(draft, net), net, input);
+}
+
+/**
+ * A conformance plan with the jobs that test functional specs scheduled together made one, where the first of them is:
+ * the tests of each are written on the code as built, so none waits for another's.
+ */
+function joined(draft: DraftJob[], net: SpecChange[], input: PlanInput): DraftJob[] {
+  if (input.together === undefined || input.together.length === 0) return draft;
+  const fridAt = (tree: MarshalledPlainSource, position: number) => ((tree[FUNCTIONAL_REQUIREMENTS] as Array<{ frid?: string }> | undefined) ?? [])[position - 1]?.frid;
+  const fridOf = new Map(
+    net
+      .filter((change) => change.section === FUNCTIONAL_REQUIREMENTS)
+      .map((change) => [change.id, fridAt(change.kind === "remove" ? input.base : input.current, change.position)]),
+  );
+  const order = new Map(net.map((change, index) => [change.id, index]));
+  let jobs = draft;
+  for (const group of input.together) {
+    const tests = (job: DraftJob) => job.changes.some((id) => group.includes(fridOf.get(id) ?? ""));
+    const into = jobs.findIndex(tests);
+    if (into === -1) continue;
+    const merged = jobs.filter(tests);
+    const job: DraftJob = {
+      title: merged.map((entry) => entry.title).join("; "),
+      reason: merged[0]!.reason,
+      changes: merged.flatMap((entry) => entry.changes).sort((a, b) => order.get(a)! - order.get(b)!),
+    };
+    jobs = jobs.flatMap((entry, index) => (index === into ? [job] : tests(entry) ? [] : [entry]));
+  }
+  return jobs;
 }
 
 /**

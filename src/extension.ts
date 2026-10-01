@@ -672,11 +672,15 @@ function registerRenderConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegis
       "the code as it is built, as jobs of their own: each writes its tests from the spec's test reqs and acceptance " +
       "tests, runs them with the whole suite the module inherits, and, where one fails, fixes the test or the code, " +
       "whichever is wrong. What they are written for is recorded apart from the code. For this session, whatever the " +
-      "config's conformance-tests says. Functional specs not built yet get theirs once they are.",
+      "config's conformance-tests says. Functional specs not built yet can be named: the conformance job is scheduled at " +
+      "once and starts when every one named is built - each call one job - before the next code job. A functional spec " +
+      "the spec does not have, or a module without test reqs, is refused. A conformance job checks, as it starts, that " +
+      "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "write and run a module's conformance tests, on the code as it is built",
     promptGuidelines: [
       "When the user asks for conformance tests - for a module, or some of its functional specs - call render_conformance. Never edit config.yaml for it, and never regenerate a functionality to get them.",
-      "Under conformance-tests: chosen, a code job's report lists the functional specs it built or changed that have no conformance tests: decide which are worth black-box tests, say why, and call render_conformance with their numbers. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what render_module, spec_changed and render_spec_diff return lists the functional specs the planned code jobs add or change that no conformance test is for - decide which are worth black-box tests, say why, and call render_conformance with their numbers straight away. Name together the ones to test in one job. A code job's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "A conformance job that did not start because its code is not built: tell the user which functional specs it waits for, and which code job builds them.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module" }),
@@ -999,7 +1003,7 @@ export function projectConfigBlock(root: string): string {
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === "chosen"
-            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with render_conformance after a code job lands - its report lists what it built that has none. Once chosen, a functional spec keeps them."
+            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with render_conformance - when the work is planned, ahead of its code: what is planned lists what the code jobs add or change that has none, and a conformance job scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
             : config.conformanceTests === true
             ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",

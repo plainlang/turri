@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJobRegistry } from "../../src/render/jobs.ts";
-import { createWorkLoop, type JobRunner } from "../../src/render/loop.ts";
+import { moduleLanes } from "../../src/render/lanes.ts";
+import { createWorkLoop, describeModules, type JobRunner } from "../../src/render/loop.ts";
 import { codeTree, readRecord, writeCodeRecord, writeTestsRecord } from "../../src/render/records.ts";
 import { recordHistory } from "../../src/render/history.ts";
 import { snapshotSpec } from "../../src/render/spec-change.ts";
@@ -373,6 +374,86 @@ describe("the work loop", () => {
       expect(tested).toContain("Say hello.");
       expect(tested).toContain("Say goodbye.");
       expect(tests.ran.flatMap((job) => job.add)).toEqual(["1", "2"]);
+    });
+
+    it("scheduled ahead of their code, are written in one job once every functional spec named is built - after the code job that builds the last, before the next", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks.", "Say sorry."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const order: string[] = [];
+      const loop = createWorkLoop({
+        registry: createJobRegistry(),
+        cwd: dir,
+        planner: false,
+        conformanceOn: () => false,
+        run: async (job, onDelta) => (order.push(`code ${job.planned.cases.add.map((spec) => spec.frid).join(",")}`), code.run(job, onDelta)),
+        runConformance: async (job, onDelta) => (order.push(`tests ${job.planned.cases.add.map((spec) => spec.frid).join(",")}`), tests.runConformance(job, onDelta)),
+      });
+      code.holdNext();
+      await loop.bringUp("app.plain");
+      // Scheduled while the first code job runs: shown at once, after the code job that builds the last of them.
+      const [status] = await loop.conformance("app.plain", { frids: ["1", "2"] });
+      await loop.conformance("app.plain", { frids: ["4"] });
+      const planned = loop.status()[0]!.planned;
+      expect(status!.planned.map((job) => job.waitsFor)).toEqual([undefined, ["1", "2"], undefined, undefined]);
+      expect(planned.map((job) => `${job.track} ${job.title}`)).toEqual(["code Say goodbye.", "conformance fs 1, fs 2", "code Say thanks.", "code Say sorry.", "conformance fs 4"]);
+      code.gate.release!();
+      await loop.drain();
+      expect(order).toEqual(["code 1", "code 2", "tests 1,2", "code 3", "code 4", "tests 4"]);
+      expect(JSON.stringify(readRecord(testsDir()))).not.toContain("Say thanks.");
+    });
+
+    it("under conformance-tests: chosen, are to be chosen when the work is planned: what is planned lists what the code jobs add that none is for, chosen or scheduled", async () => {
+      const withAcceptance = "Say hello.\n\n  ***acceptance tests***\n\n  - It prints hello.";
+      writeFileSync(join(dir, "app.plain"), app([withAcceptance, "Say goodbye.", "Say thanks."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, conformanceChosen: () => true, run: code.run, runConformance: tests.runConformance });
+      code.holdNext();
+      const [planned] = await loop.bringUp("app.plain");
+      expect(planned!.toChoose?.map((touched) => touched.frid)).toEqual(["2", "3"]);
+      expect(describeModules([planned!])).toContain("Decide now which are worth black-box tests");
+      const [scheduled] = await loop.conformance("app.plain", { frids: ["3"] });
+      expect(scheduled!.toChoose?.map((touched) => touched.frid)).toEqual(["2"]);
+      code.gate.release!();
+      await loop.drain();
+      expect(tests.ran.map((job) => job.add)).toEqual([["1"], ["3"]]);
+    });
+
+    it("refuse functional specs the spec does not have - no code job builds them - and schedule nothing", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      await expect(loop.conformance("app.plain", { frids: ["1", "3"] })).rejects.toThrow(/fs 3 is not one of them.*Nothing was scheduled/);
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(tests.ran).toEqual([]);
+    });
+
+    it("do not start when the code record does not have a functional spec they test, as they test it - checked as the job starts", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const registry = createJobRegistry();
+      const loop = createWorkLoop({ registry, cwd: dir, planner: false, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      // Something else holds the module's lanes, so the conformance job is planned now and starts later - by when the record says otherwise.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      registry.start({ kind: "other", summary: "holds the module", lanes: moduleLanes(join(dir, "app.plain")), run: async () => (await held, { report: "" }) });
+      await loop.conformance("app.plain", { frids: ["1"] });
+      // Built from other text since - committed, as a regenerate leaves it - and the code job that would catch it up does not land.
+      const record = readRecord(codeDir())!;
+      writeCodeRecord(codeDir(), { ...record, "functional specs": [{ markdown: "Say hi." }] } as typeof record);
+      recordHistory(codeDir(), "built from other text");
+      code.gate.land = false;
+      release();
+      await loop.drain();
+      expect(tests.ran).toEqual([]);
+      const refused = registry.list().find((job) => job.kind === "render_spec_diff_conformance")!;
+      expect(refused.report).toMatch(/Not started: .*fs 1 is not built - plain_modules\/app\/code\/\.plainwright\.json does not have it/);
     });
 
     it("halt on their own when they do not pass - the code goes on being built - until the spec or the code changes", async () => {

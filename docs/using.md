@@ -36,7 +36,7 @@ where it stopped.
 | `spec_changed` | say a spec changed, by any means: what is left to build is worked out again from the spec as it is now, and a job building what the spec no longer wants is stopped |
 | `regenerate_functionality` | build one functionality again, as it is |
 | `start_over` | start over a codebase built without a module it now requires - only once you agree |
-| `render_conformance` | write and run a module's conformance tests - or some functional specs' - on the code as built, whatever the config says |
+| `render_conformance` | write and run a module's conformance tests - or some functional specs' - on the code as built, whatever the config says; named before their code is built, a conformance job is scheduled and starts once it is |
 | `render_spec_diff` | apply a change to the specs, given as a git diff, and build it |
 | `check_plain` | validate a spec without rendering |
 | `set_render_model` | choose the model renders run on - see [below](#choosing-a-model) |

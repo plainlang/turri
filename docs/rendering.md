@@ -478,12 +478,27 @@ otherwise all of it - code fixes included - is rolled back, and the module's con
 the spec or the code changes, or `render_conformance` asks again. The code goes on being built meanwhile.
 With `conformance-tests: false` none is written unless the conversation asks with `render_conformance`, for
 the session. With `conformance-tests: chosen` they are written for the functional specs chosen: every one with
-acceptance tests - the author said what to check - and those the chat model chooses. After a code job lands,
-its report lists what it built or changed that no conformance test is for; the chat model decides which are
-worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why, and
-calls `render_conformance` with them. The ones named are added to those chosen before, and a functional spec
-that has conformance tests keeps them: they are rewritten when it changes, never taken out because others were
-named. Code jobs and conformance jobs are planned apart, each track on its own: a job is one or the other. A module built on another starts with an empty tests record: the tests it inherits are the
+acceptance tests - the author said what to check - and those the chat model chooses. It chooses when the work
+is planned, ahead of the code: what `render_module`, `spec_changed` and `render_spec_diff` return lists what the
+planned code jobs add or change that no conformance test is for, chosen or scheduled, and the chat model decides
+which are worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why,
+and calls `render_conformance` with them; a code job's report lists any left undecided. The ones named are added
+to those chosen before, and a functional spec that has conformance tests keeps them: they are rewritten when it
+changes, never taken out because others were named.
+
+**Scheduled ahead of the code.** `render_conformance` may name functional specs whose code is not built yet:
+each call schedules one conformance job, shown at once in what is planned, after the code job that builds the
+last of them. Its functional specs are chosen once the code record has every one as the spec has it - not one
+by one as each lands - and its tests are written then, before the next code job. Say code jobs a and b are
+planned, then d and e: conformance tests named for what a and b build run once b lands, before d, and those
+named for e's after e. A functional spec the spec does not have - built by no code job - or a module with no
+test reqs is refused, and nothing is scheduled; one taken out of the spec later is dropped from its group.
+
+**What a conformance job tests is built.** As a conformance job starts, the harness reads the code record,
+`code/.plainwright.json`, and checks that it has every functional spec the job adds or changes tests for, as the
+job has it. One it does not have stops the job before any agent runs: its report says which are not built, the
+conformance tests halt, and the chat model tells the person. They are tried again once the code or the spec
+changes. Code jobs and conformance jobs are planned apart, each track on its own: a job is one or the other. A module built on another starts with an empty tests record: the tests it inherits are the
 module below's, and none of its own is written yet.
 
 ### Conformance tests and acceptance tests, kept apart

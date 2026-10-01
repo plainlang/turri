@@ -145,6 +145,22 @@ export function conformanceTarget(code: MarshalledPlainSource | null, tests: Mar
   });
 }
 
+/**
+ * Of the functional specs given, by number, those the code record does not have as `tree` has them - not built,
+ * or built from other text: no conformance test can be written for them yet. `tree` is a spec, its functional
+ * specs numbered by place, or what conformance tests are written for, each with its number.
+ */
+export function notBuilt(code: MarshalledPlainSource | null, tree: MarshalledPlainSource, frids: string[]): string[] {
+  const built = itemsOf(code, FUNCTIONAL_REQUIREMENTS);
+  const wanted = itemsOf(tree, FUNCTIONAL_REQUIREMENTS);
+  const numbered = wanted.some((item) => item.frid !== undefined);
+  return frids.filter((frid) => {
+    const item = numbered ? wanted.find((entry) => entry.frid === frid) : wanted[Number(frid) - 1];
+    const have = built[Number(frid) - 1];
+    return item === undefined || have === undefined || have.markdown.trim() !== item.markdown.trim();
+  });
+}
+
 /** A record written before the tree was all it held: v2's layout, with its sections as text. */
 interface StoredV2 {
   version: number;
