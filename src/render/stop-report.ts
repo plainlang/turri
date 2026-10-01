@@ -28,7 +28,7 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck" | "review" | "unlabelled">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck" | "environment" | "review" | "unlabelled">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
   /** How many times the harness judged it before it stopped - the unit tests' attempts. */
@@ -47,6 +47,21 @@ export function describeStop(facts: StopFacts): string {
     facts.at === "unit tests" ? (facts.attempts ?? ATTEMPTS[facts.at]) : facts.at === "conformance" ? (facts.conformance?.rounds ?? ATTEMPTS[facts.at]) : ATTEMPTS[facts.at];
   let why: string;
   let todo: string[];
+
+  // Not the spec's: what the tests are given to run with - only the person can fix it, and nothing in the spec changes.
+  if (facts.at === "conformance" && facts.conformance?.environment !== undefined) {
+    return [
+      `Stopped at ${what}: its conformance tests cannot pass with what their run is given - judged so ${facts.conformance.environment.times} times in a row:`,
+      facts.conformance.environment.reason.trim(),
+      "",
+      "What to do:",
+      "- Provide what the run is missing - a valid credential, an account, a service it can reach - where the conformance testing script reads it.",
+      "- Where the run happens matters: in the VM (`run-testing-scripts-in: vm`) it sees only plain_modules, not the project's own .env; " +
+        "for tests that need this machine's credentials or services, set `run-testing-scripts-in: host` in config.yaml.",
+      "",
+      "Then build again: it picks up here, and what is built stays built.",
+    ].join("\n");
+  }
 
   if (facts.at === "unit tests") {
     why = `after ${tries} attempt${tries === 1 ? "" : "s"} it still could not be built to pass its own unit tests.`;
@@ -82,10 +97,13 @@ export function describeStop(facts: StopFacts): string {
       `though they were sent back for it again and again. Still missing:\n${facts.conformance.unlabelled.map((line) => `    - ${line}`).join("\n")}`;
     todo = ["If the test reqs leave open where the tests go or how they are built, say so exactly - the folder, the files, the build."];
   } else if (facts.at === "conformance" && facts.conformance?.stuck !== undefined) {
-    const { error, times, rounds } = facts.conformance.stuck;
+    const { error, times, rounds, changedNothing } = facts.conformance.stuck;
     why =
-      `its conformance tests kept failing with ${error} - ${times} times, and ${times} more after the explorer was asked again ` +
-      `what they lacked, in ${rounds} attempts - so nothing more would have come of the rest of them.`;
+      changedNothing === true
+        ? `its conformance tests kept failing with ${error}, and the last ${times} fixes - in ${rounds} attempts - changed nothing, ` +
+          "so nothing more would have come of the rest of them."
+        : `its conformance tests kept failing with ${error} - ${times} times, and ${times} more after the explorer was asked again ` +
+          `what they lacked, in ${rounds} attempts - so nothing more would have come of the rest of them.`;
     todo = [
       "The tests most likely cannot reach the software the way the test reqs have them do it. Say exactly how in the test reqs: " +
         "what the tests depend on or start - the package or entry point the conformance testing script builds or installs, by its exact name - " +

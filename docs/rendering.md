@@ -610,7 +610,16 @@ reported:
 - **the code:** the coding agent - in the code's folder and VM, reading the tests but never changing them - fixes it,
   and keeps its unit tests passing;
 - **the tests:** the conformance agent corrects them to what the spec says;
-- **the spec:** two functional specs cannot both hold, whatever the code does.
+- **the spec:** two functional specs cannot both hold, whatever the code does;
+- **the environment:** neither the code nor the tests can fix it - only the person can, in what the run is given:
+  a credential missing, empty or rejected (a 401 from a provider for a token no test made up), an account or quota
+  a service refuses, a service the spec names that cannot be reached. What a test sets up itself - a credential, a
+  variable, a fixture - is the tests'.
+
+The environment is judged what is wrong twice in a row before it counts. The first time, the conformance agent
+checks that the tests do not cause it themselves and, when they do not, changes nothing; the second, the run
+stops, and the person is told what to provide and where the run read it from - and that a run in the VM sees only
+`plain_modules`, so tests that need this machine's credentials run with `run-testing-scripts-in: host`.
 
 When the code and the tests could both be wrong, the judge is told to choose the tests. A spec
 conflict has to name the two functionalities, each by its module and id - they can be in different
@@ -637,7 +646,10 @@ swinging between two failures counts too (runs that hang until the time limit co
 explorer is asked again, shown its last account and the failure,
 for what the tests lack; most often it is how they reach the software. Its new account goes to the
 conformance agent. If the same happens three rounds more, the run stops and says so, instead of
-spending the rest of its 20 attempts on it. The conformance agent has the testing script in its prompt,
+spending the rest of its 20 attempts on it. Two failures are the same once what changes from run to run is
+taken out of their lines - numbers, times, paths, colour codes, and the ids a service makes up for each
+response, a UUID or a correlation id. Nothing changes either when the agent sent to fix the code or the tests
+changes no file: two such fixes in a row, and the run stops. The conformance agent has the testing script in its prompt,
 and is told to fit the tests' own build to it.
 
 Every attempt is written into the working notes' pitfalls by the harness as cause and effect - what

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { credentialRefusal, isCredentialFile } from "./credentials.ts";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -127,6 +128,7 @@ function refuseNotes(path: string): void {
  */
 function refuseHarnessFiles(path: string): void {
   const name = basename(path);
+  if (isCredentialFile(path)) throw new ConfinementError(credentialRefusal(path));
   if (path.split(sep).includes("test_scripts") || /^(run_unittests|run_unit_tests|run_conformance_tests|prepare_environment)[^/]*\.sh$/.test(name)) {
     throw new ConfinementError(
       `${name} is a copy of the project's testing scripts, and those are not written here. They are not in your ` +

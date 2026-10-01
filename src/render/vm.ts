@@ -8,6 +8,7 @@ import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
+import { credentialFiles, credentialRefusal, restoreCredentialFiles } from "./credentials.ts";
 import { ensureInVmScratch, MODULES_DIR, modulesRootOf, projectRootOf, vmScratchDir } from "./paths.ts";
 import { readProjectConfig } from "../config.ts";
 import { hasProjectImage, projectImageTag } from "../vm-image.ts";
@@ -749,14 +750,27 @@ export function vmEnvironmentNote(): string {
 export function vmBashOperations(): BashOperations {
   return {
     exec: async (command, cwd, { onData, signal, timeout }) => {
-      const result = await runInVm(command, {
-        cwd,
-        signal,
-        onData,
-        // The agent's own timeout, up to the longest allowed; the limit when it gave none.
-        timeoutMs: timeout && timeout > 0 ? Math.min(timeout * 1000, MAX_COMMAND_TIMEOUT_MS) : COMMAND_TIMEOUT_MS,
-      });
-      return { exitCode: result.exitCode };
+      // Credentials are the person's: what a command does to a credential file in what the VM holds is undone after it.
+      const { project, mounts, readOnly } = vmFor(cwd);
+      const scratch = basename(project) === MODULES_DIR ? [vmScratchDir(project)] : [];
+      const holds = [...new Set([...mounts, ...scratch])].filter((dir) => !readOnly.includes(dir));
+      const credentials = credentialFiles(holds);
+      try {
+        const result = await runInVm(command, {
+          cwd,
+          signal,
+          onData,
+          // The agent's own timeout, up to the longest allowed; the limit when it gave none.
+          timeoutMs: timeout && timeout > 0 ? Math.min(timeout * 1000, MAX_COMMAND_TIMEOUT_MS) : COMMAND_TIMEOUT_MS,
+        });
+        return { exitCode: result.exitCode };
+      } finally {
+        const restored = restoreCredentialFiles(credentials, holds);
+        if (restored.length > 0) {
+          reportActivity(`  an agent's command wrote ${restored.join(", ")}, which holds credentials - put back as it was`);
+          onData(Buffer.from(`\n[plainwright put back ${restored.map((path) => basename(path)).join(", ")} as it was. ${credentialRefusal(restored[0]!)}]\n`));
+        }
+      }
     },
   };
 }

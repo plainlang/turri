@@ -26,6 +26,9 @@ let writesNothing = false;
 let pingPong = 0;
 /** How many of the coding agent's fixes miss before one makes the app print hello. */
 let coderMisses = 0;
+/** When set, each fix of the tests changes their file - a comment - while they fail the same way. */
+let touchesTests = false;
+let touches = 0;
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -107,7 +110,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         await tool("write").execute("id", {
           path: "test_conformance_hello.py",
           content:
-            `# conformance tests of functionality ${testedFrid}\nimport subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
+            `# conformance tests of functionality ${testedFrid}\n${touchesTests ? `# fix ${(touches += 1)}\n` : ""}import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
             "    def test_prints_hello(self):\n" +
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
             "        self.assertEqual(out.strip(), 'hello')\n",
@@ -142,6 +145,8 @@ beforeEach(() => {
   pingPong = 0;
   coderMisses = 0;
   writesNothing = false;
+  touchesTests = false;
+  touches = 0;
   reviewSays = () => ({ pass: true, problems: [] });
   arbiterRules = undefined;
 });
@@ -187,7 +192,7 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     expect(writer!.prompt).toContain(`You have read access to the code, in ${codeDir}, with your file tools - read, grep, find, ls - but`);
     expect(writer!.prompt).toContain("not write access: you write tests, never code.");
     expect(writer!.prompt).toContain("acceptance test 1 of functionality 1: Running the app prints hello and exits 0.");
-    expect(judge!.prompt).toContain("Decide what is wrong: the code, the tests, or the specification itself");
+    expect(judge!.prompt).toContain("Decide what is wrong: the code, the tests, the specification itself, or the run's environment");
     expect(judge!.prompt).toContain("<how to read the specification>");
     expect(judge!.prompt).toMatch(/<failing run exit="1"/);
     expect(coder!.prompt).toContain("The spec says the app prints hello; the code prints goodbye.");
@@ -291,8 +296,9 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
   });
 
   it("stops when nothing changes: the same failure judged the same way asks the explorer again, and then ends the run", async () => {
-    // The judge always blames the tests, and the stub's tests never change - so the failure never does.
+    // The judge always blames the tests, and the stub's fixes never touch what fails - so the failure never changes.
     judgeSays = () => ({ culprit: "tests", reason: "The tests are wrong." });
+    touchesTests = true;
     const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
 
     expect(result.passed).toBe(false);
@@ -306,6 +312,31 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const stop = describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result });
     // The error itself, quoted - not the run's last lines - and how often, in how many attempts.
     expect(stop).toMatch(/kept failing with "[^"]*Error[^"]*"[^-]* - 3 times, and 3 more after the explorer was asked again what they lacked, in 6 attempts/);
+  });
+
+  it("stops once two fixes in a row change no file - an agent that will not, or cannot, act on the verdict", async () => {
+    judgeSays = () => ({ culprit: "tests", reason: "The tests are wrong." });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(false);
+    expect(result.stuck).toMatchObject({ changedNothing: true, times: 2 });
+    expect(result.rounds).toBe(2);
+    const { describeStop } = await import("../../src/render/stop-report.ts");
+    expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toMatch(/the last 2 fixes - in 2 attempts - changed nothing/);
+  });
+
+  it("stops once the run's environment is judged what is wrong twice in a row - the tests checked in between - and tells the person what to provide", async () => {
+    judgeSays = () => ({ culprit: "environment", reason: "HUBSPOT_ACCESS_TOKEN, read from plain_modules/.plainwright/.env, is rejected with 401." });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(false);
+    expect(result.environment).toEqual({ reason: "HUBSPOT_ACCESS_TOKEN, read from plain_modules/.plainwright/.env, is rejected with 401.", times: 2 });
+    expect(result.rounds).toBe(2);
+    // In between, the conformance agent checked the tests do not cause it - and nobody touched the code.
+    expect(asked.filter((turn) => turn.prompt.includes("<why the environment>"))).toHaveLength(1);
+    expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+    const { describeStop } = await import("../../src/render/stop-report.ts");
+    const stop = describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result });
+    expect(stop).toContain("cannot pass with what their run is given - judged so 2 times in a row");
+    expect(stop).toContain("run-testing-scripts-in: host");
   });
 
   it("counts a failure that comes back after another as stuck too - a run swinging between two - and journals cause and effect", async () => {

@@ -37,6 +37,12 @@ tool was called with, and once on the absolute path the tool resolved it to, bec
 differ. Symlinks are resolved before comparing, so a link cannot walk out, and a glob containing
 `..` is refused outright.
 
+Credentials are the person's: no agent writes a `.env` or a variant of one (`.env.local`, `.env.test`) - a
+template, `.env.example`, is fine. The file tools refuse it, and what an agent's `bash` does to one in what
+its VM holds - the module and `plain_modules/.plainwright` - is put back as it was after the command, the agent
+told why. A made-up credential makes every later run fail without anyone seeing why; a missing one is the
+judge's to report (see [rendering](rendering.md)), the person's to provide.
+
 ## Commands run in a VM
 
 `bash` is the case no argument check can cover - one string, and no way to read where it will

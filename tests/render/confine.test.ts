@@ -83,6 +83,16 @@ describe("confinedTools", () => {
     expect(existsSync(join(code, "tests", "test_app.py"))).toBe(true);
   });
 
+  it("refuses a credential file - the person's to provide - but writes a template of one", async () => {
+    const fence = confinedTools({ workdir: code });
+    const write = fence.tools.find((tool) => tool.name === "write")!;
+    await expect(execute(write, { path: ".env", content: "HUBSPOT_ACCESS_TOKEN=dummy\n" })).rejects.toThrow(/the person's to provide - never an agent's to write/);
+    await expect(execute(write, { path: "config/.env.test", content: "A=1\n" })).rejects.toThrow(/holds credentials/);
+    expect(existsSync(join(code, ".env"))).toBe(false);
+    await execute(write, { path: ".env.example", content: "HUBSPOT_ACCESS_TOKEN=\n" });
+    expect(existsSync(join(code, ".env.example"))).toBe(true);
+  });
+
   it("refuses the record of what the code is built from - it is the harness's to write", async () => {
     const fence = confinedTools({ workdir: code });
     const write = fence.tools.find((tool) => tool.name === "write")!;
@@ -228,6 +238,19 @@ describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () =>
     expect(await run("python3 app.py")).toContain("hi");
     expect(await run(`cat ${join(outside, "secret.ts")}`)).not.toContain("const secret");
     expect(bash.description).toContain("install_system_packages");
+  });
+
+  it("puts back a credential file the agent's bash wrote, in its module or the VM scratch, and tells it why", async () => {
+    const scratch = join(root, "plain_modules", ".plainwright");
+    mkdirSync(scratch, { recursive: true });
+    const bash = confinedTools({ workdir: code }).tools.find((t) => t.name === "bash")!;
+    const output = await (bash as any).execute("id", { command: `echo TOKEN=dummy > .env && echo TOKEN=dummy > ${join(scratch, ".env")}` }, undefined, undefined, {} as never).then(
+      (result: any) => result.content.map((part: any) => part.text).join(""),
+      (error: Error) => error.message,
+    );
+    expect(existsSync(join(code, ".env"))).toBe(false);
+    expect(existsSync(join(scratch, ".env"))).toBe(false);
+    expect(output).toMatch(/plainwright put back \.env, \.env as it was\. \.env holds credentials, and they are the person's to provide/);
   });
 });
 

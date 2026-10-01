@@ -724,7 +724,7 @@ export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
   ].join("\n");
 }
 
-export type Culprit = "code" | "tests" | "spec";
+export type Culprit = "code" | "tests" | "spec" | "environment";
 
 /** A functionality, by the module it is in and its id there: a conflict can cross modules. */
 export interface FunctionalityRef {
@@ -805,6 +805,12 @@ export function sortedRefs(functionalities: FunctionalityRef[]): FunctionalityRe
 /** How many times a spec conflict between the same two functionalities is raised before it counts. */
 export const SPEC_CONFLICT_RAISES = 3;
 
+/**
+ * How many times, one after the other, the run's environment is judged what is wrong before it counts: once more
+ * than once, so a second judge of a new run - the tests checked in between - has to agree.
+ */
+export const ENVIRONMENT_RAISES = 2;
+
 /** Which is wrong when the conformance suite fails - the code, the tests, or the spec itself - read against the spec. */
 /** Text as it is compared for a quote: lower case, words only. */
 function words(text: string): string {
@@ -856,10 +862,11 @@ export async function judgeFailure(options: {
   const submit = defineTool({
     name: "submit_verdict",
     label: "Submit verdict",
-    description: "Say what is wrong - the code, the tests, or the specification itself - and why. Call this exactly once.",
+    description: "Say what is wrong - the code, the tests, the specification itself, or the run's environment - and why. Call this exactly once.",
     parameters: Type.Object({
-      culprit: Type.Union([Type.Literal("code"), Type.Literal("tests"), Type.Literal("spec")], {
-        description: "What has to change to meet the specification - or spec, when the specification cannot be met at all",
+      culprit: Type.Union([Type.Literal("code"), Type.Literal("tests"), Type.Literal("spec"), Type.Literal("environment")], {
+        description:
+          "What has to change to meet the specification - or spec, when the specification cannot be met at all, or environment, when only the person can fix what the run is given",
       }),
       reason: Type.String({ description: "Why, against the specification: which test, which behaviour, what the spec says" }),
       spec_says: Type.Optional(
@@ -912,7 +919,7 @@ export async function judgeFailure(options: {
     await ask(session, BEGIN, options.onDelta);
     for (let again = 0; again < 2; again += 1) {
       if (verdict === undefined) {
-        await ask(session, "You have not called submit_verdict. Call it now: code, tests or spec, and why.", options.onDelta);
+        await ask(session, "You have not called submit_verdict. Call it now: code, tests, spec or environment, and why.", options.onDelta);
         continue;
       }
       if (verdict.culprit === "code") {
@@ -961,7 +968,7 @@ export function judgePrompt(options: {
   const tested = options.scope.tested;
   return [
     specPrimer({ testReqs: true }),
-    `The conformance tests of the \`${options.spec.moduleName}\` specification failed. Decide what is wrong: the code, the tests, or the specification itself.`,
+    `The conformance tests of the \`${options.spec.moduleName}\` specification failed. Decide what is wrong: the code, the tests, the specification itself, or the run's environment.`,
     "",
     `The code is in ${options.buildDir}; the conformance tests are in ${options.conformanceDir}. Read both.`,
     "",
@@ -982,6 +989,13 @@ export function judgePrompt(options: {
     ...(tested !== undefined ? ["  have come up when the later of them was tested."] : []),
     `  A spec conflict counts only once it has been raised ${SPEC_CONFLICT_RAISES} times, for the same two functionalities;`,
     "  until then it is recorded, and the tests are checked against the specification again.",
+    "- environment: neither the code nor the tests can fix it - only the person can, in what the run is given: a",
+    "  credential the run reads is missing, empty or rejected (a 401 or 403 from a provider for a token the tests did not",
+    "  make up), an account, plan or quota a service refuses, a service the specification names that cannot be reached",
+    "  at all. Say what the person has to provide, and where the run read it from - the file, the variable. Not for what",
+    "  the tests set up themselves - a credential, a variable or a fixture a test sets, overrides or names wrong: that is",
+    "  tests; nor for a toolchain or package missing where the tests run: the agents install those. The run stops on it",
+    `  once it has been judged so ${ENVIRONMENT_RAISES} times in a row; until then the tests are checked for whether they cause it.`,
     "",
     "When the output does not show why the software failed - it answered with an error that names no cause, and",
     "logged nothing about it - the code is what is wrong first: it hides the cause, and nobody can fix what they",
@@ -1110,6 +1124,26 @@ export function codeFixPrompt(options: { run: ScriptRun; reason: string }): stri
     "</failing run>",
     "",
     "Fix the code, run the conformance tests and the unit tests, and finish.",
+  ].join("\n");
+}
+
+/** The run's environment judged what is wrong: the conformance agent checks the tests do not cause it, and changes nothing when they do not. */
+export function environmentCheckPrompt(options: { run: ScriptRun; reason: string }): string {
+  return [
+    `The harness ran the conformance testing script, \`${options.run.command}\`, on the whole suite, and it failed (exit ${options.run.exitCode}).`,
+    "It was checked against the specification, and what is wrong is judged to be the run's environment - something only",
+    "the person can fix, such as a credential the run is given:",
+    "",
+    `<why the environment>\n${options.reason.trim()}\n</why the environment>`,
+    "",
+    "<failing run>",
+    options.run.output.trimEnd().slice(-6000),
+    "</failing run>",
+    "",
+    "Before that is taken as the answer, check that the tests do not cause it themselves: a credential, an environment",
+    "variable or a fixture a test sets, overrides, leaves behind for the next test, or reads under the wrong name. If",
+    "they do, fix the tests and run them. If they do not, change nothing - never make up a credential, write a .env",
+    "file, or weaken a test so it passes without what it needs - and say so in submit_work.",
   ].join("\n");
 }
 

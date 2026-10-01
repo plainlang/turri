@@ -46,6 +46,8 @@ import {
   exploreInvocation,
   judgeFailure,
   SPEC_CONFLICT_RAISES,
+  ENVIRONMENT_RAISES,
+  environmentCheckPrompt,
   createTestReviewer,
   testReviewRequest,
   type TestReviewer,
@@ -152,7 +154,12 @@ export interface RenderConformanceTestsResult {
    * The run failed the same way, judged the same way, round after round - and again after the
    * explorer was asked what the tests lacked. It stopped rather than spend its attempts on it.
    */
-  stuck?: { failure: string; rounds: number; error: string; times: number };
+  stuck?: { failure: string; rounds: number; error: string; times: number; changedNothing?: boolean };
+  /**
+   * The run's environment is what is wrong - a credential missing or rejected, say - judged so ENVIRONMENT_RAISES
+   * times in a row: only the person can fix it, so the run stopped.
+   */
+  environment?: { reason: string; times: number };
   /** The tests were sent back to be written and labelled, and never were: what was missing the last time. */
   unlabelled?: string[];
   /** The tests were optimised as far as REVIEW_ROUNDS reviews could take them: what the last one still suggested. */
@@ -321,6 +328,11 @@ export async function renderConformanceTests(
   const reviewOn = configForSpec(options.plainFile).review !== false;
   const reviewHistory: ReviewProblem[][] = [];
   let specConflict: RenderConformanceTestsResult["specConflict"];
+  let environment: RenderConformanceTestsResult["environment"];
+  /** How many times in a row the run's environment was judged what is wrong. */
+  let environmentRaises = 0;
+  /** How many fixes in a row - the code's or the tests' - changed no file: an agent that will not, or cannot, act on the verdict. */
+  let idleFixes = 0;
   /**
    * One attempt at the failing run, written into the notes' pitfalls - what the next judge reads
    * first - as cause and effect: what failed, how it was judged, and what was changed; the next
@@ -614,6 +626,15 @@ export async function renderConformanceTests(
           continue;
         }
         stage(`conformance tests failing - working out whether the code, the tests or the spec are wrong${judgeModel ? ` (${judgeModel})` : ""}`);
+        // A fix that changed no file leaves the next run as this one: IDLE_FIXES of them in a row, and nothing will change.
+        const idle = (files: string[]): boolean => {
+          idleFixes = files.length === 0 ? idleFixes + 1 : 0;
+          if (idleFixes < IDLE_FIXES) return false;
+          stuck = { failure: truncateOutput(recheck.output, undefined).slice(-4000), rounds, error: failureLine(recheck), times: idleFixes, changedNothing: true };
+          stage(`${IDLE_FIXES} fixes in a row changed nothing - stopping`);
+          recordNote(buildDir, "pitfalls", `stuck after ${rounds} attempts: failed with ${failureLine(recheck)}, and ${IDLE_FIXES} fixes in a row changed nothing`, `${label} conformance`);
+          return true;
+        };
         const verdict = await judgeFailure({
           buildDir,
           conformanceDir,
@@ -627,6 +648,23 @@ export async function renderConformanceTests(
           onDelta: options.onDelta,
         });
         const reason = verdict.reason.split("\n")[0]!.slice(0, 160);
+        // The environment - what the run is given - is the person's to fix: once judged so twice in a row, the run stops.
+        if (verdict.culprit === "environment") {
+          environmentRaises += 1;
+          reportActivity(`  the environment (judged ${environmentRaises} of ${ENVIRONMENT_RAISES} in a row): ${reason}`);
+          if (environmentRaises >= ENVIRONMENT_RAISES) {
+            stage("the run's environment is what is wrong, and only the person can fix it - stopping");
+            environment = { reason: verdict.reason, times: environmentRaises };
+            recordNote(buildDir, "pitfalls", `the conformance run's environment is wrong, for the person to fix: ${verdict.reason.replace(/\s+/g, " ").slice(0, 300)}`, `${label} conformance`);
+            break;
+          }
+          stage(`the run's environment is judged wrong (${environmentRaises} of ${ENVIRONMENT_RAISES}) - the conformance agent checks the tests do not cause it`);
+          const fixed = await changing(() => askConformance(environmentCheckPrompt({ run: recheck, reason: verdict.reason }), options.onDelta));
+          response = fixed.result;
+          recordAttempt(rounds, recheck, `the environment: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
+          continue;
+        }
+        environmentRaises = 0;
         // A spec conflict has counting of its own; code or tests the same way, again and again, is nothing changing.
         if (verdict.culprit !== "spec") {
           const moved = await unmoved();
@@ -686,6 +724,7 @@ export async function renderConformanceTests(
           // grows, so a session carried through the run does not re-read every earlier fix and suite output whole.
           const fixed = await changing(() => askFixer(codeFixPrompt({ run: recheck, reason: verdict.reason })));
           recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
+          if (idle(fixed.files)) break;
           // The fix has to build and pass its own unit tests before the suite runs again: a build
           // error is the coding agent's to fix, not a judge's to work out from the suite's output.
           for (let again = 0; again < FIX_UNIT_CHECKS; again += 1) {
@@ -703,6 +742,7 @@ export async function renderConformanceTests(
           const fixed = await changing(() => askConformance(testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta));
           response = fixed.result;
           recordAttempt(rounds, recheck, `the tests wrong: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
+          if (idle(fixed.files)) break;
         }
         continue;
       }
@@ -863,6 +903,7 @@ export async function renderConformanceTests(
       testRemovals,
       ...(specConflict !== undefined ? { specConflict } : {}),
       ...(stuck !== undefined ? { stuck } : {}),
+      ...(environment !== undefined ? { environment } : {}),
       ...(unlabelled !== undefined ? { unlabelled } : {}),
       ...(reviewWaived !== undefined ? { reviewWaived } : {}),
       ...(!verified && lastReview !== undefined ? { review: lastReview } : {}),
@@ -952,6 +993,9 @@ export function turnLimited(tool: ToolDefinition, limit: number): { tool: ToolDe
 /** How many rounds running the same failure, taken the same way, is nothing changing. */
 export const STUCK_ROUNDS = 3;
 
+/** How many fixes in a row that change no file - the code's or the tests' - is nothing changing. */
+export const IDLE_FIXES = 2;
+
 /**
  * A failing run, as a fingerprint: the lines that say what went wrong, without what changes from run
  * to run - numbers, times, paths, ids. Two runs failing the same way have the same one.
@@ -962,7 +1006,11 @@ export function failureSignature(run: ScriptRun): string {
   const telling = lines.filter((line) => /error|exception|fail|refused|timed out|cannot|unable|not found|denied/i.test(line));
   const normal = (line: string) =>
     line
+      // Colour codes, and ids a service makes up for each response - a request's UUID, a correlation id in hex.
+      .replace(/\x1B\[[0-9;]*m/g, "")
       .replace(/\/[^\s:'"]+/g, "<path>")
+      .replace(/\b[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "<id>")
+      .replace(/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{4,}\b/gi, "<id>")
       .replace(/\b[0-9a-f]{8,}\b/gi, "<id>")
       .replace(/\d+(\.\d+)?/g, "<n>")
       .replace(/\s+/g, " ");
