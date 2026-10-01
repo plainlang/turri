@@ -2193,8 +2193,7 @@ function registerBranding(
   });
 
   pi.on("session_start", (_event, ctx) => {
-    // Only the picture moves; the jellyfish drawn in text is still.
-    if (ctx.hasUI && getCapabilities().images !== null) animateJellyfish(ctx);
+    if (ctx.hasUI) animateJellyfish(ctx);
     try {
       pi.appendEntry(BANNER_ENTRY, {
         version: packageVersion(),
@@ -2235,8 +2234,8 @@ function animateJellyfish(ctx: ExtensionContext): void {
     JELLYFISH_CLOCK_KEY,
     (tui) => {
       const timer = setInterval(() => {
-        // The panel covers the jellyfish, and the banner leaves it out meanwhile.
-        if (sidePanelShowing()) return;
+        // The panel covers a picture, which the banner leaves out meanwhile; text it is drawn over, and it goes on.
+        if (sidePanelShowing() && getCapabilities().images !== null) return;
         if (tui.render(tui.terminal.columns).length > tui.terminal.rows) {
           clearInterval(timer);
           return;
@@ -2297,9 +2296,10 @@ class Banner implements Component {
     const text = this.lines.map((line) => truncateToWidth(line, Math.max(1, width - 1 - left)));
     const height = Math.max(text.length, placed?.rows ?? 0);
     const above = Math.floor((height - text.length) / 2);
+    const drawn = placed?.kind === "text" ? placed.frames[jellyfishFrame % placed.frames.length]! : undefined;
     const rows = Array.from({ length: height }, (_, row) => {
       const line = text[row - above];
-      const jellyfish = placed?.kind === "text" ? (placed.lines[row] ?? " ".repeat(placed.columns)) : " ".repeat(placed?.columns ?? 0);
+      const jellyfish = drawn !== undefined ? (drawn[row] ?? " ".repeat(placed!.columns)) : " ".repeat(placed?.columns ?? 0);
       const before = placed !== undefined ? ` ${jellyfish}${" ".repeat(JELLYFISH_GAP)}` : " ";
       return line !== undefined ? `${before}${line}` : placed?.kind === "text" ? ` ${jellyfish}` : "";
     });
@@ -2338,7 +2338,7 @@ class Banner implements Component {
  */
 type JellyfishArt =
   | { kind: "image"; frames: string[]; dimensions: ImageDimensions }
-  | { kind: "text"; lines: string[]; columns: number; rows: number };
+  | { kind: "text"; frames: string[][]; columns: number; rows: number };
 
 /**
  * Whether the side panel is showing. An overlay is not drawn over a line holding an image - pi-tui leaves
@@ -2357,9 +2357,15 @@ function jellyfishArt(appearance: "dark" | "light", ink: (text: string) => strin
   const dir = join(PACKAGE_ROOT, "assets", "jellyfish");
   try {
     if (getCapabilities().images === null) {
-      const drawn = readFileSync(join(dir, "fallback.txt"), "utf8").replace(/\n+$/, "").split("\n");
-      const columns = drawn.reduce((widest, line) => Math.max(widest, visibleWidth(line)), 0);
-      return { kind: "text", lines: drawn.map((line) => ink(line.padEnd(columns))), columns, rows: drawn.length };
+      // Its frames one after another, each ended by a line of "---" (scripts/jellyfish-frames.mjs writes them).
+      const drawn = readFileSync(join(dir, "fallback.txt"), "utf8")
+        .split(/^---$/m)
+        .map((frame) => frame.replace(/^\n+|\n+$/g, "").split("\n"))
+        .filter((frame) => frame.some((line) => line.trim() !== ""));
+      if (drawn.length === 0) return undefined;
+      const columns = Math.max(...drawn.flat().map((line) => visibleWidth(line)));
+      const rows = Math.max(...drawn.map((frame) => frame.length));
+      return { kind: "text", frames: drawn.map((frame) => frame.map((line) => ink(line.padEnd(columns)))), columns, rows };
     }
     let frames = jellyfishFrameCache.get(appearance);
     if (frames === undefined) {
