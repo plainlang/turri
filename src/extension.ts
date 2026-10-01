@@ -2,13 +2,15 @@
 import { LEGACY_NAME } from "./legacy.ts";
 // A project built under the old names is brought over the first time it is found.
 import "./grow/migrate.ts";
+// Whether the terminal shows images, before anything draws: the banner's jellyfish is a picture or text.
+import "./terminal-images.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
-import { Box, matchesKey, Text } from "@earendil-works/pi-tui";
+import { allocateImageId, Box, type Component, getCapabilities, getPngDimensions, type ImageDimensions, matchesKey, renderImage, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
@@ -1510,6 +1512,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
   const jobsTree = createJobsTreeState();
 
+  sidePanelShowing = () => panel !== undefined && panel.handle?.isHidden() !== true;
+
   const openPanel = (ctx: ExtensionContext, show?: { jobId?: string; view?: PanelView }) => {
     if (panel !== undefined) {
       if (show !== undefined) panel.view.show(show);
@@ -2168,35 +2172,29 @@ function registerBranding(
       | undefined;
     if (data === undefined) return undefined;
 
-    const rule = "─".repeat(46);
-    const box = new Box(1, 0);
-    box.addChild(
-      new Text(
-        [
-          theme.fg("borderMuted", rule),
-          `${theme.fg("accent", "turri")}  ${theme.fg("muted", `v${data.version}`)}`,
-          theme.fg("text", "specifications in, working code out"),
-          theme.fg(
-            "muted",
-            `${data.rules} rules · ${data.skills} skill${data.skills === 1 ? "" : "s"}` +
-              (data.stdlib !== undefined && data.stdlib > 0 ? ` · ${data.stdlib} stdlib stacks (/stdlib)` : "") +
-              (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
-          ),
-          theme.fg("dim", data.cwd),
-          // Where every command an agent runs will run - or that none can.
-          ...(data.sandbox
-            ? [theme.fg(data.sandbox.level === "ok" ? "dim" : data.sandbox.level === "limited" ? "warning" : "error", data.sandbox.text)]
-            : []),
-          theme.fg("borderMuted", rule),
-        ].join("\n"),
-        0,
-        0,
+    const lines = [
+      `${theme.fg("accent", "turri")}  ${theme.fg("muted", `v${data.version}`)}`,
+      theme.fg("text", "regenerative software - the code grows back from the spec"),
+      theme.fg(
+        "muted",
+        `${data.rules} rules · ${data.skills} skill${data.skills === 1 ? "" : "s"}` +
+          (data.stdlib !== undefined && data.stdlib > 0 ? ` · ${data.stdlib} stdlib stacks (/stdlib)` : "") +
+          (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
       ),
-    );
-    return box;
+      theme.fg("dim", data.cwd),
+      // Where every command an agent runs will run - or that none can.
+      ...(data.sandbox
+        ? [theme.fg(data.sandbox.level === "ok" ? "dim" : data.sandbox.level === "limited" ? "warning" : "error", data.sandbox.text)]
+        : []),
+    ];
+    // The jellyfish turri is named after, in ink for the theme's background: a picture where the
+    // terminal shows images, drawn in text where it does not.
+    return new Banner(lines, (rule) => theme.fg("borderMuted", rule), jellyfishArt(theme.appearance, (art) => theme.fg("text", art)));
   });
 
   pi.on("session_start", (_event, ctx) => {
+    // Only the picture moves; the jellyfish drawn in text is still.
+    if (ctx.hasUI && getCapabilities().images !== null) animateJellyfish(ctx);
     try {
       pi.appendEntry(BANNER_ENTRY, {
         version: packageVersion(),
@@ -2211,6 +2209,171 @@ function registerBranding(
       // Branding is the least important thing here; never let it stop a session starting.
     }
   });
+}
+
+/** How many rows the banner's jellyfish takes: taller than the lines beside it. */
+const JELLYFISH_ROWS = 13;
+
+/** How long each frame of the jellyfish shows. */
+const JELLYFISH_FRAME_MS = 250;
+
+/** Which frame of the jellyfish every banner shows, moved on by `animateJellyfish`. */
+let jellyfishFrame = 0;
+let jellyfishTimer: ReturnType<typeof setInterval> | undefined;
+
+/**
+ * Moves the jellyfish on a frame every JELLYFISH_FRAME_MS while the banner is on the screen. An entry's
+ * renderer is given no TUI to redraw, so an empty widget below the editor - which pi gives no
+ * spacer - hands it over. Once the conversation outgrows the screen the banner has scrolled off,
+ * and a line changing up there would have pi-tui clear and redraw everything, frame after frame: the
+ * jellyfish stops on the frame it is at, for the rest of the session.
+ */
+function animateJellyfish(ctx: ExtensionContext): void {
+  if (jellyfishTimer !== undefined) clearInterval(jellyfishTimer);
+  jellyfishTimer = undefined;
+  ctx.ui.setWidget(
+    JELLYFISH_CLOCK_KEY,
+    (tui) => {
+      const timer = setInterval(() => {
+        // The panel covers the jellyfish, and the banner leaves it out meanwhile.
+        if (sidePanelShowing()) return;
+        if (tui.render(tui.terminal.columns).length > tui.terminal.rows) {
+          clearInterval(timer);
+          return;
+        }
+        jellyfishFrame++;
+        tui.requestRender();
+      }, JELLYFISH_FRAME_MS);
+      timer.unref?.();
+      jellyfishTimer = timer;
+      return {
+        render: () => [],
+        invalidate: () => {},
+        dispose: () => clearInterval(timer),
+      };
+    },
+    { placement: "belowEditor" },
+  );
+}
+
+const JELLYFISH_CLOCK_KEY = "turri-jellyfish";
+
+/** Columns between the jellyfish and the lines beside it. */
+const JELLYFISH_GAP = 3;
+
+/** The fewest columns the lines keep beside the jellyfish; a terminal narrower than that gets the lines alone. */
+const BANNER_TEXT_MIN = 30;
+
+/**
+ * The banner: the jellyfish on the left at the frame `animateJellyfish` has it on, its lines beside it in
+ * the middle of its height, and a rule the width of the terminal under them both.
+ *
+ * pi-tui writes a line holding an image as it is. So the picture goes on one of the rows after that
+ * row's text: back to the jellyfish's column (`CSI G`), then the image's escape sequence. Kitty places
+ * the image there without moving the cursor, from the first row; iTerm2 moves the cursor past what it
+ * draws, so it goes on the last row and climbs back up to start, as pi-tui's Image does.
+ */
+class Banner implements Component {
+  private readonly lines: string[];
+  private readonly rule: (text: string) => string;
+  private readonly art: JellyfishArt | undefined;
+  private kittyImageId: number | undefined;
+
+  /** Without `art` the banner is its lines alone. */
+  constructor(lines: string[], rule: (text: string) => string, art: JellyfishArt | undefined) {
+    this.lines = lines;
+    this.rule = rule;
+    this.art = art;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const inner = Math.max(1, width - 2);
+    const art = this.art;
+    const placed =
+      art?.kind === "image" ? this.placeImage(art, Math.max(JELLYFISH_ROWS, this.lines.length), width - 2 - JELLYFISH_GAP - BANNER_TEXT_MIN) : art?.kind === "text" && art.columns <= width - 2 - JELLYFISH_GAP - BANNER_TEXT_MIN ? art : undefined;
+    const left = placed !== undefined ? 1 + placed.columns + JELLYFISH_GAP : 1;
+    const text = this.lines.map((line) => truncateToWidth(line, Math.max(1, width - 1 - left)));
+    const height = Math.max(text.length, placed?.rows ?? 0);
+    const above = Math.floor((height - text.length) / 2);
+    const rows = Array.from({ length: height }, (_, row) => {
+      const line = text[row - above];
+      const jellyfish = placed?.kind === "text" ? (placed.lines[row] ?? " ".repeat(placed.columns)) : " ".repeat(placed?.columns ?? 0);
+      const before = placed !== undefined ? ` ${jellyfish}${" ".repeat(JELLYFISH_GAP)}` : " ";
+      return line !== undefined ? `${before}${line}` : placed?.kind === "text" ? ` ${jellyfish}` : "";
+    });
+    // Under the side panel the picture is left out: pi-tui draws no overlay over a line holding an image.
+    // Its rows are kept, so the conversation does not move when the panel opens or closes.
+    if (placed?.kind === "image" && !sidePanelShowing()) {
+      const at = placed.onLastRow ? placed.rows - 1 : 0;
+      rows[at] = `${rows[at]}\x1b[2G${placed.sequence}`;
+    }
+    return [...rows, ` ${this.rule("─".repeat(inner))}`];
+  }
+
+  private placeImage(
+    art: Extract<JellyfishArt, { kind: "image" }>,
+    rows: number,
+    room: number,
+  ): { kind: "image"; sequence: string; columns: number; rows: number; onLastRow: boolean } | undefined {
+    if (room < 4) return undefined;
+    const kitty = getCapabilities().images === "kitty";
+    if (kitty && this.kittyImageId === undefined) this.kittyImageId = allocateImageId();
+    const result = renderImage(art.frames[jellyfishFrame % art.frames.length]!, art.dimensions, {
+      maxWidthCells: room,
+      maxHeightCells: rows,
+      imageId: this.kittyImageId,
+      moveCursor: false,
+    });
+    if (result === null || result.columns > room) return undefined;
+    const sequence = kitty ? result.sequence : `${result.rows > 1 ? `\x1b[${result.rows - 1}A` : ""}${result.sequence}`;
+    return { kind: "image", sequence, columns: result.columns, rows: result.rows, onLastRow: !kitty };
+  }
+}
+
+/**
+ * The jellyfish as the banner draws it: frames of a picture, for a terminal that shows images, or one
+ * drawn in text (`assets/jellyfish/fallback.txt`), for one that does not.
+ */
+type JellyfishArt =
+  | { kind: "image"; frames: string[]; dimensions: ImageDimensions }
+  | { kind: "text"; lines: string[]; columns: number; rows: number };
+
+/**
+ * Whether the side panel is showing. An overlay is not drawn over a line holding an image - pi-tui leaves
+ * such a line as it is - so the banner leaves the picture out meanwhile.
+ */
+let sidePanelShowing: () => boolean = () => false;
+
+const jellyfishFrameCache = new Map<string, string[]>();
+
+/**
+ * The banner's jellyfish for this terminal: where it shows images, the picture's frames spread evenly
+ * over the video, light ink for a dark background and dark ink for a light one; where it does not, the
+ * jellyfish drawn in text, in `ink`. None when they cannot be read.
+ */
+function jellyfishArt(appearance: "dark" | "light", ink: (text: string) => string): JellyfishArt | undefined {
+  const dir = join(PACKAGE_ROOT, "assets", "jellyfish");
+  try {
+    if (getCapabilities().images === null) {
+      const drawn = readFileSync(join(dir, "fallback.txt"), "utf8").replace(/\n+$/, "").split("\n");
+      const columns = drawn.reduce((widest, line) => Math.max(widest, visibleWidth(line)), 0);
+      return { kind: "text", lines: drawn.map((line) => ink(line.padEnd(columns))), columns, rows: drawn.length };
+    }
+    let frames = jellyfishFrameCache.get(appearance);
+    if (frames === undefined) {
+      frames = readdirSync(dir)
+        .filter((name) => name.startsWith(`${appearance}-`) && name.endsWith(".png"))
+        .sort()
+        .map((name) => readFileSync(join(dir, name)).toString("base64"));
+      jellyfishFrameCache.set(appearance, frames);
+    }
+    const dimensions = frames.length > 0 ? getPngDimensions(frames[0]!) : null;
+    return dimensions !== null ? { kind: "image", frames, dimensions } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function packageVersion(): string {

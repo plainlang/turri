@@ -8,7 +8,9 @@ turri chat
 ```
 
 That is pi, with turri's tools, skills and themes loaded. It opens with turri's own
-banner - where commands will run, the rules and skills loaded - rather than pi's startup header
+banner - the jellyfish it is named after, swimming until the conversation fills the screen in a terminal
+that shows images (Kitty, Ghostty, WezTerm, Warp, iTerm2) and drawn in text in any other, tmux included -
+where commands will run, the rules and skills loaded - rather than pi's startup header
 and resource list; `turri chat --verbose` shows those too. Talk to it: ask it to start a
 project, add a feature, render a module, fix a spec. It decides which skill or tool applies - but
 not *how* a skill runs: `cultivate` hands the work to the gated runner, which owns the steps, the

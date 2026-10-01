@@ -794,8 +794,8 @@ export function vmSummary(): { level: "ok" | "limited" | "missing"; text: string
   if (!qemuInstalled()) return { level: "missing", text: `no sandbox VM: QEMU is not installed (${qemuInstallHint()}) - run turri doctor` };
   const image = vmImage();
   return image
-    ? { level: "ok", text: `commands run in a sandbox VM holding only plain_modules (${image.tag})` }
-    : { level: "limited", text: `commands run in a sandbox VM, ${STOCK_IMAGE.short} (turri vm-image builds the full one)` };
+    ? { level: "ok", text: `the code grows in a sandbox VM that holds only plain_modules (${image.tag})` }
+    : { level: "limited", text: `the code grows in a sandbox VM, ${STOCK_IMAGE.short} (turri vm-image builds the full one)` };
 }
 
 /** Whether a VM can be started on this machine: Apple Silicon, or Linux. */

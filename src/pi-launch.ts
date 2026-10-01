@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { main, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PACKAGE_ROOT } from "./environment.ts";
+import "./terminal-images.ts";
 
 /**
  * pi, started the way its own CLI starts it, for `turri chat`.
