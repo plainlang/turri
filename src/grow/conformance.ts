@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
-import { ask, BEGIN, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -30,6 +30,7 @@ import {
   runConformanceScript,
   runUnitScript,
   type ScriptRun,
+  missingToolchain,
   scriptFailure,
   withTestingScripts,
 } from "./test-scripts.ts";
@@ -68,7 +69,7 @@ import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../confi
 import { defaultBuildDir, modulesRoot, testsDirUnder, vmScratchDir, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule, section, specChangeBlock } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
-import { loadLinkedResources } from "./resources.ts";
+import { loadLinkedResources, resourceImages } from "./resources.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import {
   findTestRemovals,
@@ -249,6 +250,8 @@ export async function renderConformanceTests(
   if (!options.dryRun) requireTestScripts(moduleName, scripts, { conformance: true });
 
   const linkedResources = loadLinkedResources(tree, forChange ? null : frid!, templateDirs);
+  // The spec's images need a model that reads them: refused before any of its agents starts.
+  if (!options.dryRun) await refuseIfModelIsBlind(options.model, resourceImages(linkedResources).length);
   const required = getInheritedFunctionalSpecs(tree);
   const prompt = withTestingScripts(buildConformancePrompt({
     ...(options.cases !== undefined ? { cases: options.cases } : {}),
@@ -442,6 +445,7 @@ export async function renderConformanceTests(
     system: fence.note,
     task: [withNotes(agentPrompt, buildDir), "", ...SUBMIT_WORK_NOTE].join("\n"),
     compaction: { instructions: CONFORMANCE_COMPACTION },
+    images: resourceImages(linkedResources),
   });
 
   /** A turn of the conformance agent: a fresh count of its runs of the suite. */
@@ -615,7 +619,7 @@ export async function renderConformanceTests(
         };
         // A toolchain missing, or a run out of time, is not a question of test or code: the tests'
         // environment is the conformance agent's.
-        if (recheck.exitCode === 69 || recheck.timedOut === true) {
+        if (missingToolchain(recheck) !== undefined || recheck.timedOut === true) {
           const moved = await unmoved();
           if (moved === "stuck") break;
           if (moved === "asked") continue;

@@ -1,8 +1,8 @@
 import { fixMethod } from "./prompt.ts";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import { CONFIG_FILE, CONFIG_KEYS, configModuleOf, configModuleOfBuild, moduleConfigFile, readProjectConfig } from "../config.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
@@ -603,15 +603,59 @@ function timedOutFailure(run: ScriptRun, what: string): string {
   ].join("\n");
 }
 
+/**
+ * What a failed run says is not installed where it ran - the command, when its output names it - or undefined when
+ * the run failed for another reason. Exit 69 is the testing scripts' own way to say a toolchain is missing; exit 127,
+ * or a shell or `timeout` that could not find the command, says it as well.
+ */
+export function missingToolchain(run: Pick<ScriptRun, "exitCode" | "output">): { command?: string } | undefined {
+  const named =
+    /failed to run command [‘'`"]?([\w.+-]+)[’'`"]?: No such file or directory/.exec(run.output) ??
+    /(?:^|\n)(?:[^\n:]*: )?(?:line \d+: )?([\w.+-]+): command not found/.exec(run.output);
+  if (named !== null) return { command: named[1] };
+  if (run.exitCode === 69 || run.exitCode === 127) return {};
+  return undefined;
+}
+
+/** Where `command` is on this machine's PATH, or undefined when it is not there. */
+export function onThisMachine(command: string): string | undefined {
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (dir === "") continue;
+    const path = join(dir, command);
+    try {
+      accessSync(path, constants.X_OK);
+      return path;
+    } catch {
+      /* not here */
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Whether only the person can make the script run: on this machine, nothing an agent does installs anything; in the
+ * VM, a command this machine has is most likely one the project means to run here - `run-testing-scripts-in: host` -
+ * or one only the person knows how to set up, as an SDK. Either way the job stops and asks them.
+ */
+export function needsThePerson(missing: { command?: string }, where: "vm" | "host" | undefined): boolean {
+  return where === "host" || (missing.command !== undefined && onThisMachine(missing.command) !== undefined);
+}
+
 /** What a failed script run means, for the agent that has to fix it. */
 export function scriptFailure(run: ScriptRun, what: string): string {
   if (run.timedOut === true) return timedOutFailure(run, what);
+  const missing = missingToolchain(run);
+  const needs = missing?.command !== undefined ? `\`${missing.command}\`` : "the toolchain it needs";
   const cause =
-    run.exitCode === 69 && run.where === "vm"
-      ? "It exited 69: the toolchain it needs is not installed in the VM, where the testing scripts run. Install it with " +
-        "install_system_packages - the runs that decide use the same VM - and run the tests again."
-      : run.exitCode === 69
-      ? "It exited 69: the toolchain it needs is not installed on this machine, where the testing scripts run. That cannot be " +
+    missing !== undefined && run.where === "vm" && needsThePerson(missing, run.where)
+      ? `It could not run: ${needs} is not installed in the VM, where the testing scripts run - it is on the person's machine. ` +
+        "That is theirs to set up, not yours: do not work around it, and do not change the code for it. End your turn, saying " +
+        "the tests cannot run until it is."
+      : missing !== undefined && run.where === "vm"
+      ? `It could not run: ${needs} is not installed in the VM, where the testing scripts run. Install it with ` +
+        "install_system_packages - the runs that decide use the same VM - and run the tests again. The code is not what is wrong."
+      : missing !== undefined
+      ? `It could not run: ${needs} is not installed on this machine, where the testing scripts run. That cannot be ` +
         "fixed from your sandbox - install_system_packages installs into your VM, not here. Say in your report exactly what is " +
         "missing, so the person can install it."
       : [

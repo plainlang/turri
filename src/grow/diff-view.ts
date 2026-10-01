@@ -234,10 +234,12 @@ export function diffFiles(diff: string, width: number, paint: DiffPaint = PLAIN_
     const rows: string[] = [];
     let previous: ReadLine | undefined;
     // Lines of the file not in the diff, as GitHub marks them: above the first block, and between two.
-    // Its section beside it, as GitHub names a hunk's function - unless the block starts with the section's header itself.
-    const hidden = (arrow: string, count: number | undefined, next: ReadLine | undefined) => {
+    // Its section beside it, as GitHub names a hunk's function - once: not when the block starts with the section's
+    // header itself, nor when the lines above it are in that section already, its name shown there.
+    const hidden = (arrow: string, count: number | undefined, next: ReadLine | undefined, above?: ReadLine) => {
       const lines = paint.muted(`${" ".repeat(digits)}${digits > 0 ? " " : ""}${arrow}${count !== undefined && count > 0 ? ` ${count} line${count === 1 ? "" : "s"}` : ""}`);
-      return next?.section !== undefined && !next.header ? `${lines}${paint.muted(" · ")}${paint.syntax("section", next.section)}` : lines;
+      const named = next?.section !== undefined && !next.header && above?.section !== next.section;
+      return named ? `${lines}${paint.muted(" · ")}${paint.syntax("section", next.section!)}` : lines;
     };
     const firstAt = own.find((line) => line.at !== undefined)?.at?.line;
     if (own[0] !== undefined) {
@@ -250,7 +252,7 @@ export function diffFiles(diff: string, width: number, paint: DiffPaint = PLAIN_
       if (previous !== undefined) {
         const gap = line.at !== undefined && previous.at !== undefined ? line.at.line - previous.at.line - 1 : undefined;
         const follows = gap !== undefined ? gap <= 0 : line.index - previous.index <= 1;
-        if (!follows) rows.push(hidden("↕", gap, line));
+        if (!follows) rows.push(hidden("↕", gap, line, previous));
       }
       previous = line;
       const mark = line.sign === "+" ? paint.added("+") : line.sign === "-" ? paint.removed("-") : " ";

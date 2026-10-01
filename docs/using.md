@@ -78,6 +78,10 @@ come waits for a free slot, and says so.
 
 - **The panel** above the input shows each running job - its stage, what its agents are doing,
   its model, time and cost - and the queue. `ctrl+o` expands it.
+- **A job's change** is what its agent works from, not a text diff of the module's file: the items
+  `<spec change>` gives the agent - only what the job's functional specs use, an import's items as
+  well as the module's own, a code job's without the test reqs - each in the file it is written in,
+  under its section, in the file's order (`change-view.ts`).
 - **A spec diff**, wherever a panel shows one, reads as an editor shows a diff: its \*\*\*plain highlighted
   as [plyn](https://github.com/plainlang/plyn) highlights it - section headers, concepts, names in
   backticks, text in quotes, links, the front matter - each added line filled green and each removed one
@@ -89,7 +93,8 @@ come waits for a free slot, and says so.
   goes with the change it is part of and has no number. A line is never put in a file on a guess: one
   that cannot be placed is listed last, under "not found in the spec's files". Where lines of a file are not in
   the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
-  the lines under it are in, `↕ 28 lines · ***functional specs***`, as GitHub names a hunk's function. Opened with `ctrl+o`, the panel wraps
+  the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
+  as GitHub names a hunk's function: each section is named once. Opened with `ctrl+o`, the panel wraps
   every line rather than cutting it off.
 - **The side panel** (`ctrl+j`, which in turri replaces pi's own new-line key - `shift+enter` still
   inserts one; pi outside turri keeps it, and a `tui.input.newLine` of your own in

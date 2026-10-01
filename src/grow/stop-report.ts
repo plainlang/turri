@@ -1,7 +1,8 @@
 import { basename } from "node:path";
+import { onThisMachine } from "./test-scripts.ts";
 import type { SpecConflict } from "./activity.ts";
 import type { RenderConformanceTestsResult } from "./conformance.ts";
-import type { TestRun } from "./testing.ts";
+import type { MissingToolchain, TestRun } from "./testing.ts";
 
 /**
  * What to tell the person when a build gives up.
@@ -33,6 +34,8 @@ export interface StopFacts {
   repairs?: number;
   /** How many times the harness judged it before it stopped - the unit tests' attempts. */
   attempts?: number;
+  /** The unit testing script could not run: what it needs is not installed where it runs. */
+  missingToolchain?: MissingToolchain;
 }
 
 /**
@@ -58,6 +61,27 @@ export function describeStop(facts: StopFacts): string {
       "- Provide what the run is missing - a valid credential, an account, a service it can reach - where the conformance testing script reads it.",
       "- Where the run happens matters: in the VM (`run-testing-scripts-in: vm`) it sees only plain_modules, not the project's own .env; " +
         "for tests that need this machine's credentials or services, set `run-testing-scripts-in: host` in config.yaml.",
+      "",
+      "Then build again: it picks up here, and what is built stays built.",
+    ].join("\n");
+  }
+
+  // Not the spec's either: the script cannot run at all, so no code would pass it.
+  if (facts.at === "unit tests" && facts.missingToolchain !== undefined) {
+    const { command, where } = facts.missingToolchain;
+    const needs = command !== undefined ? `\`${command}\`` : "a toolchain it needs";
+    const onHost = command !== undefined ? onThisMachine(command) : undefined;
+    return [
+      `Stopped at ${what}: the unit testing script cannot run - ${needs} is not installed ${where === "host" ? "on this machine" : "in the sandbox VM"}, where the testing scripts run.`,
+      "This needs you: no change to the spec or the code makes it run, and nothing was built.",
+      "",
+      "What to do:",
+      ...(where === "vm"
+        ? [
+            ...(onHost !== undefined ? [`- It is installed on this machine (${onHost}): set \`run-testing-scripts-in: host\` in config.yaml to run the testing scripts here.`] : []),
+            `- Or put it in the VM: add it to \`vm-image:\` in config.yaml and run \`turri vm-image\`${command !== undefined ? `, or name it in the implementation reqs so the agents install ${command}` : ""}.`,
+          ]
+        : [`- Install ${command ?? "it"} on this machine, so the testing script finds it on its PATH.`]),
       "",
       "Then build again: it picks up here, and what is built stays built.",
     ].join("\n");

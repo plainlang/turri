@@ -4,7 +4,7 @@ import { reportActivity } from "./activity.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { vmScratchDir } from "./paths.ts";
 import { RECORD_FILE } from "./records.ts";
-import { runUnitScript, scriptFailure } from "./test-scripts.ts";
+import { missingToolchain, runUnitScript, scriptFailure } from "./test-scripts.ts";
 import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
@@ -211,7 +211,13 @@ export function draftPrompt(): string {
 
 export type UnitVerdict =
   | { ok: true; command: string }
-  | { ok: false; command?: string; prompt: string };
+  | { ok: false; command?: string; prompt: string; missing?: MissingToolchain };
+
+/** A toolchain the testing script needs and does not find where it runs: no change to the code can pass it. */
+export interface MissingToolchain {
+  command?: string;
+  where: "vm" | "host";
+}
 
 /**
  * The harness's own run of the unit tests, which is what "the tests pass" rests on.
@@ -224,7 +230,13 @@ export async function verifyUnitSuite(buildDir: string, runs: TestRun[], script:
   const run = await runUnitScript(buildDir, script);
   runs.push({ command: run.command, exitCode: run.exitCode });
   if (run.exitCode === 0) return { ok: true, command: run.command };
-  return { ok: false, command: run.command, prompt: scriptFailure(run, "unit testing") };
+  const missing = missingToolchain(run);
+  return {
+    ok: false,
+    command: run.command,
+    prompt: scriptFailure(run, "unit testing"),
+    ...(missing !== undefined ? { missing: { ...missing, where: run.where ?? "vm" } } : {}),
+  };
 }
 
 /** Every file of the test code under `dirs`, by path, as it is now. */

@@ -36,14 +36,34 @@ const diff = [
 ].join("\n");
 
 describe("a spec diff in the panels", () => {
+  it("names a section on hidden lines only where the block below them is in another section than the one above", () => {
+    const twoSections = [
+      "--- a/app.plain",
+      "+++ b/app.plain",
+      "@@ -1,2 +1,2 @@",
+      " ***definitions***",
+      "+- :User: is a person.",
+      "@@ -8 +8 @@",
+      "+- :Board: is a grid.",
+      "@@ -20 +20 @@",
+      " ***functional specs***",
+      "@@ -30 +30 @@",
+      "+- A :User: sees the :Board:.",
+      "",
+    ].join("\n");
+    const rows = diffView(twoSections, 60, paint).map(read);
+    expect(rows.filter((row) => row.includes("<section>***definitions***</>"))).toHaveLength(1);
+    expect(rows.filter((row) => row.includes("<section>***functional specs***</>"))).toHaveLength(1);
+  });
+
   it("names the file once with what it adds and takes out, highlights each line's ***plain, and fills an added line green and a removed one red, the text on top", () => {
     const rows = diffView(diff, 40, paint).map(read);
     expect(rows[0]).toBe("~app.plain  <g>+1</> <r>−1</>");
     expect(rows[1]).toBe("  <section>***functional specs***</>");
     expect(rows[2]).toBe(`[-fill <r>-</> <bullet>-</> A <concept>:User:</> signs in.${" ".repeat(40 - "- - A :User: signs in.".length)}]`);
     expect(rows[3]).toBe(`[+fill <g>+</> <bullet>-</> A <concept>:User:</> signs in with <literal>\`email\`</>.${" ".repeat(40 - "+ - A :User: signs in with `email`.".length)}]`);
-    // Lines hidden between two hunks, marked as GitHub marks them - with the section the next block is in.
-    expect(rows[4]).toBe("~↕~ · <section>***functional specs***</>");
+    // Lines hidden between two hunks, marked as GitHub marks them - the section not named again: the block above is in it.
+    expect(rows[4]).toBe("~↕");
     expect(rows[5]).toBe("  <bullet>-</> The end.");
     expect(rows).toHaveLength(6);
   });
@@ -106,7 +126,8 @@ describe("line numbers in a spec diff", () => {
       "~app.plain  <g>+1</>",
       "~  ↑ 5 lines",
       "~6   <section>***functional specs***</>",
-      "~  ↕ 1 line~ · <section>***functional specs***</>",
+      // Still in the section named just above: not named again.
+      "~  ↕ 1 line",
       "[+fill ~8 <g>+</> <bullet>-</> A <concept>:User:</> signs in.]",
       "~template/common.plain  <g>+1</> <r>−1</>",
       "~1   <section>***definitions***</>",

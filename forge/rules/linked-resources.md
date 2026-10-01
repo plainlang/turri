@@ -6,13 +6,16 @@ description: Rules for linking external resources from .plain specs
 
 Specifications can reference external files using markdown link syntax. The renderer reads the linked file's bytes verbatim and feeds them to the model alongside the spec. That mechanism only works for a specific shape of target — violating any of the rules below is one of the most common and disruptive mistakes in `.plain` authoring.
 
-## Hard constraint: a linked resource is always a single, text-based file on disk
+## Hard constraint: a linked resource is always a single file on disk - text, or a PNG or JPEG image
 
 A linked resource **must not** be any of the following:
 
 1. **A folder / directory.** `[integrations](src/integrations/)`, `[host project](../host_project/)` are invalid — the renderer cannot ingest a directory. Pick the single most representative file inside (a `README.md`, an exemplar source file, a manifest) and link **that**.
 2. **A URL / external location.** `[Stripe docs](https://stripe.com/docs/api)`, any `http://` / `https://` / `ftp://` / `git://` / `s3://` / `gs://` target. Linked resources are local-file only. If a URL's content is essential, fetch it once, save the response to a text file under `resources/`, and link the saved file.
-3. **A binary file.** PNG, JPG, GIF, PDF, DOCX, XLSX, ZIP, MP3, MP4, compiled binaries (`.exe`, `.so`, `.class`, `.wasm`), and anything else that isn't human-readable text in its raw form. Binary content cannot be meaningfully consumed by the renderer — transcribe it into a text-based form first (a UI screenshot becomes a Markdown description, a PDF spec becomes a Markdown extract or the underlying JSON Schema / OpenAPI, an architecture diagram becomes a Mermaid block).
+3. **A binary file other than a PNG or JPEG image.** GIF, WEBP, SVG, PDF, DOCX, XLSX, ZIP, MP3, MP4, compiled binaries (`.exe`, `.so`, `.class`, `.wasm`), and anything else that isn't human-readable text in its raw form. Binary content cannot be meaningfully consumed by the renderer — transcribe it into a text-based form first (a PDF spec becomes a Markdown extract or the underlying JSON Schema / OpenAPI, an architecture diagram becomes a Mermaid block).
+   - **PNG and JPEG images (`.png`, `.jpg`, `.jpeg`) are the exception**: a UI mockup, a screenshot of the look to match, a diagram. The coding agents are shown the image itself, so the coding model must be one that reads images - the render stops, saying so, when it is not. Each image is at most 5 MB.
+   - An image says what something looks like, not what it does: the behaviour still belongs in the spec's text. Link a mockup from a concept (`:CheckoutPage:` looks as [checkout mockup](resources/checkout.png) shows) and keep the rules - what each button does, which fields are required - in the functional specs.
+   - Where the model may not read images, or a detail must be exact (a colour code, a spacing, a label), say it in text as well; the image is the reference, not the only source.
 4. **Another `.plain` file.** `[Auth Module](auth.plain)` is invalid. To reference another module, use the `require` or `import` frontmatter directives. Do not link it as a markdown resource; the renderer will flag this as a syntax error.
 
 ## Never use a URL or folder path as a *reference* in prose

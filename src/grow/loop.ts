@@ -32,6 +32,7 @@ import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, start
 import { withTryItLine } from "./delivery.ts";
 import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./regrow.ts";
 import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
+import { agentChanges, changeDiffInFiles } from "./change-view.ts";
 import { projectDirOf } from "./paths.ts";
 import { changesBetween, parseTree, serializeTree, type SpecStep } from "./spec-steps.ts";
 import { listFiles } from "./testing.ts";
@@ -473,10 +474,16 @@ export function createWorkLoop(options: {
       return;
     }
     const conformance = planned.track === "conformance";
+    // Shown as its agent is given it: the job's own items, from whichever file they are written in - its imports too.
+    const shown = changeDiffInFiles(
+      agentChanges(planned.step.changes, planned.track),
+      relative(projectDirOf(tip.plainFile), tip.plainFile) || basename(tip.plainFile),
+      (diff) => whereInFiles(diff, state.chain),
+    );
     const job: Job = options.registry.start({
       kind: conformance ? "bind" : "regrow",
       summary: `${basename(tip.plainFile)} ${conformance ? "conformance: " : ""}${planned.title}`,
-      diff: planned.step.textDiff,
+      diff: shown.diff,
       ...(state.model !== undefined ? { model: state.model } : {}),
       lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
       run: async (onDelta) => {
@@ -521,7 +528,7 @@ export function createWorkLoop(options: {
       },
     });
     // Its lines where they are written: the module's .plain file, those it imports, and those of the modules below it.
-    job.diffWhere = whereInFiles(planned.step.textDiff, state.chain);
+    job.diffWhere = shown.where;
     state.running = { jobId: job.id, planned, from, after: planned.step.tree };
     void options.registry.wait(job.id).then(
       (settled) => settle(state, settled),

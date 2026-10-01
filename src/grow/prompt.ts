@@ -95,6 +95,7 @@ export function specPrimer(options: { testReqs: boolean }): string {
     "- <acceptance tests>: under a functional spec, specific checks that functionality's implementation must pass.",
     "  They carry the same authority as the functional spec itself.",
     "- <linked resources>: files the specification refers to as `[resource]name`. They are part of the specification.",
+    "  An image among them is attached to your first message, numbered in the order they are listed: look at it.",
     "- <spec change>: a change to the specification, section by section, each section in its own tag - what it adds,",
     "  what it changes (before and now), and what it removes.",
     "",
@@ -183,8 +184,10 @@ export function section(key: string, items: string[]): string | null {
 
 function linkedResourcesSection(resources: LoadedResource[]): string | null {
   if (resources.length === 0) return null;
+  // An image is not text: the prompt says where it is - attached to the first message, by number - and what type.
   const rendered = resources.map(
-    (resource) => `<resource name="${resource.text}" path="${resource.target}">\n${resource.content}\n</resource>`,
+    (resource) =>
+      `<resource name="${resource.text}" path="${resource.target}"${resource.image !== undefined ? ` type="${resource.image.mimeType}"` : ""}>\n${resource.content}\n</resource>`,
   );
   return `<linked resources>\n${rendered.join("\n\n")}\n</linked resources>`;
 }
@@ -533,13 +536,8 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
     alreadyImplemented(input.moduleName, input.diff !== undefined ? functionalities : functionalities.slice(0, -1), input.required ?? []),
   ];
 
-  if (input.linkedResources.length > 0) {
-    const rendered = input.linkedResources.map(
-      (resource) =>
-        `<resource name="${resource.text}" path="${resource.target}">\n${resource.content}\n</resource>`,
-    );
-    parts.push(`<linked resources>\n${rendered.join("\n\n")}\n</linked resources>`);
-  }
+  const resources = linkedResourcesSection(input.linkedResources);
+  if (resources !== null) parts.push(resources);
 
   parts.push(
     input.diff !== undefined

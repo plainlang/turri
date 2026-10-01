@@ -8,6 +8,8 @@ import { BEGIN } from "../../src/pi.ts";
 
 /** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
 const prompts: string[] = [];
+/** The images each agent is made with, by its label. */
+const imagesGiven: Array<{ label?: string; images?: unknown[] }> = [];
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
   // Asked to leave notes, it does - and that is not a turn the test is about.
@@ -52,16 +54,15 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string }) => ({
-      tools: opts.customTools,
-      task: opts.task,
-      dispose() {},
-    }),
+    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string; label?: string; images?: unknown[] }) => {
+      imagesGiven.push({ label: opts.label, images: opts.images });
+      return { tools: opts.customTools, task: opts.task, dispose() {} };
+    },
     ask: vi.fn(passingAgent),
   };
 });
 
-const { applySpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/grow/regrow.ts");
+const { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/grow/regrow.ts");
 const { buildSpecDiffPrompt } = await import("../../src/grow/prompt.ts");
 const { readRecord } = await import("../../src/grow/records.ts");
 const { listFiles } = await import("../../src/grow/testing.ts");
@@ -90,6 +91,7 @@ beforeEach(async () => {
   cwd = process.cwd();
   process.chdir(dir);
   prompts.length = 0;
+  imagesGiven.length = 0;
   // A test that makes the agent fail must not leave it failing for the next one.
   const { ask } = await import("../../src/pi.ts");
   vi.mocked(ask).mockImplementation(passingAgent as never);
@@ -156,6 +158,33 @@ describe("rendering a spec diff", () => {
     expect(prompts[0]).toContain('<spec change>\n<functional specs change="1 added, 1 changed">');
     expect(prompts[0]).toContain("  functionality 1\n    before:\n      - One.\n    now:\n      - One, loudly.");
     expect(prompts[0]).toContain("Added:\n  functionality 2:\n  - Two.");
+  });
+
+  it("hands the coding agent a linked image to look at, and its prompt says which attachment it is", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489", "hex");
+    writeFileSync(join(dir, "mockup.png"), png);
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two, as [the mockup](mockup.png) shows."]));
+
+    await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+
+    const coder = imagesGiven.find((agent) => agent.label?.endsWith("coding agent"));
+    expect(coder?.images).toEqual([{ type: "image", data: png.toString("base64"), mimeType: "image/png" }]);
+    expect(prompts[0]).toContain('<resource name="the mockup" path="mockup.png" type="image/png">\n[an image: attached to your first message, image 1]');
+  });
+
+  it("stops at once, saying what to install, when the unit testing script on this machine cannot find its toolchain", async () => {
+    writeTestScripts(dir, { unit: "#!/bin/bash\necho 'run_unittests.sh: line 3: flutter: command not found'\nexit 127\n" });
+    writeFileSync(join(dir, "config.yaml"), "run-testing-scripts-in: host\n");
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+
+    expect(result.passed).toBe(false);
+    expect(result.attempts).toBe(1);
+    expect(result.missingToolchain).toEqual({ command: "flutter", where: "host" });
+    expect(describeSpecDiff(result)).toContain("`flutter` is not installed on this machine");
   });
 
   it("from scratch: applies the diff, renders it, and records the specs as they now stand", async () => {

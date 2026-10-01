@@ -175,7 +175,11 @@ export class ProviderError extends Error {
  */
 export async function ask(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
   // Between turns, not during one: the work so far, summed up, once it has grown past the threshold.
-  await compactIfDue(session);
+  // The summary keeps no images: they go with the next message again.
+  if (await compactIfDue(session)) {
+    const images = sessionImages.get(session);
+    if (images !== undefined) images.sent = false;
+  }
   // A provider that is overloaded or unreachable for a moment is waited out, longer than pi's own
   // retries do, rather than failing the whole run; the agent carries on where it was.
   let prompt = text;
@@ -341,7 +345,13 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   debug?.prompt(text);
 
   try {
-    await session.prompt(text, { expandPromptTemplates: false });
+    // Its images, when its conversation does not hold them: the first turn, and the first after a compaction.
+    const images = sessionImages.get(session);
+    const attach = images !== undefined && !images.sent ? images.images : undefined;
+    // The log holds what the model is sent as text; an image is not text, so the log says it went too.
+    if (attach !== undefined) debug?.note(`sent with this message: ${attach.length === 1 ? "1 image" : `${attach.length} images`} (${attach.map((image) => image.mimeType).join(", ")})`);
+    await session.prompt(text, { expandPromptTemplates: false, ...(attach !== undefined ? { images: attach } : {}) });
+    if (images !== undefined) images.sent = true;
   } catch (error) {
     debug?.note(`turn failed after ${seconds(Date.now() - turnStarted)}: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
@@ -377,6 +387,43 @@ export const TURN_LIMIT_MS = Number(process.env.TURRI_TURN_LIMIT ?? 120) * 1000;
 
 /** A session's task, in its instructions, until its first turn shows it in the transcript. */
 const pendingTask = new WeakMap<object, string>();
+
+/** An image an agent is sent with a message. */
+export interface AgentImage {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+/** A session's images, and whether its conversation holds them now: not at first, nor after a compaction. */
+const sessionImages = new WeakMap<object, { images: AgentImage[]; sent: boolean }>();
+
+/**
+ * Refuses, before any agent of a job starts, a named model that reads no images when the job's spec links some -
+ * rather than once the work is under way. Unnamed, the model is pi's default: `createExecutor` refuses it then.
+ */
+export async function refuseIfModelIsBlind(modelSpec: string | undefined, count: number): Promise<void> {
+  if (count === 0) return;
+  const chosen = splitModelSpec(modelSpec).model;
+  const slash = chosen?.indexOf("/") ?? -1;
+  if (chosen === undefined || slash === -1) return;
+  refuseIfBlind(new ModelRegistry(await subAgentModelRuntime()).find(chosen.slice(0, slash), chosen.slice(slash + 1)), count);
+}
+
+/** A model that cannot read images, given images to read. */
+export class ModelCannotReadImagesError extends Error {}
+
+/**
+ * Stops an agent whose model reads no images being given some: it would work blind from the spec's images. Says
+ * which model, and what to do - a coding model that reads images, or the images described in text instead.
+ */
+export function refuseIfBlind(model: { provider: string; id: string; input?: readonly string[] } | undefined, count: number): void {
+  if (model === undefined || model.input?.includes("image") === true) return;
+  throw new ModelCannotReadImagesError(
+    `The spec links ${count === 1 ? "an image" : `${count} images`} (PNG or JPEG), and ${model.provider}/${model.id} cannot read images. ` +
+      "Set coding-model in config.yaml to a model that reads images, or describe what the image shows in a text file and link that instead.",
+  );
+}
 
 /**
  * What an agent opens with when its task is in its instructions. The task - the spec, how to read it, what to do
@@ -611,6 +658,11 @@ export async function createExecutor(opts: {
   label?: string;
   /** For an agent with one thing to decide: how many tool calls it has, and the tools that hand the decision over. */
   budget?: CallBudget;
+  /**
+   * Images its task refers to - the spec's linked images. Sent with its first message, and again after each
+   * compaction, which sums them up with the rest. A model that cannot read images is refused, before any work.
+   */
+  images?: AgentImage[];
 }): Promise<AgentSession> {
   // Saved to disk, in the project: an agent's session is the record of what it did, and the
   // only way to pick a long run back up after the process that ran it is gone.
@@ -642,6 +694,11 @@ export async function createExecutor(opts: {
   // model wins; otherwise the conversation's.
   const thinking = chosen.thinking ?? inheritedThinkingLevel();
   if (thinking !== undefined) session.setThinkingLevel(thinking);
+
+  if (opts.images !== undefined && opts.images.length > 0) {
+    refuseIfBlind(session.model, opts.images.length);
+    sessionImages.set(session, { images: opts.images, sent: false });
+  }
 
   // After both, so the log's header says what it really runs on.
   if (opts.label !== undefined) startDebugLog(session, { cwd: opts.cwd, label: opts.label, tools: opts.tools });

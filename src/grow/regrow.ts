@@ -12,7 +12,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import { ask, BEGIN, createExecutor } from "../pi.ts";
+import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
@@ -26,6 +26,7 @@ import {
   createScriptTool,
   findStaticChecks,
   findTestScripts,
+  needsThePerson,
   projectRootFor,
   requireTestScripts,
   runUnitScript,
@@ -39,7 +40,7 @@ import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } from "./requires.ts";
-import { loadLinkedResources } from "./resources.ts";
+import { loadLinkedResources, resourceImages } from "./resources.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { sectionsOf } from "./state.ts";
 import { inheritedRecord, readRecord, withResourceDigests, writeCodeRecord } from "./records.ts";
@@ -56,6 +57,7 @@ import {
   verifyUnitSuite,
   draftPrompt,
   DRAFT_ASKS,
+  type MissingToolchain,
 } from "./testing.ts";
 
 /**
@@ -78,6 +80,9 @@ import {
  */
 
 const MAX_FOLLOW_UPS = ATTEMPTS["unit tests"];
+
+/** Rounds the agent has to install a toolchain the unit testing script cannot find in the VM, before the job stops. */
+const INSTALL_ROUNDS = 2;
 
 /**
  * Bring the .plain files to the state the diff describes, with git. A diff that is already
@@ -237,6 +242,8 @@ export interface RenderSpecDiffResult {
   files: { added: string[]; changed: string[]; removed: string[] };
   passed: boolean;
   stoppedAt: "unit tests" | null;
+  /** Stopped because the unit testing script cannot run: what it needs is not installed where it runs. */
+  missingToolchain?: MissingToolchain;
   /** The specs were only restructured: nothing was rendered, the spec as now laid out was recorded. */
   restructured?: boolean;
   /** A dry run: the task the coding agent would be given. */
@@ -332,6 +339,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const builtFrids = [...getFrids(builtNow)];
   const specificationsBefore: Specifications =
     builtFrids.length > 0 ? getSpecificationsForFrid(builtNow, builtFrids.at(-1)!)[0] : { ...sectionsOf(builtNow), [FUNCTIONAL_REQUIREMENTS]: [] };
+  const linkedResources = loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs));
   const prompt = buildSpecDiffPrompt({
     moduleName,
     diff: options.diff,
@@ -339,7 +347,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     changes: codingChanges,
     specifications: specificationsBefore,
     required: getInheritedFunctionalSpecs(builtNow),
-    linkedResources: loadLinkedResources(tree, lastFrid ?? null, resolveTemplateDirs(tip.plainFile, templateDirs)),
+    linkedResources,
     codebase: codebaseMap(seen),
     empty: listFiles(seen).length === 0,
     ...(options.cases !== undefined ? { cases: options.cases } : {}),
@@ -366,6 +374,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   if (dryRun) {
     return { moduleName, buildDir, diff: applied, response: "", runs: [], attempts: 0, testRemovals: [], files: { added: [], changed: [], removed: [] }, passed: false, stoppedAt: null, task };
   }
+  // The spec's images need a model that reads them: refused before the agent starts.
+  await refuseIfModelIsBlind(options.model, resourceImages(linkedResources).length);
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   // One session for the whole change: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({
@@ -385,6 +395,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     system: fence.note,
     task,
     compaction: { instructions: CODER_COMPACTION },
+    images: resourceImages(linkedResources),
   });
 
   let response: string;
@@ -395,6 +406,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   let attempts = 0;
   /** How many times the agent, having written nothing, was asked for a draft. */
   let draftAsks = 0;
+  /** What the unit testing script needs and does not find, last run - and how many rounds the agent had to install it. */
+  let missing: MissingToolchain | undefined;
+  let installRounds = 0;
   const testRemovals: TestRemoval[] = [];
   try {
     stage("turri is implementing the spec change");
@@ -434,6 +448,15 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
         if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
+        // A toolchain the script cannot find is no failure of the code. Where only the person can set it up - on this
+        // machine, or in the VM when this machine has it - the job stops now and asks them; otherwise the agent has a
+        // round or two to install it in the VM, then the job stops.
+        missing = verdict.ok ? undefined : verdict.missing;
+        if (missing !== undefined && (needsThePerson(missing, missing.where) || installRounds >= INSTALL_ROUNDS)) {
+          stage(`the unit testing script cannot run: ${missing.command ?? "a toolchain it needs"} is not installed ${missing.where === "host" ? "on this machine" : "in the VM"} - stopping`);
+          return false;
+        }
+        if (missing !== undefined) installRounds += 1;
         if (!verdict.ok) {
           stage(`unit tests not passing - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
           response = await ask(executor, verdict.prompt, options.onDelta);
@@ -492,8 +515,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   if (!unitPassed) {
     stage(unitReviewStopped ? "the unit tests pass but still leave the change untested - undoing the change" : "unit tests NOT passing - undoing the change");
-    abandonWork(unit, moduleName, "the spec change did not pass its unit tests");
-    return { ...base, passed: false, stoppedAt: "unit tests" };
+    abandonWork(unit, moduleName, missing !== undefined ? "the unit testing script could not run" : "the spec change did not pass its unit tests");
+    return { ...base, passed: false, stoppedAt: "unit tests", ...(missing !== undefined ? { missingToolchain: missing } : {}) };
   }
 
   stage("unit tests pass - landing the change on them");
@@ -515,6 +538,7 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
           at: result.stoppedAt!,
           runs: result.runs,
           attempts: result.attempts,
+          ...(result.missingToolchain !== undefined ? { missingToolchain: result.missingToolchain } : {}),
         }),
     result.diff === "applied" ? "The diff was applied to the .plain files." : "The diff was already applied.",
     `Files: ${added.length} added, ${changed.length} changed, ${removed.length} removed.`,

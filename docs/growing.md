@@ -394,8 +394,15 @@ testing script, stops before it starts and says which skill adds it.
 runs in, with the same toolchains and the packages they installed - so what passes in an agent's
 shell passes in the run that decides. That is the only way the two scripts are ever run: the
 harness's own runs, and the agents' `run_unit_tests` and `run_conformance_tests`, which run them
-exactly as the harness does. A toolchain the script needs and the VM lacks (exit 69), the agent
-installs with `install_system_packages`, and the next run has it.
+exactly as the harness does. A toolchain the script needs and the VM lacks - exit 69, exit 127, or
+a `command not found` / `failed to run command` in its output (`missingToolchain`) - the agent
+installs with `install_system_packages`, and the next run has it. It has two rounds to: the unit
+tests still cannot run after them, the job stops rather than sending it back again, and says what
+is missing. When this machine has the command the VM lacks - an SDK such as Flutter, most often - it
+is the person's to set up, not the agent's (`needsThePerson`): the agent is told to end its turn
+rather than work around it, and the job stops at the first run that cannot find it, nothing built,
+saying where the command is here and what to do - `run-testing-scripts-in: host` in config.yaml to
+run the scripts on this machine, or the command put in the VM image.
 
 Each run is given a fresh copy of the code, and of the whole conformance suite, in
 `plain_modules/.turri/scripts/`, named for its module and the run, with the project's script
@@ -420,8 +427,8 @@ the VM, and only the scripts' output reaches them. The time limit and a stopped 
 and all it started. On the host the model providers' API keys are kept out of its environment, and
 what the script does to the host - copying the package into it - it does, as it is written to. Code
 the agents wrote runs on this machine there, so it is for projects that ask for it. The agents are
-told the host's run is the one that counts, and a toolchain the host lacks (exit 69) cannot be
-installed from their sandbox: they say what is missing, for you to install.
+told the host's run is the one that counts, and a toolchain the host lacks cannot be installed
+from their sandbox: the job stops at the first run that cannot find it, saying what to install.
 
 ### What a job is given, and what it records
 
@@ -467,6 +474,16 @@ changed, with both hashes; the agent is told which file holds something else now
 unchanged text, and reads the file as it is now in `<linked resources>`. The records keep the hash, not the
 content, so what the file held before is not shown. A record written before resources were hashed is taken
 as built from the files as they are now: the loop hashes its links and commits it, building nothing again.
+
+**Linked images.** A linked `.png`, `.jpg` or `.jpeg` is an image, not text (`resources.ts`). The coding agent
+and the conformance agent are sent it with their first message - and again after each compaction, which sums
+the conversation up without its images - and `<linked resources>` lists it with its type and its number among
+the attachments (`<resource name="checkout mockup" path="resources/checkout.png" type="image/png">`). Their
+model has to read images: a job whose spec links one refuses a model that does not before any agent starts
+(`refuseIfModelIsBlind`; `createExecutor` refuses pi's default model the same way), saying which model and to
+set `coding-model` to one that reads images or describe the image in text. An image over 5 MB stops the job,
+naming the file. The reviewers do not see linked resources, text or images. An image is hashed like any linked
+file, so a new mockup patches the functional specs that link it.
 
 A job lands once its unit tests pass and are reviewed: the code record becomes the spec the job ends on,
 committed with the code. Its conformance tests are not the code job's: they are a track of their own

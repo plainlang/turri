@@ -144,7 +144,7 @@ an agent has to decide to go and read.
 | `test-reqs.md` | conformance tests only, what belongs, test types |
 | `concise-specs.md` (+ two example banks) | keeping specs short enough for a person to review: no obvious lines, plain words, no uncheckable adjectives, no hedging |
 | `bullet-continuation.md` | bullets and continuation lines in every section |
-| `linked-resources.md` | a linked resource is one text file on disk; protocol artifacts are linked, never transcribed |
+| `linked-resources.md` | a linked resource is one text file on disk, or a PNG or JPEG image for a model that reads images; protocol artifacts are linked, never transcribed |
 | `import-modules.md`, `requires-modules.md` | the two ways modules build on each other |
 | `exported-concepts.md`, `required-concepts.md` | which concepts cross module boundaries |
 | `integrations.md` (+ standalone, embedded, embedded testing) | specs for REST API integrations, deployed standalone or embedded in an existing codebase |
