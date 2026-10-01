@@ -1,18 +1,12 @@
 <br>
 
-<p align="center">
-  <img src="docs/assets/banner.png" alt="turri - coding agent with the power of regenerative software.">
-</p>
-
 <h1 align="center">turri<br>coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
 You and **turri** write down what the system should do, as [\*\*\*plain](https://plainlang.org/) specs. **turri** builds
 the code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
 
-**turri** is named after *Turritopsis dohrnii*, the immortal jellyfish: when it is injured or grows old, it turns
-back into its young self and grows again - the same jellyfish. So does your software: the code is grown from the
-spec, and grown again from it whenever it has to be.
+**turri** is named after *Turritopsis dohrnii*, the immortal jellyfish - see [the name](#the-name).
 
 ## Why
 
@@ -25,6 +19,25 @@ Code that is patched, prompt after prompt, drifts: every misunderstanding stays 
 next change is made on top. When the software can always be regenerated from durable information
 instead, that understanding is written down - explicit, reviewable and tested - and it grows with
 the software rather than against it.
+
+## The name
+
+**turri** is short for [*Turritopsis dohrnii*](https://en.wikipedia.org/wiki/Turritopsis_dohrnii), the immortal
+jellyfish, which, when injured or old, turns back into its young self and grows again - the same jellyfish, from the
+same genes, again and again.
+
+That is what regenerative software asks of software, and what **turri** does:
+
+| *Turritopsis dohrnii* | **turri** |
+| --- | --- |
+| Its genes are what it is: every generation grows from the same ones. | The [\*\*\*plain](https://plainlang.org/) spec is what the software is: every generation of code grows from it. |
+| Injured or old, it does not patch itself: it goes back to the polyp and grows the adult again. | Code that has drifted is not patched prompt after prompt: it is grown again from the spec, as much of it as has to be. |
+| Every cell can become another, and it is still the same jellyfish. | Every line of code can be replaced, and it is still the same software - because what it is never lived in the code. |
+| It can do it again and again, for as long as it lives. | The code can be grown again whenever the spec changes or a model gets better, for as long as the spec is kept. |
+
+So the tools speak its language: **`regrow`** grows the code again from the spec as it is now, **`drift`** says how far
+the code has moved from it, **`rejuvenate`** takes a codebase back to the start and grows it again, and **`lineage`**
+shows every generation of a module and what each grew from.
 
 ## How it differs from a coding agent
 
