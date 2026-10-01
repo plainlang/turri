@@ -143,7 +143,18 @@ anything - the unit testing script, run by the harness, still does - and its tas
 - **`can_it_fail`**: whether the unit tests catch a bug. The agent gives one change to a code file - a
   condition turned round, a value changed - and the unit testing script runs on a fresh copy of the code with
   it, in the VM; the code itself is never touched. If every test still passes, no test catches that bug. Six
-  runs a job. Not where the testing scripts run on the host, in place: there is no copy to change.
+  runs a job. A bug often makes the code hang instead - a loop that never ends - so a run may take three times
+  as long as the last passing run of the unit tests, within 15 and 60 seconds, and one that does not finish is
+  reported as a hang, not as a test that caught it. Not where the testing scripts run on the host, in place:
+  there is no copy to change.
+- **`start_service`**, **`service_logs`**, **`stop_service`**: a server or a worker it built, started in the
+  background in its VM, to try from outside with `curl` as a client would. Whatever the stack: the agent gives
+  the command that starts it and how to tell it is up - the port it listens on, or a line its log prints. It is
+  up once something in the VM listens on that port (the VM's network answers any connection itself, so a
+  connect proves nothing); one that exits first or is not up in time is reported with what it printed. Three at
+  once; each runs in a session of its own, outliving the command that started it, and is stopped with
+  everything it started on `stop_service` and in any case when the agent's session ends. The explorer, the
+  explorer answering `ask_explorer` and the code fixer of a conformance run have them too.
 - **`run_static_checks`**: the project's type checker and linter, when it has a script for them -
   `static-checks-script:` in the [config](config.md), or the one `run_static_checks*.sh` beside the testing
   scripts. Optional: with none, the agent has no such tool.

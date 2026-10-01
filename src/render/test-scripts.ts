@@ -427,10 +427,10 @@ function quote(path: string): string {
  * beside the code copied there, and `bash <copy> <args>` run from it. `vmOf`: the module folder
  * whose VM runs it - the build's for the unit tests, the tests' for the conformance suite.
  */
-async function runInModuleVm(stagingRoot: string, script: string, args: string[], vmOf: string, logDir: string): Promise<ScriptRun> {
+async function runInModuleVm(stagingRoot: string, script: string, args: string[], vmOf: string, logDir: string, limitMs?: number): Promise<ScriptRun> {
   const copy = join(stagingRoot, basename(script));
   writeFileSync(copy, readFileSync(script));
-  const timeoutMs = scriptTimeoutMs;
+  const timeoutMs = limitMs ?? scriptTimeoutMs;
   const started = Date.now();
   reportActivity(`  ▶ ${shown(script)} in the module's VM (limit ${Math.round(timeoutMs / 1000)}s)`);
   const { exitCode, output, timedOut } = await runInVm(`bash ${[copy, ...args].map(quote).join(" ")}`, {
@@ -462,11 +462,26 @@ export async function runUnitScript(buildDir: string, script: string): Promise<S
   return runOnCode(buildDir, script, "unit testing script");
 }
 
+/** How long the last passing run of a script on a codebase took, by codebase and script. */
+const lastPassing = new Map<string, number>();
+
+/** How long the last passing run of `script` on the code in `buildDir` took, in this process - undefined before one has. */
+export function lastPassingMs(buildDir: string, script: string): number | undefined {
+  return lastPassing.get(`${resolve(buildDir)}\n${script}`);
+}
+
 /**
  * A script that takes the code folder - the unit testing script, the static checks - run where the testing scripts
  * run. `change`: what to do to the fresh copy before it runs - only in the VM, where there is a copy; never in place.
  */
-export async function runOnCode(buildDir: string, script: string, what: string, change?: (copy: string) => void): Promise<ScriptRun> {
+export async function runOnCode(
+  buildDir: string,
+  script: string,
+  what: string,
+  change?: (copy: string) => void,
+  /** A time limit of its own, in place of a test run's. */
+  limitMs?: number,
+): Promise<ScriptRun> {
   const project = projectOfBuild(buildDir);
   if (project.inPlace) {
     if (change !== undefined) throw new Error("This runs only where the testing scripts run in the VM: here they run in place, on the code itself.");
@@ -478,7 +493,10 @@ export async function runOnCode(buildDir: string, script: string, what: string, 
   try {
     reportActivity(`  copying ${stageBuild(buildDir, staging.build)} files of the code for the ${what}`);
     change?.(staging.build);
-    return await runInModuleVm(staging.root, script, [staging.build], buildDir, buildDir);
+    const started = Date.now();
+    const run = await runInModuleVm(staging.root, script, [staging.build], buildDir, buildDir, limitMs);
+    if (change === undefined && run.exitCode === 0) lastPassing.set(`${resolve(buildDir)}\n${script}`, Date.now() - started);
+    return run;
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }

@@ -101,6 +101,23 @@ describe("can_it_fail", () => {
       expect(missed).toContain("Every unit test passes with calc.sh changed: no test catches this bug.");
       expect(readFileSync(join(code, "calc.sh"), "utf8")).toBe(source);
     }, 300_000);
+
+    it("gives up soon on a bug that makes the code hang, and says it hung - never that a test caught it", async () => {
+      const { runUnitScript } = await import("../../src/render/test-scripts.ts");
+      writeFileSync(join(code, "calc.sh"), "add() { echo $(( $1 + $2 )); }\n");
+      const script = join(root, "test_scripts", "run_unittests.sh");
+      mkdirSync(join(root, "test_scripts"));
+      writeFileSync(script, 'cd "$1" && . ./calc.sh && [ "$(add 1 2)" = 3 ] || exit 1\n');
+      // A passing run first: the limit is three times as long as it took, and never under 15 seconds.
+      expect((await runUnitScript(code, script)).exitCode).toBe(0);
+      const started = Date.now();
+      const hung = await call(createCanItFailTool({ buildDir: code, script }), { file: "calc.sh", find: "echo $(( $1 + $2 ))", replace: "while true; do :; done" });
+      const limit = Number(/did not finish in (\d+)s with calc\.sh changed: the bug makes the code hang/.exec(hung)?.[1]);
+      expect(limit).toBeGreaterThanOrEqual(15);
+      expect(limit).toBeLessThanOrEqual(60);
+      expect(hung).not.toContain("something catches it");
+      expect(Date.now() - started).toBeLessThan((limit + 30) * 1000);
+    }, 300_000);
   });
 });
 

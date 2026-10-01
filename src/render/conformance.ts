@@ -35,6 +35,7 @@ import {
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createMyDiffTool } from "./self-check.ts";
+import { createServiceTools } from "./services.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   codeFixPrompt,
@@ -401,6 +402,8 @@ export async function renderConformanceTests(
     createScriptTool({ kind: "conformance", script: scripts.conformance, run: () => runConformanceScript(buildDir, [conformanceDir], scripts), runs: [] }),
     RUNS_PER_TURN,
   );
+  // What the code fixer starts to try the code - a server - stopped when the run ends.
+  const fixerServices = createServiceTools({ dir: buildDir });
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
   stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);
@@ -451,8 +454,9 @@ export async function renderConformanceTests(
         fixerNotes.tool,
         createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns }),
         fixerConformanceRuns.tool,
+        ...fixerServices.tools,
       ],
-      toolNames: ["run_unit_tests", "run_conformance_tests", "update_notes"],
+      toolNames: ["run_unit_tests", "run_conformance_tests", ...fixerServices.names, "update_notes"],
     });
     fixerConformanceRuns.newTurn();
     return ask(fixer, withNotes(text, buildDir), options.onDelta);
@@ -867,6 +871,7 @@ export async function renderConformanceTests(
     executor.dispose();
     fixer?.dispose();
     reviewer?.dispose();
+    await fixerServices.stopAll();
   }
 }
 

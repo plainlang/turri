@@ -3,6 +3,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
+import { createServiceTools } from "./services.ts";
 import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
@@ -262,10 +263,11 @@ export async function exploreInvocation(options: {
   }) as ToolDefinition;
   // It reads the code - and runs it, to see - but changes nothing.
   const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
+  const services = createServiceTools({ dir: options.buildDir });
   const session = await createExecutor({
     cwd: options.buildDir,
-    customTools: [submit, ...fence.tools],
-    tools: [...fence.names, "submit_exploration"],
+    customTools: [submit, ...services.tools, ...fence.tools],
+    tools: [...fence.names, ...services.names, "submit_exploration"],
     model: options.model,
     label: `${options.label} explorer`,
     system: fence.note,
@@ -289,6 +291,7 @@ export async function exploreInvocation(options: {
     }
   } finally {
     session.dispose();
+    await services.stopAll();
   }
   const complete = explorationProblems(exploration, options.scope, options.spec.moduleName, options.acceptance).length === 0;
   const found = replies.filter((reply) => reply.trim() !== "");
@@ -331,10 +334,11 @@ export async function answerAsExplorer(options: {
     },
   }) as ToolDefinition;
   const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
+  const services = createServiceTools({ dir: options.buildDir });
   const session = await createExecutor({
     cwd: options.buildDir,
-    customTools: [submit, ...fence.tools],
-    tools: [...fence.names, "submit_answer"],
+    customTools: [submit, ...services.tools, ...fence.tools],
+    tools: [...fence.names, ...services.names, "submit_answer"],
     model: options.model,
     label: `${options.label} explorer`,
     system: fence.note,
@@ -356,6 +360,7 @@ export async function answerAsExplorer(options: {
     reply = await ask(session, BEGIN, options.onDelta);
   } finally {
     session.dispose();
+    await services.stopAll();
   }
   const given = (answer ?? reply).trim();
   return given === "" ? "The explorer could not answer. Work it out from the account and the code, which you can read." : given.slice(0, MAX_ANSWER_CHARS * 2);
@@ -405,7 +410,8 @@ export function explorePrompt(
     `fields and their types in words - no code listings, no files pasted whole, under ${MAX_EXPLORATION_CHARS} characters in all. In its parts:`,
     "",
     "- build_and_run: what to install and build, the exact command that starts or runs it, where it listens",
-    "  and how to tell it is up;",
+    "  and how to tell it is up - for a server, start it with start_service and reach it with curl, so what you hand",
+    "  over is what you saw it do;",
     "- tests_reach_it: how the conformance tests reach it, run as the conformance testing script below runs",
     "  them. Read the script: what it builds or installs, and where, before the tests run; then say exactly what",
     "  the tests depend on or start - a package, module, entry point, path or address, with its exact name and",

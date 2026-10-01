@@ -34,6 +34,7 @@ import {
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createCanItFailTool, createMyDiffTool, createStaticChecksTool, selfCheckNote } from "./self-check.ts";
+import { createServiceTools } from "./services.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
@@ -358,8 +359,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     ...(staticChecks !== undefined ? [createStaticChecksTool({ buildDir, script: staticChecks })] : []),
     ...(scripts.runTestingScriptsIn !== "host" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
   ];
+  // A server it built, it can start and try from outside - stopped when it is done.
+  const services = createServiceTools({ dir: buildDir });
   // The script its work is judged by.
-  const task = [withNotes(withTestingScripts(prompt, scripts, ["unit"], root), buildDir), "", ...selfCheckNote(selfChecks.map((tool) => tool.name)), ...SUBMIT_WORK_NOTE].join("\n");
+  const task = [withNotes(withTestingScripts(prompt, scripts, ["unit"], root), buildDir), "", ...selfCheckNote([...selfChecks.map((tool) => tool.name), "start_service"]), ...SUBMIT_WORK_NOTE].join("\n");
   if (dryRun) {
     return { moduleName, buildDir, diff: applied, response: "", runs: [], attempts: 0, testRemovals: [], files: { added: [], changed: [], removed: [] }, passed: false, stoppedAt: null, task };
   }
@@ -373,9 +376,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       ...createWebTools(),
       createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs }),
       ...selfChecks,
+      ...services.tools,
       ...fence.tools,
     ],
-    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), "update_notes", "submit_work", ...WEB_TOOLS],
+    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), ...services.names, "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
     system: fence.note,
@@ -471,6 +475,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
   } finally {
     executor.dispose();
+    await services.stopAll();
   }
 
   // Passing means the harness's own run of the unit testing script passed, last.
