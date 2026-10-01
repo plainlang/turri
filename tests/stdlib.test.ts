@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkPlainFile } from "../src/plain/check.ts";
 import { plainFileParser } from "../src/plain/parser.ts";
-import { resolveTemplateDirs } from "../src/render/paths.ts";
+import { resolveTemplateDirs } from "../src/grow/paths.ts";
 import { loadRules } from "../src/rules.ts";
 import { conformanceOf, describeStdlib, isStack, stdlibTemplates } from "../src/stdlib.ts";
 import { chatRulesBlock } from "../src/extension.ts";
@@ -12,7 +12,7 @@ import { chatRulesBlock } from "../src/extension.ts";
 let root: string;
 let cwd: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-stdlib-"));
+  root = mkdtempSync(join(tmpdir(), "turri-stdlib-"));
   cwd = process.cwd();
   // The parser reads linked resources from the process's folder, as it does in a project.
   process.chdir(root);

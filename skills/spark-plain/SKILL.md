@@ -79,7 +79,7 @@ nothing built, and `write_spec_diff` not used.
    for it - a backend, a frontend, a command-line tool or a library (the stdlib rule, in `<plain-rules>`) -
    import that template and write only what the module needs beyond it.
 2. **Unit tests.** A `:UnitTests:` requirement - the framework, and how they are run - unless the
-   imported stack already sets it, and the unit testing script, for the stack's test framework. Keep one plainwright already finds (named in `config.yaml`, or the one
+   imported stack already sets it, and the unit testing script, for the stack's test framework. Keep one turri already finds (named in `config.yaml`, or the one
    `run_unittests*.sh` in the root or `test_scripts/`); otherwise write
    `test_scripts/run_unittests_<language>.sh` by following the `implement-unit-testing-script`
    skill. Never link it from the specs.
@@ -93,9 +93,9 @@ nothing built, and `write_spec_diff` not used.
    outside services, and the command that runs the suite, following `forge/rules/test-reqs.md`, or
    the stack's standard library conformance template imported when the stack is from it -
    and `test_scripts/run_conformance_tests_<language>.sh`, by following the
-   `implement-conformance-testing-script` skill, unless plainwright already finds one.
+   `implement-conformance-testing-script` skill, unless turri already finds one.
 
-Run `check_plain` on every module you wrote, and fix what it finds. Then say in a few lines what you
+Run `validate` on every module you wrote, and fix what it finds. Then say in a few lines what you
 chose - the stack, the architecture, the tests - and carry on. Do not ask for confirmation.
 
 ### product

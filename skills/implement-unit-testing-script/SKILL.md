@@ -1,7 +1,7 @@
 ---
 name: implement-unit-testing-script
 description: >-
-  Implement a unit-test runner script (Bash, which plainwright runs; a PowerShell copy on request, for
+  Implement a unit-test runner script (Bash, which turri runs; a PowerShell copy on request, for
   Windows) for an arbitrary programming language, following the same conceptual
   pattern as the bundled Java reference script in assets/. Use when the user
   wants to add a testing script for a new language (Python, Node.js, Go, Rust,
@@ -18,9 +18,9 @@ The reference implementation is [assets/run_unittests_java.sh](assets/run_unitte
 
 ## Always Bash
 
-plainwright requires this script and runs it itself, as `bash run_unittests_<lang>.sh <build_folder>` in its Linux (Alpine) VM: its exit code decides whether a functionality's unit tests pass. So the script is always **Bash (`.sh`)**, and stays Alpine/BusyBox-friendly.
+turri requires this script and runs it itself, as `bash run_unittests_<lang>.sh <build_folder>` in its Linux (Alpine) VM: its exit code decides whether a functionality's unit tests pass. So the script is always **Bash (`.sh`)**, and stays Alpine/BusyBox-friendly.
 
-A **PowerShell (`.ps1`)** copy is written only when the user asks for one, to run the tests by hand on native Windows. plainwright never runs it, so a project with only a `.ps1` has no unit testing script.
+A **PowerShell (`.ps1`)** copy is written only when the user asks for one, to run the tests by hand on native Windows. turri never runs it, so a project with only a `.ps1` has no unit testing script.
 
 The same seven-step pattern applies to both. Only the syntax changes.
 
@@ -60,7 +60,7 @@ Shared across both shell flavors:
   - Any other non-zero code — propagated from the underlying test command.
 - **Working folder naming:** `<temp>/<lang>_<basename>` — the system temp directory (`/tmp` in Bash, `[System.IO.Path]::GetTempPath()` in PowerShell) plus a short identifier for the language (`java`, `python`, `node`, `go`, `rust`, ...) and the **basename** of the build-folder argument (`$(basename "$1")` / `Split-Path $BuildFolder -Leaf`). Never embed the raw argument in the path — it may be absolute, and concatenating it produces broken doubled paths. All dependency installs, build outputs, caches, and the test run itself live inside this folder. Nothing the script does should touch the source build folder after step 4.
 - **Cleanup on exit:** the working folder is temporary — remove it when the script exits, on success and failure alike (`trap 'rm -rf "$WORKING_FOLDER"' EXIT` in Bash; `Remove-Item -Recurse -Force` in the PowerShell `finally` block, after `Pop-Location`). No leftover build folders may accumulate in the temp directory or the user's project.
-- **Logging — be as verbose as possible.** The script is the only thing the operator sees between a `plainwright` render and a green/red test result; when it fails, the only forensic evidence anyone has is its stdout/stderr. Treat the script like a production runbook, not a quiet helper. Concretely:
+- **Logging — be as verbose as possible.** The script is the only thing the operator sees between a `turri` render and a green/red test result; when it fails, the only forensic evidence anyone has is its stdout/stderr. Treat the script like a production runbook, not a quiet helper. Concretely:
   - **Announce every step before doing it**, with the exact value of every variable involved — the resolved source folder, the working folder, the language, the toolchain version detected, the isolation root, the dependency-manifest path, the test command about to run. "Installing dependencies" alone is useless; "Installing dependencies from `./requirements.txt` into venv `./.venv` (Python 3.11.6 at `/usr/local/bin/python3`)" is triage-ready.
   - **Echo every non-trivial command before executing it.** In Bash, use `set -x` for the body of the script (or `echo "+ <cmd>"` immediately before each call); in PowerShell, set `$VerbosePreference = 'Continue'` and use `Write-Verbose` / `Write-Host` to print each command line with its arguments.
   - **Print clear section banners.** Each of the seven steps gets a banner like `===== [3/7] Working directory setup =====` so a long log can be navigated by eye.
@@ -115,7 +115,7 @@ Notes:
 3. Translate each of the seven steps above into the equivalent commands for the target language **and** shell. The toolchain check, dependency install, and test invocation are the language-specific parts; the rest is mechanical translation between Bash and PowerShell syntax.
 4. Pick the dependency-isolation mechanism from the [Dependency isolation](#dependency-isolation) table and use it consistently in both step 6 and step 7.
 5. Save the new script as `test_scripts/run_unittests_<lang>.sh` (a `.ps1` copy next to it only if the user wants to run it by hand on Windows). For Bash, `chmod +x` it.
-6. **Make sure plainwright finds the script.** Do not link it from the specs - plainwright finds the unit testing script in the project root (the folder that holds `plain_modules/`) and puts it, whole, into the prompt of the coding agent itself; a link to it from a spec is ignored. It looks, in order, at `config.yaml` in the root (`unittests-script: <path relative to the root>`), then for the one `run_unittests*.sh` in the root, then for the one in `test_scripts/`. Saving the script in `test_scripts/` (or the root) is enough when it is the only one there. If the project keeps it elsewhere, name it in `config.yaml` as `unittests-script:`. If the project has modules on different stacks - e.g. a Python backend and a React frontend side by side, sharing only an imported module - each module names its own in its own config file beside `config.yaml`, named for the module: `unittests-script:` in `config.backend.yaml` for `backend.plain`, in `config.frontend.yaml` for `frontend.plain` (modules that require one of them use its file). plainwright never guesses between two. The script is required: a build without one stops before it starts.
+6. **Make sure turri finds the script.** Do not link it from the specs - turri finds the unit testing script in the project root (the folder that holds `plain_modules/`) and puts it, whole, into the prompt of the coding agent itself; a link to it from a spec is ignored. It looks, in order, at `config.yaml` in the root (`unittests-script: <path relative to the root>`), then for the one `run_unittests*.sh` in the root, then for the one in `test_scripts/`. Saving the script in `test_scripts/` (or the root) is enough when it is the only one there. If the project keeps it elsewhere, name it in `config.yaml` as `unittests-script:`. If the project has modules on different stacks - e.g. a Python backend and a React frontend side by side, sharing only an imported module - each module names its own in its own config file beside `config.yaml`, named for the module: `unittests-script:` in `config.backend.yaml` for `backend.plain`, in `config.frontend.yaml` for `frontend.plain` (modules that require one of them use its file). turri never guesses between two. The script is required: a build without one stops before it starts.
 
 ## Anti-Patterns
 
@@ -128,5 +128,5 @@ Notes:
 - Don't write a cross-shell hybrid (e.g. a `.sh` that detects PowerShell, or vice versa). Ship one script per shell, named with the appropriate extension.
 - Don't install dependencies into the user's global location (`~/.m2`, system-wide `pip`, `~/.cargo`, etc.). Always isolate inside `$WORKING_FOLDER` so concurrent runs and other projects can't interfere.
 - Don't run the test command without first verifying the install step succeeded. A failed install followed by a "test" run produces misleading errors that look like test failures.
-- **Don't link the script from the specs, and don't leave plainwright guessing.** plainwright finds the script in `config.yaml`, the project root, or `test_scripts/`, and shows it to the coding agent itself; a link to it from a spec is ignored. Put it where it is found, and when there are two unit testing scripts in one folder, name the one to use as `unittests-script:` - in each module's `config.<module>.yaml` when they are for modules on different stacks (see Workflow step 6).
+- **Don't link the script from the specs, and don't leave turri guessing.** turri finds the script in `config.yaml`, the project root, or `test_scripts/`, and shows it to the coding agent itself; a link to it from a spec is ignored. Put it where it is found, and when there are two unit testing scripts in one folder, name the one to use as `unittests-script:` - in each module's `config.<module>.yaml` when they are for modules on different stacks (see Workflow step 6).
 - **Don't write a terse script.** Silent steps, `>/dev/null` redirects on the install output, missing `--version` prints, and absent failure banners all make the script harder to debug than the code it is testing. Follow the *Logging — be as verbose as possible* rule under [Conventions](#conventions) literally: every step announces itself, every command is echoed, every failure prints what was about to run and where.

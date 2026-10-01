@@ -11,7 +11,7 @@ testing workflow.
 
 ## Staging model (read this first)
 
-A module's code and unit tests live in `plain_modules/<module>/code`; its conformance tests live in one folder, `plain_modules/<module>/tests` — the module's whole conformance suite. plainwright runs both scripts in a Linux VM, once per check: `bash run_unittests_<lang>.sh <build_folder>` decides whether the unit tests pass, and `bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>` (absolute paths) runs the whole conformance suite at once and decides whether the conformance tests pass. There is no prepare-environment script, so each script is self-contained.
+A module's code and unit tests live in `plain_modules/<module>/code`; its conformance tests live in one folder, `plain_modules/<module>/tests` — the module's whole conformance suite. turri runs both scripts in a Linux VM, once per check: `bash run_unittests_<lang>.sh <build_folder>` decides whether the unit tests pass, and `bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>` (absolute paths) runs the whole conformance suite at once and decides whether the conformance tests pass. There is no prepare-environment script, so each script is self-contained.
 
 Embedded integrations need a runnable host project, so both scripts stage the generated code **inside the host codebase itself**. The conformance script additionally builds / installs the host and then runs the conformance suite from a scratch folder in the system temp directory (`/tmp/<lang>_conformance/`), because the conformance suite lives in a separate project.
 
@@ -76,7 +76,7 @@ mvn test -Dtest='<:UnitTests: package>.**.*Test' checkstyle:check
 
 These reqs feed `run_conformance_tests_<lang>`. At minimum, declare:
 
-1. **`:ConformanceTests:` source location** — the generated suite lives in one folder, `plain_modules/<module>/tests/`, which holds the module's whole conformance suite; plainwright passes its absolute path as `$2`
+1. **`:ConformanceTests:` source location** — the generated suite lives in one folder, `plain_modules/<module>/tests/`, which holds the module's whole conformance suite; turri passes its absolute path as `$2`
 2. **`:ConformanceTests:` framework and execution command** — `mvn test --no-transfer-progress`, `pytest`, `npm test`, `go test ./...`, etc., with any flags / profiles the project requires
 3. **Fully qualified `:ConformanceTests:` package** (or path / pattern) used to scope discovery, if the runner needs one
 4. **`:ConformanceTests:` network and secrets policy** — by default the suite runs against the **live provider** (see [`integrations.md`](integrations.md) → *`:ConformanceTests:` always run against the live integration*). Declare the env-var names the script reads (e.g. `<PROVIDER>_API_KEY`), whether the script loads a `.env` file before running, and any specific endpoints that are mocked because they can't be exercised live safely (429, forced 5xx)
@@ -125,7 +125,7 @@ output=$(mvn test --no-transfer-progress 2>&1)
 
 ## Common contract (both scripts)
 
-Both scripts are invoked by plainwright with positional arguments, in a Linux VM. They MUST:
+Both scripts are invoked by turri with positional arguments, in a Linux VM. They MUST:
 
 1. **Be POSIX-bash (`.sh`) on macOS / Linux, PowerShell (`.ps1`) on Windows.** Executable, idempotent — re-running with the same inputs produces the same result
 2. **Validate every positional argument up front.** Exit with a clear `Usage:` line on bad args. Conventional exit codes (consistent with the shared testing-script rules):
@@ -134,7 +134,7 @@ Both scripts are invoked by plainwright with positional arguments, in a Linux VM
    - `69` — unrecoverable environment failure (missing toolchain, cannot enter working folder, install failed)
    - Any other non-zero code — propagated verbatim from the underlying build / test tool
 
-   plainwright passes `$1` (and `$2` for the conformance runner) as **absolute paths** (older renderer versions passed relative ones). Never build a derived path by concatenating a raw argument (`.tmp/$1`, `<lang>_$1`, `$current_dir/$2`) — with an absolute argument that produces a doubled path (`/project//abs/path/...`). Use the argument as-is where a path is needed, take its `basename` when naming a scratch folder, and resolve `$2` to absolute (if it isn't already) before any `cd`
+   turri passes `$1` (and `$2` for the conformance runner) as **absolute paths** (older renderer versions passed relative ones). Never build a derived path by concatenating a raw argument (`.tmp/$1`, `<lang>_$1`, `$current_dir/$2`) — with an absolute argument that produces a doubled path (`/project//abs/path/...`). Use the argument as-is where a path is needed, take its `basename` when naming a scratch folder, and resolve `$2` to absolute (if it isn't already) before any `cd`
 3. **Echo the toolchain home at the top** — the first thing a developer checks when CI breaks. For Java: `JAVA_HOME`. For Python: the active interpreter (`python --version` / `which python`). For Node: `node --version`. For Go: `go env GOROOT`. Pick the variable whose value most often explains "why does it work locally but not on the CI runner?"
 4. **Respect `VERBOSE=1`.** Gate chatty diagnostic prints behind `if [ "${VERBOSE:-}" = "1" ]` (and the PowerShell equivalent). Errors and key step markers print unconditionally
 5. **Resolve paths relative to the script, not `$PWD`.** Use `"$(cd "$(dirname "$0")/<relative-path-to-anchor>" && pwd)"`. Hard-coded `../../` chains break the moment the renderer's `cwd` changes
@@ -171,7 +171,7 @@ Hard rules:
 
 Receives two positional arguments: the renderer's build output folder (`$1`, `plain_modules/<module>/code/`) and the conformance-tests folder (`$2`, `plain_modules/<module>/tests/` — the module's whole conformance suite), both absolute.
 
-Purpose: stage the generated code into the host, build / install the host, and run the whole conformance suite in `$2` against that build. The conformance suite is a separate project that consumes the integration as a dependency from a local cache (`~/.m2`, `node_modules`, the language equivalent), so the script installs the host itself first — otherwise the suite links against whatever was last built, which may not be the renderer's most recent output. plainwright runs it once per check, and its exit code decides whether the conformance tests pass.
+Purpose: stage the generated code into the host, build / install the host, and run the whole conformance suite in `$2` against that build. The conformance suite is a separate project that consumes the integration as a dependency from a local cache (`~/.m2`, `node_modules`, the language equivalent), so the script installs the host itself first — otherwise the suite links against whatever was last built, which may not be the renderer's most recent output. turri runs it once per check, and its exit code decides whether the conformance tests pass.
 
 Required steps:
 
@@ -270,7 +270,7 @@ Use them as a template when adding a new embedded integration in Java / Maven �
 1. Copy the two scripts from a working embedded-integration module into the project's `test_scripts/`
 2. Search-and-replace the package segment everywhere it appears — including the test-filter argument (the most commonly missed spot)
 3. `chmod +x` both (and verify ACLs on Windows for the `.ps1` siblings)
-4. Do not link them from the specs: plainwright finds them in the project root - `config.yaml` (`unittests-script:`, `conformance-tests-script:`), else the one of each kind in the root, else in `test_scripts/` - and shows them to the agents itself. If `test_scripts/` ends up with two scripts of one kind, name the one to use in `config.yaml`.
+4. Do not link them from the specs: turri finds them in the project root - `config.yaml` (`unittests-script:`, `conformance-tests-script:`), else the one of each kind in the root, else in `test_scripts/` - and shows them to the agents itself. If `test_scripts/` ends up with two scripts of one kind, name the one to use in `config.yaml`.
 5. Smoke-test by running each script manually with the renderer's output folder as `$1` (and the conformance-tests folder as `$2` for the conformance runner). Confirm exit codes match what the renderer expects
 
 For non-Java languages, the skills [`implement-unit-testing-script`](../../skills/implement-unit-testing-script/SKILL.md), and [`implement-conformance-testing-script`](../../skills/implement-conformance-testing-script/SKILL.md) adapt the contract above to Python, Node.js, Go, Rust, Flutter, and others. Always route script creation through these skills so the cross-cutting rules above are applied uniformly.

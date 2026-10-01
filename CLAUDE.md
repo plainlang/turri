@@ -2,51 +2,58 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-plainwright is a harness that builds code from \*\*\*plain specs (`.plain` files). The harness, not the
+turri is a harness that builds code from \*\*\*plain specs (`.plain` files). The harness, not the
 agent, decides what runs next and when work is done. It runs as a [pi](https://github.com/earendil-works/pi)
-extension (`plainwright chat`) and as a CLI for unattended runs. `docs/` describes the behaviour in
-detail. `docs/rendering.md`, `docs/sandbox.md` and `docs/skills-and-gates.md` are the ones to read
+extension (`turri chat`) and as a CLI for unattended runs. `docs/` describes the behaviour in
+detail. `docs/growing.md`, `docs/sandbox.md` and `docs/skills-and-gates.md` are the ones to read
 before changing the harness.
 
 ## Commands
 
 ```bash
-npm install && npm link                        # `plainwright` on PATH, pointing at this clone (edits apply at once)
+npm install && npm link                        # `turri` on PATH, pointing at this clone (edits apply at once)
 npm run typecheck                              # tsc --noEmit - covers src/ only, not tests/
 npm test                                       # the whole vitest suite
-npx vitest run tests/render/records.test.ts    # one file
-npx vitest run tests/render/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
+npx vitest run tests/grow/records.test.ts    # one file
+npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
 npm run chat                                   # pi with the extension loaded straight from src/
-plainwright check tests/data/simple.plain      # parse and validate a spec: no model, no API key
-plainwright module <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
-plainwright doctor                             # what the machine lacks (QEMU, VM image, model provider)
+turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
+turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
+turri doctor                             # what the machine lacks (QEMU, VM image, model provider)
 ```
 
 Tests that boot the sandbox VM are wrapped in `describe.runIf(vmSupported())`. They need QEMU and
-the VM image (`plainwright setup` / `npm run vm:image`), take up to a few minutes each, and are
+the VM image (`turri setup` / `npm run vm:image`), take up to a few minutes each, and are
 skipped silently on a machine without them. `tests/setup.ts` closes every VM when a file finishes.
 
 ## TypeScript runs unbuilt
 
-`bin/plainwright.mjs` checks for Node >= 22.19 and imports `src/cli.ts` directly. Node's own type
+`bin/turri.mjs` checks for Node >= 22.19 and imports `src/cli.ts` directly. Node's own type
 stripping runs the sources and nothing compiles them. So:
 
 - imports use explicit `.ts` extensions;
 - don't use syntax that type stripping can't erase: parameter properties
   (`constructor(readonly x: T)`), `enum`, `namespace`. Declare the field and assign it in the
-  constructor. `tsc` and `tsx` (the `npm run module`-style scripts) both accept these, so they only
-  fail when run through `plainwright`.
+  constructor. `tsc` and `tsx` (the `npm run regrow`-style scripts) both accept these, so they only
+  fail when run through `turri`.
 
 ## Architecture
 
-**Entry points.** `src/cli.ts` dispatches `plainwright <cmd>`. `module`, `spec-diff`, `regenerate`,
-`conformance`, `check` and `skill` import `render-module.ts`, `spec-diff-cli.ts`, `regenerate-frid.ts`,
-`conformance-frid.ts`, `check-cli.ts` and `run.ts`, each of which parses `process.argv` itself; the
-four that build share `loop-cli.ts` `runLoop`, which drives the work loop as the chat does. `render`
-(`render-frid.ts`) only says it is gone.
-`setup`, `doctor` and `vm-image` go to `setup.ts`. `chat` spawns pi through `pi-launch.ts` with
-`src/extension.ts`, which registers every conversation tool and slash command
-(`render_*`, `run_skill`, `check_plain`, `set_render_model`, `/watch`, `/jobs`, `/stop`, ...).
+**The name.** turri was called plainwright. `src/legacy.ts` (imported first by `cli.ts` and `extension.ts`) reads
+`PLAINWRIGHT_*` env vars as `TURRI_*`, moves `~/.plainwright` to `~/.turri`, and lets VMs boot images built under
+the old tags; `grow/migrate.ts` brings a project's files over the first time it is found (`.plainwright.json` →
+`.turri.json`, `.plainwright-notes.md` → `.turri-notes.md`, both `.plainwright/` scratch folders → `.turri/`),
+committing the renames alone. `plain_modules` and `.plaingit` are the ***plain language's and keep their names.
+
+**Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regrow` (with frids: grown again), `glimpse` (regrow
+`--dry-run`), `drift`, `bind`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regrow-cli.ts`,
+`drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
+`cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
+which drives the work loop as the chat does. The old names (`module`, `regenerate`, `conformance`, `check`,
+`deploy`, `skill`) are aliases. `setup`, `doctor` and `vm-image` go to `setup.ts`. `chat` spawns pi through
+`pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
+`drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
+`cultivate`, `release`, `activate`, `/watch`, `/growth`, `/halt`, `/lineage`, `/engine`, ...).
 
 **The \*\*\*plain parser (`src/plain/`)** is a faithful port of the Python reference parser
 (`plain_file.py`, `plain_spec.py`, `concept_utils.py`). Marshalled trees are compared against the
@@ -59,7 +66,7 @@ repo-relative paths. A "frid" is a functionality id (`"1"`, `"2.1"`, ...).
 on one stack - `stdlib/backend/python-flask`, `stdlib/cli/go-cobra`, ... Each stack imports its
 language's `stdlib/lang/<language>` and its kind's `common.plain`; its test reqs are a template of
 their own, `stdlib/<kind>/conformance/<stack>`, so a spec that skips conformance tests leaves it out.
-`stdlib/` is a reserved import prefix: `src/plain/stdlib.ts` reads such an import from plainwright's
+`stdlib/` is a reserved import prefix: `src/plain/stdlib.ts` reads such an import from turri's
 folder only, and a project module at the same path is an error. The templates define no concepts,
 and a `::` in them would be read as one. `src/stdlib.ts` appends the catalogue - every template, what
 it is, and the folder - to the `stdlib` rule when the rules load, so the rule never drifts from the
@@ -69,14 +76,14 @@ files.
 `###` headings under `## Steps`) and gates (`metadata.gates` in the frontmatter). `src/graph.ts`
 compiles those into a LangGraph `StateGraph` (step -> gate -> route), and `src/judge.ts` runs
 independent judge sessions with a quorum. `src/forge.ts` `runSkill()` is the single entry point that
-both the CLI and the `run_skill` tool use. `src/rules.ts` appends every file in `forge/rules/` (the
+both the CLI and the `cultivate` tool use. `src/rules.ts` appends every file in `forge/rules/` (the
 authoring rules, ~40k tokens, byte-identical so it stays cached) to spec-writing agents, never to
 coding agents. Skills are found relative to the package, not the cwd. A skill that fails to parse
 is reported as pending, not dropped.
 
-**Rendering (`src/render/`)**, one unit of work at a time:
+**Growing the code (`src/grow/`)**, one unit of work at a time:
 
-- A job is a spec diff: `spec-change.ts` `renderSpecDiff` renders one in the code, landing on its unit
+- A job is a spec diff: `regrow.ts` `renderSpecDiff` grows one in the code, landing on its unit
   tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
   what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, delete,
   mechanical). The agent works, then the harness runs the project's unit testing script
@@ -87,29 +94,29 @@ is reported as pending, not dropped.
   agent that passes on only what it upholds; after that fix the work goes on once its tests pass - as
   spec changes and conformance tests do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
-  labelled and checked by label; `spec-change-conformance.ts` runs it for a conformance job, then
+  labelled and checked by label; `bind.ts` runs it for a conformance job, then
   `regression.ts` runs the whole suite (a repair agent that may not touch tests).
-- Nothing is queued (`docs/rendering.md`). `loop.ts` works out what is left to build - `work.ts`
+- Nothing is queued (`docs/growing.md`). `loop.ts` works out what is left to grow - `drift.ts`
   `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
   reqs or acceptance tests) to the spec now - has `chunk-plan.ts` cut it into jobs from the functional
   specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses, an agent
   places the reqs), and runs the first; again whenever a job ends or the spec changes. A chain is built in
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
-  (`stillWanted`). `render_module`, `spec_changed`, `render_spec_diff`, `write_spec_diff` and
-  `plainwright module` all go through `bringUp`. Steering (`render/steering.ts`: `steer_queue`, AGENTS.md's
-  queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.plainwright.json`
+  (`stillWanted`). `regrow`, `write_spec_diff`, `turri spec-diff` and
+  `turri regrow` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
+  queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
-  spec diff's conformance run, the whole suite with it - before the module's next code job; `render_conformance`
+  spec diff's conformance run, the whole suite with it - before the module's next code job; `bind`
   turns it on for the session over `conformance-tests: false`.
 - `spec-steps.ts`: a tree written out one item a line, diffed with git into changes by id, and a step
   (`makeStep`) made of some of them - its tree, its diff, its text diff laid out as the module's file.
-- `records.ts`: `code/.plainwright.json` holds only the spec the code was built from, and
-  `tests/.plainwright.json` what the conformance tests are written for. What is left is derived from
+- `records.ts`: `code/.turri.json` holds only the spec the code was built from, and
+  `tests/.turri.json` what the conformance tests are written for. What is left is derived from
   them, never stored.
-- `history.ts`: each `plain_modules/<m>` is a git repo with its git dir at `.plaingit`. Every unit of
+- `lineage.ts`: each `plain_modules/<m>` is a git repo with its git dir at `.plaingit`. Every unit of
   work starts from the last commit (`startWork`) and either commits or is rolled back whole
   (`abandonWork`), commits included. Code, tests and tree must never disagree.
-- `notes.ts`: `code/.plainwright-notes.md`, the agents' working notes. Agents edit it only through
+- `notes.ts`: `code/.turri-notes.md`, the agents' working notes. Agents edit it only through
   the `update_notes` tool, and every line is stamped by the harness.
 - `test-scripts.ts` finds and runs the project's `run_unittests_*.sh` / `run_conformance_tests_*.sh`,
   from `config.yaml`, then the project root, then `test_scripts/`. A script run is the only thing
@@ -119,24 +126,24 @@ is reported as pending, not dropped.
 symlinks resolved) that fences agents to `plain_modules`. `vm.ts` runs every command (agent `bash`,
 test scripts) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
 and shut down when idle or when the project moves to another module. There is no host fallback,
-except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. plainwright turns off `AGENTS.md`/`CLAUDE.md`
+except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. turri turns off `AGENTS.md`/`CLAUDE.md`
 loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` in `src/pi.ts`).
 
 **Agent sessions.** An agent's whole initial prompt is its system prompt (`createExecutor`'s `task`,
 opened with `BEGIN`), so pi's compaction never sums it up. The coding agent, the conformance agent,
 the code fixer, the repair agent and both reviewers keep one session per job and are compacted by
 the harness between turns past `compact-at` (`compactIfDue` in `pi.ts`, instructions per role in
-`render/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
+`grow/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
 agents (`reportAgent`, `Job.agents`) into its log.
 
-**Deploy (`render/deploy.ts`, `deploy-tools.ts`, `deploy-cli.ts`).** Trying what is built: `deploy`
+**Release (`grow/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is grown: `release`
 exports the tip module's last `.plaingit` commit (`git archive` of `code/`) to `<project>/dist/<module>`
-and the chat model - or `plainwright deploy`'s one-off agent on `harness-model` - starts it on the
+and the chat model - or `turri release`'s one-off agent on `harness-model` - starts it on the
 host. `installsSoftware` tells installs apart; they run only through `propose_setup`, which asks the
-person, and the chat's `bash` refuses them once something is deployed. `start_deployed` owns what
-keeps running, stopped on redeploy, `/stop deploy <name>` and exit.
+person, and the chat's `bash` refuses them once something is released. `activate` owns what
+keeps running, stopped on redeploy, `/halt activated <name>` and exit.
 
-**Jobs and progress.** In the TUI, render tools start background jobs (`loop.ts`, `jobs.ts`).
+**Jobs and progress.** In the TUI, the tools that grow start background jobs (`loop.ts`, `jobs.ts`).
 `lanes.ts` gives each job its spec's whole `requires` chain as lanes, so jobs whose chains overlap
 wait for each other and the rest run side by side - up to `parallel-jobs` at once (the registry's `maxRunning`). In pi's
 print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and transcripts flow
@@ -157,7 +164,7 @@ documents every key.
   session's tools directly (`write`, `run_unit_tests`, `update_notes`, ...). An agent's task comes as
   `opts.task` to `createExecutor` and its first `ask` is `BEGIN`: a stub that checks prompts reads the
   task from the session it made. The module under test is
-  then loaded with a dynamic `await import(...)` after the mock. `tests/render/conformance-loop.test.ts`
+  then loaded with a dynamic `await import(...)` after the mock. `tests/grow/conformance-loop.test.ts`
   is the reference example.
 - `tests/test-scripts.ts` `writeTestScripts()` gives a temp project minimal Python testing scripts.
 - The gate machinery (retry, escalation, no-artifact rejection) has no automated coverage. It is
@@ -165,7 +172,7 @@ documents every key.
 
 ## Conventions
 
-- The name is always **plainwright**, lowercase, even at the start of a sentence. \*\*\*plain is
+- The name is always **turri**, lowercase, even at the start of a sentence. \*\*\*plain is
   written `***plain` (escaped in Markdown).
 - Prose in docs, comments and user-facing strings uses British spelling (behaviour, organised) and
   a spaced hyphen ` - ` rather than an em dash. Test names are sentences about behaviour

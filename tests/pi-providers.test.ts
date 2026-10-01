@@ -8,7 +8,7 @@ import { createExecutor, inheritProviders } from "../src/pi.ts";
 let root: string;
 let previousAgentDir: string | undefined;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-providers-"));
+  root = mkdtempSync(join(tmpdir(), "turri-providers-"));
   // pi's own configuration is empty: no models.json, no auth.json - the provider comes only from an extension.
   mkdirSync(join(root, "agent"));
   mkdirSync(join(root, "project", "plain_modules"), { recursive: true });

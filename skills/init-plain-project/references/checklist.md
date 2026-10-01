@@ -22,8 +22,8 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 - [ ] Generated `implement-unit-testing-script` (always).
 - [ ] Generated `implement-conformance-testing-script` only if conformance was enabled.
 - [ ] Every generated script is in `test_scripts/`, the only one of its kind there - or named in a `config.yaml` at the root (`unittests-script:`, `conformance-tests-script:`) whose paths resolve. No script is linked from the specs.
-- [ ] Did **not** run `check_plain` or `check-plain-env` (out of scope for this skill).
+- [ ] Did **not** run `validate` or `check-plain-env` (out of scope for this skill).
 
 ## Recap
 
-- [ ] Told the user what was written, suggested next steps (`add-concept`, `add-functional-spec(s)`, `add-feature`), and noted that `check_plain` has not been run.
+- [ ] Told the user what was written, suggested next steps (`add-concept`, `add-functional-spec(s)`, `add-feature`), and noted that `validate` has not been run.

@@ -14,7 +14,7 @@ function skill(body: string, frontmatter = "") {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "plainwright-steps-"));
+  dir = mkdtempSync(join(tmpdir(), "turri-steps-"));
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -139,7 +139,7 @@ describe("a skill's tools", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     expect(loadSkill("skills/add-implementation-requirement").allowedTools).toEqual(["read", "write", "edit", "bash", "ls", "grep", "find"]);
-    const dir = mkdtempSync(join(tmpdir(), "plainwright-skill-"));
+    const dir = mkdtempSync(join(tmpdir(), "turri-skill-"));
     writeFileSync(join(dir, "SKILL.md"), "---\nname: none\ndescription: nothing\n---\n\nDo nothing.\n");
     expect(loadSkill(dir).allowedTools).toEqual([]);
   });

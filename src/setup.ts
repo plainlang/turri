@@ -17,22 +17,22 @@ import {
   mke2fsPath,
   nodeVersionOk,
   PACKAGE_ROOT,
-  plainwrightOnPath,
+  turriOnPath,
   qemuBinary,
   qemuInstalled,
   qemuInstallHint,
   themeFiles,
   themesInstalledGlobally,
 } from "./environment.ts";
-import { closeAllVms, runInVm, STOCK_IMAGE, VM_IMAGE, vmImage, vmImageFor, vmSupported } from "./render/vm.ts";
+import { closeAllVms, runInVm, STOCK_IMAGE, VM_IMAGE, vmImage, vmImageFor, vmSupported } from "./grow/vm.ts";
 import { describeContents, describeSources, formatBytes, imageSources, prepareBaseSystem, resolveImageContents } from "./vm-image-contents.ts";
 import { type ImagePlan, buildRecipe, describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, projectImageTag, readBuiltImage, recordBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
 
 /**
- * Getting a machine ready for plainwright, and checking that it is.
+ * Getting a machine ready for turri, and checking that it is.
  *
  * `doctor` looks and changes nothing. `setup` looks, and fixes what it can from here - QEMU
- * through Homebrew, the VM image through Docker, loading plainwright into every `pi` - asking
+ * through Homebrew, the VM image through Docker, loading turri into every `pi` - asking
  * before each. Both end by starting a sandbox VM for real, because a VM that does not start is
  * the one failure that stops every render, and nothing short of starting one proves it will.
  */
@@ -69,7 +69,7 @@ function checkNode(): Check {
     : {
         level: "missing",
         name: "Node",
-        detail: `${version} - plainwright needs ${MIN_NODE.join(".")} or newer`,
+        detail: `${version} - turri needs ${MIN_NODE.join(".")} or newer`,
         fix: "install a newer Node (https://nodejs.org, or `brew install node`)",
       };
 }
@@ -112,12 +112,12 @@ function imageCheck(tag: string): Check {
   const { toolchains, extra } = toolchainsOf(built?.packages ?? plan.packages);
   const holds = [...toolchains, ...extra].join(", ");
   const more = [
-    `from: ${sourcesLine(built ?? plan)} - plainwright vm-image --plan lists every package`,
-    `what goes in: plainwright's recipe, with your changes from ${userImageFile()}${plan.file === undefined ? " (none yet)" : ""}`,
+    `from: ${sourcesLine(built ?? plan)} - turri vm-image --plan lists every package`,
+    `what goes in: turri's recipe, with your changes from ${userImageFile()}${plan.file === undefined ? " (none yet)" : ""}`,
     ...plan.refused.map((refused) => `not applied: ${refused}`),
   ];
   if (planDiffersFromBuilt(plan, built)) {
-    return { level: "limited", name: "VM image", detail: `${tag} - ${holds}; your file now asks for ${describePlan(plan)}`, more, fix: "plainwright vm-image   (rebuilds it with your changes)" };
+    return { level: "limited", name: "VM image", detail: `${tag} - ${holds}; your file now asks for ${describePlan(plan)}`, more, fix: "turri vm-image   (rebuilds it with your changes)" };
   }
   return { level: "ok", name: "VM image", detail: `${tag} - ${holds}`, more };
 }
@@ -139,10 +139,10 @@ function checkProjectImage(): Check | undefined {
   const built = readBuiltImage(project);
   const name = "Project VM image";
   if (built === undefined || vmImageFor(project)?.own !== true) {
-    return { level: "limited", name, detail: `${tag} is not built yet - this project runs the default image meanwhile; it would hold ${describePlan(plan)}`, fix: "plainwright vm-image   (in this project)" };
+    return { level: "limited", name, detail: `${tag} is not built yet - this project runs the default image meanwhile; it would hold ${describePlan(plan)}`, fix: "turri vm-image   (in this project)" };
   }
   if (planDiffersFromBuilt(plan, built)) {
-    return { level: "limited", name, detail: `${tag} - its config.yaml now asks for ${describePlan(plan)}`, fix: "plainwright vm-image   (in this project)" };
+    return { level: "limited", name, detail: `${tag} - its config.yaml now asks for ${describePlan(plan)}`, fix: "turri vm-image   (in this project)" };
   }
   const { toolchains, extra } = toolchainsOf(built.packages);
   return { level: "ok", name, detail: `${tag} - ${[...toolchains, ...extra].join(", ")}`, more: [`from: ${sourcesLine(built)}`] };
@@ -164,7 +164,7 @@ export function checkBuilder(): Check {
       docker === "stopped"
         ? "Docker is installed but not running, and e2fsprogs is not installed"
         : "neither Docker nor e2fsprogs is installed",
-    fix: `${builderHint()}, then plainwright vm-image`,
+    fix: `${builderHint()}, then turri vm-image`,
   };
 }
 
@@ -194,10 +194,10 @@ async function checkProvider(): Promise<Check> {
 }
 
 function checkPath(): Check {
-  const found = plainwrightOnPath();
+  const found = turriOnPath();
   return found
-    ? { level: "ok", name: "plainwright on PATH", detail: found }
-    : { level: "limited", name: "plainwright on PATH", detail: "not found", fix: `cd ${PACKAGE_ROOT} && npm link` };
+    ? { level: "ok", name: "turri on PATH", detail: found }
+    : { level: "limited", name: "turri on PATH", detail: "not found", fix: `cd ${PACKAGE_ROOT} && npm link` };
 }
 
 function checkGlobal(): Check {
@@ -207,8 +207,8 @@ function checkGlobal(): Check {
   return {
     level: "info",
     name: "In every pi",
-    detail: "no - `plainwright chat` loads it; a plain `pi` does not",
-    fix: "plainwright setup can install it",
+    detail: "no - `turri chat` loads it; a plain `pi` does not",
+    fix: "turri setup can install it",
   };
 }
 
@@ -223,7 +223,7 @@ function checkTemplates(): Check {
 
 /** Start a VM for real, in a throwaway project, and ask it what it has. */
 async function checkVmStarts(): Promise<Check> {
-  const project = mkdtempSync(join(tmpdir(), "plainwright-doctor-"));
+  const project = mkdtempSync(join(tmpdir(), "turri-doctor-"));
   const cwd = join(project, "plain_modules", "doctor", "code");
   mkdirSync(cwd, { recursive: true });
   const started = Date.now();
@@ -239,7 +239,7 @@ async function checkVmStarts(): Promise<Check> {
       level: "missing",
       name: "VM starts",
       detail: `no - ${error instanceof Error ? error.message : String(error)}`,
-      fix: "fix what is marked ✗ above, then run plainwright doctor again",
+      fix: "fix what is marked ✗ above, then run turri doctor again",
     };
   } finally {
     await closeAllVms();
@@ -290,7 +290,7 @@ function report(checks: Check[]): number {
 async function confirm(question: string, fallback: boolean, yes: boolean): Promise<boolean> {
   if (yes) return true;
   if (!process.stdin.isTTY) {
-    console.log(`${question} - not asked: no terminal. Run plainwright setup in a terminal, or with --yes.`);
+    console.log(`${question} - not asked: no terminal. Run turri setup in a terminal, or with --yes.`);
     return false;
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -316,7 +316,7 @@ export function buildRoute(): "docker" | "native" | undefined {
 
 /**
  * Build a sandbox VM image for this machine's architecture, the way `route` says - by default whichever
- * this machine can: the default image, from plainwright's recipe with the person's file over it, or - for
+ * this machine can: the default image, from turri's recipe with the person's file over it, or - for
  * a project whose config.yaml has a `vm-image:` - the project's own, under its own tag. What it prints goes
  * to `write`. Returns the exit status.
  */
@@ -330,14 +330,14 @@ export async function buildVmImage(
     return 1;
   }
   if (route === "docker" && !dockerRunning()) {
-    write(`Docker is not running. ${dockerState() === "absent" ? "Install it" : `Start it (${dockerStartHint()})`}, or build without it: plainwright vm-image --native\n`);
+    write(`Docker is not running. ${dockerState() === "absent" ? "Install it" : `Start it (${dockerStartHint()})`}, or build without it: turri vm-image --native\n`);
     return 1;
   }
   if (route === "native" && mke2fsPath() === undefined) {
     write(`Building without Docker needs e2fsprogs: ${e2fsprogsInstallHint()}\n`);
     return 1;
   }
-  // The recipe says what goes in - plainwright's, with the person's and the project's changes over it; how and
+  // The recipe says what goes in - turri's, with the person's and the project's changes over it; how and
   // for which machine it is built is decided here.
   const plan = imagePlan({ project: options.project });
   for (const refused of plan.refused) write(`Not applied: ${refused}\n`);
@@ -360,7 +360,7 @@ export async function buildVmImage(
     for (const line of describeSources(imageSources(arch, plan))) write(`${line}\n`);
     write(`(What each package is could not be read from the repositories: ${error instanceof Error ? error.message : String(error)}.)\n\n`);
   }
-  const dir = mkdtempSync(join(tmpdir(), "plainwright-image-"));
+  const dir = mkdtempSync(join(tmpdir(), "turri-image-"));
   const file = join(dir, "image.json");
   writeFileSync(file, JSON.stringify(config, null, 2));
   const gondolin = join(PACKAGE_ROOT, "node_modules", ".bin", "gondolin");
@@ -434,8 +434,8 @@ async function setupImage(yes: boolean): Promise<void> {
   const ask = (route: string) =>
     confirm(
       `Build the full VM image now, ${route}? It holds ${describePlan(plan)} - packages from ${sourcesLine(plan)}: ` +
-        `${size}, about 7 minutes. plainwright vm-image --plan lists every package, its ` +
-        `version and where it comes from; ${userImageFile()} leaves toolchains out or adds others (see plainwright vm-image --help).`,
+        `${size}, about 7 minutes. turri vm-image --plan lists every package, its ` +
+        `version and where it comes from; ${userImageFile()} leaves toolchains out or adds others (see turri vm-image --help).`,
       true,
       yes,
     );
@@ -475,21 +475,21 @@ async function setupImage(yes: boolean): Promise<void> {
       "",
       ...STOCK_IMAGE.details.map((line) => `  ${line}`),
       "",
-      `To build it: ${builderHint()}; then run plainwright vm-image.`,
+      `To build it: ${builderHint()}; then run turri vm-image.`,
       "",
     ].join("\n"),
   );
 }
 
-/** Load plainwright into every `pi`: one extension file, and the themes beside pi's own. */
+/** Load turri into every `pi`: one extension file, and the themes beside pi's own. */
 function installGlobally(): void {
   const extensions = join(AGENT_DIR, "extensions");
   mkdirSync(extensions, { recursive: true });
   if (!extensionInstalledGlobally()) {
-    const file = join(extensions, "plainwright.ts");
+    const file = join(extensions, "turri.ts");
     writeFileSync(
       file,
-      "// Makes the plainwright tools available in every pi session, from any directory.\n" +
+      "// Makes the turri tools available in every pi session, from any directory.\n" +
         "// Delete this file to remove them. The one absolute path lives here and nowhere else.\n" +
         `export { default } from ${JSON.stringify(join(PACKAGE_ROOT, "src", "extension.ts"))};\n`,
     );
@@ -507,7 +507,7 @@ function installGlobally(): void {
 }
 
 async function setup(yes: boolean): Promise<number> {
-  console.log("Getting this machine ready for plainwright.\n");
+  console.log("Getting this machine ready for turri.\n");
 
   if (!nodeVersionOk()) return report([checkNode()]);
 
@@ -522,7 +522,7 @@ async function setup(yes: boolean): Promise<number> {
   if (vmSupported() && vmImage() === undefined) await setupImage(yes);
 
   if (!(extensionInstalledGlobally() && themesInstalledGlobally())) {
-    if (await confirm("Load plainwright into every `pi` too (a file in ~/.pi/agent/extensions, and the themes)?", false, yes)) {
+    if (await confirm("Load turri into every `pi` too (a file in ~/.pi/agent/extensions, and the themes)?", false, yes)) {
       installGlobally();
       console.log("");
     }
@@ -535,14 +535,14 @@ export async function main(command: "setup" | "doctor" | "vm-image", args: strin
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
       {
-        setup: "usage: plainwright setup [--yes]\n\nCheck everything plainwright needs and fix what can be fixed here, asking first.\n--yes answers yes to every question.",
-        doctor: "usage: plainwright doctor [--quick]\n\nCheck everything plainwright needs, and change nothing.\n--quick skips starting a sandbox VM.",
+        setup: "usage: turri setup [--yes]\n\nCheck everything turri needs and fix what can be fixed here, asking first.\n--yes answers yes to every question.",
+        doctor: "usage: turri doctor [--quick]\n\nCheck everything turri needs, and change nothing.\n--quick skips starting a sandbox VM.",
         "vm-image":
-          "usage: plainwright vm-image [--native | --docker] [--default] [--plan]\n\n" +
+          "usage: turri vm-image [--native | --docker] [--default] [--plan]\n\n" +
           "Everything in the image comes from Alpine Linux's own repositories (dl-cdn.alpinelinux.org, main and\n" +
           "community). --plan lists what a build would download - each package, its version, repository, project,\n" +
           "licence and size, what each toolchain costs - and builds nothing.\n\n" +
-          `What goes in: plainwright's recipe (vm/image.json) - Python, Node, Java, Go, Rust, C/C++, git - with your own\n` +
+          `What goes in: turri's recipe (vm/image.json) - Python, Node, Java, Go, Rust, C/C++, git - with your own\n` +
           `changes from ${userImageFile()}, kept across updates:\n` +
           '  { "remove": ["java", "python"], "add": ["zig"] }\n' +
           "remove takes toolchains by name (python, node, java, go, rust, c) or Alpine packages; add takes Alpine\n" +
@@ -572,6 +572,6 @@ export async function main(command: "setup" | "doctor" | "vm-image", args: strin
     return buildVmImage({ ...(route !== undefined ? { route } : {}), ...(project !== undefined ? { project } : {}) });
   }
   if (command === "setup") return setup(args.includes("--yes") || args.includes("-y"));
-  console.log("Checking what plainwright needs.");
+  console.log("Checking what turri needs.");
   return report(await allChecks({ boot: !args.includes("--quick") }));
 }

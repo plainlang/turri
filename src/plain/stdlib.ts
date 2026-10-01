@@ -6,16 +6,16 @@ import { openFrom } from "./files.ts";
 
 /**
  * The ***plain standard library's names. `stdlib/` is a reserved prefix: `stdlib/backend/python-fastapi`
- * is always plainwright's own template, in its `stdlib/` folder - never a module of the project's. A
+ * is always turri's own template, in its `stdlib/` folder - never a module of the project's. A
  * project that has a module at such a path gets an error, not a quiet choice between the two: which one
  * a spec builds on must never depend on what happens to be on disk beside it.
  *
- * This is plainwright's, not the reference parser's: the Python parser has no standard library.
+ * This is turri's, not the reference parser's: the Python parser has no standard library.
  */
 
 export const STDLIB_PREFIX = "stdlib/";
 
-/** The folder `stdlib/` is in: plainwright's own. */
+/** The folder `stdlib/` is in: turri's own. */
 export const STDLIB_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 export function isStdlibModule(moduleName: string): boolean {
@@ -39,7 +39,7 @@ export function readStdlibModule(moduleName: string, templateDirs: string[]): st
     const local = join(dir, file);
     if (existsSync(local) && !sameFile(local, own)) {
       throw new PlainSyntaxError(
-        `Plain syntax error: '${name}' is a reserved name - modules under ${STDLIB_PREFIX} are plainwright's standard library - ` +
+        `Plain syntax error: '${name}' is a reserved name - modules under ${STDLIB_PREFIX} are turri's standard library - ` +
           `but ${local} is a module of that name. Rename it, or the folder it is in.`,
       );
     }

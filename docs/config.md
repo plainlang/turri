@@ -1,7 +1,7 @@
 # The project config
 
 A project says how its specs are built in `config.yaml`, at the project root. Everything in it is
-optional: with no file at all, plainwright finds the testing scripts on its own, turns conformance
+optional: with no file at all, turri finds the testing scripts on its own, turns conformance
 tests on wherever a module has test reqs, and runs on pi's configured model. A project whose
 modules are on different stacks adds a file per module, `config.<module>.yaml`, beside it.
 
@@ -10,9 +10,9 @@ modules are on different stacks adds a file per module, `config.<module>.yaml`, 
 A spec belongs to its **project**: the nearest folder, from the spec's own folder up, that holds a
 `config.yaml`, a module's `config.<module>.yaml` or a `plain_modules/`. Without any of them, the
 spec's own folder is the project. That folder's config is the one read, and its `plain_modules/` is
-where the code is built, wherever plainwright was started. So a project that keeps its specs in
+where the code is built, wherever turri was started. So a project that keeps its specs in
 `plain/`, with `plain/config.yaml`, builds `plain/app.plain` by `plain/config.yaml` even when
-`plainwright chat` runs in the folder above.
+`turri chat` runs in the folder above.
 
 When it is read:
 
@@ -20,7 +20,7 @@ When it is read:
   reads it when it is queued. An edit to the file holds from the next turn and the next render, with
   no restart. The agent is told the config of the session's folder and of the projects one folder
   down.
-- **On the command line**, once, when the command starts. `plainwright module` takes `module:` from
+- **On the command line**, once, when the command starts. `turri regrow` takes `module:` from
   the folder it is run in, and the rest from the spec's own project.
 
 ## The keys
@@ -44,22 +44,22 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 
 | key | what it sets | unset |
 | --- | --- | --- |
-| `module` | the `.plain` file `plainwright module` and `render_module` build when none is named, from the project root | a file has to be named |
-| `harness-model` | the model `plainwright chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `plainwright module`, the planner too | pi's configured model |
+| `module` | the `.plain` file `turri regrow` and `regrow` build when none is named, from the project root | a file has to be named |
+| `harness-model` | the model `turri chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regrow`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
-| `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, a conformance job after each code job. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `render_conformance`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `render_conformance` | `all`, for every module with test reqs |
-| `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [rendering](rendering.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
+| `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, a conformance job after each code job. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
+| `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
-| `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](rendering.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
-| `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `plainwright vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
+| `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](growing.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
+| `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `turri vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
 | `system-packages` | Alpine packages every VM of the project installs when it starts - a library or tool a build needs, `sqlite`, `jq` | none |
-| `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](rendering.md#agent-sessions) |
+| `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the machine's memory holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
-| `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](rendering.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
+| `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](growing.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
 
-Keys are written with dashes; underscores are read the same (`conformance_tests`). A key plainwright
+Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
 does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the
 wrong type, as if it were not there. `model:`, from before there were separate models, is read as
 `coding-model`.
@@ -68,10 +68,10 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 
 Jobs on the same module, or on modules of one `requires` chain, always run one after another.
 Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, and
-each module's jobs start VMs of their own: its code's and its tests', `PLAINWRIGHT_VM_MEMORY` (2 GB)
+each module's jobs start VMs of their own: its code's and its tests', `TURRI_VM_MEMORY` (2 GB)
 each. So the chat runs at most `parallel-jobs` jobs at once; a job whose turn has come waits for a
 free slot past that, and its line says so. Unset, it is three quarters of the machine's memory over
-two VMs' worth - three on a 16 GB machine. `PLAINWRIGHT_PARALLEL_JOBS` wins over the config. It is
+two VMs' worth - three on a 16 GB machine. `TURRI_PARALLEL_JOBS` wins over the config. It is
 the project's alone, never read from a module's file.
 
 The testing scripts all run on this machine, each on a copy of its module's code, so they never
@@ -99,9 +99,9 @@ They are defaults. What is asked for wins over them:
 
 | model | wins over the config |
 | --- | --- |
-| harness | `plainwright chat --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
-| coding | `plainwright chat --coding-model <m>`, `set_render_model` in the conversation, and `--model` / `--coding-model` on `plainwright module`, `render`, `regenerate`, `conformance` and `spec-diff` |
-| judge | `--judge-model` on `plainwright conformance` |
+| harness | `turri chat --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
+| coding | `turri chat --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regrow`, `render`, `regenerate`, `conformance` and `spec-diff` |
+| judge | `--judge-model` on `turri bind` |
 
 A job keeps the model it was queued with: choosing another holds for what is queued after.
 
@@ -130,7 +130,7 @@ decide when it is done. They are looked for at the project root, in this order:
 A folder holding two of a kind is not guessed between: name the one to use. A script named inside
 `plain_modules/` is refused - agents write there, so it could be changed by the work it judges. The
 scripts are never linked from the specs. What they are and how they run is in
-[rendering](rendering.md#the-testing-scripts).
+[growing the code](growing.md#the-testing-scripts).
 
 ## Modules on different stacks
 
@@ -173,6 +173,6 @@ How a module's config is made:
   no config.
 
 With module files and no `module:`, building without naming a file lists the modules and asks for
-one: `plainwright module backend.plain`. The chat is told each module's config as it holds, and the
+one: `turri regrow backend.plain`. The chat is told each module's config as it holds, and the
 status bar shows conformance per module when they differ. The skills that write testing scripts put
 each module's in its own file once a project has two stacks.

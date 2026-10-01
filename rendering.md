@@ -21,14 +21,14 @@ conformance is like an implementation but from the other direction. it is like c
 - conformance tests need code to be tested against
 - it doesnt care how the code does something as long at the output is okay (by definition a black box)
 
-they would need their status own tracking - plainwright.json and plainwright notes. because someone might only want to conformance tests part of the specs and not everything. 
+they would need their status own tracking - turri.json and turri notes. because someone might only want to conformance tests part of the specs and not everything. 
 
 ---
 
 ************
 
 """
-- Conformance is its own track. It is black-box, covers functional specs only, and needs code to run against. It has its own record of what it was built from (its own .plainwright.json and notes), so you can conformance-test only part of the spec.
+- Conformance is its own track. It is black-box, covers functional specs only, and needs code to run against. It has its own record of what it was built from (its own .turri.json and notes), so you can conformance-test only part of the spec.
 """
 
 here when i said conformance needs code to run. a better way to say it would be conformance needs functionality to be ran against. how that functionaltiy is gathered might as well be the same as we group functionalities today.
@@ -59,9 +59,9 @@ PS.
 
 we can conformance test this spec diff (but this spec diff is dependant only on the fact the its functionality lives in the code). so the state of the conformance tests is always a substate of the code. 
 
-plain_modules/<m>/tests/.plainwright.json is a substate of plain_modules/<m>/code/.plainwright.json (excluding the test reqs)
+plain_modules/<m>/tests/.turri.json is a substate of plain_modules/<m>/code/.turri.json (excluding the test reqs)
 
-and the prompts in the render_* tools dont need test reqs in their prompt. they are not relevant. and the state doesnt need them either (plain_modules/<m>/code/.plainwright.json). however plain_modules/<m>/tests/.plainwright.json does need them. 
+and the prompts in the render_* tools dont need test reqs in their prompt. they are not relevant. and the state doesnt need them either (plain_modules/<m>/code/.turri.json). however plain_modules/<m>/tests/.turri.json does need them. 
 
 a change in test reqs should should imply a conformance spec diff. if it is only a change in test reqs, then no new tests need to be written, only existing ones need to be mechanically changed. everything still needs to pass.
 

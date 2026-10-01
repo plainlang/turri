@@ -1,7 +1,7 @@
 # Skills and gates
 
 A skill's review step is normally a paragraph asking the agent to check its own work. Agents talk
-their way past paragraphs. plainwright makes the review an edge in a graph instead: the harness
+their way past paragraphs. turri makes the review an edge in a graph instead: the harness
 decides when a gate runs, spawns the judges itself, and branches on a structured verdict. The
 model's only job is producing the artifact under review.
 
@@ -53,7 +53,7 @@ last one - one answer, one change, as an interview writes them. `spark-plain` is
 A skill gets the tools its `allowed-tools` names, and nothing else: one that names none has none. So
 every skill here names its own - the file tools (`read`, `write`, `edit`, `bash`, `ls`, `grep`, `find`)
 for the ones that write specs, resources or scripts, only the reading ones for those that analyse
-and report, and plainwright's own (`write_spec_diff` and the ones below) where a skill uses them.
+and report, and turri's own (`write_spec_diff` and the ones below) where a skill uses them.
 
 What a run changed is part of its result: every file of the project it added, changed or removed -
 its specs, resources, scripts; not the built code - or that it changed none, which is said as such,
@@ -111,14 +111,14 @@ change the step makes and puts its findings on the executor's next tool result.
 - **Build while it interviews.** `write_spec_diff` (forge-plain, spark-plain) writes a change to the
   spec and queues its render in one call; the interview carries on while the builds run in the
   background, one after another. `render_status` shows the queue.
-- **Choose the render model**, when the user says so - `set_render_model`, the same tool the
+- **Choose the render model**, when the user says so - `engine`, the same tool the
   conversation has.
 
 The harness still owns the sequence. A step chooses what to ask; it does not choose whether the
 gate afterwards runs. A run is saved as it goes, so an interrupted one can be resumed where it
 stopped.
 
-While a skill runs in the chat, `run_skill`'s output leads with what its agent is doing now: the skill,
+While a skill runs in the chat, `cultivate`'s output leads with what its agent is doing now: the skill,
 its step and how long each has taken, its last few tool calls, and the end of what it is saying,
 refreshed every few seconds. pi shows only a running tool's first lines, and a step can take many
 minutes without a new line in the trace. The result the conversation gets back keeps the trace

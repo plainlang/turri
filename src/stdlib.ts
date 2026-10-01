@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { STDLIB_DIR } from "./render/paths.ts";
+import { STDLIB_DIR } from "./grow/paths.ts";
 
 /**
  * The ***plain standard library, as the agents that write specs are told it: every stack's import name,
@@ -98,7 +98,7 @@ export function stdlibStackCount(templates: StdlibTemplate[] = stdlibTemplates()
 
 /** The standard library as the person reads it, with `/stdlib`: each kind's stacks, what each is, and how to import one. */
 export function describeStdlib(templates: StdlibTemplate[] = stdlibTemplates(), dir: string = STDLIB_DIR): string {
-  if (templates.length === 0) return "The standard library is empty: plainwright's stdlib/ folder holds no templates.";
+  if (templates.length === 0) return "The standard library is empty: turri's stdlib/ folder holds no templates.";
   const width = Math.max(...templates.filter(isStack).map((template) => template.name.length));
   return [
     `The ***plain standard library - ${stdlibStackCount(templates)} stacks a spec can import instead of writing its implementation reqs:`,

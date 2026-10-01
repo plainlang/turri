@@ -4,10 +4,10 @@ import { main, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PACKAGE_ROOT } from "./environment.ts";
 
 /**
- * pi, started the way its own CLI starts it, for `plainwright chat`.
+ * pi, started the way its own CLI starts it, for `turri chat`.
  *
  * The one difference: pi's startup header - its version, key hints and the list of every
- * loaded skill, extension and theme - is left out, because plainwright shows its own. pi only
+ * loaded skill, extension and theme - is left out, because turri shows its own. pi only
  * takes that from the `quietStartup` setting, and a setting would quiet every `pi` on the
  * machine, so it is answered for this run instead. `--verbose` still shows it.
  */
@@ -17,7 +17,7 @@ if (!args.includes("--verbose")) {
   SettingsManager.prototype.getQuietStartup = () => true;
 }
 
-// ctrl+j opens plainwright's side panel. pi binds it to a new line as well, besides shift+enter, and
+// ctrl+j opens turri's side panel. pi binds it to a new line as well, besides shift+enter, and
 // says so on every start when an extension takes it. For this run only, a new line is shift+enter -
 // unless keybindings.json says what it is, which is kept as written. Loaded from the file, since the
 // class pi resolves its keys with is not exported.

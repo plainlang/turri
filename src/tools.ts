@@ -79,7 +79,7 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 
 
 import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
-import { describeModules, type WorkLoop } from "./render/loop.ts";
+import { describeModules, type WorkLoop } from "./grow/loop.ts";
 import { describeFindings, describeQuestions, type LiveReviewer } from "./review/live.ts";
 
 export type { AskUser, AskUserRequest };

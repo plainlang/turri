@@ -1,8 +1,8 @@
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { plainFileParser } from "./plain/parser.ts";
-import { resolveTemplateDirs } from "./render/paths.ts";
-import { sectionsOf } from "./render/state.ts";
+import { resolveTemplateDirs } from "./grow/paths.ts";
+import { sectionsOf } from "./grow/state.ts";
 
 /**
  * What a project's specs need of its VM: the toolchains its implementation reqs name.

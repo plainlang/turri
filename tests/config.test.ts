@@ -6,7 +6,7 @@ import { readProjectConfig } from "../src/config.ts";
 
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-config-"));
+  root = mkdtempSync(join(tmpdir(), "turri-config-"));
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -129,16 +129,16 @@ describe("the project's config.yaml", () => {
 describe("parallel-jobs", () => {
   it("is how many jobs the chat runs at once - the environment first, then config.yaml, then what the machine holds", async () => {
     const { parallelJobs } = await import("../src/extension.ts");
-    const { defaultParallelJobs } = await import("../src/render/vm.ts");
+    const { defaultParallelJobs } = await import("../src/grow/vm.ts");
     expect(parallelJobs(root)).toBe(defaultParallelJobs());
     writeFileSync(join(root, "config.yaml"), "parallel-jobs: 6\n");
     expect(readProjectConfig(root).parallelJobs).toBe(6);
     expect(parallelJobs(root)).toBe(6);
-    process.env.PLAINWRIGHT_PARALLEL_JOBS = "2";
+    process.env.TURRI_PARALLEL_JOBS = "2";
     try {
       expect(parallelJobs(root)).toBe(2);
     } finally {
-      delete process.env.PLAINWRIGHT_PARALLEL_JOBS;
+      delete process.env.TURRI_PARALLEL_JOBS;
     }
     writeFileSync(join(root, "config.yaml"), "parallel-jobs: 0\n");
     expect(readProjectConfig(root).parallelJobs).toBeUndefined();
@@ -213,8 +213,8 @@ describe("a module's own config file", () => {
 
   it("makes its folder a project, and each module finds its own stack's testing scripts there", async () => {
     const { mkdirSync } = await import("node:fs");
-    const { projectDirOf } = await import("../src/render/paths.ts");
-    const { findTestScripts } = await import("../src/render/test-scripts.ts");
+    const { projectDirOf } = await import("../src/grow/paths.ts");
+    const { findTestScripts } = await import("../src/grow/test-scripts.ts");
     rmSync(join(root, "config.yaml"));
     mkdirSync(join(root, "test_scripts"));
     for (const script of ["run_unittests_python.sh", "run_unittests_typescript.sh", "run_conformance_tests_python.sh"]) writeFileSync(join(root, "test_scripts", script), "#!/bin/bash\n");

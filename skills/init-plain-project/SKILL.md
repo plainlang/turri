@@ -5,7 +5,7 @@ description: >-
   technology and project kind, asks whether conformance testing is enabled,
   then scaffolds a template import module (with base implementation reqs and
   test reqs), a stub top-level module, the unit testing script, and
-  (optionally) the conformance testing script under `test_scripts/`. Does NOT run `check_plain`. Use when the user wants a
+  (optionally) the conformance testing script under `test_scripts/`. Does NOT run `validate`. Use when the user wants a
   quick project skeleton to start writing functional specs against, without
   the full forge-plain interview.
 allowed-tools: [read, write, edit, bash, ls, grep, find]
@@ -24,11 +24,11 @@ What this skill writes:
 - `test_scripts/run_unittests_<lang>.sh` — always.
 - `test_scripts/run_conformance_tests_<lang>.sh` — only if conformance testing is enabled.
 
-plainwright requires these scripts: a build with no unit testing script (or, with conformance on, no conformance testing script) stops before it starts. The harness runs them with Bash in a Linux VM, so they are `.sh` scripts.
+turri requires these scripts: a build with no unit testing script (or, with conformance on, no conformance testing script) stops before it starts. The harness runs them with Bash in a Linux VM, so they are `.sh` scripts.
 
 What this skill does **not** do:
 
-- Run `check_plain`.
+- Run `validate`.
 - Author concepts, functional specs, or acceptance tests.
 - Probe the host environment (`check-plain-env` is a separate step the user can run later).
 
@@ -94,11 +94,11 @@ Call the corresponding implementation skills in order. Each skill writes a Bash 
 - `implement-unit-testing-script` — always.
 - `implement-conformance-testing-script` — only if conformance testing was enabled. The script is self-contained: it stages the build, installs dependencies, and runs the module's whole conformance suite.
 
-### 6. Check plainwright finds the scripts
+### 6. Check turri finds the scripts
 
-plainwright finds the testing scripts in the project root, not through the specs: first in `config.yaml` (`unittests-script:`, `conformance-tests-script:`, paths relative to the root), then the one `run_unittests*.sh` / `run_conformance_tests*.sh` in the root, then the one of each kind in `test_scripts/`. It puts them into the prompts of the agents that write and run the tests itself, so do not link them from `template/base.plain` (a link to one is ignored). Confirm every generated script is in `test_scripts/` and is the only one of its kind there - or, if the project wants it, that a `config.yaml` at the root names the one to use and the path resolves. A project with modules on different stacks (e.g. a Python backend and a React frontend sharing an imported `base`) keeps one `config.yaml` for what they share and gives each module its own `config.<module>.yaml` beside it - `config.backend.yaml`, `config.frontend.yaml` - naming that module's `unittests-script:` and `conformance-tests-script:`.
+turri finds the testing scripts in the project root, not through the specs: first in `config.yaml` (`unittests-script:`, `conformance-tests-script:`, paths relative to the root), then the one `run_unittests*.sh` / `run_conformance_tests*.sh` in the root, then the one of each kind in `test_scripts/`. It puts them into the prompts of the agents that write and run the tests itself, so do not link them from `template/base.plain` (a link to one is ignored). Confirm every generated script is in `test_scripts/` and is the only one of its kind there - or, if the project wants it, that a `config.yaml` at the root names the one to use and the path resolves. A project with modules on different stacks (e.g. a Python backend and a React frontend sharing an imported `base`) keeps one `config.yaml` for what they share and gives each module its own `config.<module>.yaml` beside it - `config.backend.yaml`, `config.frontend.yaml` - naming that module's `unittests-script:` and `conformance-tests-script:`.
 
-Do **not** run `check_plain` here — keeping this skill light is the whole point. The user can run it when they want validation.
+Do **not** run `validate` here — keeping this skill light is the whole point. The user can run it when they want validation.
 
 ### 7. Recap
 
@@ -106,7 +106,7 @@ Tell the user what was created and what's next:
 
 - Files written: `template/base.plain`, `<project>.plain`, the test scripts.
 - Suggested next steps: add concepts with `add-concept`, add functional specs with `add-functional-spec` or `add-functional-specs`, or jump straight into `add-feature`.
-- Mention that `check_plain` has not been run on `<project>.plain` yet.
+- Mention that `validate` has not been run on `<project>.plain` yet.
 
 ## Validation checklist
 

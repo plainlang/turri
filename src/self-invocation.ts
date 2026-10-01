@@ -1,60 +1,63 @@
 /**
  * Keeping the conversation's agent on its own tools.
  *
- * The agent has a shell, and plainwright has a command line - so it can build a module by
- * running `plainwright module` through bash, or start another pi with `pi -p`. That run is a
- * second, headless plainwright: outside this conversation's job queue, its panel, `/watch` and
- * `/stop`, on whatever model the command line picks, fighting the conversation's own jobs for
+ * The agent has a shell, and turri has a command line - so it can build a module by
+ * running `turri regrow` through bash, or start another pi with `pi -p`. That run is a
+ * second, headless turri: outside this conversation's job queue, its panel, `/watch` and
+ * `/halt`, on whatever model the command line picks, fighting the conversation's own jobs for
  * the same build directories. It is never the right call unless the person asked for the
  * command line, so the harness refuses it and names the tool to use instead.
  */
 
-/** The tool that does what a plainwright subcommand does, from inside the conversation. */
+/** The tool that does what a turri subcommand does, from inside the conversation. */
 const TOOL_FOR: Record<string, string> = {
-  render: "render_module",
-  module: "render_module",
-  regenerate: "regenerate_functionality",
-  conformance: "nothing yet - conformance tests are off in the conversation until their own track lands",
-  skill: "run_skill",
-  deploy: "deploy",
-  forge: "run_skill",
+  regrow: "regrow",
+  glimpse: "glimpse",
+  bind: "bind",
+  cultivate: "cultivate",
+  release: "release",
+  "spec-diff": "regrow",
+  render: "regrow",
+  module: "regrow",
+  regenerate: "regrow",
+  conformance: "bind",
+  skill: "cultivate",
+  deploy: "release",
+  forge: "cultivate",
   chat: "nothing - you are the conversation already",
   ask: "nothing - you are the conversation already",
 };
 
 /** The npm scripts in this repo, by the subcommand they run. */
 const NPM_SCRIPT: Record<string, string> = {
-  render: "render",
-  module: "module",
-  regenerate: "regenerate",
-  conformance: "conformance",
-  forge: "forge",
+  regrow: "regrow",
+  bind: "bind",
+  cultivate: "cultivate",
   chat: "chat",
   ask: "ask",
 };
 
 /** The source entry points, by the subcommand they are. */
 const ENTRY: Record<string, string> = {
-  "render-frid": "render",
-  "render-module": "module",
-  "regenerate-frid": "regenerate",
-  "conformance-frid": "conformance",
-  run: "skill",
-  "deploy-cli": "deploy",
+  "regrow-cli": "regrow",
+  "bind-cli": "bind",
+  "spec-diff-cli": "spec-diff",
+  "cultivate-cli": "cultivate",
+  "release-cli": "release",
 };
 
 /** Where a command starts: the start of the string, or after a separator. */
 const AT_COMMAND = String.raw`(?:^|[\s;&|()\x60$])`;
 
 /**
- * What a shell command would run of plainwright or pi itself, if anything: the subcommand,
- * or "pi" for another pi. `plainwright check` is not in it - it validates a spec and starts no
+ * What a shell command would run of turri or pi itself, if anything: the subcommand,
+ * or "pi" for another pi. `turri validate`, `drift` and `lineage` are not in it - they start no
  * agent - and neither are setup, doctor and vm-image.
  */
 export function selfInvocation(command: string): string | undefined {
-  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?plainwright\\s+(render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
+  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?turri\\s+(regrow|glimpse|bind|cultivate|release|spec-diff|render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
   if (cli) return cli[1];
-  const launcher = new RegExp(`(?:bin/plainwright\\.mjs|src/cli\\.ts)\\s+(render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
+  const launcher = new RegExp(`(?:bin/turri\\.mjs|src/cli\\.ts)\\s+(regrow|glimpse|bind|cultivate|release|spec-diff|render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
   if (launcher) return launcher[1];
   const npm = new RegExp(`${AT_COMMAND}npm\\s+run\\s+(${Object.values(NPM_SCRIPT).join("|")})\\b`).exec(command);
   if (npm) return npm[1];
@@ -84,7 +87,7 @@ export function askedForCommandLine(message: string): boolean {
   const text = message.toLowerCase();
   return (
     /\b(headless|command[ -]line|cli|terminal|shell|in bash|via bash|through bash|npm run|nohup)\b/.test(text) ||
-    /\bplainwright\s+(render|module|regenerate|conformance|skill|chat|deploy)\b/.test(text) ||
+    /\bturri\s+(regrow|glimpse|bind|spec-diff|cultivate|release|render|module|regenerate|conformance|skill|chat|deploy)\b/.test(text) ||
     /(^|\s)pi\s+-p\b/.test(text)
   );
 }
@@ -94,24 +97,23 @@ export function refusal(what: string): string {
   const instead =
     what === "pi"
       ? "Do not start another agent: do the work here, with this conversation's tools."
-      : `Use ${TOOL_FOR[what] ?? "the matching plainwright tool"} instead.`;
+      : `Use ${TOOL_FOR[what] ?? "the matching turri tool"} instead.`;
   return (
-    `Not run: that starts plainwright${what === "pi" ? "'s agent" : ` ${what}`} again from the shell - a separate, headless ` +
-    "run outside this conversation, its job queue, the panel, /watch and /stop. " +
-    `${instead} Run plainwright from the command line only when the user asks for that.`
+    `Not run: that starts turri${what === "pi" ? "'s agent" : ` ${what}`} again from the shell - a separate, headless ` +
+    "run outside this conversation, its jobs, the panel, /watch and /halt. " +
+    `${instead} Run turri from the command line only when the user asks for that.`
   );
 }
 
 /** The instruction that goes into the conversation's system prompt. */
 export const TOOLS_NOT_CLI = [
-  "<plainwright-tools>",
-  "In this conversation, plainwright's work is done with its tools - render_module, spec_changed,",
-  "regenerate_functionality, render_spec_diff, run_skill and the rest - which run as",
-  "background jobs the user can watch and stop. To try what is built, deploy - never by hand in plain_modules. Never",
-  "run plainwright's command line (plainwright module, regenerate, conformance, spec-diff, skill, chat, deploy; npm run",
-  "module and the like) or start another pi through bash:",
+  "<turri-tools>",
+  "In this conversation, turri's work is done with its tools - regrow, bind, cultivate and the rest - which run as",
+  "background jobs the user can watch and halt. To try what is grown, release it - never by hand in plain_modules. Never",
+  "run turri's command line (turri regrow, glimpse, bind, spec-diff, cultivate, release, chat; npm run",
+  "regrow and the like) or start another pi through bash:",
   "that is a separate headless run the user cannot see or stop. Only when the user explicitly asks for the",
   "command line, run it. Configuring pi itself - pi install, update, list, config, auth, or its settings files -",
   "is fine; it starts no agent.",
-  "</plainwright-tools>",
+  "</turri-tools>",
 ].join("\n");

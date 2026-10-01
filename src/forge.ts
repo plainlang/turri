@@ -4,18 +4,18 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createExecutor } from "./pi.ts";
-import { describeToolCall, describeToolResult } from "./render/activity.ts";
+import { describeToolCall, describeToolResult } from "./grow/activity.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
 import { createSpecDiffTools } from "./spec-tools.ts";
 import { createTemperTools, TEMPER_TOOLS } from "./temper-tools.ts";
-import type { JobRegistry } from "./render/jobs.ts";
+import type { JobRegistry } from "./grow/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
-import type { WorkLoop } from "./render/loop.ts";
+import type { WorkLoop } from "./grow/loop.ts";
 
 export interface EscalationRequest {
   step: string;

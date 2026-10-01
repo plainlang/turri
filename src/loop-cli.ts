@@ -3,14 +3,14 @@ import { resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
 import { c } from "./module-report.ts";
-import { tryItCommand } from "./render/delivery.ts";
-import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
-import { createJobRegistry, type Job } from "./render/jobs.ts";
-import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
-import { projectDirOf } from "./render/paths.ts";
+import { tryItCommand } from "./grow/delivery.ts";
+import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
+import { createJobRegistry, type Job } from "./grow/jobs.ts";
+import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
+import { projectDirOf } from "./grow/paths.ts";
 
 /**
- * What every command that builds - `plainwright module`, `regenerate`, `conformance`, `spec-diff` - does around its own
+ * What every command that builds - `turri regrow`, `regenerate`, `conformance`, `spec-diff` - does around its own
  * request of the work loop, as the chat does it: the project's models, a job that fails run once more and, failing again,
  * diagnosed, a line as each job starts and ends; then the loop run until nothing more can start, how each job ended,
  * and exit 1 when any failed. With `dryRun`, the work is planned and the prompt of the first job each codebase would
@@ -21,7 +21,7 @@ export async function runLoop(options: {
   model?: string;
   buildDir?: string;
   dryRun?: boolean;
-  /** Start over, unasked, a codebase that has to be on a module it now requires (`--start-over`). */
+  /** Start over, unasked, a codebase that has to be on a module it now requires (`--rejuvenate`). */
   startOver?: boolean;
   /** The request: bring up, regenerate, conformance. */
   ask: (loop: WorkLoop) => Promise<ModuleStatus[]>;
@@ -31,7 +31,7 @@ export async function runLoop(options: {
   const model = options.model ?? modelSpec(projectModels(project).coding);
   const projectDir = projectDirOf(plainFile);
 
-  // Each job as it starts and as it ends - the transcript of each is in .plainwright/jobs/.
+  // Each job as it starts and as it ends - the transcript of each is in .turri/jobs/.
   const seen = new Map<string, string>();
   const registry = createJobRegistry({
     retries: 1,

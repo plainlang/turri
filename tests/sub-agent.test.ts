@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createExecutor } from "../src/pi.ts";
 
 /**
- * A sub-agent is built from exactly what it needs. With plainwright installed globally, pi
+ * A sub-agent is built from exactly what it needs. With turri installed globally, pi
  * would otherwise load a second copy of it into every render agent - tools, hooks and a
  * 160,000-character rules block included - bound to a session thrown away minutes later.
  */

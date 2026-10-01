@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
-import { projectDirOf } from "./render/paths.ts";
+import { projectDirOf } from "./grow/paths.ts";
 
 /**
  * The project's `config.yaml`, at its root - the folder that holds `plain_modules`.
@@ -9,8 +9,8 @@ import { projectDirOf } from "./render/paths.ts";
  * One file for what a project says about how it is built:
  *
  * ```yaml
- * module: prism_cli.plain                                   # what `plainwright module` builds by default
- * harness-model:                                            # the model you chat with in `plainwright chat`
+ * module: prism_cli.plain                                   # what `turri regrow` builds by default
+ * harness-model:                                            # the model you chat with in `turri chat`
  *   model: anthropic/claude-opus-5-5
  *   thinking: high
  * coding-model:                                             # the rendering agents (default: harness-model)
@@ -30,7 +30,7 @@ import { projectDirOf } from "./render/paths.ts";
  * either of which may be left out; a bare string is the model alone. What a model leaves out it takes
  * from the one it inherits: judge-model from coding-model, coding-model from harness-model. They are
  * defaults: `--harness-model` / `--coding-model` / `--judge-model` on the command line win over them,
- * and so does a model chosen during the conversation (pi's /model, set_render_model). `model:` is read
+ * and so does a model chosen during the conversation (pi's /model, engine). `model:` is read
  * as `coding-model`, which it was before there were two.
  *
  * Keys are written with dashes; underscores are read the same (`conformance_tests`). Keys it
@@ -135,7 +135,7 @@ function modelChoice(value: unknown): ModelChoice | undefined {
 export interface ProjectConfig {
   /** The .plain file the module command builds when it is given none. */
   module?: string;
-  /** The model `plainwright chat` starts with: the one the person talks to. */
+  /** The model `turri chat` starts with: the one the person talks to. */
   harnessModel?: ModelChoice;
   /** The model the rendering agents run on - every render, conformance, repair and spec change. Unset: the harness model. */
   codingModel?: ModelChoice;
@@ -146,7 +146,7 @@ export interface ProjectConfig {
   judgeModel?: ModelChoice;
   /**
    * Whether conformance tests are written and run, and for what. true (`all`): every functional spec the code is built
-   * from. "chosen": the ones with acceptance tests, and those the conversation chose with render_conformance - kept once
+   * from. "chosen": the ones with acceptance tests, and those the conversation chose with bind - kept once
    * their tests land. false: none, unless the conversation asks. Unset: all, when the module has test reqs.
    */
   conformanceTests?: boolean | "chosen";
@@ -176,7 +176,7 @@ export interface ProjectConfig {
   systemPackages?: string[];
   /**
    * The project's own VM image: toolchains and packages removed from and added to what the default image
-   * holds - `{ remove: ["java"], add: ["zig"] }`. Given, plainwright vm-image in the project builds it, and
+   * holds - `{ remove: ["java"], add: ["zig"] }`. Given, turri vm-image in the project builds it, and
    * every VM of the project runs it. The project's alone.
    */
   vmImage?: { packages?: string[]; add: string[]; remove: string[]; mirror?: string; repositories?: string[] };

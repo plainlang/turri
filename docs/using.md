@@ -1,17 +1,17 @@
-# Using plainwright
+# Using turri
 
 ## In a conversation
 
 ```bash
 cd ~/my-project
-plainwright chat
+turri chat
 ```
 
-That is pi, with plainwright's tools, skills and themes loaded. It opens with plainwright's own
+That is pi, with turri's tools, skills and themes loaded. It opens with turri's own
 banner - where commands will run, the rules and skills loaded - rather than pi's startup header
-and resource list; `plainwright chat --verbose` shows those too. Talk to it: ask it to start a
+and resource list; `turri chat --verbose` shows those too. Talk to it: ask it to start a
 project, add a feature, render a module, fix a spec. It decides which skill or tool applies - but
-not *how* a skill runs: `run_skill` hands the work to the gated runner, which owns the steps, the
+not *how* a skill runs: `cultivate` hands the work to the gated runner, which owns the steps, the
 gates and the judges (see [skills and gates](skills-and-gates.md)).
 
 The skills that build from scratch:
@@ -31,23 +31,24 @@ where it stopped.
 
 | tool | |
 | --- | --- |
-| `render_module` | build a module and its chain up to the spec: what is left to build is planned into jobs of one to three functional specs, each with the definitions and reqs it uses, and they run one after the other |
-| `steer_queue` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
-| `spec_changed` | say a spec changed, by any means: what is left to build is worked out again from the spec as it is now, and a job building what the spec no longer wants is stopped |
-| `regenerate_functionality` | build one functionality again, as it is |
-| `start_over` | start over a codebase built without a module it now requires - only once you agree |
-| `render_conformance` | write and run a module's conformance tests - or some functional specs' - on the code as built, whatever the config says; named before their code is built, a conformance job is scheduled and starts once it is |
-| `render_spec_diff` | apply a change to the specs, given as a git diff, and build it |
-| `check_plain` | validate a spec without rendering |
-| `set_render_model` | choose the model renders run on - see [below](#choosing-a-model) |
+| `regrow` | regrow a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into jobs of one to three functional specs, each with the definitions and reqs it uses, and a job growing what the spec no longer wants is stopped. With functional specs named, those grow again though their spec did not change |
+| `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
+| `glimpse` | the job a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
+| `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
+| `bind` | bind functional specs to conformance tests - now, or ahead of their code: a conformance job is scheduled and starts once every one named is grown; whatever the config says |
+| `rejuvenate` | grow a codebase again from the bottom of its chain, when it was grown without a module it now requires - only once you agree |
+| `validate` | validate a spec, growing nothing |
+| `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |
+| `growth` | the jobs - running, planned and finished - or one of them |
+| `halt` | halt a job, or what `activate` started |
+| `diagnose` | why a job did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
+| `lineage` | a module's lineage: what each regrowth and conformance run changed in it, and what it grew from |
+| `cultivate` | run a gated skill, its steps and review gates enforced |
+| `release`, `activate`, `propose_setup` | try what is grown: release it to `dist/<module>`, activate it on this machine, ask before installing anything - see [deploy](deploy.md) |
 | `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |
 | `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
-| `check_job`, `list_jobs`, `stop_job` | the background jobs |
-| `preview_job` | the job a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
-| `why_failed` | why a job did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
-| `module_history` | what each render, regeneration and conformance run changed in a module |
 
-What each render does, in order, is in [rendering](rendering.md).
+What each render does, in order, is in [growing the code](growing.md).
 
 The conversation knows the ***plain standard library from its first turn: the stdlib rule in its
 system prompt lists every stack and where the templates are, so "build this as a Flask backend"
@@ -55,9 +56,9 @@ becomes an import of `stdlib/backend/python-flask`, not a stack written out by h
 start says how many stacks there are, and **`/stdlib`** lists them, each with what it is (see
 [the standard library](authoring-plain.md#the-standard-library)).
 
-The agent does this work with these tools, never by running plainwright's command line - or
+The agent does this work with these tools, never by running turri's command line - or
 another pi - through its shell: that would be a separate, headless run outside the job panel,
-`/watch` and `/stop`. The harness refuses such a command unless your message asks for the
+`/watch` and `/halt`. The harness refuses such a command unless your message asks for the
 command line ("run it headless", "use the CLI", or the command itself). pi configuring itself -
 `pi install`, `update`, `list`, `config`, `auth`, its settings - is not affected.
 
@@ -88,8 +89,8 @@ come waits for a free slot, and says so.
   the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
   the lines under it are in, `↕ 28 lines · ***functional specs***`, as GitHub names a hunk's function. Opened with `ctrl+o`, the panel wraps
   every line rather than cutting it off.
-- **The side panel** (`ctrl+j`, which in plainwright replaces pi's own new-line key - `shift+enter` still
-  inserts one; pi outside plainwright keeps it, and a `tui.input.newLine` of your own in
+- **The side panel** (`ctrl+j`, which in turri replaces pi's own new-line key - `shift+enter` still
+  inserts one; pi outside turri keeps it, and a `tui.input.newLine` of your own in
   `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with two views - `tab`
   switches between them:
   - **Jobs** - the whole queue as three sections - running, queued, finished - each opened and closed on
@@ -110,14 +111,14 @@ come waits for a free slot, and says so.
   It scrolls with the arrows, PgUp/PgDn and the wheel, and follows the newest line at the bottom
   (`g`/`G` top and bottom). `esc` goes back to the chat and leaves it open and live; `ctrl+j` takes
   the keys back to it, and closes it from there. **`/watch [job]`** opens it on a job's trace.
-- `plainwright chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
+- `turri chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the jobs redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
-- **`/jobs`** lists every job, and what `deploy` has running; **`/stop <id>`** stops one - a queued
-  one never starts - and **`/stop deploy <name>`** stops a server `deploy` started.
+- **`/growth`** lists every job, and what `activate` has running; **`/halt <id>`** halts one - a queued
+  one never starts - and **`/halt activated <name>`** halts a server `activate` started.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
   and the spec as it is now - again whenever a job ends or the spec changes - and the first job of
-  it runs; see [a whole module](rendering.md#a-whole-module). Changes that overlap never pile up: the next job
+  it runs; see [a whole module](growing.md#a-whole-module). Changes that overlap never pile up: the next job
   builds the spec as it is. The jobs planned after the one running are listed behind it, as queued,
   and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
   A job building something the spec no longer wants is stopped and rolled back. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
@@ -127,21 +128,21 @@ come waits for a free slot, and says so.
   module is to start from it. Specs moved into a module the code was not built on stop the codebase:
   no change to its code brings that module in, so it has to be started over - its code and
   conformance tests taken out, kept in its history, and built again from the bottom of the chain.
-  That is never done unasked: the chat asks you, saying why, and `start_over` does it once you agree;
-  on the command line `plainwright module` asks at the terminal, and `--start-over` agrees in advance.
+  That is never done unasked: the chat asks you, saying why, and `rejuvenate` does it once you agree;
+  on the command line `turri regrow` asks at the terminal, and `--rejuvenate` agrees in advance.
 - **Conformance tests are a track of their own.** A code job lands once its unit tests pass and are
   reviewed. Then, before the next one builds on it, a conformance job writes and runs the tests of what it
   built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one
   fails, fixes the test or the code, whichever is wrong; what they are written for is recorded in
-  `tests/.plainwright.json`. With `conformance-tests: false` none is written until you ask -
-  `render_conformance`, for a module or some of its functional specs. A conformance job that does not pass
+  `tests/.turri.json`. With `conformance-tests: false` none is written until you ask -
+  `bind`, for a module or some of its functional specs. A conformance job that does not pass
   is undone whole and halts the conformance tests alone: the code goes on being built.
 - **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
   stops, and so does every job queued behind it on the same module, without running - the other
   modules' jobs go on. The harness then works out why: an
-  agent that can read the project's specs, code, tests, testing scripts and logs, and plainwright's
+  agent that can read the project's specs, code, tests, testing scripts and logs, and turri's
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
-  environment, the code or plainwright itself, and exactly what to do.
+  environment, the code or turri itself, and exactly what to do.
 - **When a job finishes** it says what was built, and - when it landed code - that you can try it:
   ask ("let me try it"), and the chat deploys what is built to `dist/<module>` and starts it on your
   machine, even while other jobs run. See [deploy](deploy.md).
@@ -158,7 +159,7 @@ The chat reads the project's `config.yaml` afresh every turn and follows it: its
 it sets, and the render tools default to it - `module` when you ask to build without naming one,
 `conformance-tests: false` to render without conformance tests (none written, none of the existing
 ones run) unless you ask for them, `coding-model` for what renders run on, and the testing scripts.
-`harness-model` is what `plainwright chat` starts on. What you ask for in the conversation wins.
+`harness-model` is what `turri chat` starts on. What you ask for in the conversation wins.
 Every key, what happens without it, and how the models inherit: [the project config](config.md).
 
 A project whose modules are on different stacks gives each its own `config.<module>.yaml` beside
@@ -190,14 +191,14 @@ Each may leave out either part, and a bare string (`coding-model: provider/id`, 
 the judge model from the coding model, the coding model from the harness model - so with only a
 harness model, everything runs on it.
 
-On the command line, `plainwright chat --harness-model <m> --coding-model <m>` wins over them
+On the command line, `turri chat --harness-model <m> --coding-model <m>` wins over them
 (pi's own `--model` works for the harness model too), and in the conversation pi's `/model`
-changes the harness model and `set_render_model`, below, the coding model. `model:`, from before
+changes the harness model and `engine`, below, the coding model. `model:`, from before
 there were two, is read as `coding-model`. With neither, renders run on the conversation's model.
 
 Every render runs on the coding model unless you say otherwise. Say it in words -
 "render spec changes with gpt 5.5", "build the functionalities on Gemini 3.6 Flash", "use Claude
-for everything" - and the agent calls `set_render_model`, which holds for the rest of the session
+for everything" - and the agent calls `engine`, which holds for the rest of the session
 (a resumed one too):
 
 | kind of work | covers |
@@ -208,7 +209,7 @@ for everything" - and the agent calls `set_render_model`, which holds for the re
 
 It works mid-interview as well: the skill's agent has the same tool. Jobs already queued keep the
 model they were queued with; `"chat"` drops the session's choice, back to the default coding model -
-`--coding-model`, `config.yaml`, or the conversation's. `/render-model` shows
+`--coding-model`, `config.yaml`, or the conversation's. `/engine` shows
 what each kind of work runs on. A render tool can also be given a model for one call.
 
 Names are resolved strictly, because pi's own matching guesses and says nothing ("gpt-5" can land
@@ -220,8 +221,8 @@ picked.
 
 A provider a pi extension registers - your company's own LLM gateway, say - works for every agent
 the conversation starts, not only for the conversation. Those agents load no extensions (they would
-load a second copy of plainwright), so each is given the providers the conversation's extensions
-registered, as they are when it starts. An unattended run - `plainwright module`, `render` and the
+load a second copy of turri), so each is given the providers the conversation's extensions
+registered, as they are when it starts. An unattended run - `turri regrow`, `render` and the
 rest, outside the chat - has no conversation to take them from: there, only the providers in pi's
 own configuration (`~/.pi/agent/models.json` and `auth.json`) are there, so a gateway those runs use
 has to be set up in `models.json`.
@@ -240,10 +241,10 @@ rather than surfacing as an agent that said nothing.
 Each `plain_modules/<module>` is a git repository whose git directory is `.plaingit` rather than
 `.git`, so it stays plain files to your own repository. A commit is made after every step that
 changes the module - a render, a regeneration, a conformance run, a regression repair, a spec
-change. `/history [module]` and `module_history` show it.
+change. `/lineage [module]` and `lineage` show it.
 
 The last commit is also the last known good state. Every render, regeneration, spec change and
-conformance run starts by putting the codebase it works in back to it, so if plainwright was
+conformance run starts by putting the codebase it works in back to it, so if turri was
 stopped or restarted mid-job, whatever that job left half-written is undone first - and one that
 does not pass is undone the same way when it ends, commits and all. Only work that passed is
 committed. Installed dependencies and caches are not in the history and stay. With git directly:
@@ -259,7 +260,7 @@ call's arguments and results, and it is gone when pi exits. So every agent a ren
 coding agent, the conformance agent, the repair agent, the spec-steps planner - also streams its
 whole conversation to a file of its own, always.
 
-The logs are in `.plainwright/debug/` in the project, beside `plain_modules`, one per agent, named
+The logs are in `.turri/debug/` in the project, beside `plain_modules`, one per agent, named
 by when it started and what it is: `2026-09-26T13-45-02-123Z-app-3-coding-agent.log`. Each starts
 with the job it runs for, its model and thinking level, its folder, its saved pi session, its
 tools and its system prompt, and then has, in order and stamped with the time: every prompt it is
@@ -271,7 +272,7 @@ retries and errors; and how each turn ended. Every line is on disk as it happens
 `tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The job
 panel names each agent's log as it starts.
 
-Beside them, each job has a log of its own in `.plainwright/jobs/` - `<time>-<job id>-<kind>.log`:
+Beside them, each job has a log of its own in `.turri/jobs/` - `<time>-<job id>-<kind>.log`:
 what `/watch` shows for it, written as it happens. The harness's stages, the functional spec or the
 diff it builds, and every one of its agents in turn - each prompt, its thinking and replies, every
 tool call and its result, whole where the screen clips them - and how the job ended. The panel names
@@ -290,17 +291,23 @@ linked resources resolve the way the parser expects. For a long run - a whole sp
 [running unattended](headless.md).
 
 ```bash
-plainwright check <file.plain>              # validate a spec - no model, no API key
-plainwright module <file.plain>             # build what the code is not built from yet, and what it requires
-plainwright spec-diff <file.plain> <diff>   # apply a spec diff, and build it
-plainwright regenerate <file.plain> 2       # build functionality 2 again, changed or not
-plainwright conformance <file.plain> 1      # black-box tests for functionality 1
-plainwright skill skills/forge-plain        # run a gated skill directly
-plainwright deploy <file.plain>             # put what is built in dist/<module>, and start it here
+turri validate <file.plain>            # validate a spec - no model, no API key
+turri drift <file.plain>               # what is left to grow - no model, starts nothing
+turri regrow <file.plain>              # grow what the code is not grown from yet, and what it requires
+turri glimpse <file.plain>             # plan it, and print the first job's prompt - starts nothing
+turri regrow <file.plain> 2            # grow functionality 2 again, changed or not
+turri spec-diff <file.plain> <diff>    # apply a spec diff, and regrow it
+turri bind <file.plain> 1              # black-box tests for functionality 1
+turri lineage <module>                 # what grew into a module, and when
+turri cultivate skills/forge-plain     # run a gated skill directly
+turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
+
+The commands' names before turri had its name - `module`, `regenerate`, `conformance`, `check`, `deploy`,
+`skill` - still run them.
 
 The ones that build take `--model provider/model-id`; `module` also takes `--build-dir` and
 `--dry-run`, which plans the work, prints the prompt of each codebase's first job and starts nothing.
 Template directories come from `PLAIN_TEMPLATE_DIRS`. `--help`
 on any of them lists the rest. The bin is
-`plainwright`, not `forge`: `forge` is already Foundry's.
+`turri`, not `forge`: `forge` is already Foundry's.

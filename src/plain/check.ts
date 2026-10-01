@@ -2,7 +2,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { plainFileParser, PLAIN_SOURCE_FILE_EXTENSION } from "./parser.ts";
 import { getFrids, type MarshalledPlainSource } from "./spec.ts";
-import { resolveTemplateDirs } from "../render/paths.ts";
+import { resolveTemplateDirs } from "../grow/paths.ts";
 
 /**
  * Static validation of a .plain file, using this repo's own parser.

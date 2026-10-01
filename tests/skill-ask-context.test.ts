@@ -34,7 +34,7 @@ vi.mock("../src/pi.ts", () => {
 
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-skill-ask-"));
+  root = mkdtempSync(join(tmpdir(), "turri-skill-ask-"));
   mkdirSync(join(root, "skill"));
   writeFileSync(
     join(root, "skill", "SKILL.md"),

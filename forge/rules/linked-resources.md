@@ -61,6 +61,6 @@ A linked resource **must not** be any of the following:
 ```
 
 ## File location and path resolution
-- Paths are resolved relative to the directory where `plainwright` is run (the current working directory)
+- Paths are resolved relative to the directory where `turri` is run (the current working directory)
 - Relative paths may traverse into parent directories — `[resource](../../resources/resource.md)` is valid — as long as they resolve to a real text file on disk
-- The conventional location is a `resources/` directory; keep the resource inside the project so the path stays stable from wherever `plainwright` is run
+- The conventional location is a `resources/` directory; keep the resource inside the project so the path stays stable from wherever `turri` is run

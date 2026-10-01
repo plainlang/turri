@@ -1,17 +1,17 @@
 # Theming
 
-Two brand themes ship in `.pi/themes/`, built from the brand tokens. `plainwright chat` starts in
+Two brand themes ship in `.pi/themes/`, built from the brand tokens. `turri chat` starts in
 `forge`, the dark one; `--use-theme` picks another for that run:
 
 ```bash
-plainwright chat                                  # forge
-plainwright chat --use-theme forge-light/forge    # follows terminal appearance
-plainwright chat --use-theme dark                 # pi's own
+turri chat                                  # forge
+turri chat --use-theme forge-light/forge    # follows terminal appearance
+turri chat --use-theme dark                 # pi's own
 ```
 
 The second form follows your terminal's light/dark appearance. The default is for
-`plainwright chat` only: pi's settings are left alone, so a plain `pi` keeps its theme. With the
-themes installed globally (`plainwright setup` offers to), `{"theme": "forge"}` in
+`turri chat` only: pi's settings are left alone, so a plain `pi` keeps its theme. With the
+themes installed globally (`turri setup` offers to), `{"theme": "forge"}` in
 `~/.pi/agent/settings.json` gives a plain `pi` the same one.
 
 Bad input fails quietly - an unknown `--use-theme` name and a malformed theme file both run without
@@ -36,22 +36,15 @@ green-dark. **Brand blue never appears as text in the dark theme** - at 1.97:1 o
 illegible - so the dark theme's accent is brand yellow, and blue appears only in the light theme
 and in both themes' HTML-export backgrounds.
 
-Two values are not straight from the palette, and are named in the theme files so they are easy
-to find:
-
-- `avatarFlat` `#3a3d2e` - `--color-brand-avatar-bg` composited over brand black, because terminals
-  have no alpha channel.
-- `errorDark` `#2a1414` - the only invented colour. The palette has no dark red, and a failed tool
-  row needs a background that `--color-brand-status-error` would overpower.
-
 `--color-brand-status-warning` on white is 3.49:1, under the 4.5:1 bar for body text, so it is used
 only for accents in the light theme, never for prose.
 
 ## Backgrounds
 
-The dark theme paints no panels: every background token is brand black, so the terminal shows
-through and the transcript reads as one surface. Two are deliberately not black, because they have
-to be visible to work:
+The dark theme paints no panels: the backgrounds of your messages, turri's messages and the
+tool rows are `""`, the terminal's own background, so the transcript reads as one surface whatever
+the terminal's colour is - brand black or not, no block shows up as a box. Two are deliberately
+painted, because they have to be visible to work:
 
 | token | value | why |
 |---|---|---|
@@ -60,15 +53,14 @@ to be visible to work:
 
 With tool rows carrying no background, their state is signalled by the title and the diff colours.
 
-This only reaches as far as pi draws. **The window's own background is your terminal's setting** -
-set it to `#0f0f0f` in your terminal profile, or the area around the transcript stays whatever it
-was.
+**The window's background is your terminal's setting**, and the transcript is drawn on it. For the
+brand look, set it to brand black, `#0f0f0f`, in your terminal profile.
 
 ## Spec diffs
 
 A spec diff in the panels is not painted with the theme's colours for code: those are made for code,
 and the forge themes' backgrounds are all the surface colour, so a diff drawn with them would have no
-fills and hardly any highlighting. It has a palette of its own (`src/render/plain-palette.ts`), one for
+fills and hardly any highlighting. It has a palette of its own (`src/grow/plain-palette.ts`), one for
 a dark theme and one for a light, picked by the theme's appearance: a hue for each piece of \*\*\*plain -
 a section's header, a concept, a link, text in quotes or backticks, a front matter key, a module,
 a comment - at least 7:1 on the surface, and a fill behind each added and removed line, green and red,

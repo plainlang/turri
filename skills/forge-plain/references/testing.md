@@ -37,7 +37,7 @@ Write no `***acceptance tests***`, no functional specs and no `***implementation
 4. **Setup and outside services** - fixtures, test data, databases, third-party APIs: started for
    real, faked, or mocked at the boundary. Author each decision as its own requirement.
 5. **How the whole suite is run** - the one command that discovers every test. Author it.
-6. **The conformance testing script** - if plainwright already finds one (named by
+6. **The conformance testing script** - if turri already finds one (named by
    `conformance-tests-script:` in `config.yaml`, or the one `run_conformance_tests*.sh` in the
    project root or in `test_scripts/`), check it runs the suite the way the test reqs now say, and
    keep it. Otherwise write `test_scripts/run_conformance_tests_<language>.sh` with
@@ -45,5 +45,5 @@ Write no `***acceptance tests***`, no functional specs and no `***implementation
    If `test_scripts/` would hold two of a kind, name the one to use in `config.yaml`.
 7. **Anything else** - anything about testing the user wants to add or change.
 
-Run `check_plain` on every module you changed. The product phase's first build needs the test reqs
+Run `validate` on every module you changed. The product phase's first build needs the test reqs
 and the conformance testing script both there: without them it stops before it starts.

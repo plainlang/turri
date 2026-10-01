@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chatModels } from "../src/chat-models.ts";
 
-describe("the two models of plainwright chat", () => {
+describe("the two models of turri chat", () => {
   const config = { harnessModel: { model: "anthropic/claude-opus-5-5" } };
 
   it("start pi on config.yaml's harness model, and take the coding model from --coding-model", () => {

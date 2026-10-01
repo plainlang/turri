@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
-process.env.PLAINWRIGHT_TURN_LIMIT = "1";
-process.env.PLAINWRIGHT_PROVIDER_RETRY_DELAY = "0.01";
+process.env.TURRI_TURN_LIMIT = "1";
+process.env.TURRI_PROVIDER_RETRY_DELAY = "0.01";
 const { ask, timeTurns } = await import("../src/pi.ts");
 
 /** A session whose turn goes on until it is aborted, and says what it was asked. */

@@ -56,7 +56,7 @@ the implementation reqs, is not flagged - it is simply not read.
 
 ## The standard library
 
-plainwright ships a standard library of import modules in `stdlib/` that settle everything about a
+turri ships a standard library of import modules in `stdlib/` that settle everything about a
 generic piece of software on one stack except what it does: its language and framework, layout,
 configuration, error handling, logging, shutdown, and how it is unit and conformance tested. A spec
 imports one and writes only its own concepts and functional specs:
@@ -109,7 +109,7 @@ entry point.
 
 - **Conformance tests apart.** A spec without the conformance template has no test reqs, so no
   conformance tests are written or run for it. Turning them on later is adding that one import.
-- **A reserved name.** An import that starts with `stdlib/` is always plainwright's template, never
+- **A reserved name.** An import that starts with `stdlib/` is always turri's template, never
   a file of the project's. A project with a module at such a path - `stdlib/backend/python-fastapi.plain`
   beside the spec, in its `template/` folder or in `PLAIN_TEMPLATE_DIRS` - gets an error saying the
   name is reserved, so which one a spec builds on never depends on what is on disk beside it.
@@ -162,9 +162,9 @@ The ones that shape a spec most:
 - **No two specs contradict each other.** A conflict is found and resolved when a spec is added,
   not when its tests fail.
 
-## Writing specs with plainwright
+## Writing specs with turri
 
-In a conversation (`plainwright chat`), say what you want and the matching skill runs. Two build a
+In a conversation (`turri chat`), say what you want and the matching skill runs. Two build a
 project from scratch, and write each spec change as a git diff that is built in the background the
 moment it is written. `forge-plain` interviews you one question at a time and writes the specs as
 you answer; `spark-plain`, its quick twin, asks only what you want to build and writes the rest on
@@ -183,7 +183,7 @@ conflict - it writes what the spec should say as a spec diff, stops that build, 
 What the builds had to decide themselves - their assumptions, pitfalls, a failed build's diagnosis -
 goes into the spec the same way, when a user, a caller or a test can see it. It never asks: it takes
 the reading that fits the rest of the spec, and marks each such decision in its report. It leaves
-code, environment and plainwright problems to the builds, and stops when a functionality keeps
+code, environment and turri problems to the builds, and stops when a functionality keeps
 struggling after the spec was clarified, when two cycles change nothing, or after twenty.
 
 For an existing project, `add-feature` works the same way, scoped to one feature: intent → scope →
@@ -222,7 +222,7 @@ to find the cause, traces it back to the spec, and fixes only the `.plain` files
 ## Checking a spec
 
 ```bash
-plainwright check app.plain     # or check_plain in a conversation
+turri validate app.plain     # or validate in a conversation
 ```
 
 It parses the spec with this repo's own parser, resolves its imports and required modules, and

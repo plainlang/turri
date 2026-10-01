@@ -3,50 +3,50 @@
 ```bash
 git clone git@github.com:plainlang/plainwright.git && cd plainwright
 npm install
-npm link              # puts `plainwright` on your PATH, pointing at this clone
-plainwright setup     # checks the machine, fixes what it can, asks before each change
+npm link              # puts `turri` on your PATH, pointing at this clone
+turri setup     # checks the machine, fixes what it can, asks before each change
 ```
 
 Then, in the project that holds your specs:
 
 ```bash
 cd ~/my-project
-plainwright chat      # pi, with plainwright's tools, skills and themes loaded
+turri chat      # pi, with turri's tools, skills and themes loaded
 ```
 
 `npm link` has to be a link, not `npm install -g`: Node will not run `.ts` files from inside a
 `node_modules`, and a copying global install puts them there. The link points at this working
 copy, so edits here take effect immediately.
 
-## What `plainwright setup` checks
+## What `turri setup` checks
 
 It checks, in order, and says exactly what to run for anything missing:
 
 | what | why | if it is missing |
 | --- | --- | --- |
-| Node 22.19+ | plainwright runs its `.ts` sources directly, and pi needs 22.19 | install a newer Node |
+| Node 22.19+ | turri runs its `.ts` sources directly, and pi needs 22.19 | install a newer Node |
 | QEMU | every command an agent runs, runs in a sandbox VM on it | `setup` offers `brew install qemu`; on Linux, `apt install qemu-system-arm` / `qemu-system-x86` |
 | the VM image | the full image has Python, Node, Java, Go, Rust, C/C++ and git | `setup` offers to build it (about 7 minutes, 2 GB) - see [Building the VM image](#building-the-vm-image) |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
-| `plainwright` on PATH | so it runs from any project | `npm link` in this clone |
-| in every `pi` (optional) | a plain `pi` gets the tools too, not only `plainwright chat` | `setup` offers to write the one-line extension and copy the themes |
+| `turri` on PATH | so it runs from any project | `npm link` in this clone |
+| in every `pi` (optional) | a plain `pi` gets the tools too, not only `turri chat` | `setup` offers to write the one-line extension and copy the themes |
 
 It ends by starting a sandbox VM for real and listing the toolchains in it, since a VM that does
 not start is the one thing that stops every render. Nothing is changed without asking;
-`plainwright setup --yes` says yes to everything. Run without a terminal - piped, or in CI - it
+`turri setup --yes` says yes to everything. Run without a terminal - piped, or in CI - it
 asks nothing, changes nothing, and lists what it would have asked.
 
 Afterwards:
 
 ```bash
-plainwright doctor            # the same checks, changing nothing - for when something breaks
-plainwright doctor --quick    # without starting a VM
-plainwright vm-image          # build (or rebuild) the full VM image
+turri doctor            # the same checks, changing nothing - for when something breaks
+turri doctor --quick    # without starting a VM
+turri vm-image          # build (or rebuild) the full VM image
 ```
 
 A pi session says on its first line where commands will run - the image in use, a limit such as
 the stock image, or that there is no VM and why. A VM that fails to start refuses the command and
-names `plainwright doctor`.
+names `turri doctor`.
 
 ## Building the VM image
 
@@ -54,7 +54,7 @@ The image is built once and then only run: building it is the only thing that ne
 Docker. Every session boots the built image with QEMU through
 [Gondolin](https://github.com/earendil-works/gondolin), and needs neither.
 
-`plainwright vm-image` builds it the first way this machine has (`--native` or `--docker` picks
+`turri vm-image` builds it the first way this machine has (`--native` or `--docker` picks
 one):
 
 | | needs | |
@@ -62,9 +62,9 @@ one):
 | with e2fsprogs (the default) | `brew install e2fsprogs`, or `apt install e2fsprogs` | a few small command-line tools, installed once - nothing to start or keep running. Gondolin unpacks the Alpine packages itself; e2fsprogs writes the disk image. |
 | in Docker | Docker, running | the build runs in a Linux container. For when e2fsprogs cannot be installed. |
 
-Both take about 7 minutes and produce the same image, `plainwright:latest` in
+Both take about 7 minutes and produce the same image, `turri:latest` in
 `~/.cache/gondolin/images`, for this machine's architecture. What goes into it is `vm/image.json`.
-`plainwright setup` works through them in that order:
+`turri setup` works through them in that order:
 
 - **e2fsprogs installed** - it offers to build.
 - **e2fsprogs not installed** - on macOS it offers to install it with Homebrew, then to build; on
@@ -75,18 +75,18 @@ Both take about 7 minutes and produce the same image, `plainwright:latest` in
 - **Neither** - it says so, explains what the stock image means for your project, and names both
   ways to get the full one.
 
-`plainwright doctor` shows which way is available as `Image builder`.
+`turri doctor` shows which way is available as `Image builder`.
 
 ### What goes into the image
 
 Every command an agent runs - its shell, the builds, the tests - runs in a VM of this image, so it
 has to hold what your projects are written and built with. There are three ways to have it:
 
-- **The default image, as it is.** plainwright's recipe, `vm/image.json`: Python (`python3`, `pip`,
+- **The default image, as it is.** turri's recipe, `vm/image.json`: Python (`python3`, `pip`,
   `uv`), Node (`nodejs`, `npm`), Java (`openjdk21-jdk`, Maven, Gradle), Go, Rust (`rust`, `cargo`),
   C/C++ (`build-base`, `cmake`) and the basics.
 - **The default image, changed**, for every project on this machine: your own file,
-  `~/.plainwright/vm-image.json`, laid over the recipe and kept across plainwright's updates -
+  `~/.turri/vm-image.json`, laid over the recipe and kept across turri's updates -
 
   ```json
   { "remove": ["java", "python"], "add": ["zig"] }
@@ -102,17 +102,17 @@ has to hold what your projects are written and built with. There are three ways 
     packages: [zig, nodejs]     # or add: [...] and remove: [...]
   ```
 
-  `plainwright vm-image` run in that project builds it, under a tag of the project's own
-  (`plainwright-<folder>-<hash>:latest`), and every VM of the project runs it. Until it is built, the
+  `turri vm-image` run in that project builds it, under a tag of the project's own
+  (`turri-<folder>-<hash>:latest`), and every VM of the project runs it. Until it is built, the
   project runs the default image, and says so. `--default` builds the default image instead.
 
 The basics - git, bash, curl, the file tools and what the VM needs to boot - are in every image,
 whatever a list says: a list that leaves them out has them put back, and removing one is refused.
-Before a build, `plainwright vm-image` and `setup` say what the image will hold; `plainwright doctor`
+Before a build, `turri vm-image` and `setup` say what the image will hold; `turri doctor`
 says what it holds, and when its recipe asks for something it was not built with. Don't edit
 `vm/image.json` itself: an update puts it back.
 
-In the chat, plainwright knows all of this: it is told every turn what the project's image holds
+In the chat, turri knows all of this: it is told every turn what the project's image holds
 and what each module's implementation reqs need of it that it lacks - Zig named in the reqs, no Zig
 in the image - and it follows the managing-vms rule. It can write your file or the project's
 `vm-image:` and build either with `build_vm_image`, as a background job; VMs started afterwards run
@@ -135,7 +135,7 @@ the release the recipe builds on:
 | the libkrun backend's kernel | the [libkrunfw](https://github.com/containers/libkrunfw) project's GitHub releases |
 
 Python is Alpine's `python3` package, Java is `openjdk21-jdk`, and so on - built by Alpine from the
-upstream projects. `plainwright vm-image --plan` lists every package a build would download,
+upstream projects. `turri vm-image --plan` lists every package a build would download,
 without building anything: its version, repository, the project it comes from, its licence and
 size, what each toolchain costs beyond the basics, and any name the repositories don't have (a
 build stops on it before downloading anything). `setup` and the build say the same before they
@@ -162,9 +162,9 @@ vm-image:
   of the release's `main` and `community` - a company proxy, or `testing` added. The base system and
   the kernel still come from the mirror, or from Alpine's own server when there is no mirror.
 
-Gondolin installs packages from the repositories the base system lists, so plainwright writes the
+Gondolin installs packages from the repositories the base system lists, so turri writes the
 chosen ones into its `/etc/apk/repositories` before the build. The base system is kept, and the
-build runs, in a folder of that set of sources' own under `~/.cache/plainwright/vm-build/`, so
+build runs, in a folder of that set of sources' own under `~/.cache/turri/vm-build/`, so
 Alpine's own downloads never mix with a mirror's. The image keeps the repositories: what a VM
 installs later - `system-packages:`, or a coding agent's `install_system_packages` - comes from them
 too. Changing the sources takes a rebuild, and `doctor` says so. What a mirror serves is taken as it
@@ -186,26 +186,26 @@ Until the image is built, commands run in Gondolin's stock image, downloaded on 
 The agents are told the same, so on the stock image a project that needs more is reported as
 needing the full image rather than fought with.
 
-## plainwright in every `pi`
+## turri in every `pi`
 
-`plainwright chat` runs pi from this project's `node_modules`, so no global pi install is needed.
-To get the tools in a plain `pi` instead, let `plainwright setup` install a one-line global
-extension (`~/.pi/agent/extensions/plainwright.ts`) and copy the themes to `~/.pi/agent/themes/`.
+`turri chat` runs pi from this project's `node_modules`, so no global pi install is needed.
+To get the tools in a plain `pi` instead, let `turri setup` install a one-line global
+extension (`~/.pi/agent/extensions/turri.ts`) and copy the themes to `~/.pi/agent/themes/`.
 By hand, it is:
 
 ```bash
 mkdir -p ~/.pi/agent/extensions
-cat > ~/.pi/agent/extensions/plainwright.ts <<'EOF'
-export { default } from "/absolute/path/to/plainwright/src/extension.ts";
+cat > ~/.pi/agent/extensions/turri.ts <<'EOF'
+export { default } from "/absolute/path/to/turri/src/extension.ts";
 EOF
 cp .pi/themes/*.json ~/.pi/agent/themes/
 ```
 
 That is the only absolute path in the setup, and deleting the file removes the tools. pi treats a
-tool registered twice as an error, so `plainwright chat` checks for the global extension and
+tool registered twice as an error, so `turri chat` checks for the global extension and
 themes and skips its own `-e` / `--theme` when it finds them.
 
-`plainwright chat` starts in the `forge` theme. A plain `pi` keeps its own theme; to give it
+`turri chat` starts in the `forge` theme. A plain `pi` keeps its own theme; to give it
 `forge` too, in `~/.pi/agent/settings.json`:
 
 ```json
@@ -236,6 +236,6 @@ For Gemini, `GEMINI_API_KEY` is what makes pi *offer* the google provider, but w
 | variable | |
 | --- | --- |
 | `PLAIN_TEMPLATE_DIRS` | colon-separated template directories, e.g. the standard library |
-| `PLAINWRIGHT_VM_IMAGE` | a different Gondolin image to boot (default `plainwright:latest`) |
-| `PLAINWRIGHT_VM_DISK`, `PLAINWRIGHT_VM_MEMORY`, `PLAINWRIGHT_VM_CPUS` | the VM's size (default `8G`, `2G`, `4`) |
-| `PLAINWRIGHT_COMMAND_TIMEOUT` | seconds a command in the VM may run before it is stopped - an agent's own, its tests, an install (default `120`) |
+| `TURRI_VM_IMAGE` | a different Gondolin image to boot (default `turri:latest`) |
+| `TURRI_VM_DISK`, `TURRI_VM_MEMORY`, `TURRI_VM_CPUS` | the VM's size (default `8G`, `2G`, `4`) |
+| `TURRI_COMMAND_TIMEOUT` | seconds a command in the VM may run before it is stopped - an agent's own, its tests, an install (default `120`) |

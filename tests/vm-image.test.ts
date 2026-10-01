@@ -11,20 +11,20 @@ import { describeSources, imageSources, replaceInTar } from "../src/vm-image-con
 let root: string;
 let userFile: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-vm-image-"));
+  root = mkdtempSync(join(tmpdir(), "turri-vm-image-"));
   userFile = join(root, "home", "vm-image.json");
   mkdirSync(join(root, "home"));
-  process.env.PLAINWRIGHT_VM_IMAGE_CONFIG = userFile;
+  process.env.TURRI_VM_IMAGE_CONFIG = userFile;
 });
 afterEach(() => {
-  delete process.env.PLAINWRIGHT_VM_IMAGE_CONFIG;
+  delete process.env.TURRI_VM_IMAGE_CONFIG;
   rmSync(root, { recursive: true, force: true });
 });
 
 const recipe = () => ((defaultRecipe().alpine as { rootfsPackages: string[] }).rootfsPackages);
 
 describe("the VM image's recipe", () => {
-  it("is plainwright's, as it is, when nobody changed it", () => {
+  it("is turri's, as it is, when nobody changed it", () => {
     const plan = imagePlan();
     expect(plan.packages.sort()).toEqual([...recipe()].sort());
     expect(toolchainsOf(plan.packages).toolchains).toEqual(["Python", "Node", "Java", "Go", "Rust", "C/C++", "git"]);
@@ -65,7 +65,7 @@ describe("the VM image's recipe", () => {
   });
 
   it("gives a project's own image a tag of its own - the same every time for the same folder", () => {
-    expect(projectImageTag(root)).toMatch(/^plainwright-[a-z0-9._-]+-[0-9a-f]{8}:latest$/);
+    expect(projectImageTag(root)).toMatch(/^turri-[a-z0-9._-]+-[0-9a-f]{8}:latest$/);
     expect(projectImageTag(root)).toBe(projectImageTag(root));
     expect(projectImageTag(join(root, "other"))).not.toBe(projectImageTag(root));
   });

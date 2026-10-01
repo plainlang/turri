@@ -36,10 +36,10 @@ esac
 
 # Conformance tests live in the conformance tests folder and nowhere else. One in the
 # build folder is in the wrong place: nothing would run it as part of the suite. Refuse.
-MISPLACED=$( (grep -rlE --exclude=".plainwright*" --exclude-dir=.venv --exclude-dir=node_modules --exclude-dir=target \
+MISPLACED=$( (grep -rlE --exclude=".turri*" --exclude-dir=.venv --exclude-dir=node_modules --exclude-dir=target \
     "conformance tests of (functionality [0-9]|the spec)|acceptance test [0-9]+ of functionality" "$1" 2>/dev/null; \
   find "$1" -type f \( -ipath "*conformance*" -o -ipath "*acceptance*" \) -iname "*test*" \
-    -not -name ".plainwright*" -not -path "*/.venv/*" -not -path "*/node_modules/*" -not -path "*/target/*" 2>/dev/null) | sort -u)
+    -not -name ".turri*" -not -path "*/.venv/*" -not -path "*/node_modules/*" -not -path "*/target/*" 2>/dev/null) | sort -u)
 if [ -n "$MISPLACED" ]; then
   printf "Error: conformance tests found in the build folder %s - they belong in the conformance tests folder %s:\n%s\n" "$1" "$CONFORMANCE_TESTS_FOLDER" "$MISPLACED" >&2
   exit 1

@@ -5,9 +5,9 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { interruptedRun } from "../../src/forge.ts";
 import { compileSkill } from "../../src/graph.ts";
-import { createJobRegistry } from "../../src/render/jobs.ts";
-import { createWorkLoop } from "../../src/render/loop.ts";
-import { writeCodeRecord } from "../../src/render/records.ts";
+import { createJobRegistry } from "../../src/grow/jobs.ts";
+import { createWorkLoop } from "../../src/grow/loop.ts";
+import { writeCodeRecord } from "../../src/grow/records.ts";
 import type { Skill } from "../../src/skill.ts";
 
 /** An agent session that records what it is asked and answers nothing. */
@@ -35,7 +35,7 @@ const skill = {
 } as unknown as Skill;
 
 let dir: string;
-beforeEach(() => (dir = mkdtempSync(join(tmpdir(), "plainwright-resume-"))));
+beforeEach(() => (dir = mkdtempSync(join(tmpdir(), "turri-resume-"))));
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 async function run(startAt?: string, initial: object = {}) {

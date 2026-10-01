@@ -20,7 +20,7 @@ file structure by `module-structure.md`.
 *.plain                  # root modules: what the software does
 template/*.plain         # import modules: shared definitions and reqs
 resources/               # files specs link to: schemas, API specs, fixtures
-test_scripts/            # unit and conformance runners, found by plainwright (not linked)
+test_scripts/            # unit and conformance runners, found by turri (not linked)
 config.yaml              # optional: names the scripts when there is more than one of a kind
 plain_modules/           # generated - one folder per module
   <module>/code/         #   implementation and unit tests

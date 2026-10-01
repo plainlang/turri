@@ -38,7 +38,7 @@ The bullet, section, or `.plain` file to resolve.
 7. **Author each fact into its owning section** with the right edit skill — `add-concept`, `add-implementation-requirement`, `add-test-requirement`, `add-acceptance-test`. **Never hand-author `***functional specs***`**: a fact moving *into* that section goes through `add-functional-spec`, which runs the complexity and conflict analyzers for you.
 8. **Remove each fact from where it no longer belongs.** If a bullet is left stating nothing observable, delete the bullet; do not leave a stub. Deleting the last bullet of a section deletes the section.
 9. **Verify nothing was lost and nothing was duplicated.** Walk every fact from the original text and confirm it appears in exactly one section. A fact that now reads as obvious in its new home is still a cut decision — make it deliberately, per `concise-specs.md`.
-10. **Run `check_plain`** on the module. Moving facts changes the renderable surface; do not finish while it reports errors.
+10. **Run `validate`** on the module. Moving facts changes the renderable surface; do not finish while it reports errors.
 11. **Read the file again** to confirm canonical section order (`***definitions***` → `***implementation reqs***` → `***test reqs***` → `***functional specs***`), correct syntax, and that every referenced concept is still defined before use.
 
 ## Error Handling

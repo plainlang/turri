@@ -92,7 +92,7 @@ function hasScheme(target: string): boolean {
  * A link's file: found where resources are loaded from - the spec's own folder first, then the
  * other template folders - or else from the current directory, as the reference parser has it.
  * Links are relative to the spec, so a spec in a subfolder is checked where it is, wherever
- * plainwright was started.
+ * turri was started.
  */
 function linkedFile(target: string, dirs: string[]): string {
   for (const dir of dirs) {
@@ -630,7 +630,7 @@ export function parsePlainSource(
 }
 
 export function readModulePlainSource(moduleName: string, templateDirs: string[]): string {
-  // `stdlib/...` is plainwright's standard library, and only that - see stdlib.ts.
+  // `stdlib/...` is turri's standard library, and only that - see stdlib.ts.
   const plainSourceText = isStdlibModule(moduleName) ? readStdlibModule(moduleName, templateDirs) : openFrom(templateDirs, moduleName + PLAIN_SOURCE_FILE_EXTENSION);
   if (plainSourceText === null) {
     throw new ModuleDoesNotExistError(`Module does not exist (${moduleName}).`);

@@ -3,7 +3,7 @@
 A rendering agent is building one module. It has no business reading the `.plain` specs it was
 not given, the rest of the project, or anything else on the machine - and pi's `cwd` is only
 where relative paths start: an absolute path resolves to itself and `bash` can `cd` anywhere. So
-plainwright fences its agents twice: their file tools check every path, and every command runs in
+turri fences its agents twice: their file tools check every path, and every command runs in
 a VM that holds nothing else.
 
 ## What an agent can reach
@@ -12,10 +12,10 @@ Every agent - render, conformance author, code fixer, regression repair - reads 
 whole of `plain_modules` with its file tools, every module's code and tests, and nothing above it.
 Its commands reach less: only its own module's folder (see below). The specs it is
 building from reach it only through the prompt the harness writes. Nor does any context file: pi puts
-every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt, and plainwright
+every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt, and turri
 turns that off for every agent it starts - so the project's own `AGENTS.md`, or yours in
 `~/.pi/agent`, never reaches a rendering agent, a judge or a skill's agent. Nor do pi's skills, which
-pi would list for an agent to load: each agent plainwright starts has one job, and plainwright runs its
+pi would list for an agent to load: each agent turri starts has one job, and turri runs its
 own gated skills itself. The conversation you talk to still loads both, as pi does.
 
 ## Every agent knows its walls
@@ -31,7 +31,7 @@ own folder.
 
 ## File tools
 
-`src/render/confine.ts` rebuilds `read`, `write`, `edit`, `ls`, `grep` and `find` from pi's own
+`src/grow/confine.ts` rebuilds `read`, `write`, `edit`, `ls`, `grep` and `find` from pi's own
 factories with a check in front of every path. The check runs twice: once on the argument the
 tool was called with, and once on the absolute path the tool resolved it to, because the two can
 differ. Symlinks are resolved before comparing, so a link cannot walk out, and a glob containing
@@ -39,9 +39,9 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 
 Credentials are the person's: no agent writes a `.env` or a variant of one (`.env.local`, `.env.test`) - a
 template, `.env.example`, is fine. The file tools refuse it, and what an agent's `bash` does to one in what
-its VM holds - the module and `plain_modules/.plainwright` - is put back as it was after the command, the agent
+its VM holds - the module and `plain_modules/.turri` - is put back as it was after the command, the agent
 told why. A made-up credential makes every later run fail without anyone seeing why; a missing one is the
-judge's to report (see [rendering](rendering.md)), the person's to provide.
+judge's to report (see [growing the code](growing.md)), the person's to provide.
 
 ## Commands run in a VM
 
@@ -59,16 +59,16 @@ testing scripts - runs in a
 The project's testing scripts run in the module's VM too, on a fresh copy of the code, and only
 through `run_unit_tests`, `run_conformance_tests` and the harness's own runs. The one exception is a
 project with `run-testing-scripts-in: host`, whose scripts run on this machine, in place - see
-[the testing scripts](rendering.md#the-testing-scripts). The agent gets their output, nothing more.
+[the testing scripts](growing.md#the-testing-scripts). The agent gets their output, nothing more.
 
-Each also holds `plain_modules/.plainwright` - the package caches and the copies test runs happen
+Each also holds `plain_modules/.turri` - the package caches and the copies test runs happen
 in - mounted read-write at the paths they have on the host. Neither holds the other's folder; the
 other modules, the specs, the home directory and every other project do not exist in either.
 - The host environment is not passed in, so the provider's API keys stay out.
 - The network is open: any host on the web, internal addresses included, and this machine's
   localhost on any port - a storage service or a mock API the tests talk to, running here. In the VM,
   `localhost:<port>` reaches a server the VM runs on that port - the app under test - and this
-  machine's when it runs none; `host.plainwright.internal:<port>` is always this machine's. A small
+  machine's when it runs none; `host.turri.internal:<port>` is always this machine's. A small
   proxy in the VM does that, started with it: every connection to the VM's loopback is redirected
   through it (iptables), and it tries the VM's own server first. Only HTTP(S) goes out to the web -
   Gondolin proxies it - so a raw TCP connection to a remote host, a database elsewhere, does not.
@@ -78,7 +78,7 @@ other modules, the specs, the home directory and every other project do not exis
   runtime attaching to itself, git calling a repository owned by someone else dubious.
 
 No command can hang a build. Every one has a time limit - 2 minutes, or
-`PLAINWRIGHT_COMMAND_TIMEOUT` seconds: the agent's own `bash` unless it gives a timeout (at most 30
+`TURRI_COMMAND_TIMEOUT` seconds: the agent's own `bash` unless it gives a timeout (at most 30
 minutes), its unit and conformance test runs, the harness's own runs, `install_system_packages`. A
 command that runs out is killed and reports exit 124 with a note on what to do instead: a server,
 a watcher or a prompt waiting for input never ends on its own, and has to be started in the
@@ -94,7 +94,7 @@ the dependencies are in the module's folder. A VM nothing has used for a minute 
 modules rendering at once each keep their own, and several projects never share one. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent
 gets no shell and commands are refused, because there is no honest way to fence one on the host.
-`plainwright doctor` says which of those it is.
+`turri doctor` says which of those it is.
 
 ## The web
 
@@ -123,7 +123,7 @@ refuses the rest. See [deploy](deploy.md).
 
 ## What the VM needs beside the code
 
-It lives in `plain_modules/.plainwright`, which ignores itself in git:
+It lives in `plain_modules/.turri`, which ignores itself in git:
 
 | | |
 | --- | --- |

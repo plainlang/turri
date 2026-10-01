@@ -6,12 +6,12 @@ import { subAgentResources } from "../src/pi.ts";
 
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-context-"));
+  root = mkdtempSync(join(tmpdir(), "turri-context-"));
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-describe("an agent plainwright starts", () => {
-  it("is given no AGENTS.md or CLAUDE.md - not the project's, not one above it - only what plainwright gives it", async () => {
+describe("an agent turri starts", () => {
+  it("is given no AGENTS.md or CLAUDE.md - not the project's, not one above it - only what turri gives it", async () => {
     writeFileSync(join(root, "AGENTS.md"), "The project's own instructions: the CRM talks to HubSpot through...\n");
     writeFileSync(join(root, "CLAUDE.md"), "More of them.\n");
     const code = join(root, "plain", "plain_modules", "hubspot", "code");

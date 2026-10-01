@@ -39,6 +39,6 @@ merely discussed; an unmet box is completed with a spec diff before finishing.
 - [ ] Read the modified `.plain` file(s) whole and checked: concepts defined before use, no cycles,
   build order right end to end, functional specs language-agnostic, every external interface
   explicit, acceptance tests consistent with their functional specs.
-- [ ] Ran `check_plain` on every module touched, and fixed what it reported with spec diffs.
+- [ ] Ran `validate` on every module touched, and fixed what it reported with spec diffs.
 - [ ] Handed over: the spec changes in order, the builds they queued and how they stand, and that
   further changes are asked for in the conversation as spec diffs.

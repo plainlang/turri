@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { readProjectConfig, splitModelSpec } from "./config.ts";
-import { projectRootOf, sessionsDir } from "./render/paths.ts";
+import { projectRootOf, sessionsDir } from "./grow/paths.ts";
 import {
   currentStopSignal,
   describeToolCall,
@@ -23,8 +23,8 @@ import {
   reportAgent,
   reportTranscript,
   reportUsage,
-} from "./render/activity.ts";
-import { debugLogOf, startDebugLog } from "./render/debug-log.ts";
+} from "./grow/activity.ts";
+import { debugLogOf, startDebugLog } from "./grow/debug-log.ts";
 
 type ThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
 
@@ -101,8 +101,8 @@ const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge"
  * What a sub-agent session is made of: pi's resources without any extensions.
  *
  * Left to itself, pi builds every session from the user's configuration - including every
- * installed extension. When plainwright is installed globally, that means each render agent,
- * judge and skill executor loads a whole second copy of plainwright inside itself: its
+ * installed extension. When turri is installed globally, that means each render agent,
+ * judge and skill executor loads a whole second copy of turri inside itself: its
  * tools, its hooks, its job registry, all bound to a session that is thrown away minutes
  * later. That copy then outlives its session in module state and breaks the next one. A
  * sub-agent is given exactly what it needs instead; for agents that work on specs, that
@@ -111,11 +111,11 @@ const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge"
  * Nor any context file. pi puts every AGENTS.md / CLAUDE.md from the agent's folder up - the
  * project's, the user's ~/.pi/agent one - into its system prompt; a rendering agent works in
  * plain_modules/<module>/code, so it would be given whatever the project says about itself. An
- * agent plainwright starts sees only what plainwright gives it. The conversation still loads
+ * agent turri starts sees only what turri gives it. The conversation still loads
  * them, as pi does.
  *
  * Nor any of pi's skills. pi lists every skill it finds - the user's, the project's - in the system prompt, for the
- * agent to load when one fits; an agent plainwright starts has one job, and plainwright runs its gated skills itself,
+ * agent to load when one fits; an agent turri starts has one job, and turri runs its gated skills itself,
  * giving each step to an agent as its task. The conversation keeps them.
  */
 export async function subAgentResources(cwd: string, withRules: boolean, system?: string): Promise<DefaultResourceLoader> {
@@ -195,7 +195,7 @@ export async function ask(session: AgentSession, text: string, onDelta?: (delta:
 
 /** How many times, after pi's own retries, a turn whose provider failed for a moment is tried again - and the first wait, doubled each time. */
 export const PROVIDER_RETRIES = 3;
-export const PROVIDER_RETRY_DELAY_MS = Number(process.env.PLAINWRIGHT_PROVIDER_RETRY_DELAY ?? 15) * 1000;
+export const PROVIDER_RETRY_DELAY_MS = Number(process.env.TURRI_PROVIDER_RETRY_DELAY ?? 15) * 1000;
 
 /** A provider error that passes: overloaded, rate limited, unreachable, timed out. */
 const TRANSIENT_PROVIDER_ERROR =
@@ -370,10 +370,10 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
 
 /**
  * How long one turn of an agent a render starts may take: past it, the turn ends where it is and
- * the harness goes on as after any turn - it runs the tests, and judges. PLAINWRIGHT_TURN_LIMIT sets
+ * the harness goes on as after any turn - it runs the tests, and judges. TURRI_TURN_LIMIT sets
  * it, in seconds; 0 turns it off.
  */
-export const TURN_LIMIT_MS = Number(process.env.PLAINWRIGHT_TURN_LIMIT ?? 120) * 1000;
+export const TURN_LIMIT_MS = Number(process.env.TURRI_TURN_LIMIT ?? 120) * 1000;
 
 /** A session's task, in its instructions, until its first turn shows it in the transcript. */
 const pendingTask = new WeakMap<object, string>();

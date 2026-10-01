@@ -1,22 +1,22 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { readProjectConfig } from "./config.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
+import { turriHome } from "./legacy.ts";
 
 /**
- * What goes into the sandbox VM image - plainwright's recipe, and the person's own changes to it.
+ * What goes into the sandbox VM image - turri's recipe, and the person's own changes to it.
  *
- * `vm/image.json` in plainwright is the recipe: Alpine, and a list of packages - every toolchain a
+ * `vm/image.json` in turri is the recipe: Alpine, and a list of packages - every toolchain a
  * project is likely to need. Someone who builds only Rust has no use for Java, and someone who
- * writes Zig needs a toolchain the recipe does not have; neither should have to edit plainwright's
- * own file, which the next update puts back. So `~/.plainwright/vm-image.json` - theirs, kept across
+ * writes Zig needs a toolchain the recipe does not have; neither should have to edit turri's
+ * own file, which the next update puts back. So `~/.turri/vm-image.json` - theirs, kept across
  * updates - removes and adds: whole toolchains by name, or single Alpine packages. What the VM needs
  * to boot and run a command is never removed.
  *
  * A project can have an image of its own: `vm-image:` in its config.yaml removes and adds the same
- * way, over that. plainwright vm-image in the project builds it, under a tag of the project's own, and
+ * way, over that. turri vm-image in the project builds it, under a tag of the project's own, and
  * every VM of the project runs it. Nobody's image is ever without the basics - git among them.
  *
  * What was built is written down beside it, so the chat can say what the image holds, and a change
@@ -62,12 +62,12 @@ const PACKAGE_NAME = /^[a-z0-9][a-z0-9+._-]*([<>=~]{1,2}[a-z0-9+._-]+)?$/;
 
 /** The person's own changes to the image: their file, kept across updates. */
 export function userImageFile(): string {
-  return process.env.PLAINWRIGHT_VM_IMAGE_CONFIG ?? join(homedir(), ".plainwright", "vm-image.json");
+  return process.env.TURRI_VM_IMAGE_CONFIG ?? join(turriHome(), "vm-image.json");
 }
 
 /** What the last build put into the image: beside the person's file, or - for a project's own image - in the project. */
 export function builtImageFile(project?: string): string {
-  return project !== undefined ? join(project, ".plainwright", "vm-image.built.json") : join(dirname(userImageFile()), "vm-image.built.json");
+  return project !== undefined ? join(project, ".turri", "vm-image.built.json") : join(dirname(userImageFile()), "vm-image.built.json");
 }
 
 /** Whether a project asks for an image of its own: `vm-image:` in its config.yaml. */
@@ -79,10 +79,10 @@ export function hasProjectImage(project: string): boolean {
 export function projectImageTag(project: string): string {
   const root = resolve(project);
   const name = basename(root).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "project";
-  return `plainwright-${name}-${createHash("sha1").update(root).digest("hex").slice(0, 8)}:latest`;
+  return `turri-${name}-${createHash("sha1").update(root).digest("hex").slice(0, 8)}:latest`;
 }
 
-/** plainwright's recipe, as its file has it. */
+/** turri's recipe, as its file has it. */
 export function defaultRecipe(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(PACKAGE_ROOT, "vm", "image.json"), "utf8")) as Record<string, unknown>;
 }
@@ -151,7 +151,7 @@ function readUserFile(file: string): ImageLayer | undefined {
 }
 
 /**
- * The image as it is to be built: plainwright's recipe; the person's file over it - a list of its own,
+ * The image as it is to be built: turri's recipe; the person's file over it - a list of its own,
  * or names removed and added; the project's `vm-image:` over that, the same way. The basics are always in.
  */
 export function imagePlan(options: { file?: string; project?: string } = {}): ImagePlan {
@@ -238,7 +238,7 @@ export function toolchainsOf(packages: string[]): { toolchains: string[]; extra:
   return { toolchains, extra: packages.filter((pkg) => !known.has(pkg)) };
 }
 
-/** What a plan builds, in a line: "Python, Node, Go, Rust, C/C++, git, and zig - without Java (your ~/.plainwright/vm-image.json)". */
+/** What a plan builds, in a line: "Python, Node, Go, Rust, C/C++, git, and zig - without Java (your ~/.turri/vm-image.json)". */
 export function describePlan(plan: ImagePlan): string {
   const { toolchains, extra } = toolchainsOf(plan.packages);
   const holds = [...toolchains, ...extra].join(", ") || "only the base tools";

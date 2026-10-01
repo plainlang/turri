@@ -37,7 +37,7 @@ Where a spec is silent, the agent that renders it has to decide - a format, a de
 rule - and when the decision is hard, or the spec reads two ways, it struggles: its tests keep
 failing, the judge keeps finding the tests or the code wrong, it runs far too long. Much of that is
 the spec's to settle, and once the spec says it, the next build does not struggle. Some of it is not
-- a bug the agent will fix, an environment problem, plainwright itself - and the spec stays out of
+- a bug the agent will fix, an environment problem, turri itself - and the spec stays out of
 that.
 
 You never ask the user: this runs on its own. Where the spec leaves a real choice, take the reading
@@ -54,10 +54,10 @@ diff, with `write_spec_diff`.
 1. Find the spec: the `.plain` file(s) the user named, or the project's modules. Read them whole,
    with their `import` and `requires` chains, and the project's `config.yaml` (and
    `config.<module>.yaml`).
-2. Run `check_plain` on each, and fix only what stops it parsing - with the file tools, while nothing
+2. Run `validate` on each, and fix only what stops it parsing - with the file tools, while nothing
    is built from it yet, otherwise with `write_spec_diff`.
 3. Make sure a build can start: the unit testing script (and, with conformance tests on, the
-   conformance testing script) plainwright finds. When one is missing, write it by following the
+   conformance testing script) turri finds. When one is missing, write it by following the
    `implement-unit-testing-script` (or `implement-conformance-testing-script`) skill, for the stack the
    spec's implementation reqs name.
 
@@ -82,13 +82,13 @@ Run cycles until the goal is met - or you are stuck - and at most twenty. Each c
      the spec should say as a spec diff (below), then `stop_job` the struggling build, so it is
      rendered again from the clarified spec, and go to the next cycle.
    - **Not the spec's** - a bug the agent is working through, a missing tool or package, a flaky
-     service, plainwright itself. Leave the build to it, note it for the report, and keep watching.
+     service, turri itself. Leave the build to it, note it for the report, and keep watching.
      Stopping it would throw its work away for nothing.
 5. **When the builds finish**, read `spec_findings`, and write into the spec every assumption about
    what the software does that a user, a caller or a test can see - as the build assumed it, unless
    that is not what the spec meant - so the next build does not have to guess. An assumption about how
    it is built inside - a library, a file layout, a name - stays out. A diagnosis that says the fix is
-   in the spec is written; one that says code, environment or plainwright is noted. Then the next
+   in the spec is written; one that says code, environment or turri is noted. Then the next
    cycle: what failed, and what the new diffs changed, is rendered again.
 
 **Writing a fix.** A git diff of the `.plain` file(s), paths from the project root, a few lines of
@@ -112,7 +112,7 @@ A short account:
 - every cycle in a line: what was rendered, what struggled, what you did about it;
 - every decision you wrote into the spec - what it settles, what the spec now says, and the spec diff
   job that renders it - with the ones where you chose between readings marked, for the user to check;
-- what was not the spec's - code, environment, plainwright - with what the builds and diagnoses said;
+- what was not the spec's - code, environment, turri - with what the builds and diagnoses said;
 - what is still open, when you stopped before the goal.
 
 Then say that any further change is asked for in the conversation, as a spec diff: what is left to build

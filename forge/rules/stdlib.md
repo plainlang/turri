@@ -4,7 +4,7 @@ description: The ***plain standard library - import modules for a backend, a fro
 
 # Rules for the standard library
 
-plainwright ships a standard library of import modules that settle everything about a generic piece
+turri ships a standard library of import modules that settle everything about a generic piece
 of software on one stack except what it does: its language and framework, its layout, its
 configuration, how it handles errors, how it logs, how it stops, and how it is tested. A module that
 imports one writes only what is its own - its concepts and its functional specs - and a requirement

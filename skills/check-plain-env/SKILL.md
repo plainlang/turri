@@ -17,10 +17,10 @@ This skill answers one question: **does the host machine have everything the ***
 
 ## When to run
 
-- **First time you open a ***plain project on a new machine** — before the first `plainwright module <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
+- **First time you open a ***plain project on a new machine** — before the first `turri regrow <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
 - **Once a new project's stack is settled** — at the end of `forge-plain`'s stack phase, so the first build does not stop on a missing toolchain.
 - **After `add-feature`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
-- **Before a real render** — alongside `check_plain`. `check_plain` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.
+- **Before a real render** — alongside `validate`. `validate` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.
 - **Onboarding** — when a teammate (or CI runner, or fresh dev container) is about to start using the project.
 - **Debugging a confusing failure** — when a test script exits with "command not found", "module not found", "could not connect", or similar before any test runs.
 - **On demand** — whenever the user asks "what do I need to install for this project?".
@@ -32,7 +32,7 @@ This skill is **read-only and observational**. It does not edit `.plain` files o
 - It does **not** install anything. It only suggests install commands and lets the user run them.
 - It does **not** generate scripts or change project files. Use the `implement-*-testing-script` skills for that.
 - It does **not** start services (databases, brokers, Docker daemons). It only checks whether the right binaries and (optionally) running endpoints are reachable.
-- It does **not** validate the specs themselves (syntax, structure, complexity). Use the `check_plain` tool for that — the two are complementary.
+- It does **not** validate the specs themselves (syntax, structure, complexity). Use the `validate` tool for that — the two are complementary.
 - It does **not** print secrets. Check whether an env var is *set* (e.g. `printenv FOO >/dev/null && echo set || echo missing`), never echo its value.
 
 ## Workflow
@@ -145,7 +145,7 @@ Worked example — the GPU case:
 
 Add these to every requirement list regardless of project:
 
-- plainwright's own needs — Node, QEMU, the sandbox VM image, a model provider — are checked by `plainwright doctor --quick`. Run it and report its result; do not probe those separately.
+- turri's own needs — Node, QEMU, the sandbox VM image, a model provider — are checked by `turri doctor --quick`. Run it and report its result; do not probe those separately.
 - A shell matching the testing scripts' extension (Bash for `.sh`, PowerShell for `.ps1`).
 - `git` (the renderer uses it; almost every plain project tracks itself in git).
 
@@ -160,7 +160,7 @@ For every requirement the project produced in Step 2, run a check using the `bas
 Probe in the same category order Step 2 produced them, so the report reads top-down:
 
 1. **Category 1 — Language toolchains.** Run the toolchain + package-manager probes listed in Step 2's Category 1 for the languages this project actually uses. Do not probe individual language packages.
-2. **Category 5 — plainwright and `git`.** Always required, independent of the project. `plainwright doctor --quick`, `git --version`. Verify the shell flavor matches the scripts' extension; a `.sh`-only project on native Windows is a `FAIL` (suggest WSL).
+2. **Category 5 — turri and `git`.** Always required, independent of the project. `turri doctor --quick`, `git --version`. Verify the shell flavor matches the scripts' extension; a `.sh`-only project on native Windows is a `FAIL` (suggest WSL).
 3. **Category 2 — External services.** For each service identified at runtime, probe the CLI's presence first, then — if the CLI exists — check whether the service itself is reachable. Service binary present but daemon down → `WARN`, not `FAIL`.
 4. **Category 3 — System binaries that language packages wrap.** For each one identified in Step 2, check the system binary is on `PATH` (`which <bin>` / `<bin> --version`). The wrapper package itself isn't probed.
 5. **Category 4 — Hardware, drivers, accelerators.** Walk the layered probe from Step 2 in order (driver → device visibility → SDK → acceleration libs → framework-sees-it → version match), reporting each layer's result separately. Never collapse a multi-layer failure into a single "GPU not available" message — each layer has a different fix.
@@ -183,7 +183,7 @@ For every **FAIL** and **WARN** item, the report must include four columns:
 | **Status** | "missing", "outdated (found X, need Y)", "binary present but service not running", or "env var not set". |
 | **How to install** | OS-specific command(s). See [Install suggestions](#install-suggestions) below. |
 
-Group the report into the same six probe groups used in Step 3 (toolchains, plainwright/git, services, system binaries, hardware, credentials), so the user can fix one whole layer at a time.
+Group the report into the same six probe groups used in Step 3 (toolchains, turri/git, services, system binaries, hardware, credentials), so the user can fix one whole layer at a time.
 
 End the report with a one-liner reminder: `Re-run check-plain-env after installing missing items to confirm.`
 
@@ -210,7 +210,7 @@ The tables below are a **starter set** of well-known install commands for the th
 | Docker | Install Docker Desktop from https://docker.com/products/docker-desktop |
 | `pg_config` (psycopg) | comes with `brew install postgresql@16` |
 | Xcode CLT | `xcode-select --install` |
-| `plainwright` | follow the install instructions at https://plainwright.ai |
+| `turri` | follow the install instructions at https://turri.ai |
 
 ### Linux (Debian/Ubuntu)
 

@@ -3,10 +3,10 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { IMPORT_DIRECTIVE, PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
-import { resolveTemplateDirs } from "./render/paths.ts";
-import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./render/spec-change.ts";
+import { resolveTemplateDirs } from "./grow/paths.ts";
+import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./grow/regrow.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
-import { describeModules, type WorkLoop } from "./render/loop.ts";
+import { describeModules, type WorkLoop } from "./grow/loop.ts";
 import { reviewNote, type LiveReviewer } from "./tools.ts";
 
 /** Whether a question has been answered since the last new spec change was written. */

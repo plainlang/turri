@@ -91,7 +91,7 @@ covered:
      spec and every existing one in the chain). Follow those skills for what the text is; the diff
      is the only thing that writes it.
    - with conformance tests on - test reqs of the module's own or imported, and a conformance
-     testing script plainwright finds - an acceptance test under its functional spec when the
+     testing script turri finds - an acceptance test under its functional spec when the
      answer states one concrete verification (`add-acceptance-test`), and a test req only when the
      answer changes how conformance tests run (`add-test-requirement`). With conformance off, none.
    Write it as a git diff: `diff --git a/<file> b/<file>`, `--- a/<file>`, `+++ b/<file>`, then the
@@ -129,7 +129,7 @@ A short consistency pass over what the feature changed, then the handover.
    no cycles; build order right end to end - no spec depends on one after it; functional specs
    language-agnostic; every external interface explicit (paths, methods, arguments, formats);
    acceptance tests consistent with their functional specs.
-2. Run `check_plain` on every module the feature touched.
+2. Run `validate` on every module the feature touched.
 3. Fix what either finds with a spec diff and `fixes_earlier` - never by editing the file. Ask the
    user only when a fix is a decision the brief and the answers do not settle.
 

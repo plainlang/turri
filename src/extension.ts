@@ -1,3 +1,7 @@
+// First: the names turri had before are carried over before anything reads them.
+import { LEGACY_NAME } from "./legacy.ts";
+// A project built under the old names is brought over the first time it is found.
+import "./grow/migrate.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -9,42 +13,41 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
-import { modulesRoot, skillRunDir } from "./render/paths.ts";
-import { defaultParallelJobs, installedPackages, STOCK_IMAGE, vmImageFor } from "./render/vm.ts";
+import { modulesRoot, skillRunDir } from "./grow/paths.ts";
+import { defaultParallelJobs, installedPackages, STOCK_IMAGE, vmImageFor } from "./grow/vm.ts";
 import { stackAgainstImage } from "./vm-stack.ts";
 import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, projectImageTag, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
 import { buildVmImage } from "./setup.ts";
 import { describeContents, imageSources, resolveImageContents } from "./vm-image-contents.ts";
-import { findTestScripts } from "./render/test-scripts.ts";
+import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
-import { createWebTools } from "./render/web.ts";
+import { createWebTools } from "./grow/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
-import { resolveTemplateDirs } from "./render/paths.ts";
+import { resolveTemplateDirs } from "./grow/paths.ts";
 import { plainFileParser } from "./plain/parser.ts";
 import { TEST_REQUIREMENTS } from "./plain/spec.ts";
-import { sectionsOf } from "./render/state.ts";
-import { runningDeployed, stopDeployed } from "./render/deploy.ts";
-import { createDeployState, createDeployTools, refuseInstall } from "./deploy-tools.ts";
-import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./render/steering.ts";
-import { vmSummary } from "./render/vm.ts";
+import { sectionsOf } from "./grow/state.ts";
+import { runningDeployed, stopDeployed } from "./grow/release.ts";
+import { createDeployState, createDeployTools, refuseInstall } from "./release-tools.ts";
+import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./grow/steer.ts";
+import { vmSummary } from "./grow/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
-import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./render/models.ts";
+import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
 import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
-import { whyFailed } from "./render/why-failed.ts";
-import { createWorkLoop, describeModules, previewJobs, type ModuleStatus, type WorkLoop } from "./render/loop.ts";
-import { plainPaint } from "./render/plain-palette.ts";
-import { createJobPanel } from "./render/job-panel.ts";
-import { createSidePanel, type PanelView } from "./render/side-panel.ts";
-import { createJobsTreeState } from "./render/jobs-tree.ts";
-import { describeDiagnosis, diagnoseFailure } from "./render/diagnose.ts";
-import { HISTORY_DIR, historyLog, historyShow } from "./render/history.ts";
-import { defaultBuildDir } from "./render/paths.ts";
-import { describeUsage, type SpecConflict } from "./render/activity.ts";
-import { describeSpecConflict } from "./render/stop-report.ts";
+import { whyFailed } from "./grow/diagnose-job.ts";
+import { createWorkLoop, describeDrift, describeModules, previewJobs, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
+import { plainPaint } from "./grow/plain-palette.ts";
+import { createJobPanel } from "./grow/job-panel.ts";
+import { createSidePanel, type PanelView } from "./grow/side-panel.ts";
+import { createJobsTreeState } from "./grow/jobs-tree.ts";
+import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
+import { HISTORY_DIR, historyLog, historyShow } from "./grow/lineage.ts";
+import { defaultBuildDir } from "./grow/paths.ts";
+import { describeUsage, type SpecConflict } from "./grow/activity.ts";
+import { describeSpecConflict } from "./grow/stop-report.ts";
 import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
-import { applySpecDiff, revertSpecDiff } from "./render/spec-change.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
@@ -57,14 +60,14 @@ import {
   type Job,
   type JobOutcome,
   type JobRegistry,
-} from "./render/jobs.ts";
+} from "./grow/jobs.ts";
 
 /**
  * Makes gated skills reachable from a conversation.
  *
  * The conversational agent keeps ordinary progressive disclosure - it reads the
  * skill descriptions and decides when one applies. What it does not get is the
- * choice of how to run it: `run_skill` hands the work to the graph, which owns
+ * choice of how to run it: `cultivate` hands the work to the graph, which owns
  * the steps, the gates and the judges. The agent asks for the skill; it does not
  * perform it.
  */
@@ -171,7 +174,7 @@ export default function (pi: ExtensionAPI) {
   // allows. Neither starts a turn, so nothing talks over the person.
   const jobs: JobRegistry = createJobRegistry({
     // A job that fails is run once more; failing again, it and every job behind it fail, and the
-    // harness - which can read the skills, the rules, the code, the tests and plainwright itself -
+    // harness - which can read the skills, the rules, the code, the tests and turri itself -
     // works out why, and what has to be done.
     retries: 1,
     // Modules that share nothing build side by side - as many at once as the machine has room for.
@@ -220,17 +223,17 @@ export default function (pi: ExtensionAPI) {
 
   // The ***plain rules go into the system prompt in full, every turn. The block is
   // identical each time, so it sits inside the cached prefix rather than invalidating it.
-  // With them, the instruction to do plainwright's work with its tools rather than its command
+  // With them, the instruction to do turri's work with its tools rather than its command
   // line - enforced below, not only asked for.
   const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"));
   const rulesBlock = chatRulesBlock(rules);
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: [event.systemPrompt, TOOLS_NOT_CLI, projectConfigBlock(cwd), sandboxBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
+    systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), sandboxBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
   }));
 
-  // The conversation's agent does not run plainwright again through its shell, unless the person
+  // The conversation's agent does not run turri again through its shell, unless the person
   // asked for the command line in the message it is answering.
   let lastUserMessage = "";
   pi.on("input", (event) => {
@@ -265,7 +268,7 @@ export default function (pi: ExtensionAPI) {
   const showConformance = (ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
     try {
-      ctx.ui.setStatus("plainwright-conformance", conformanceStatus(cwd));
+      ctx.ui.setStatus("turri-conformance", conformanceStatus(cwd));
     } catch {
       // A status line is a convenience; never let it stop a turn.
     }
@@ -273,7 +276,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => showConformance(ctx));
   // Where the keys are, from the first moment - before any job shows its panel.
   pi.on("session_start", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus("plainwright-keys", `${PANEL_KEY} inspect jobs · ctrl+o expand`);
+    if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect jobs · ctrl+o expand`);
   });
   pi.on("agent_start", (_event, ctx) => showConformance(ctx));
   pi.on("agent_end", (_event, ctx) => showConformance(ctx));
@@ -305,13 +308,11 @@ export default function (pi: ExtensionAPI) {
   registerInterviewLog(pi);
   registerJobTools(pi, jobs, cwd);
   registerCheckPlain(pi, cwd);
-  registerRenderModule(pi, cwd, jobs);
-  registerRegenerateFunctionality(pi, cwd, jobs);
-  registerStartOver(pi, cwd, jobs);
-  registerPreviewJob(pi, cwd, jobs);
-  registerRenderConformance(pi, cwd, jobs);
-  registerRenderSpecDiff(pi, cwd, jobs);
-  registerSpecChanged(pi, cwd, jobs);
+  registerRegrow(pi, cwd, jobs);
+  registerDrift(pi, cwd, jobs);
+  registerRejuvenate(pi, cwd, jobs);
+  registerGlimpse(pi, cwd, jobs);
+  registerBind(pi, cwd, jobs);
   registerBuildVmImage(pi, cwd, jobs);
   registerRenderModels(pi);
   registerDeploy(pi, cwd);
@@ -325,19 +326,19 @@ export default function (pi: ExtensionAPI) {
     pending.length > 0 ? `\n\nFailed to load and therefore not runnable: ${pending.join(", ")}.` : "";
 
   pi.registerTool({
-    name: "run_skill",
-    label: "Run gated skill",
+    name: "cultivate",
+    label: "Cultivate",
     description:
       "Execute one of this project's gated skills end to end. The skill's steps, review gates and " +
       "judges are enforced by the harness, so a gated skill's result has already passed review when it comes back; a skill " +
       "without gates is not reviewed. Every result says which files the run changed in the project.\n\n" +
       `Available skills:\n${catalogue}${pendingNote}`,
-    promptSnippet: "execute a gated project skill (steps and review gates enforced by the harness)",
+    promptSnippet: "cultivate: run a gated skill - its steps and review gates enforced by turri",
     promptGuidelines: [
-      "When a request matches a skill listed in run_skill's description, call run_skill instead of doing the work yourself. Doing it by hand skips the review gates.",
-      "run_skill returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
-      "If run_skill fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
-      "Always pass `context` to run_skill, summarising what the user has already told you.",
+      "When a request matches a skill listed in cultivate's description, call cultivate instead of doing the work yourself. Doing it by hand skips the review gates.",
+      "cultivate returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
+      "If cultivate fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
+      "Always pass `context` to cultivate, summarising what the user has already told you.",
     ],
     parameters: Type.Object({
       skill: Type.String({
@@ -386,7 +387,7 @@ export default function (pi: ExtensionAPI) {
               text:
                 `There is an interrupted run of ${skill.name} here${interrupted.step ? `, stopped in its ${interrupted.step} step` : ""} ` +
                 `(last active ${interrupted.updatedAt}). Ask the user whether to continue it or start over, then call ` +
-                "run_skill again with resume: true or fresh: true. Nothing has been started.",
+                "cultivate again with resume: true or fresh: true. Nothing has been started.",
             },
           ],
           details: { interrupted },
@@ -471,13 +472,13 @@ export default function (pi: ExtensionAPI) {
         }),
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
-        // check_job and list_jobs see them without knowing a skill started them.
+        // growth sees them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
         renderQueue: workLoopFor(jobs, cwd, ctx),
         // A skill that waits for its builds and reads what they recorded - temper-plain - sees the same jobs.
         jobs,
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
-        // check_plain too: a skill validates what it wrote with the same check the conversation has.
+        // validate too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
@@ -502,7 +503,7 @@ export default function (pi: ExtensionAPI) {
       const specsChanged = changes.filter((path) => path.endsWith(".plain"));
       const unrendered =
         specsChanged.length > 0 && !skill.allowedTools.includes("write_spec_diff")
-          ? `${specsChanged.join(", ")} changed, and nothing renders that yet: call spec_changed for it, and the queue brings the code up to the spec.`
+          ? `${specsChanged.join(", ")} changed, and nothing grows from that yet: call regrow for it, and the code is brought up to the spec.`
           : "";
       const gated = skill.steps.some((step) => step.gate !== undefined);
       const text = result.ok
@@ -537,30 +538,38 @@ async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: boolean
     "",
     wait
       ? "Tell the user how it went."
-      : "It builds in the background: tell the user what runs and what is planned, and carry on. Use check_job with a job's id if they ask how it is going.",
+      : "It grows in the background: tell the user what runs and what is planned, and carry on. Use growth with a job's id if they ask how it is going.",
   ].join("\n");
   return { content: [{ type: "text" as const, text }], details: { jobIds } };
 }
 
-function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+function registerRegrow(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
-    name: "render_module",
-    label: "Render module",
+    name: "regrow",
+    label: "Regrow",
     description:
-      "Build a .plain module and every module it requires, bottom of the requires chain first. What is left to build - " +
-      "from what each module's code is built from to its spec as it is now - is planned into jobs, and they run one " +
-      "after the other; a module built on another waits until that one is built. Modules already built from their " +
-      "spec get nothing. A spec changed while it builds is followed by itself once spec_changed is called.",
-    promptSnippet: "build a .plain module and its requires chain",
+      "Regrow a .plain module's code from its spec as the files have it now - and every module it requires, bottom of the " +
+      "requires chain first. Call it after any change to the spec, by any means: the file tools, a skill, the user in an " +
+      "editor. It takes no diff: what is left to grow - from what each module's code was grown from to its spec now - is " +
+      "worked out and planned into jobs, and a job running that grows something the spec no longer wants is stopped and " +
+      "rolled back. Nothing to do where the code is grown from the spec as it is. With functional specs named, those are " +
+      "grown again even though their spec did not change.",
+    promptSnippet: "regrow a module's code from its spec as it is now - after any change to the spec",
     promptGuidelines: [
-      "render_module returns at once with what runs and what is planned. Report it, keep talking, and check_job or list_jobs when the user asks; the jobs report when they finish.",
-      "When the spec changes while it builds - by any means - call spec_changed.",
+      "Call regrow after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
+      "regrow returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the jobs report when they finish.",
+      "Name functional specs in `functionalities` only when the user wants ones whose spec did not change grown again. When they want one to come out differently, change its spec first - the spec is what persists - then regrow.",
+      "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regrow sees it by itself, and grows again every functional spec that uses what links it. Never name functional specs in `functionalities` for it.",
+      "Never stop jobs and start them again yourself to follow a spec change: regrow does it.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(
         Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" }),
       ),
       working_dir: WORKING_DIR_PARAM,
+      functionalities: Type.Optional(
+        Type.Array(Type.String(), { description: "Functional specs, by id, to grow again though their spec did not change. Omitted: only what changed" }),
+      ),
       guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
@@ -573,100 +582,55 @@ function registerRenderModule(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
         const stacks = modulesWithConfig(located.base);
         throw new Error(
           stacks.length > 0
-            ? `Name the .plain file to build: this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}.`
-            : `Name the .plain file to build, or set module: in ${CONFIG_FILE}.`,
+            ? `Name the .plain file to regrow: this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}.`
+            : `Name the .plain file to regrow, or set module: in ${CONFIG_FILE}.`,
         );
       }
       const plainFile = resolve(located.base, named);
-      const model = jobModel(ctx, "functionalities", located.model, plainFile);
+      const check = checkPlainFile(plainFile);
+      if (!check.ok) throw new Error(`${named} does not parse, so nothing can grow from it yet: ${check.error}`);
+      const again = located.functionalities ?? [];
+      const model = jobModel(ctx, again.length > 0 ? "functionalities" : "spec_changes", located.model, plainFile);
       const loop = workLoopFor(jobs, cwd, ctx);
-      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) });
+      const request = { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) };
+      const statuses = again.length > 0 ? await loop.regenerate(plainFile, again, request) : await loop.bringUp(plainFile, request);
       return loopReply(loop, statuses, shouldWait(ctx.mode, located.wait));
     },
   });
 }
 
-/**
- * The spec changed - however it was changed: the file tools, a skill, the person in an editor. Not a diff to
- * render: a notice. The work loop works out again what is left to build, from the records to the spec as it is
- * now, plans it, and stops a running job the spec no longer wants.
- */
-function registerSpecChanged(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+/** What is left to grow: the drift between a module's code and its spec - planning nothing, starting nothing. */
+function registerDrift(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
-    name: "spec_changed",
-    label: "Spec changed",
+    name: "drift",
+    label: "Drift",
     description:
-      "Tell the builds that a .plain spec changed - by any means: the file tools, a skill, the user in an editor. It " +
-      "takes no diff. What is left to build is worked out again, from what each module's code is built from to the " +
-      "spec as it is now, and planned into jobs; a job running that builds something the spec no longer wants is " +
-      "stopped and rolled back. Nothing to do when the code is already built from the spec.",
-    promptSnippet: "tell the builds a .plain spec changed, so they build the spec as it is now",
+      "How far a module's code has drifted from its spec: in each codebase where it lives, what is left to grow - the " +
+      "functional specs to add, change or take out, and reqs or definitions alone - and the conformance tests left to " +
+      "write, those bound ahead of their code, what is growing now, and why nothing grows where nothing does. It plans " +
+      "nothing and starts nothing, and calls no model.",
+    promptSnippet: "drift: what is left to grow in a module, code and conformance tests - starting nothing",
     promptGuidelines: [
-      "Call spec_changed after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: the harness compares what is built with the spec now.",
-      "Never stop jobs and re-queue them yourself to follow a spec change: spec_changed does it.",
+      "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last grown. To see the next job's prompt as well, use glimpse.",
     ],
     parameters: Type.Object({
-      plain_file: Type.String({ description: "A .plain file of the module whose spec changed" }),
+      plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" })),
       working_dir: WORKING_DIR_PARAM,
-      guidance: GUIDANCE_PARAM,
-      model: MODEL_PARAM,
     }),
     async execute(_id, given, _signal, _onUpdate, ctx) {
       const located = fromWorkingDir(cwd, given);
-      const plainFile = resolve(located.base, located.plain_file);
-      const check = checkPlainFile(plainFile);
-      if (!check.ok) throw new Error(`${located.plain_file} does not parse, so it cannot be built yet: ${check.error}`);
-      const model = jobModel(ctx, "spec_changes", located.model, plainFile);
-      const loop = workLoopFor(jobs, cwd, ctx);
-      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) });
-      return loopReply(loop, statuses, false);
+      const named = located.plain_file ?? readProjectConfig(located.base).module;
+      if (named === undefined) throw new Error(`Name the .plain file, or set module: in ${CONFIG_FILE}.`);
+      const reports = workLoopFor(jobs, cwd, ctx).drift(resolve(located.base, named));
+      return { content: [{ type: "text" as const, text: describeDrift(reports) }], details: { modules: reports.length } };
     },
   });
 }
 
-function registerRenderSpecDiff(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
-    name: "render_spec_diff",
-    label: "Render spec diff",
-    description:
-      "Apply a change to the ***plain specs, given as a git diff of the .plain files, and build it - any change: specs " +
-      "added, changed or removed, in any section, across any number of them. The diff is applied with git unless it " +
-      "already is; then, as after spec_changed, what is left to build is worked out from the spec as it now is, " +
-      "planned into jobs, and built.",
-    promptSnippet: "apply a git diff of the .plain specs and build it",
-    promptGuidelines: [
-      "Pass the diff exactly as git produced it (git diff -- '*.plain'), paths relative to the project root.",
-      "A change that takes something out of what is still to build - a page the user dropped, from every spec that names it - is one spec diff like any other: what is left to build is worked out again, and a job building what it takes out is stopped.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "A .plain file of the module the change is for" }),
-      working_dir: WORKING_DIR_PARAM,
-      diff: Type.String({ description: "The change, as a git diff of the .plain files" }),
-      guidance: GUIDANCE_PARAM,
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, _onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given);
-      const model = jobModel(ctx, "spec_changes", params.model, params.plain_file);
-      const plainFile = resolve(params.base, params.plain_file);
-      applySpecDiff(params.diff, params.base);
-      const check = checkPlainFile(plainFile);
-      if (!check.ok) {
-        revertSpecDiff(params.diff, params.base);
-        throw new Error(`Nothing was changed: with this diff ${params.plain_file} no longer parses. ${check.error}`);
-      }
-      const loop = workLoopFor(jobs, cwd, ctx);
-      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(params.guidance !== undefined ? { guidance: params.guidance } : {}) });
-      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
-    },
-  });
-}
-
-function registerRenderConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "render_conformance",
-    label: "Render conformance",
+    name: "bind",
+    label: "Bind conformance tests",
     description:
       "Write and run the black-box conformance tests of a module's functional specs - the ones named, or every one - on " +
       "the code as it is built, as jobs of their own: each writes its tests from the spec's test reqs and acceptance " +
@@ -676,10 +640,10 @@ function registerRenderConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegis
       "once and starts when every one named is built - each call one job - before the next code job. A functional spec " +
       "the spec does not have, or a module without test reqs, is refused. A conformance job checks, as it starts, that " +
       "the code record has every functional spec it tests, and does not start otherwise.",
-    promptSnippet: "write and run a module's conformance tests, on the code as it is built",
+    promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
     promptGuidelines: [
-      "When the user asks for conformance tests - for a module, or some of its functional specs - call render_conformance. Never edit config.yaml for it, and never regenerate a functionality to get them.",
-      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what render_module, spec_changed and render_spec_diff return lists the functional specs the planned code jobs add or change that no conformance test is for - decide which are worth black-box tests, say why, and call render_conformance with their numbers straight away. Name together the ones to test in one job. A code job's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.yaml for it, and never regenerate a functionality to get them.",
+      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code jobs add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. Name together the ones to test in one job. A code job's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
       "A conformance job that did not start because its code is not built: tell the user which functional specs it waits for, and which code job builds them.",
     ],
     parameters: Type.Object({
@@ -702,7 +666,7 @@ function registerRenderConformance(pi: ExtensionAPI, cwd: string, jobs: JobRegis
 
 function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
-    name: "regenerate_functionality",
+    name: "regrow",
     label: "Regenerate functionality",
     description:
       "Build one functionality of a module again - its spec changed, or the user wants it redone as it is. It is " +
@@ -710,8 +674,8 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
       "functionality is built again, in the module's own codebase.",
     promptSnippet: "build a functionality again",
     promptGuidelines: [
-      "A functionality whose spec changed is built again by itself once spec_changed is called: use regenerate_functionality when the user wants one redone whose spec did not change. Never to get conformance tests: that is render_conformance.",
-      "When the user wants it to come out differently, change its spec first - the spec is what persists - then call spec_changed.",
+      "A functionality whose spec changed is built again by itself once regrow is called: use regrow when the user wants one redone whose spec did not change. Never to get conformance tests: that is bind.",
+      "When the user wants it to come out differently, change its spec first - the spec is what persists - then call regrow.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
@@ -731,17 +695,17 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
   });
 }
 
-function registerPreviewJob(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+function registerGlimpse(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
-    name: "preview_job",
-    label: "Preview the next job",
+    name: "glimpse",
+    label: "Glimpse the next job",
     description:
-      "Plan the work of a module as render_module would, and show the job each codebase would start next and the whole " +
+      "Plan the work of a module as regrow would, and show the job each codebase would start next and the whole " +
       "prompt its coding agent would get - starting nothing. A codebase with a job running is left out: what its next job " +
       "is given depends on what the running one lands.",
-    promptSnippet: "preview_job: the next job of a module and its coding agent's whole prompt, starting nothing",
+    promptSnippet: "glimpse: the next job of a module and its coding agent's whole prompt, starting nothing",
     promptGuidelines: [
-      "Use preview_job when the user wants to see what a job will be told before it runs, or to check a plan before steering it with steer_queue.",
+      "Use glimpse when the user wants to see what a job will be told before it runs, or to check a plan before steering it with steer.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
@@ -780,15 +744,15 @@ function registerPreviewJob(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   });
 }
 
-function registerStartOver(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+function registerRejuvenate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
-    name: "start_over",
-    label: "Start a codebase over",
+    name: "rejuvenate",
+    label: "Rejuvenate a codebase",
     description:
       "Start over the codebase of a module that now requires a module its code was not built on - a module the specs were " +
       "split into, say: its code and conformance tests are taken out, committed so its history keeps them, and the module " +
       "is built again from the bottom of its chain. Destructive: only once the user agreed.",
-    promptSnippet: "start a codebase over on a module it now requires",
+    promptSnippet: "rejuvenate a codebase: grow it again from the bottom of its chain, on a module it now requires",
     promptGuidelines: [
       "Only when a module's status says it has to be started over, and only after asking the user and telling them why: its code was built without the module it now requires, so no change to the code brings that module in. If they do not agree, leave it: nothing else is built there until it is.",
     ],
@@ -849,16 +813,16 @@ export function conformanceStatus(root: string): string | undefined {
 }
 
 /**
- * How many jobs the chat runs at once: PLAINWRIGHT_PARALLEL_JOBS, else `parallel-jobs:` in the session
+ * How many jobs the chat runs at once: TURRI_PARALLEL_JOBS, else `parallel-jobs:` in the session
  * folder's config.yaml, else what this machine's memory holds VMs for.
  */
 export function parallelJobs(cwd: string): number {
-  const fromEnv = Number(process.env.PLAINWRIGHT_PARALLEL_JOBS);
+  const fromEnv = Number(process.env.TURRI_PARALLEL_JOBS);
   if (Number.isInteger(fromEnv) && fromEnv >= 1) return fromEnv;
   return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs();
 }
 
-/** The project's own files and a digest of each - not plain_modules, dependencies, or plainwright's and git's folders. */
+/** The project's own files and a digest of each - not plain_modules, dependencies, or turri's and git's folders. */
 export function projectFiles(root: string): Map<string, string> {
   const files = new Map<string, string>();
   const walk = (dir: string, depth: number) => {
@@ -922,7 +886,7 @@ export function sandboxBlock(cwd: string): string {
       : image.own
         ? `- In use: this project's own image, ${image.tag}, holding ${holds(holding)}${built !== undefined ? ` (built ${built.builtAt.slice(0, 10)})` : ""}.`
         : `- In use: the default image, ${image.tag}, holding ${holds(holding)}${built !== undefined ? ` (built ${built.builtAt.slice(0, 10)})` : ""}${image.missing !== undefined ? ` - ${image.missing}` : ""}.`,
-    `- Its recipe: ${describePlan(plan)}. plainwright's recipe (${join(PACKAGE_ROOT, "vm", "image.json")}), then the person's file ` +
+    `- Its recipe: ${describePlan(plan)}. turri's recipe (${join(PACKAGE_ROOT, "vm", "image.json")}), then the person's file ` +
       `${userImageFile()}${plan.file !== undefined ? "" : " (none yet)"}${own ? `, then this project's vm-image: in config.yaml` : ""}.`,
     ...(plan.refused.length > 0 ? [`- Not applied: ${plan.refused.join("; ")}.`] : []),
     ...(planDiffersFromBuilt(plan, built) || (own && image?.own !== true) ? ["- The recipe asks for something the image was not built with: it takes a build - build_vm_image."] : []),
@@ -1003,7 +967,7 @@ export function projectConfigBlock(root: string): string {
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === "chosen"
-            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with render_conformance - when the work is planned, ahead of its code: what is planned lists what the code jobs add or change that has none, and a conformance job scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
+            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with bind - when the work is planned, ahead of its code: what is planned lists what the code jobs add or change that has none, and a conformance job scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
             : config.conformanceTests === true
             ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
@@ -1015,9 +979,9 @@ export function projectConfigBlock(root: string): string {
           const models = projectModels(config);
           const shown = (choice: typeof models.coding) => modelSpec(choice) ?? "";
           return [
-            models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless set_render_model chose another in this session.` : undefined,
+            models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless engine chose another in this session.` : undefined,
             models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
-            models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model plainwright chat starts with.` : undefined,
+            models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model turri chat starts with.` : undefined,
           ];
         })(),
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each module's file below names its own" : "none found - every build stops until there is one"}`,
@@ -1052,15 +1016,15 @@ const GUIDANCE_PARAM = Type.Optional(
 const WORKING_DIR_PARAM = Type.Optional(
   Type.String({
     description:
-      "The folder to render from, relative to where plainwright was started - as if it had been started there " +
+      "The folder to render from, relative to where turri was started - as if it had been started there " +
       "(e.g. \"plain\"). plain_file, build_dir and a spec diff's paths are then relative to it - hubspot.plain, not " +
       "plain/hubspot.plain. Default: where " +
-      "plainwright was started.",
+      "turri was started.",
   }),
 );
 
 /**
- * A render tool's arguments as if plainwright had been started in `working_dir`: the .plain file
+ * A render tool's arguments as if turri had been started in `working_dir`: the .plain file
  * and the build folder made absolute from there, and that folder as `base`.
  */
 export function fromWorkingDir<T extends { working_dir?: string; plain_file?: string; build_dir?: string }>(
@@ -1092,8 +1056,8 @@ const MODEL_PARAM = Type.Optional(
   Type.String({
     description:
       "The model for the agents of this one call: a provider/model-id, or its name as the user said it. " +
-      "Omitted: the model chosen for this kind of work with set_render_model, else the conversation's. " +
-      "To change it for every later render, use set_render_model instead.",
+      "Omitted: the model chosen for this kind of work with engine, else the conversation's. " +
+      "To change it for every later render, use engine instead.",
   }),
 );
 
@@ -1126,7 +1090,9 @@ let lastChatModel: string | undefined;
 
 /** The models chosen in this session, by kind of work. Saved in the session, so a resume keeps them. */
 const chosenModels: ModelChoices = {};
-const MODEL_CHOICE_ENTRY = "plainwright_render_models";
+const MODEL_CHOICE_ENTRY = "turri_render_models";
+/** The same, as sessions saved it before turri had its name. */
+const LEGACY_MODEL_CHOICE_ENTRY = `${LEGACY_NAME}_render_models`;
 
 /**
  * The model a job's agents run on: the one named on the call, checked now so a wrong name fails
@@ -1147,7 +1113,7 @@ function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string, plain
 }
 
 /**
- * The coding model this session starts from, and where it was given: `plainwright chat
+ * The coding model this session starts from, and where it was given: `turri chat
  * --coding-model`, or `coding-model:` in the project's config.yaml - read afresh, so an edit to the
  * file holds for the next render.
  */
@@ -1188,37 +1154,47 @@ function projectModelLabel(ctx: ExtensionContext): { model: string; from: string
 }
 
 /**
- * set_render_model, for the conversation's agent and for a skill's agent - whom the person talks
+ * engine, for the conversation's agent and for a skill's agent - whom the person talks
  * to while the skill runs - alike: both write the same choice. `conversation` is the context to
  * read models and the chat's model from; omitted, the one the tool is called with.
  */
 function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
   return defineTool({
-    name: "set_render_model",
-    label: "Set render model",
+    name: "engine",
+    label: "Engine",
     description:
-      "Choose which model the agents that render run on, for the rest of this session: for spec changes " +
+      "The engine: which model the agents that grow the code run on. With no model, say which it is. With one, choose it " +
+      "for the rest of this session: for spec changes " +
       "(render spec diff jobs, and the ones write_spec_diff queues), for functionalities (render, module, " +
       "regenerate, conformance), or for everything. By default " +
       "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Jobs already queued keep their model.",
-    promptSnippet: "choose the model that renders spec changes or functionalities",
+    promptSnippet: "the engine: show or choose the model that grows the code",
     promptGuidelines: [
-      "When the user says which model should render or build something, call set_render_model - once; it holds for the rest of the session.",
-      "If set_render_model returns several candidates, ask the user which one with ask_user or in your reply, then call it again with the exact provider/model-id.",
+      "When the user says which model should grow or build something, call engine with it - once; it holds for the rest of the session. To say which one it is, call engine with no model.",
+      "If engine returns several candidates, ask the user which one with ask_user or in your reply, then call it again with the exact provider/model-id.",
       "Say which model a render will run on when you start one on something other than the conversation's model.",
     ],
     parameters: Type.Object({
-      work: Type.Union([Type.Literal("spec_changes"), Type.Literal("functionalities"), Type.Literal("all")], {
-        description: "spec_changes, functionalities, or all of it",
-      }),
-      model: Type.String({
-        description: 'provider/model-id, or the model\'s name as the user said it. "chat" goes back to the conversation\'s model.',
-      }),
+      work: Type.Optional(
+        Type.Union([Type.Literal("spec_changes"), Type.Literal("functionalities"), Type.Literal("all")], {
+          description: "spec_changes, functionalities, or all of it. Omitted: all",
+        }),
+      ),
+      model: Type.Optional(
+        Type.String({
+          description: 'provider/model-id, or the model\'s name as the user said it. "chat" goes back to the conversation\'s model. Omitted: say which it is, changing nothing',
+        }),
+      ),
     }),
-    async execute(_id, params, _signal, _onUpdate, called) {
+    async execute(_id, given, _signal, _onUpdate, called) {
       const ctx = conversation ?? called;
+      if (given.model === undefined) {
+        const text = `The engine:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}`;
+        return { content: [{ type: "text" as const, text }], details: { ...chosenModels } };
+      }
+      const params = { work: given.work ?? ("all" as const), model: given.model };
       const works: Array<RenderWork | "all"> = params.work === "all" ? ["all", "spec_changes", "functionalities"] : [params.work];
       if (/^(chat|default|conversation)$/i.test(params.model.trim())) {
         for (const work of works) delete chosenModels[work];
@@ -1232,7 +1208,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
         chosenModels[params.work] = resolved.model;
       }
       pi.appendEntry(MODEL_CHOICE_ENTRY, { ...chosenModels });
-      const text = `Renders now run on:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}`;
+      const text = `The engine now:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}`;
       return { content: [{ type: "text" as const, text }], details: { ...chosenModels } };
     },
   });
@@ -1244,17 +1220,17 @@ function registerRenderModels(pi: ExtensionAPI) {
     for (const key of Object.keys(chosenModels)) delete chosenModels[key as keyof ModelChoices];
     const saved = ctx.sessionManager
       .getBranch()
-      .filter((entry) => entry.type === "custom" && (entry as { customType?: string }).customType === MODEL_CHOICE_ENTRY)
+      .filter((entry) => entry.type === "custom" && [MODEL_CHOICE_ENTRY, LEGACY_MODEL_CHOICE_ENTRY].includes((entry as { customType?: string }).customType ?? ""))
       .at(-1) as { data?: ModelChoices } | undefined;
     Object.assign(chosenModels, saved?.data ?? {});
   });
 
   pi.registerTool(setRenderModelTool(pi));
 
-  pi.registerCommand("render-model", {
-    description: "Show which model renders spec changes and functionalities. To change it, tell the agent.",
+  pi.registerCommand("engine", {
+    description: "Show the engine: which model grows spec changes and functionalities. To change it, tell turri.",
     handler: async (_args, ctx) => {
-      const text = `Renders run on:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}\n\nTo change it, say so - e.g. "render spec changes with gpt 5.5".`;
+      const text = `The engine:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}\n\nTo change it, say so - e.g. "grow spec changes with gpt 5.5".`;
       if (ctx.hasUI) ctx.ui.notify(text, "info");
     },
   });
@@ -1278,7 +1254,7 @@ const WAIT_PARAM = Type.Optional(
 /** The one work loop of a conversation's jobs: every tool that builds brings its modules up through it. */
 const workLoops = new WeakMap<JobRegistry, { loop: WorkLoop; from: { ctx: ExtensionContext } }>();
 
-/** How the conversation wants the work planned, for the session - set with steer_queue. */
+/** How the conversation wants the work planned, for the session - set with steer. */
 const steeringStore = createSteeringStore();
 
 function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): WorkLoop {
@@ -1363,7 +1339,7 @@ async function deliver(
             : `Started ${input.kind} as background job ${job.id}: ${summary}${onModel}.\n` +
               "It is running now and will report back when it finishes. Tell the user it has started, " +
               "and carry on. ") +
-          `Use check_job with "${job.id}" if they ask how it is going.`,
+          `Use growth with "${job.id}" if they ask how it is going.`,
       },
     ],
     details: { jobId: job.id, status: job.status },
@@ -1373,14 +1349,14 @@ async function deliver(
 /** Looking in on work that is still running, and collecting what finished. */
 function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   pi.registerTool({
-    name: "why_failed",
-    label: "Why a job failed",
+    name: "diagnose",
+    label: "Diagnose a job",
     description:
       "Why a job did not land, from its whole transcript: how it ended and its diagnosis, the stages that went wrong, the " +
       "last failing test run with its output, the last review that sent the work back, and the tool calls that failed - " +
       "and where the whole log is.",
-    promptSnippet: "why_failed: why a job did not land, from its transcript",
-    promptGuidelines: ["When a job failed or did not land, call why_failed before you explain it or change the spec: go by what happened, not by the report alone."],
+    promptSnippet: "diagnose: why a job did not land, from its transcript",
+    promptGuidelines: ["When a job failed or did not land, call diagnose before you explain it or change the spec: go by what happened, not by the report alone."],
     parameters: Type.Object({ job_id: Type.String({ description: "The job's id" }) }),
     async execute(_id, params) {
       const job = jobs.get(params.job_id);
@@ -1390,19 +1366,22 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   pi.registerTool({
-    name: "check_job",
-    label: "Check job",
+    name: "growth",
+    label: "Growth",
     description:
-      "Look at a background job: whether it is still running, its latest output, and its report once " +
-      "it has finished.",
-    promptSnippet: "how is a background job doing",
+      "What is growing: with no job, every job of this session - running, planned and finished - and what deploy started; " +
+      "with a job's id, that job - whether it is still running, its latest output, and its report once it has finished.",
+    promptSnippet: "growth: the jobs, or one job - what is growing and how it is going",
     parameters: Type.Object({
-      job_id: Type.String({ description: "The id returned when the job started" }),
+      job_id: Type.Optional(Type.String({ description: "The id returned when the job started. Omitted: every job" })),
       wait: Type.Optional(
-        Type.Boolean({ description: "Block until the job finishes instead of reporting its current state" }),
+        Type.Boolean({ description: "With a job: block until it finishes instead of reporting its current state" }),
       ),
     }),
     async execute(_id, params) {
+      if (params.job_id === undefined) {
+        return { content: [{ type: "text" as const, text: listJobs(jobs) }], details: { status: "all" } };
+      }
       const existing = jobs.get(params.job_id);
       const planned = shownJobs(jobs).find((job) => job.id === params.job_id && jobs.get(job.id) === undefined);
       if (planned !== undefined) {
@@ -1432,62 +1411,57 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  pi.registerTool({
-    name: "list_jobs",
-    label: "List jobs",
-    description: "List the background jobs started in this session, in the order they were started.",
-    promptSnippet: "what background work is running",
-    parameters: Type.Object({}),
-    async execute() {
-      const all = jobs.list();
-      return { content: [{ type: "text" as const, text: listJobs(jobs) }], details: { count: all.length } };
-    },
-  });
-
   // The panel is compact and ctrl+o only lasts as long as the work does. This is the whole
   // list, finished jobs included, put in the transcript where it stays.
   pi.registerTool({
-    name: "stop_job",
-    label: "Stop job",
+    name: "halt",
+    label: "Halt",
     description:
-      "Stop a background job: a queued one never starts, a running one has its agent stopped at once. Jobs " +
-      "queued behind it move up. Code a running job already changed stays on disk; the functionality it " +
-      "was building counts as not built.",
-    promptSnippet: "stop a queued or running background job",
+      "Halt a job, or what activate started. A job: a queued one never starts, a running one has its agent stopped at once, " +
+      "and the jobs queued behind it move up - what a running job already changed is rolled back, and what it was growing " +
+      "counts as not grown. What activate started: the one named, or every one.",
+    promptSnippet: "halt a job, or what activate started",
     promptGuidelines: [
-      "Stop a job only when the user asks. Name which one, and say which jobs were queued behind it - they will now run.",
+      "Halt a job only when the user asks. Name which one, and say which jobs were queued behind it - they will now run.",
     ],
     parameters: Type.Object({
-      job_id: Type.String({ description: "The job's id, or the start of it" }),
+      job_id: Type.Optional(Type.String({ description: "The job's id, or the start of it" })),
+      activated: Type.Optional(Type.String({ description: 'What activate started, by name - or "all" for every one' })),
     }),
     async execute(_id, params) {
-      const text = stopJob(jobs, params.job_id);
-      return { content: [{ type: "text" as const, text }], details: {} };
+      if (params.job_id === undefined && params.activated === undefined) throw new Error("Say what to halt: a job_id, or what activate started (activated).");
+      const lines: string[] = [];
+      if (params.job_id !== undefined) lines.push(stopJob(jobs, params.job_id));
+      if (params.activated !== undefined) {
+        const stopped = await stopDeployed(params.activated === "all" ? {} : { name: params.activated });
+        lines.push(stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running${params.activated === "all" ? "" : ` as ${params.activated}`}.`);
+      }
+      return { content: [{ type: "text" as const, text: lines.join("\n") }], details: {} };
     },
   });
 
-  pi.registerCommand("stop", {
-    description: "Stop a queued or running background job, or what deploy started: /stop [job id | deploy <name>]",
+  pi.registerCommand("halt", {
+    description: "Halt a queued or running job, or what activate started: /halt [job id | activated <name>]",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const live = jobs.list().filter((job) => job.status === "running" || job.status === "queued");
       const deployed = runningDeployed();
       let id = args.trim();
       if (id === "") {
-        if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is running or queued.", "info");
+        if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is growing or queued.", "info");
         const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${job.summary}`;
         const labels = [...live.map(label), ...deployed.map((item) => deployedLabel(item.name, item.url ?? item.command))];
-        const picked = await ctx.ui.select("Stop which job?", labels);
+        const picked = await ctx.ui.select("Halt which?", labels);
         const job = live.find((candidate) => picked !== undefined && label(candidate) === picked);
         const server = deployed.find((item) => picked !== undefined && deployedLabel(item.name, item.url ?? item.command) === picked);
-        if (server !== undefined) id = `deploy ${server.name}`;
+        if (server !== undefined) id = `activated ${server.name}`;
         else if (job !== undefined) id = job.id;
         else return;
       }
-      const name = /^deploy\s+(.+)$/.exec(id)?.[1]?.trim();
+      const name = /^(?:activated|deploy)\s+(.+)$/.exec(id)?.[1]?.trim();
       if (name !== undefined) {
         const stopped = await stopDeployed({ name });
-        return ctx.ui.notify(stopped.length > 0 ? `Stopped ${stopped.join(", ")}.` : `Nothing deploy started is running as ${name}.`, "info");
+        return ctx.ui.notify(stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running as ${name}.`, "info");
       }
       ctx.ui.notify(stopJob(jobs, id), "info");
     },
@@ -1495,15 +1469,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 
   // Debug mode, for the render agents started from now on - see debug-log.ts.
   // A module's history: every render, regeneration and conformance run, as git commits.
-  pi.registerCommand("history", {
-    description: "Show a module's history - every render, regeneration and conformance run: /history [module]",
+  pi.registerCommand("lineage", {
+    description: "Show a module's lineage - every generation of its code and tests, and what each grew from: /lineage [module]",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const modules = modulesWithHistory(cwd);
       let name = args.trim();
       if (name === "") {
         if (modules.length === 0) return ctx.ui.notify("No module has any history yet.", "info");
-        name = modules.length === 1 ? modules[0]! : ((await ctx.ui.select("History of which module?", modules)) ?? "");
+        name = modules.length === 1 ? modules[0]! : ((await ctx.ui.select("Lineage of which module?", modules)) ?? "");
         if (name === "") return;
       }
       pi.appendEntry(HISTORY_ENTRY, { module: name, text: historyLog(defaultBuildDir(name, cwd)) });
@@ -1511,13 +1485,13 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   pi.registerTool({
-    name: "module_history",
-    label: "Module history",
+    name: "lineage",
+    label: "Lineage",
     description:
-      "Read a module's history: every render, regeneration, conformance run and spec change made to its code " +
-      "and tests, as git commits. Without a commit, the log; with one, that commit in full - its message and " +
+      "Read a module's lineage: every generation of its code and tests - each regrowth, conformance run and spec change, " +
+      "with what it grew from - as git commits. Without a commit, the log; with one, that commit in full - its message and " +
       "the change it made.",
-    promptSnippet: "what was rendered into a module, and when",
+    promptSnippet: "a module's lineage: what grew into it, and when",
     parameters: Type.Object({
       module: Type.String({ description: "The module's name" }),
       commit: Type.Optional(Type.String({ description: "A commit from the log, to see in full" })),
@@ -1621,8 +1595,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 
   // An entry rather than a message, so it shows straight away even while a skill is
   // running - which is exactly when someone wants to know what the queue is doing.
-  pi.registerCommand("jobs", {
-    description: "List every background job: running, queued and finished",
+  pi.registerCommand("growth", {
+    description: "List every job: growing, planned and finished",
     handler: async () => {
       pi.appendEntry(JOBS_LIST_ENTRY, { text: listJobs(jobs) });
     },
@@ -1646,7 +1620,7 @@ function modulesWithHistory(cwd: string): string[] {
 /** Stop a job by id or id prefix, and say what that means for the queue. */
 function stopJob(jobs: JobRegistry, named: string): string {
   const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
-  if (matches.length === 0) return `No job ${named}. /jobs lists them.`;
+  if (matches.length === 0) return `No job ${named}. /growth lists them.`;
   if (matches.length > 1) return `'${named}' matches ${matches.map((job) => job.id).join(", ")}. Give more of the id.`;
   const target = matches[0]!;
   const behind = jobs.list().filter((job) => job.status === "queued" && job.waitingOn.includes(target.id));
@@ -1655,10 +1629,10 @@ function stopJob(jobs: JobRegistry, named: string): string {
   const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
   // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
   const inSpec =
-    target.kind === "render_spec_diff"
-      ? " Its change is still in the .plain files: nothing more is built in that codebase until the spec changes or it is asked " +
-        "for again (render_module, spec_changed) - then it is built with the rest. To drop the change, take it out of the spec " +
-        "with a spec diff (render_spec_diff); to change how the work is cut or ordered, use steer_queue."
+    target.kind === "regrow"
+      ? " Its change is still in the .plain files: nothing more grows in that codebase until the spec changes or it is asked " +
+        "for again with regrow - then it grows with the rest. To drop the change, take it out of the spec and regrow; to change " +
+        "how the work is cut or ordered, use steer."
       : "";
   return stopped.status === "stopped"
     ? `Stopped ${target.summary} (${target.id}) before it started.${queued}${inSpec}`
@@ -1676,7 +1650,7 @@ async function chooseJob(
   const all = jobs.list();
   if (named !== "") {
     const found = all.find((job) => job.id.startsWith(named));
-    if (found === undefined) ui.notify(`No job ${named}. /jobs lists them.`, "warning");
+    if (found === undefined) ui.notify(`No job ${named}. /growth lists them.`, "warning");
     return found;
   }
   if (all.length === 0) {
@@ -1691,7 +1665,7 @@ async function chooseJob(
 }
 
 /** Every job, in the order it was started, with what a queued one is waiting for. */
-/** What deploy started, as /stop offers it. */
+/** What deploy started, as /halt offers it. */
 function deployedLabel(name: string, what: string): string {
   return `deploy ${name}  running  ${what}`;
 }
@@ -1704,7 +1678,7 @@ function shownJobs(jobs: JobRegistry): Job[] {
 function listJobs(jobs: JobRegistry): string {
   const all = [...shownJobs(jobs)].reverse().filter((job) => job.replacedBy === undefined);
   const deployed = runningDeployed().map((item) => `deploy ${item.name}  running  ${item.moduleName}: ${item.url ?? item.command}  (pid ${item.pid}, output in ${relative(process.cwd(), item.log) || item.log})`);
-  const listed = deployed.length > 0 ? `\n\nRunning from dist - /stop deploy <name> stops one:\n${deployed.join("\n")}` : "";
+  const listed = deployed.length > 0 ? `\n\nActivated from dist - /halt activated <name> halts one:\n${deployed.join("\n")}` : "";
   if (all.length === 0) return `No jobs have been started.${listed}`;
   return `${jobLines(all)}${listed}`;
 }
@@ -1730,7 +1704,7 @@ function registerBuildVmImage(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     name: "build_vm_image",
     label: "Build VM image",
     description:
-      "Build a sandbox VM image from its recipe, as a background job: the default one - plainwright's recipe with the " +
+      "Build a sandbox VM image from its recipe, as a background job: the default one - turri's recipe with the " +
       `person's changes from ${userImageFile()} - or, with scope "project", the project's own, from its config.yaml's ` +
       "vm-image: over that, under a tag of its own. Every VM started after it runs the new image; one already running " +
       "keeps the one it started with. About 7 minutes and 2 GB with every toolchain, less with fewer.",
@@ -1812,17 +1786,17 @@ function registerCheckPlain(pi: ExtensionAPI, cwd: string) {
  */
 function registerSteering(pi: ExtensionAPI, cwd: string) {
   pi.registerTool({
-    name: "steer_queue",
-    label: "Steer queue",
+    name: "steer",
+    label: "Steer",
     description:
-      "Say how the render queue is to be planned from now on - which functional specs are built together, what goes first, how " +
+      "Say how the work is to be planned from now on - which functional specs grow together, what goes first, how " +
       "big a job may be - for the whole project, or one module: every plan after this follows it as a strong preference, " +
       "within the planner's limits, for the rest of the session. It changes nothing queued by itself: the next plan of the " +
-      "module follows it - spec_changed makes one now. What the project's AGENTS.md says under a heading " +
+      "module follows it - regrow makes one now. What the project's AGENTS.md says under a heading " +
       "naming the queue is followed too, with every plan.",
-    promptSnippet: "set how the render queue is planned, for the project or one module",
+    promptSnippet: "steer how the work is planned, for the project or one module",
     promptGuidelines: [
-      "When the user says how the work should be cut or ordered - 'build the batch worker's helpers with the worker', 'models first' - for more than one change, call steer_queue with it in their words. For one change only, pass it as the guidance of the tool that queues it.",
+      "When the user says how the work should be cut or ordered - 'build the batch worker's helpers with the worker', 'models first' - for more than one change, call steer with it in their words. For one change only, pass it as the guidance of regrow.",
     ],
     parameters: Type.Object({
       action: Type.Union([Type.Literal("add"), Type.Literal("set"), Type.Literal("clear"), Type.Literal("show")], {
@@ -1846,11 +1820,11 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
           {
             type: "text" as const,
             text: [
-              params.action === "show" ? "How the queue is planned:" : `${params.action === "clear" ? "Cleared" : "Noted"} for ${where}. How the queue is planned now:`,
+              params.action === "show" ? "How the work is planned:" : `${params.action === "clear" ? "Cleared" : "Noted"} for ${where}. How the work is planned now:`,
               ...(now.length > 0 ? now : ["- (nothing from the conversation)"]),
               ...(agents !== "" ? ["", "And from AGENTS.md, every plan:", agents] : []),
               "",
-              "The next plan of each module follows it; nothing queued changes until then.",
+              "The next plan of each module follows it; nothing planned changes until then.",
             ].join("\n"),
           },
         ],
@@ -1877,7 +1851,8 @@ function registerDeploy(pi: ExtensionAPI, cwd: string) {
     },
     defaultPlainFile: () => readProjectConfig(cwd).module,
   });
-  for (const tool of tools) pi.registerTool(tool);
+  // The conversation's halt stops jobs too: it is registered with the job tools, and stops what activate started as well.
+  for (const tool of tools) if (tool.name !== "halt") pi.registerTool(tool);
   pi.on("tool_call", (event) => {
     if (state.current === undefined || event.toolName !== "bash") return undefined;
     const command = (event.input as { command?: unknown }).command;
@@ -1889,18 +1864,18 @@ function registerDeploy(pi: ExtensionAPI, cwd: string) {
   });
 }
 
-/** check_plain, for the conversation and for the skills that write specs alike. */
+/** validate, for the conversation and for the skills that write specs alike. */
 function checkPlainTool(cwd: string) {
   return defineTool({
-    name: "check_plain",
-    label: "Check plain spec",
+    name: "validate",
+    label: "Validate spec",
     description:
       "Validate one or more .plain specifications without rendering: parses each file, resolves its " +
       "imports and required modules, and reports every syntax, concept and structure error with the " +
       "line it is on. Pass a directory to check every .plain file in it. Fast, free, and offline.",
-    promptSnippet: "validate a .plain spec without rendering it",
+    promptSnippet: "validate a .plain spec, growing nothing",
     promptGuidelines: [
-      "Run check_plain after editing a .plain file, and before telling the user a spec is valid or ready. Never shell out to another renderer to check one.",
+      "Run validate after editing a .plain file, and before telling the user a spec is valid or ready. Never shell out to another renderer to check one.",
     ],
     parameters: Type.Object({
       target: Type.String({ description: "A .plain file, or a directory holding .plain files" }),
@@ -1925,10 +1900,10 @@ function checkPlainTool(cwd: string) {
 }
 
 
-const MILESTONE_ENTRY = "plainwright_milestone";
-const JOB_ENTRY = "plainwright_job";
-const JOBS_LIST_ENTRY = "plainwright_jobs";
-const HISTORY_ENTRY = "plainwright_history";
+const MILESTONE_ENTRY = "turri_milestone";
+const JOB_ENTRY = "turri_job";
+const JOBS_LIST_ENTRY = "turri_jobs";
+const HISTORY_ENTRY = "turri_history";
 
 interface JobAnnouncement {
   id: string;
@@ -1979,15 +1954,15 @@ function specConflictTask(conflict: SpecConflict): string {
     "",
     `The render stopped on it: the conformance run's judge found them conflicting, ${conflict.reasons.length} times -`,
     `functional spec ${one!.frid} of ${one!.module} (${one!.plainFile}) and functional spec ${two!.frid} of ${two!.module} (${two!.plainFile}). Now:`,
-    "1. Run the analyze-2-func-specs skill (run_skill) on these two functional specs, to confirm they conflict.",
+    "1. Run the analyze-2-func-specs skill (cultivate) on these two functional specs, to confirm they conflict.",
     "2. If they do, run the resolve-spec-conflict skill on the pair, to work out what could be changed - but change nothing yet.",
     "3. Tell the user exactly what the conflict is - both specs as they read, and the behaviour that cannot satisfy both -",
     "   and put the decision to them with ask_user: the ways out resolve-spec-conflict found, and Something else. Suggest they",
     "   simply decide which is meant; it is their call, not yours.",
     "4. Only once they have decided, make the change they chose to the .plain file it belongs in - either module's -",
-    "   and render it with render_spec_diff (the git diff of that change) - its conformance tests follow it.",
+    "   and regrow it - its conformance tests follow it.",
     "If analyze-2-func-specs finds the two compatible, tell the user so, and that the conformance tests of these two are what",
-    "kept failing - offer to render their conformance again.",
+    "kept failing - offer to bind them again.",
   ].join("\n");
 }
 
@@ -2138,13 +2113,13 @@ function recentUserMessages(ctx: ExtensionContext, limit: number): string[] {
 }
 
 
-const BANNER_ENTRY = "plainwright_banner";
+const BANNER_ENTRY = "turri_banner";
 
 /**
  * The name on the door.
  *
  * Pi's own startup header is a built-in component an extension cannot replace, so this
- * adds a wordmark of its own at the top of the session. `plainwright chat` starts pi without
+ * adds a wordmark of its own at the top of the session. `turri chat` starts pi without
  * its header (see pi-launch.ts), leaving only this one.
  */
 /**
@@ -2154,6 +2129,18 @@ const BANNER_ENTRY = "plainwright_banner";
 export function chatRulesBlock(rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"))): string {
   return renderRulesBlock(rules);
 }
+
+/** Who the conversation's agent is: turri, and what it does - first, so it is how the agent speaks of itself. */
+export const TURRI_IDENTITY = [
+  "<turri>",
+  "You are turri - always lowercase - a regenerative software harness. The software is its ***plain spec; the code is",
+  "what grows from it. You help the user write and change the spec, and turri regrows the code from it a change at a",
+  "time - with agents that write the code and tests, while turri decides what runs next and when the work is done -",
+  "records what each piece grew from, and proves it against conformance tests written from the spec alone. When the",
+  "code goes bad, it is grown again from the spec. Named after Turritopsis dohrnii, the immortal jellyfish, which",
+  "turns back into its young self and grows again. Speak of yourself as turri.",
+  "</turri>",
+].join("\n");
 
 function registerBranding(
   pi: ExtensionAPI,
@@ -2187,7 +2174,7 @@ function registerBranding(
       new Text(
         [
           theme.fg("borderMuted", rule),
-          `${theme.fg("accent", "plainwright")}  ${theme.fg("muted", `v${data.version}`)}`,
+          `${theme.fg("accent", "turri")}  ${theme.fg("muted", `v${data.version}`)}`,
           theme.fg("text", "specifications in, working code out"),
           theme.fg(
             "muted",

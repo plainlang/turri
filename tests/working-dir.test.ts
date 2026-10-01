@@ -6,14 +6,14 @@ import { fromWorkingDir } from "../src/extension.ts";
 
 let root: string;
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-working-dir-")));
+  root = realpathSync(mkdtempSync(join(tmpdir(), "turri-working-dir-")));
   mkdirSync(join(root, "plain"));
   writeFileSync(join(root, "plain", "hubspot.plain"), "");
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("a render tool's working_dir", () => {
-  it("renders as if plainwright had been started there: the file and build folder are relative to it", () => {
+  it("renders as if turri had been started there: the file and build folder are relative to it", () => {
     expect(fromWorkingDir(root, { working_dir: "plain", plain_file: "hubspot.plain", build_dir: "plain_modules/hubspot/code" })).toEqual({
       working_dir: "plain",
       base: join(root, "plain"),

@@ -21,7 +21,7 @@ tests follow as a job of their own, the conformance job says it, once they pass 
   is left out: deploy exports the commit - `git archive` of `code/` - which is the working tree with
   every unstaged and untracked change put back, and no `node_modules`, `.venv`, `target` or other
   build leftovers, whatever the stack. The working tree the job is using is never read or touched.
-  The harness's own files - `.plainwright.json`, the agents' notes - are left out too.
+  The harness's own files - `.turri.json`, the agents' notes - are left out too.
 - **Replaced whole.** Each deploy stops what the last one of the module started, empties
   `dist/<module>` and exports again. Change nothing there you want to keep. `dist/` is not added to
   `.gitignore`: whether it is committed is yours to decide.
@@ -39,21 +39,21 @@ then:
    you in a dialog, word for word, with what it installs and where, and runs only when you say yes.
    Say no, and nothing is installed - you are told what it needs instead. This is enforced, not only
    asked for: once something is deployed, the chat's own shell refuses any package manager, download,
-   `make`, `just` or project script, and `start_deployed` refuses a command that fetches as it starts
+   `make`, `just` or project script, and `activate` refuses a command that fetches as it starts
    (`go run`, `cargo run`, `docker compose up`) until you agreed to that one too.
-3. **Starts what serves** with `start_deployed`: in the background, in its own process group, its
-   output in `.plainwright/deploy/<module>-<name>.log`. It waits until something answers at the
+3. **Starts what serves** with `activate`: in the background, in its own process group, its
+   output in `.turri/deploy/<module>-<name>.log`. It waits until something answers at the
    server's URL - up to a minute - so the URL you are given has answered once; one that exits first
    comes back with the end of its output. A port something else holds is said, with what holds it,
    and nothing is started there: the app is not moved to a port you were not told about.
 
-What it started is listed by **`/jobs`** and stopped by **`/stop deploy <name>`**, by
-`stop_deployed`, by the next deploy of the module, and when the chat exits.
+What it started is listed by **`/growth`** and stopped by **`/halt activated <name>`**, by
+`halt`, by the next deploy of the module, and when the chat exits.
 
 ## On the command line
 
 ```bash
-plainwright deploy [file.plain] [--in-module <module>] [--model <provider/id>]
+turri release [file.plain] [--in-module <module>] [--model <provider/id>]
 ```
 
 The same, without the chat: it exports to `dist/<module>`, then a one-off agent on `harness-model`
@@ -62,5 +62,5 @@ at the terminal - `[y/N]` - before it installs anything. With no terminal to ask
 nothing is installed and it says what is needed. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 
-`plainwright module`, `spec-diff`, `regenerate` and `conformance` end a build that landed with
-`To try it: plainwright deploy <spec>`.
+`turri regrow`, `spec-diff`, `regenerate` and `conformance` end a build that landed with
+`To try it: turri release <spec>`.

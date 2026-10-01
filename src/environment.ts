@@ -5,16 +5,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * What plainwright needs from the machine it runs on, found out without changing anything.
+ * What turri needs from the machine it runs on, found out without changing anything.
  *
  * Kept free of heavy imports so the CLI can ask these questions before it has loaded pi or
- * Gondolin - and so `plainwright doctor` can report a missing piece instead of crashing on it.
+ * Gondolin - and so `turri doctor` can report a missing piece instead of crashing on it.
  */
 
 export const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 export const AGENT_DIR = join(homedir(), ".pi", "agent");
 
-/** The oldest Node that runs .ts files by itself, which is how plainwright runs. */
+/** The oldest Node that runs .ts files by itself, which is how turri runs. */
 export const MIN_NODE = [22, 19] as const;
 
 export function nodeVersionOk(version: string = process.versions.node): boolean {
@@ -89,7 +89,7 @@ export function brewInstalled(): boolean {
   return process.platform === "darwin" && runs("brew");
 }
 
-/** The global pi extension file that loads plainwright into every `pi`, if there is one. */
+/** The global pi extension file that loads turri into every `pi`, if there is one. */
 export function globalExtensionFile(): string | undefined {
   const dir = join(AGENT_DIR, "extensions");
   try {
@@ -130,9 +130,9 @@ export function themesInstalledGlobally(): boolean {
   return names.length > 0 && names.every((name) => existsSync(join(AGENT_DIR, "themes", name)));
 }
 
-/** Where `plainwright` on the PATH points, if it is on the PATH at all. */
-export function plainwrightOnPath(): string | undefined {
-  const which = spawnSync(process.platform === "win32" ? "where" : "which", ["plainwright"], { encoding: "utf8" });
+/** Where `turri` on the PATH points, if it is on the PATH at all. */
+export function turriOnPath(): string | undefined {
+  const which = spawnSync(process.platform === "win32" ? "where" : "which", ["turri"], { encoding: "utf8" });
   const found = which.status === 0 ? which.stdout.trim().split("\n")[0] : undefined;
   return found === "" ? undefined : found;
 }

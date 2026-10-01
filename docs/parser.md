@@ -11,14 +11,14 @@
 | `src/plain/markdown.ts` | mistletoe's AST + `PlainRenderer` (mdast + a matching serializer) |
 | `src/plain/liquid.ts` | `plain2code_nodes.py` + the two filters in `plain_spec.py` (liquidjs) |
 | `src/plain/files.ts` | `file_utils.open_from` / `get_loaded_templates`, base64 blob detection |
-| `src/plain/stdlib.ts` | nothing - plainwright's own: `stdlib/` is a reserved import prefix, read from plainwright's standard library only, and a project module at such a path is an error (see [the standard library](authoring-plain.md#the-standard-library)) |
+| `src/plain/stdlib.ts` | nothing - turri's own: `stdlib/` is a reserved import prefix, read from turri's standard library only, and a project module at such a path is an error (see [the standard library](authoring-plain.md#the-standard-library)) |
 
 ## Checking a spec
 
 ```bash
-plainwright check <file.plain>        # one spec
-plainwright check .                   # every .plain file in a directory
-plainwright check <file.plain> --json
+turri validate <file.plain>        # one spec
+turri validate .                   # every .plain file in a directory
+turri validate <file.plain> --json
 ```
 
 It uses this repo's own parser, so it needs no external tool, no API key and no credits: it parses
@@ -33,7 +33,7 @@ FAIL  broken.plain  PlainSyntaxError
         (`Nope:`). Allowed headings: definitions, implementation reqs, test reqs, ...
 ```
 
-The exit code is 0 only when every file passed. In a conversation the same check is `check_plain`.
+The exit code is 0 only when every file passed. In a conversation the same check is `validate`.
 
 ## Two rules of inheritance
 

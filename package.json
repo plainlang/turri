@@ -1,5 +1,5 @@
 {
-  "name": "plainwright",
+  "name": "turri",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,22 +8,21 @@
     "node": ">=22.19"
   },
   "bin": {
-    "plainwright": "bin/plainwright.mjs"
+    "turri": "bin/turri.mjs"
   },
   "scripts": {
-    "forge": "tsx src/run.ts",
+    "cultivate": "tsx src/cultivate-cli.ts",
     "typecheck": "tsc --noEmit",
     "chat": "pi -e ./src/extension.ts",
     "ask": "pi -p --no-session -e ./src/extension.ts",
     "test": "vitest run",
-    "vm:image": "node bin/plainwright.mjs vm-image",
+    "vm:image": "node bin/turri.mjs vm-image",
     "test:watch": "vitest",
-    "conformance": "tsx src/conformance-frid.ts",
-    "module": "tsx src/render-module.ts",
-    "regenerate": "tsx src/regenerate-frid.ts",
-    "check": "tsx src/check-cli.ts",
-    "setup": "node bin/plainwright.mjs setup",
-    "doctor": "node bin/plainwright.mjs doctor",
+    "bind": "tsx src/bind-cli.ts",
+    "regrow": "tsx src/regrow-cli.ts",
+    "validate": "tsx src/validate-cli.ts",
+    "setup": "node bin/turri.mjs setup",
+    "doctor": "node bin/turri.mjs doctor",
     "grammar:sync": "node scripts/sync-plyn-grammar.mjs"
   },
   "dependencies": {

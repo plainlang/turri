@@ -13,10 +13,10 @@ lacks.
 
 ## The three images
 
-- **The default image, as it is.** plainwright's recipe: Python, Node, Java, Go, Rust, C/C++ and the
+- **The default image, as it is.** turri's recipe: Python, Node, Java, Go, Rust, C/C++ and the
   basics. Nothing to write. Right for most projects, and for trying things.
 - **The default image, changed** - for every project on this machine. The person's own file,
-  `~/.plainwright/vm-image.json`, kept across plainwright's updates: `{ "remove": ["java", "python"],
+  `~/.turri/vm-image.json`, kept across turri's updates: `{ "remove": ["java", "python"],
   "add": ["zig"] }`, or `{ "packages": [...] }` to define it in full. Right when the person never uses
   a toolchain, or always uses one the recipe lacks.
 - **The project's own image** - for one project. `vm-image:` in its `config.yaml`, the same keys, over
@@ -27,7 +27,7 @@ lacks.
 `remove` takes toolchains by name - `python`, `node`, `java`, `go`, `rust`, `c` - or Alpine packages;
 `add` and `packages` take Alpine package names (`zig`, `odin`, `ruby`, `php83`). The basics - git,
 bash, curl, the file tools and what the VM needs to boot - are in every image, whatever a list says.
-Never edit plainwright's own recipe, `vm/image.json`: the next update puts it back.
+Never edit turri's own recipe, `vm/image.json`: the next update puts it back.
 
 ## Where it comes from
 

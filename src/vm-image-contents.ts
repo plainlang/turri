@@ -17,7 +17,7 @@ import { BASE_PACKAGES, defaultRecipe, TOOLCHAINS, type ImagePlan } from "./vm-i
  * Where it comes from can be steered: `mirror` - another server in dl-cdn's layout, a company's own - for
  * the base system, the kernel and the packages, and `repositories` - the package repositories exactly, in
  * place of the release's main and community. Gondolin takes the mirror for the base system and the kernel
- * but installs packages from the repositories the base system lists, so plainwright writes the chosen ones
+ * but installs packages from the repositories the base system lists, so turri writes the chosen ones
  * into it before the build (`prepareBaseSystem`). The image keeps them: what a VM installs later with
  * `apk add` comes from there too.
  */
@@ -130,7 +130,7 @@ function indexText(archive: Buffer): string {
 
 /** Where the indexes are kept between runs: a day old at most. */
 function cacheDir(): string {
-  return join(homedir(), ".cache", "plainwright", "apk");
+  return join(homedir(), ".cache", "turri", "apk");
 }
 const INDEX_MAX_AGE_MS = 24 * 3_600_000;
 
@@ -277,7 +277,7 @@ export async function prepareBaseSystem(plan: ImagePlan, arch = process.arch ===
   const sources = imageSources(arch, plan);
   if (sources.official) return undefined;
   const key = createHash("sha256").update([sources.rootfs, ...sources.repositories.map((repository) => repository.url)].join("\n")).digest("hex").slice(0, 12);
-  const home = join(homedir(), ".cache", "plainwright", "vm-build", key);
+  const home = join(homedir(), ".cache", "turri", "vm-build", key);
   const cache = join(home, ".cache", "gondolin", "build");
   const tarball = join(cache, basename(sources.rootfs));
   if (!existsSync(tarball)) {

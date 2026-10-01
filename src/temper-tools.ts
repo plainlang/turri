@@ -2,15 +2,15 @@ import { existsSync, readdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { formatDuration, type Job, type JobRegistry } from "./render/jobs.ts";
-import { readNotes } from "./render/notes.ts";
-import { modulesRoot, projectDirOf } from "./render/paths.ts";
-import { chainSpec, describeModules, type WorkLoop } from "./render/loop.ts";
-import { readRecord } from "./render/records.ts";
-import { builtTips } from "./render/requires.ts";
-import { snapshotSpec } from "./render/spec-change.ts";
-import { describeChange } from "./render/spec-steps.ts";
-import { codeWork } from "./render/work.ts";
+import { formatDuration, type Job, type JobRegistry } from "./grow/jobs.ts";
+import { readNotes } from "./grow/notes.ts";
+import { modulesRoot, projectDirOf } from "./grow/paths.ts";
+import { chainSpec, describeModules, type WorkLoop } from "./grow/loop.ts";
+import { readRecord } from "./grow/records.ts";
+import { builtTips } from "./grow/requires.ts";
+import { snapshotSpec } from "./grow/regrow.ts";
+import { describeChange } from "./grow/spec-steps.ts";
+import { codeWork } from "./grow/drift.ts";
 import { getFrids } from "./plain/spec.ts";
 
 /**

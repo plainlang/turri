@@ -7,6 +7,10 @@
  * rather than to run from this repo and reach across with absolute paths.
  */
 
+// First: the names turri had before are carried over before anything reads them.
+import "./legacy.ts";
+// A project built under the old names is brought over the first time it is found.
+import "./grow/migrate.ts";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +25,7 @@ import { dropNoise } from "./quiet.ts";
  * Saves both a global pi install and the `-e <absolute path>` that a project-local
  * extension otherwise needs before the project is trusted.
  */
-/** The theme `plainwright chat` starts in. */
+/** The theme `turri chat` starts in. */
 const DEFAULT_THEME = "forge";
 
 function chat(args: string[]): never {
@@ -38,7 +42,7 @@ function chat(args: string[]): never {
     ? []
     : ["-e", join(PACKAGE_ROOT, "src", "extension.ts")];
   const themes = themesInstalledGlobally() ? [] : ["--theme", join(PACKAGE_ROOT, ".pi", "themes")];
-  // plainwright's own theme, unless this run names another. For this run only: pi's settings
+  // turri's own theme, unless this run names another. For this run only: pi's settings
   // are left as they are, so a plain `pi` keeps its theme.
   const useTheme = args.some((arg) => arg === "--use-theme" || arg.startsWith("--use-theme=")) ? [] : ["--use-theme", DEFAULT_THEME];
 
@@ -57,26 +61,37 @@ function chat(args: string[]): never {
   process.exit(result.status ?? 1);
 }
 
-const COMMANDS: Record<string, { module: string; blurb: string }> = {
-  render: { module: "./render-frid.ts", blurb: "gone - says what to use instead" },
-  conformance: { module: "./conformance-frid.ts", blurb: "write and run a module's conformance tests" },
-  module: { module: "./render-module.ts", blurb: "build a module and its chain (--dry-run: print the first job's prompt)" },
-  regenerate: { module: "./regenerate-frid.ts", blurb: "build one functionality again" },
-  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "apply a change to the specs, given as a git diff, and build it" },
-  check: { module: "./check-cli.ts", blurb: "validate a ***plain spec without rendering" },
-  deploy: { module: "./deploy-cli.ts", blurb: "put what is built in dist/<module> and start it on this machine" },
-  skill: { module: "./run.ts", blurb: "run a gated skill" },
+const COMMANDS: Record<string, { module: string; blurb: string; args?: string[] }> = {
+  regrow: { module: "./regrow-cli.ts", blurb: "regrow a module and its chain from the spec as it is (with frids: grow those again)" },
+  glimpse: { module: "./regrow-cli.ts", blurb: "plan the work and print the first job's prompt, starting nothing", args: ["--dry-run"] },
+  drift: { module: "./drift-cli.ts", blurb: "what is left to grow: how far the code has drifted from its spec" },
+  bind: { module: "./bind-cli.ts", blurb: "write and run a module's conformance tests" },
+  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "apply a change to the specs, given as a git diff, and regrow it" },
+  validate: { module: "./validate-cli.ts", blurb: "validate a ***plain spec, growing nothing" },
+  lineage: { module: "./lineage-cli.ts", blurb: "a module's lineage: what grew into it, and when" },
+  release: { module: "./release-cli.ts", blurb: "release what is grown to dist/<module> and activate it on this machine" },
+  cultivate: { module: "./cultivate-cli.ts", blurb: "run a gated skill" },
+};
+
+/** The names the commands had before: still taken, not listed. */
+const ALIASES: Record<string, string> = {
+  module: "regrow",
+  regenerate: "regrow",
+  conformance: "bind",
+  check: "validate",
+  deploy: "release",
+  skill: "cultivate",
 };
 
 /** Getting the machine ready, and checking it is. */
 const SETUP_COMMANDS: Record<string, string> = {
   setup: "get this machine ready: check everything, and fix what can be fixed here",
-  doctor: "check what plainwright needs, without changing anything",
+  doctor: "check what turri needs, without changing anything",
   "vm-image": "build the sandbox VM image with every toolchain (with e2fsprogs, or in Docker)",
 };
 
 const USAGE = [
-  "usage: plainwright <command> [args]",
+  "usage: turri <command> [args]",
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
   `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded (theme forge; --use-theme picks another)`,
@@ -84,9 +99,9 @@ const USAGE = [
   "",
   ...Object.entries(SETUP_COMMANDS).map(([name, blurb]) => `  ${name.padEnd(12)} ${blurb}`),
   "",
-  "Run `plainwright <command> --help` for that command's options.",
+  "Run `turri <command> --help` for that command's options.",
   "",
-  "Paths are relative to the current directory. Run plainwright from the directory holding the",
+  "Paths are relative to the current directory. Run turri from the directory holding the",
   "specification, so that linked resources inside it resolve the way the parser expects.",
 ].join("\n");
 
@@ -106,7 +121,11 @@ if (command in SETUP_COMMANDS) {
   process.exit(await main(command as "setup" | "doctor" | "vm-image", rest));
 }
 
-const entry = COMMANDS[command];
+if (command === "render") {
+  console.error("turri render is gone: turri regrow <file.plain> grows what is left of the spec, and turri regrow <file.plain> <frid> grows one functionality again.");
+  process.exit(1);
+}
+const entry = COMMANDS[ALIASES[command] ?? command];
 if (entry === undefined) {
   console.error(`unknown command: ${command}\n\n${USAGE}`);
   process.exit(1);
@@ -120,13 +139,14 @@ process.argv = [
   ...rest.flatMap((arg) =>
     arg === "--coding-model" ? ["--model"] : arg.startsWith("--coding-model=") ? ["--model", arg.slice("--coding-model=".length)] : [arg],
   ),
+  ...(entry.args ?? []),
 ];
 
 // A headless run is stopped by a signal - SIGTERM, SIGHUP, Ctrl-C - whatever else listens for it:
 // its VMs shut, and it exits. Left to the libraries' own handlers, one ran on for minutes after it
 // was told to stop, building in the same codebase as the run that came after it.
-if (command !== "check") {
-  const { closeAllVms } = await import("./render/vm.ts");
+if (!["validate", "check", "drift", "lineage"].includes(command)) {
+  const { closeAllVms } = await import("./grow/vm.ts");
   let stopping = false;
   for (const [signal, code] of [["SIGTERM", 143], ["SIGHUP", 129], ["SIGINT", 130]] as const) {
     process.on(signal, () => {

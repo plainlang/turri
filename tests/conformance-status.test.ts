@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { conformanceStatus } from "../src/extension.ts";
 
 let dir: string;
-beforeEach(() => (dir = mkdtempSync(join(tmpdir(), "plainwright-conformance-status-"))));
+beforeEach(() => (dir = mkdtempSync(join(tmpdir(), "turri-conformance-status-"))));
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const WITH = "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- pytest.\n\n***functional specs***\n\n- Say hello.\n";

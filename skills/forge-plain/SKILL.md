@@ -125,7 +125,7 @@ ordinary file tools; **nothing is built in this phase**, and `write_spec_diff` i
 Write no definitions, no functional specs, no `***test reqs***` and no `***acceptance tests***`.
 
 End the phase with the unit tests: their framework, as a `:UnitTests:` requirement, and the unit
-testing script, which every build needs from the first one on. If plainwright already finds a
+testing script, which every build needs from the first one on. If turri already finds a
 script - named by `unittests-script:` in `config.yaml` at the project root, or the one
 `run_unittests*.sh` in the root or in `test_scripts/` - keep it. Otherwise write
 `test_scripts/run_unittests_<language>.sh` with the `implement-unit-testing-script` skill, for the
@@ -135,7 +135,7 @@ frontend beside a backend, sharing only an imported module - its script is named
 `config.<module>.yaml` beside `config.yaml` (`unittests-script:`), not in `config.yaml`, which is
 the project's and holds what the modules share.
 
-Run `plainwright check` on the module before finishing, so the product phase does not start
+Run `turri validate` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.
 
 Finish by summarizing the stack, the architecture and the unit testing script, and getting explicit confirmation. There is
@@ -156,7 +156,7 @@ tests are written and run becomes a `:ConformanceTests:` requirement in `***test
 with the ordinary file tools. A change to the test reqs is not a spec
 diff: never use `write_spec_diff` in this phase. Then make sure the project has its conformance
 testing script - `implement-conformance-testing-script` writes it into `test_scripts/` when
-plainwright finds none - and run `check_plain` on what you changed. Without both, the first build of
+turri finds none - and run `validate` on what you changed. Without both, the first build of
 the product phase stops before it starts.
 
 Finish by summarizing the decision, the test reqs and the script, and saying that from the first

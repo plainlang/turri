@@ -12,9 +12,9 @@ vi.mock("../src/environment.ts", async (importOriginal) => {
     mke2fsPath: () => machine.mke2fs,
   };
 });
-vi.mock("../src/render/vm.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/render/vm.ts")>();
-  return { ...actual, vmImage: () => (machine.image ? { tag: "plainwright:latest", path: "/x" } : undefined) };
+vi.mock("../src/grow/vm.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/grow/vm.ts")>();
+  return { ...actual, vmImage: () => (machine.image ? { tag: "turri:latest", path: "/x" } : undefined) };
 });
 
 const { buildRoute, checkBuilder } = await import("../src/setup.ts");

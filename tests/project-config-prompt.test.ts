@@ -6,7 +6,7 @@ import { projectConfigBlock, sandboxBlock } from "../src/extension.ts";
 
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "plainwright-config-prompt-"));
+  root = mkdtempSync(join(tmpdir(), "turri-config-prompt-"));
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -52,7 +52,7 @@ describe("what the chat's agent is told about the project's config.yaml", () => 
 
 describe("what the chat's agent is told about the sandbox VM", () => {
   it("names the image, what goes into it, what the project's implementation reqs need of it and it lacks, and the extra packages", async () => {
-    process.env.PLAINWRIGHT_VM_IMAGE_CONFIG = join(root, "home-vm-image.json");
+    process.env.TURRI_VM_IMAGE_CONFIG = join(root, "home-vm-image.json");
     try {
       writeFileSync(join(root, "config.yaml"), "system-packages: [sqlite]\nvm-image:\n  add: [zig]\n  remove: [java]\n");
       writeFileSync(join(root, "game.plain"), "***implementation reqs***\n\n- :Implementation: is written in Zig.\n\n***functional specs***\n\n- Draw a square.\n");
@@ -65,7 +65,7 @@ describe("what the chat's agent is told about the sandbox VM", () => {
       // Its own image is not built here: it takes a build.
       expect(block).toContain("build_vm_image");
     } finally {
-      delete process.env.PLAINWRIGHT_VM_IMAGE_CONFIG;
+      delete process.env.TURRI_VM_IMAGE_CONFIG;
     }
   });
 

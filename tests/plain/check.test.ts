@@ -6,7 +6,7 @@ import { checkPlainFile, checkPlainTargets, formatCheckResults } from "../../src
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "plainwright-check-"));
+  dir = mkdtempSync(join(tmpdir(), "turri-check-"));
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });

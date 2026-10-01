@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { nodeVersionOk, qemuBinary, qemuInstallHint } from "../src/environment.ts";
-import { vmSummary, vmSupported } from "../src/render/vm.ts";
+import { vmSummary, vmSupported } from "../src/grow/vm.ts";
 
-describe("the Node plainwright runs on", () => {
+describe("the Node turri runs on", () => {
   it("is 22.19 or newer - it runs .ts files itself, and pi needs 22.19", () => {
     expect(nodeVersionOk("22.19.0")).toBe(true);
     expect(nodeVersionOk("22.18.0")).toBe(false);
@@ -21,16 +21,16 @@ describe("QEMU", () => {
 });
 
 describe.runIf(vmSupported())("where commands run, as the banner says it", () => {
-  const before = process.env.PLAINWRIGHT_VM_IMAGE;
+  const before = process.env.TURRI_VM_IMAGE;
   afterEach(() => {
-    if (before === undefined) delete process.env.PLAINWRIGHT_VM_IMAGE;
-    else process.env.PLAINWRIGHT_VM_IMAGE = before;
+    if (before === undefined) delete process.env.TURRI_VM_IMAGE;
+    else process.env.TURRI_VM_IMAGE = before;
   });
 
   it("names the stock image as a limit, and how to get the full one", () => {
-    process.env.PLAINWRIGHT_VM_IMAGE = "no-such-image:latest";
+    process.env.TURRI_VM_IMAGE = "no-such-image:latest";
     const summary = vmSummary();
     if (summary.level === "missing") return; // no QEMU on this machine: that is what it says instead
-    expect(summary).toEqual({ level: "limited", text: expect.stringContaining("plainwright vm-image") });
+    expect(summary).toEqual({ level: "limited", text: expect.stringContaining("turri vm-image") });
   });
 });

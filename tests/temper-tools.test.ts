@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** What each spec diff rendered: a spec diff that lands records the spec it was given, as the real one does. */
 const diffs: string[] = [];
-vi.mock("../src/render/spec-change.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/render/spec-change.ts")>();
+vi.mock("../src/grow/regrow.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/grow/regrow.ts")>();
   return {
     ...actual,
     renderSpecDiff: async (options: { diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
       diffs.push(options.diff ?? "");
       const buildDir = options.spec!.chain!.at(-1)!.buildDir;
       writeFileSync(join(buildDir, "app.py"), "# built\n", { flag: "a" });
-      (await import("../src/render/records.ts")).writeCodeRecord(buildDir, options.spec!.tree as never);
+      (await import("../src/grow/records.ts")).writeCodeRecord(buildDir, options.spec!.tree as never);
       return { passed: true, stoppedAt: null };
     },
     describeSpecDiff: () => "rendered",
@@ -21,15 +21,15 @@ vi.mock("../src/render/spec-change.ts", async (importOriginal) => {
 });
 
 const { collectFindings, createTemperTools, noteStamp } = await import("../src/temper-tools.ts");
-const { createJobRegistry } = await import("../src/render/jobs.ts");
-const { createWorkLoop } = await import("../src/render/loop.ts");
-const { recordNote, NOTES_FILE } = await import("../src/render/notes.ts");
-const { writeCodeRecord } = await import("../src/render/records.ts");
+const { createJobRegistry } = await import("../src/grow/jobs.ts");
+const { createWorkLoop } = await import("../src/grow/loop.ts");
+const { recordNote, NOTES_FILE } = await import("../src/grow/notes.ts");
+const { writeCodeRecord } = await import("../src/grow/records.ts");
 const { plainFileParser } = await import("../src/plain/parser.ts");
 
 let dir: string;
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), "plainwright-temper-")));
+  dir = realpathSync(mkdtempSync(join(tmpdir(), "turri-temper-")));
   mkdirSync(join(dir, "plain_modules", "app", "code"), { recursive: true });
   diffs.length = 0;
 });
@@ -126,7 +126,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     const { struggling, LONG_BUILD_MS } = await import("../src/temper-tools.ts");
     const job = (stage: string | undefined, stages: string[], startedAt = Date.now()) =>
       ({ status: "running", stage, startedAt, transcript: stages.map((text) => ({ kind: "stage", text })) }) as never;
-    expect(struggling(job("app 2: running the unit testing script (attempt 1)", ["app 2: plainwright is writing the code"]))).toBeUndefined();
+    expect(struggling(job("app 2: running the unit testing script (attempt 1)", ["app 2: turri is writing the code"]))).toBeUndefined();
     expect(struggling(job("app 2: unit tests not passing - fixing (round 5 of 20)", []))?.why).toContain("sent back 5 times of at most 20");
     expect(struggling(job(undefined, Array.from({ length: 5 }, (_, i) => `app 2: unit tests not passing - fixing (round ${i + 1} of 20)`)))?.why).toContain("5 setbacks");
     expect(struggling(job(undefined, ["a spec conflict between functionalities app 2 and app 4 is recorded (1 of 3)"]))?.key).toBe("conflict");
@@ -178,14 +178,14 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     const { specStatusOf } = await import("../src/temper-tools.ts");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("nothing is built yet");
-    const { writeCodeRecord } = await import("../src/render/records.ts");
+    const { writeCodeRecord } = await import("../src/grow/records.ts");
     const tree = plainFileParser("app.plain", [dir])[1];
     const specs = tree["functional specs"] as unknown[];
     writeCodeRecord(buildDir(), { ...tree, "functional specs": specs.slice(0, 1) } as never);
     expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("app's code is not built from the spec as it stands: add to functional specs, as item 2");
     writeCodeRecord(buildDir(), tree);
     writeFileSync(join(buildDir(), "app.py"), "print('hi')\n");
-    const failed = { id: "f1", kind: "render_spec_diff_conformance", summary: "app.plain spec diff conformance", status: "failed", sequence: 1, details: { passed: false } };
+    const failed = { id: "f1", kind: "bind", summary: "app.plain spec diff conformance", status: "failed", sequence: 1, details: { passed: false } };
     expect(specStatusOf(join(dir, "app.plain"), dir, [failed as never]).text).toContain("did not pass");
     const status = specStatusOf(join(dir, "app.plain"), dir, []);
     expect(status).toMatchObject({ done: true });

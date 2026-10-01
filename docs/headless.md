@@ -5,13 +5,13 @@ Given a spec, build it without a conversation - overnight, in CI, on a spare mac
 ## Before you leave it
 
 ```bash
-plainwright doctor
+turri doctor
 ```
 
 Everything marked `✗` stops the run, so fix those first. Two more things matter for a long run:
 
 - **The VM image.** Without the full image only Python and Node projects build - see
-  [installation](installation.md#without-the-full-vm-image). `plainwright vm-image` builds it in
+  [installation](installation.md#without-the-full-vm-image). `turri vm-image` builds it in
   about 7 minutes.
 - **Credentials that do not expire mid-run.** An API key in the environment
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) or pi's saved login - whatever
@@ -21,34 +21,34 @@ Check the spec parses, without spending anything:
 
 ```bash
 cd ~/my-project                  # the directory that holds the spec
-plainwright check app.plain
+turri validate app.plain
 ```
 
 ## Run it
 
 ```bash
-plainwright module app.plain --model anthropic/claude-sonnet-5
+turri regrow app.plain --model anthropic/claude-sonnet-5
 ```
 
 That builds every functionality in order - code and unit tests, then conformance tests when the
 module has `***test reqs***`, then every conformance test so far - and advances only when they
 pass. A module that `requires` others builds them first, bottom up. When it is done it prints
-`To try it: plainwright deploy <spec>` - see [deploy](deploy.md).
+`To try it: turri release <spec>` - see [deploy](deploy.md).
 
 Keep it running when the terminal closes and the laptop would sleep, and keep the log:
 
 ```bash
 # macOS: caffeinate keeps the machine awake for as long as the command runs
-nohup caffeinate -is plainwright module app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
+nohup caffeinate -is turri regrow app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
 
 # Linux
-nohup plainwright module app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
+nohup turri regrow app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
 ```
 
 Or run it in `tmux` / `screen` to look in on it. `tail -f render.log` follows it either way.
 
 The project's `config.yaml`, in the folder you run it from, can give the defaults, so a run can
-be just `plainwright module`:
+be just `turri regrow`:
 
 ```yaml
 module: app.plain                         # what to build when no file is given
@@ -59,15 +59,15 @@ judge-model: anthropic/claude-opus-5-5    # the judge and the test review (defau
 conformance-tests: true            # write and run conformance tests (default: when there are test reqs)
 ```
 
-The same file names the [testing scripts](rendering.md#the-testing-scripts); every key is in
+The same file names the [testing scripts](growing.md#the-testing-scripts); every key is in
 [the project config](config.md). Options on the command
-line win over it; `plainwright module`, `spec-diff`, `regenerate` and `conformance` take its
+line win over it; `turri regrow`, `spec-diff`, `regenerate` and `conformance` take its
 `coding-model` too, and `--coding-model` means the same as `--model` on every one of them.
 A module on a stack of its own takes its settings from `config.<module>.yaml` over `config.yaml`
 ([modules on different stacks](config.md#modules-on-different-stacks)); with several and no
-`module:`, name the file: `plainwright module backend.plain`.
+`module:`, name the file: `turri regrow backend.plain`.
 
-Useful options - `plainwright module --help` lists all of them:
+Useful options - `turri regrow --help` lists all of them:
 
 | | |
 | --- | --- |
@@ -77,10 +77,10 @@ Useful options - `plainwright module --help` lists all of them:
 | `--only` | build just this module, not the ones it requires |
 | `--build-dir <dir>` | where the code goes; default `plain_modules/<module>/code` |
 
-`plainwright module` queues the jobs the chat's `render_module` does - a spec diff that brings what
+`turri regrow` queues the jobs the chat's `regrow` does - a spec diff that brings what
 is built in line, when it no longer matches the spec, then one render functionality job per
 functional spec not built, each with its conformance job - and runs them all to the end, the queue
-master reworking them as in the chat (see [a whole module](rendering.md#a-whole-module)).
+master reworking them as in the chat (see [a whole module](growing.md#a-whole-module)).
 Conformance tests follow `conformance-tests:` in `config.yaml`.
 
 ## In the morning
@@ -92,7 +92,7 @@ was built and whether its tests passed; the last lines summarise each module.
 | --- | --- |
 | `plain_modules/<module>/code/` | the code and unit tests |
 | `plain_modules/<module>/tests/` | the conformance tests |
-| `plain_modules/<module>/code/.plainwright.json` | the marshalled plain tree the code is built from |
+| `plain_modules/<module>/code/.turri.json` | the marshalled plain tree the code is built from |
 
 And what happened, step by step, in the module's history:
 
@@ -112,7 +112,7 @@ rebuilds everything.
 ## Rebuilding one functionality
 
 ```bash
-plainwright regenerate app.plain 3
+turri regrow app.plain 3
 ```
 
 It rebuilds just functionality 3 over the code that already exists - after its spec changed, or as
@@ -124,7 +124,7 @@ in: when later modules are built on top of this one, the furthest-built of them 
 picks one when there are several). It exits `0` when everything passes, and refuses when there is
 no code yet - build it with `module` first.
 
-Several changes do not need one command each: after editing the spec, re-running `plainwright module`
+Several changes do not need one command each: after editing the spec, re-running `turri regrow`
 brings the code up to it - one spec diff for what changed in what is built, then the functional
 specs not built yet.
 
@@ -134,10 +134,10 @@ pi's print mode runs one request and exits, with the render tools waiting for th
 than starting background jobs:
 
 ```bash
-nohup plainwright chat -p "Render app.plain as a whole module, with conformance tests" > render.log 2>&1 &
+nohup turri chat -p "Render app.plain as a whole module, with conformance tests" > render.log 2>&1 &
 ```
 
 It reports what it did at the end, and nothing streams in between, so for long runs
-`plainwright module` is the better choice. The interview skill (`forge-plain`) needs
+`turri regrow` is the better choice. The interview skill (`forge-plain`) needs
 someone to answer; without one they decide and record their assumptions, and a gate that escalates
 to a human stops the run.
