@@ -10,6 +10,24 @@ regenerated from them, and healed against them, as they change.
 
 **turri** is named after *Turritopsis dohrnii*, the immortal jellyfish - see [the name](#the-name).
 
+## Quick start
+
+You need git and [Node](https://nodejs.org/en/download) 22.19 or newer - a Linux distribution's own
+`nodejs` package is often older - on Apple Silicon macOS or Linux. Windows is not supported
+natively: agents run in micro-VMs ([Gondolin](https://github.com/earendil-works/gondolin) on QEMU),
+which need macOS's or Linux's hypervisor. On Windows, run **turri** in a Linux container (Docker or
+similar) or WSL 2, with KVM passed in - see [installation](docs/installation.md#installation).
+
+```bash
+git clone git@github.com:plainlang/turri.git && cd turri
+npm install && npm link   # puts `turri` on your PATH
+turri setup               # checks the machine, offers to build the VM image (about 7 minutes)
+cd ~/my-project && turri chat
+```
+
+Then say: *Let's start a new project: a small API where people can register and sign in.* What
+`setup` checks and where **turri** runs: [install](#install); what to do next: [use](#use).
+
 ## Why
 
 In the age of coding agents, writing code is getting easy. The hard and important part is
@@ -22,26 +40,7 @@ next change is made on top. When the software can always be regenerated from dur
 instead, that understanding is written down - explicit, reviewable and tested - and it grows with
 the software rather than against it.
 
-## The name
-
-**turri** is short for [*Turritopsis dohrnii*](https://en.wikipedia.org/wiki/Turritopsis_dohrnii), the immortal
-jellyfish, which, when injured or old, turns back into its young self and grows again - the same jellyfish, from the
-same genes, again and again.
-
-That is what regenerative software asks of software, and what **turri** does:
-
-| *Turritopsis dohrnii* | **turri** |
-| --- | --- |
-| Its genes are what it is: every generation grows from the same ones. | The [\*\*\*plain](https://plainlang.org/) spec is what the software is: every generation of code grows from it. |
-| Injured or old, it does not patch itself: it goes back to the polyp and grows the adult again. | Code that has drifted is not patched prompt after prompt: it is grown again from the spec, as much of it as has to be. |
-| Every cell can become another, and it is still the same jellyfish. | Every line of code can be replaced, and it is still the same software - because what it is never lived in the code. |
-| It can do it again and again, for as long as it lives. | The code can be grown again whenever the spec changes or a model gets better, for as long as the spec is kept. |
-
-So the tools speak its language: **`regrow`** grows the code again from the spec as it is now, **`drift`** says how far
-the code has moved from it, **`rejuvenate`** takes a codebase back to the start and grows it again, and **`lineage`**
-shows every generation of a module and what each grew from.
-
-## How it differs from a coding agent
+## How it differs from ye old coding agent
 
 With a coding agent you work on code: you ask for a change, it edits the code, and you review the
 code it wrote.
@@ -104,7 +103,31 @@ Each item under `***functional specs***` is one functionality, built on top of t
 **turri** runs as an extension to [pi](https://github.com/earendil-works/pi), so you work with it
 in a conversation, and as a command line for unattended runs.
 
+## The name
+
+**turri** is short for [*Turritopsis dohrnii*](https://en.wikipedia.org/wiki/Turritopsis_dohrnii), the immortal
+jellyfish, which, when injured or old, turns back into its young self and grows again - the same jellyfish, from the
+same genes, again and again.
+
+That is what regenerative software asks of software, and what **turri** does:
+
+| *Turritopsis dohrnii* | **turri** |
+| --- | --- |
+| Its genes are what it is: every generation grows from the same ones. | The [\*\*\*plain](https://plainlang.org/) spec is what the software is: every generation of code grows from it. |
+| Injured or old, it does not patch itself: it goes back to the polyp and grows the adult again. | Code that has drifted is not patched prompt after prompt: it is grown again from the spec, as much of it as has to be. |
+| Every cell can become another, and it is still the same jellyfish. | Every line of code can be replaced, and it is still the same software - because what it is never lived in the code. |
+| It can do it again and again, for as long as it lives. | The code can be grown again whenever the spec changes or a model gets better, for as long as the spec is kept. |
+
+So the tools speak its language: **`regrow`** grows the code again from the spec as it is now, **`drift`** says how far
+the code has moved from it, **`rejuvenate`** takes a codebase back to the start and grows it again, and **`lineage`**
+shows every generation of a module and what each grew from.
+
 ## Install
+
+It needs git and [Node](https://nodejs.org/en/download) 22.19 or newer, on Apple Silicon macOS or
+Linux - on Windows, in a Linux container or WSL 2 with `/dev/kvm` passed in, since the sandbox VMs
+need macOS's or Linux's hypervisor. Ubuntu's and
+Debian's own `nodejs` packages are older: take Node from nodejs.org, nvm or NodeSource.
 
 ```bash
 git clone git@github.com:plainlang/turri.git && cd turri
@@ -113,12 +136,11 @@ npm link              # puts `turri` on your PATH
 turri setup     # checks the machine and fixes what it can, asking first
 ```
 
-`setup` checks for Node 22.19+, QEMU (which the sandbox VM runs on), a model provider for pi, and
-the VM image - and offers to build the image, which takes about 7 minutes. It ends by starting a
+`setup` checks for Node 22.19+, QEMU (which the sandbox VM runs on) and on Linux KVM, a model
+provider for pi, and the VM image - and offers to build the image, which takes about 7 minutes. It ends by starting a
 VM for real. `turri doctor` runs the same checks later without changing anything.
 
-It runs on Apple Silicon macOS and on Linux. Details, and what each check means:
-[installation](docs/installation.md).
+Details, and what each check means: [installation](docs/installation.md).
 
 ## Use
 
@@ -150,7 +172,7 @@ Other things to ask for:
 >
 > Regrow the whole module, and bind every functional spec to conformance tests.
 >
-> Grow spec changes with gpt 5.5.
+> Grow spec changes with a faster model.
 
 The last one holds for the rest of the session; the model can be chosen separately for spec
 changes and for functionalities, and a name that fits more than one model is asked about rather
@@ -180,7 +202,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
-| [Rendering](docs/growing.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, what the code is built from |
+| [Growing](docs/growing.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, what the code is built from |
 | [The sandbox](docs/sandbox.md) | what agents can reach, the VM every command runs in, time limits, the web tools |
 | [Skills and gates](docs/skills-and-gates.md) | the gate syntax, what the harness enforces, judges, rules |
 | [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `turri validate`, fidelity to the reference parser |

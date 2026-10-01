@@ -80,9 +80,30 @@ export function mke2fsPath(): string | undefined {
   return undefined;
 }
 
-/** How to install e2fsprogs here, as a command to copy. */
+/**
+ * What a build without Docker needs and this machine lacks: `mke2fs` from e2fsprogs for the root filesystem, and
+ * `cpio` and `lz4`, which Gondolin packs the initramfs with. A fresh Linux has none of the last two.
+ */
+export function missingBuildTools(): string[] {
+  const missing: string[] = [];
+  if (mke2fsPath() === undefined) missing.push("e2fsprogs");
+  for (const tool of ["cpio", "lz4"]) {
+    if (spawnSync(tool, ["--version"], { stdio: "ignore", timeout: 15_000 }).error !== undefined) missing.push(tool);
+  }
+  return missing;
+}
+
+/** Whether the VM image can be built here without Docker. */
+export function nativeBuildReady(): boolean {
+  return missingBuildTools().length === 0;
+}
+
+/** How to install what a build without Docker lacks here - all of it when nothing is missing - as a command to copy. */
 export function e2fsprogsInstallHint(): string {
-  return process.platform === "darwin" ? "brew install e2fsprogs" : "sudo apt install e2fsprogs";
+  const missing = missingBuildTools();
+  // macOS has cpio itself.
+  const wanted = missing.length > 0 ? missing : process.platform === "darwin" ? ["e2fsprogs", "lz4"] : ["e2fsprogs", "cpio", "lz4"];
+  return process.platform === "darwin" ? `brew install ${wanted.filter((tool) => tool !== "cpio").join(" ")}` : `sudo apt install ${wanted.join(" ")}`;
 }
 
 export function brewInstalled(): boolean {

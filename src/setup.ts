@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -15,6 +15,8 @@ import {
   globalExtensionFile,
   MIN_NODE,
   mke2fsPath,
+  missingBuildTools,
+  nativeBuildReady,
   nodeVersionOk,
   PACKAGE_ROOT,
   turriOnPath,
@@ -95,6 +97,28 @@ function checkQemu(): Check {
       };
 }
 
+/**
+ * On Linux, whether the VM can use KVM. Without /dev/kvm to open, QEMU emulates every instruction: the VM is many
+ * times slower and most often does not start before its time is up - in a container started without the device,
+ * or for a person not in the kvm group. macOS uses its own hypervisor, always there.
+ */
+export function checkKvm(path = "/dev/kvm"): Check | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    accessSync(path, constants.R_OK | constants.W_OK);
+    return { level: "ok", name: "KVM", detail: `${path} - the VM runs at full speed` };
+  } catch {
+    return {
+      level: "limited",
+      name: "KVM",
+      detail: existsSync(path) ? `${path} is there, but you cannot open it - the VM is emulated, too slow to start` : `no ${path} - the VM is emulated, too slow to start`,
+      fix: existsSync(path)
+        ? "sudo usermod -aG kvm $USER, then log in again"
+        : "turn on virtualisation (in the BIOS, or the cloud instance type); in a container, start it with --device /dev/kvm",
+    };
+  }
+}
+
 function checkImage(): Check {
   const image = vmImage();
   return image
@@ -153,7 +177,7 @@ export function checkBuilder(): Check {
   const needed = vmImage() === undefined;
   const route = buildRoute();
   const name = "Image builder";
-  if (route === "native") return { level: needed ? "ok" : "info", name, detail: `e2fsprogs (${mke2fsPath()}) - no Docker needed` };
+  if (route === "native") return { level: needed ? "ok" : "info", name, detail: `e2fsprogs (${mke2fsPath()}), cpio and lz4 - no Docker needed` };
   if (route === "docker") return { level: needed ? "ok" : "info", name, detail: "Docker, running" };
   if (!needed) return { level: "info", name, detail: `none - only needed to rebuild the VM image (${builderHint()})` };
   const docker = dockerState();
@@ -162,8 +186,8 @@ export function checkBuilder(): Check {
     name,
     detail:
       docker === "stopped"
-        ? "Docker is installed but not running, and e2fsprogs is not installed"
-        : "neither Docker nor e2fsprogs is installed",
+        ? `Docker is installed but not running, and ${missingBuildTools().join(", ")} ${missingBuildTools().length === 1 ? "is" : "are"} not installed`
+        : `neither Docker nor ${missingBuildTools().join(", ")} ${missingBuildTools().length === 1 ? "is" : "are"} installed`,
     fix: `${builderHint()}, then turri vm-image`,
   };
 }
@@ -171,7 +195,7 @@ export function checkBuilder(): Check {
 /** The ways to get a builder: e2fsprogs first - installed once, nothing to keep running - then Docker. */
 function builderHint(): string {
   const docker = dockerState() === "stopped" ? `start Docker (${dockerStartHint()})` : "install Docker";
-  return `install e2fsprogs (${e2fsprogsInstallHint()}), or ${docker}`;
+  return `install ${missingBuildTools().join(", ") || "e2fsprogs"} (${e2fsprogsInstallHint()}), or ${docker}`;
 }
 
 async function checkProvider(): Promise<Check> {
@@ -252,7 +276,8 @@ async function allChecks(options: { boot: boolean }): Promise<Check[]> {
   const platform = checkPlatform();
   if (platform) checks.push(platform);
   else {
-    checks.push(checkQemu(), checkImage(), checkBuilder());
+    const kvm = checkKvm();
+    checks.push(checkQemu(), ...(kvm !== undefined ? [kvm] : []), checkImage(), checkBuilder());
     const project = checkProjectImage();
     if (project !== undefined) checks.push(project);
   }
@@ -309,7 +334,7 @@ async function confirm(question: string, fallback: boolean, yes: boolean): Promi
  * a Linux container. Nothing, when neither is there.
  */
 export function buildRoute(): "docker" | "native" | undefined {
-  if (mke2fsPath() !== undefined) return "native";
+  if (nativeBuildReady()) return "native";
   if (dockerRunning()) return "docker";
   return undefined;
 }
@@ -333,8 +358,8 @@ export async function buildVmImage(
     write(`Docker is not running. ${dockerState() === "absent" ? "Install it" : `Start it (${dockerStartHint()})`}, or build without it: turri vm-image --native\n`);
     return 1;
   }
-  if (route === "native" && mke2fsPath() === undefined) {
-    write(`Building without Docker needs e2fsprogs: ${e2fsprogsInstallHint()}\n`);
+  if (route === "native" && !nativeBuildReady()) {
+    write(`Building without Docker needs ${missingBuildTools().join(", ")}: ${e2fsprogsInstallHint()}\n`);
     return 1;
   }
   // The recipe says what goes in - turri's, with the person's and the project's changes over it; how and
@@ -443,16 +468,17 @@ async function setupImage(yes: boolean): Promise<void> {
     if ((await buildVmImage({ route })) !== 0) console.log(`The image did not build; until it does, commands run in the ${STOCK_IMAGE.short}.\n`);
   };
 
-  if (mke2fsPath() === undefined) {
-    if (brewInstalled()) {
-      if (await confirm("The VM image is built with e2fsprogs - a few small tools, installed once, nothing to keep running. Install it with Homebrew now?", true, yes)) {
-        spawnSync("brew", ["install", "e2fsprogs"], { stdio: "inherit" });
+  if (!nativeBuildReady()) {
+    const missing = missingBuildTools().filter((tool) => process.platform !== "darwin" || tool !== "cpio");
+    if (brewInstalled() && missing.length > 0) {
+      if (await confirm(`The VM image is built with ${missing.join(" and ")} - a few small tools, installed once, nothing to keep running. Install ${missing.length === 1 ? "it" : "them"} with Homebrew now?`, true, yes)) {
+        spawnSync("brew", ["install", ...missing], { stdio: "inherit" });
       }
     } else if (process.platform === "linux") {
-      console.log(`The VM image is built with e2fsprogs, which is not installed. Install it with: ${e2fsprogsInstallHint()}\n`);
+      console.log(`The VM image is built with e2fsprogs, cpio and lz4; ${missingBuildTools().join(", ")} ${missingBuildTools().length === 1 ? "is" : "are"} not installed. Install with: ${e2fsprogsInstallHint()}\n`);
     }
   }
-  if (mke2fsPath() !== undefined) {
+  if (nativeBuildReady()) {
     if (await ask("with e2fsprogs")) await build("native");
     return;
   }
@@ -469,7 +495,7 @@ async function setupImage(yes: boolean): Promise<void> {
 
   console.log(
     [
-      "The full VM image (Python, Node, Java, Go, Rust, C/C++, git) cannot be built here yet: e2fsprogs is not",
+      `The full VM image (Python, Node, Java, Go, Rust, C/C++, git) cannot be built here yet: ${missingBuildTools().join(", ")} ${missingBuildTools().length === 1 ? "is" : "are"} not`,
       docker === "stopped" ? "installed, and Docker is not running." : "installed, and there is no Docker.",
       "Until it is built, commands run in the stock image:",
       "",

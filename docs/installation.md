@@ -1,5 +1,16 @@
 # Installation
 
+**turri** runs on Apple Silicon macOS and on Linux, with git and Node 22.19 or newer (a Linux
+distribution's own `nodejs` package is often older: take it from nodejs.org, nvm or NodeSource).
+Windows is not supported natively: every command an agent runs, runs in a
+[Gondolin](https://github.com/earendil-works/gondolin) micro-VM on QEMU, with the system's
+hypervisor - macOS's Hypervisor.framework or Linux's KVM - and **turri** starts those VMs only on
+Apple Silicon macOS and Linux. On Windows, run it in Linux: in a container (Docker, Podman or
+similar) or in WSL 2, with KVM passed in - `docker run --device /dev/kvm ...` - which needs
+nested virtualisation turned on (Windows 11, an Intel or AMD CPU, virtualisation on in the
+firmware). Without `/dev/kvm` QEMU emulates the VM, too slowly for it to start, and `turri doctor`
+says so. This is not tested on Windows yet.
+
 ```bash
 git clone git@github.com:plainlang/turri.git && cd turri
 npm install
@@ -26,6 +37,7 @@ It checks, in order, and says exactly what to run for anything missing:
 | --- | --- | --- |
 | Node 22.19+ | turri runs its `.ts` sources directly, and pi needs 22.19 | install a newer Node |
 | QEMU | every command an agent runs, runs in a sandbox VM on it | `setup` offers `brew install qemu`; on Linux, `apt install qemu-system-arm` / `qemu-system-x86` |
+| KVM (Linux) | without `/dev/kvm` QEMU emulates the VM, too slowly for it to start | turn on virtualisation; join the `kvm` group; in a container, `--device /dev/kvm` |
 | the VM image | the full image has Python, Node, Java, Go, Rust, C/C++ and git | `setup` offers to build it (about 7 minutes, 2 GB) - see [Building the VM image](#building-the-vm-image) |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
 | `turri` on PATH | so it runs from any project | `npm link` in this clone |
@@ -59,7 +71,7 @@ one):
 
 | | needs | |
 | --- | --- | --- |
-| with e2fsprogs (the default) | `brew install e2fsprogs`, or `apt install e2fsprogs` | a few small command-line tools, installed once - nothing to start or keep running. Gondolin unpacks the Alpine packages itself; e2fsprogs writes the disk image. |
+| with e2fsprogs (the default) | `brew install e2fsprogs lz4`, or `apt install e2fsprogs cpio lz4` | a few small command-line tools, installed once - nothing to start or keep running. Gondolin unpacks the Alpine packages itself; e2fsprogs writes the disk image, cpio and lz4 pack the initramfs. A fresh Linux has neither of those two. |
 | in Docker | Docker, running | the build runs in a Linux container. For when e2fsprogs cannot be installed. |
 
 Both take about 7 minutes and produce the same image, `turri:latest` in
@@ -67,8 +79,8 @@ Both take about 7 minutes and produce the same image, `turri:latest` in
 `turri setup` works through them in that order:
 
 - **e2fsprogs installed** - it offers to build.
-- **e2fsprogs not installed** - on macOS it offers to install it with Homebrew, then to build; on
-  Linux it prints `sudo apt install e2fsprogs`.
+- **e2fsprogs, cpio or lz4 not installed** - on macOS it offers to install what is missing with
+  Homebrew, then to build; on Linux it prints the `sudo apt install` for what is missing.
 - **Still no e2fsprogs** - it falls back to Docker: it offers to build in Docker if it is running,
   or to start it first if it is installed but not running (`open -a Docker` on macOS, and waits
   for it; on Linux it prints `sudo systemctl start docker`).

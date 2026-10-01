@@ -5,7 +5,10 @@ const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 19)) {
   console.error(
     `turri needs Node 22.19 or newer; this is ${process.versions.node}.\n` +
-      "Install a newer one (https://nodejs.org, or `brew install node`) and run it again.",
+      (process.platform === "darwin"
+        ? "Install a newer one (`brew install node`, or https://nodejs.org) and run it again."
+        : "Install a newer one - a Linux distribution's own package is often older: use https://nodejs.org/en/download " +
+          "(nvm, or NodeSource's packages) - and run it again."),
   );
   process.exit(1);
 }
