@@ -304,10 +304,28 @@ function titleOf(change: SpecChange): string {
  * the work loop runs: checked (checkDraft), or, when nothing holds, the whole work as one job.
  */
 export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
-  const draft = await cut(input, agents);
-  if (input.track !== "conformance") return draft;
+  if (input.track !== "conformance") return cut(input, agents);
   const net = netChanges(input.base, input.current);
+  // Every functional spec tested is in a group scheduled together: the jobs are those groups, and no agent is asked.
+  const draft = await cut(input, decided(net, input) ? undefined : agents);
   return joined(anchored(draft, net), net, input);
+}
+
+/** A conformance change's functional spec, by its number: in the tree after it, or - taken out - before it. */
+function fridsOf(net: SpecChange[], input: PlanInput): Map<string, string | undefined> {
+  const fridAt = (tree: MarshalledPlainSource, position: number) => ((tree[FUNCTIONAL_REQUIREMENTS] as Array<{ frid?: string }> | undefined) ?? [])[position - 1]?.frid;
+  return new Map(
+    net
+      .filter((change) => change.section === FUNCTIONAL_REQUIREMENTS)
+      .map((change) => [change.id, fridAt(change.kind === "remove" ? input.base : input.current, change.position)]),
+  );
+}
+
+/** Whether the groups scheduled together hold every functional spec a conformance plan tests: then they are its jobs. */
+function decided(net: SpecChange[], input: PlanInput): boolean {
+  const together = new Set((input.together ?? []).flat());
+  const frids = [...fridsOf(net, input).values()];
+  return frids.length > 0 && frids.every((frid) => frid !== undefined && together.has(frid));
 }
 
 /**
@@ -316,12 +334,7 @@ export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promis
  */
 function joined(draft: DraftJob[], net: SpecChange[], input: PlanInput): DraftJob[] {
   if (input.together === undefined || input.together.length === 0) return draft;
-  const fridAt = (tree: MarshalledPlainSource, position: number) => ((tree[FUNCTIONAL_REQUIREMENTS] as Array<{ frid?: string }> | undefined) ?? [])[position - 1]?.frid;
-  const fridOf = new Map(
-    net
-      .filter((change) => change.section === FUNCTIONAL_REQUIREMENTS)
-      .map((change) => [change.id, fridAt(change.kind === "remove" ? input.base : input.current, change.position)]),
-  );
+  const fridOf = fridsOf(net, input);
   const order = new Map(net.map((change, index) => [change.id, index]));
   let jobs = draft;
   for (const group of input.together) {

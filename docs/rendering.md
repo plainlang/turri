@@ -493,6 +493,11 @@ by one as each lands - and its tests are written then, before the next code job.
 planned, then d and e: conformance tests named for what a and b build run once b lands, before d, and those
 named for e's after e. A functional spec the spec does not have - built by no code job - or a module with no
 test reqs is refused, and nothing is scheduled; one taken out of the spec later is dropped from its group.
+When every functional spec a conformance plan tests is in a group scheduled together, the groups are its jobs:
+no planning agent is asked.
+
+While a codebase's work is being planned into jobs, with nothing running there, what is planned says so - the
+conformance tests of the groups being planned, or the work - rather than showing nothing until the plan is made.
 
 **What a conformance job tests is built.** As a conformance job starts, the harness reads the code record,
 `code/.plainwright.json`, and checks that it has every functional spec the job adds or changes tests for, as the

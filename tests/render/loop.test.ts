@@ -420,6 +420,37 @@ describe("the work loop", () => {
       expect(tests.ran.map((job) => job.add)).toEqual([["1"], ["3"]]);
     });
 
+    it("scheduled together, are planned as their group with no agent asked - the code's work still is", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const asked: number[][] = [];
+      const planner = { group: async (specs: Array<{ number: number }>) => (asked.push(specs.map((spec) => spec.number)), undefined), place: async () => undefined };
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      await loop.conformance("app.plain", { frids: ["1", "2"] });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "2"]]);
+      // Asked once, for the code's three new functional specs - never for the conformance tests.
+      expect(asked).toEqual([[1, 2, 3]]);
+    });
+
+    it("show the work as being planned while the planner works - never nothing while nothing runs", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      const code = runner();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const planner = { group: async () => (await held, undefined), place: async () => undefined };
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner, conformanceOn: () => false, run: code.run });
+      const brought = loop.bringUp("app.plain");
+      await vi.waitFor(() => expect(loop.status()[0]?.planned[0]).toMatchObject({ planning: true, track: "code", title: "the work" }));
+      expect(loop.planned()[0]!.note).toMatch(/^Being planned into jobs now/);
+      release();
+      await brought;
+      await loop.drain();
+      expect(loop.status()[0]!.planned).toEqual([]);
+    });
+
     it("refuse functional specs the spec does not have - no code job builds them - and schedule nothing", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
       const code = runner();

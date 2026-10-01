@@ -75,7 +75,7 @@ export interface ModuleStatus {
    * The jobs planned after it, in order. A conformance job scheduled for functional specs not all built yet -
    * `waitsFor`, those that are not - comes after the code job that builds the last of them.
    */
-  planned: Array<{ title: string; cases: JobCases; track: Track; waitsFor?: string[] }>;
+  planned: Array<{ title: string; cases: JobCases; track: Track; waitsFor?: string[]; planning?: true }>;
   /**
    * Under `conformance-tests: chosen`: the functional specs the planned code jobs add or change that no conformance
    * test is for, is chosen to be, or is scheduled - for the conversation to choose from now.
@@ -115,6 +115,8 @@ interface ModuleState {
   scheduled?: Array<{ specs: TouchedSpec[]; unbuilt: string[] }>;
   /** The groups scheduled that are chosen now, their tests not written yet: each is planned as one conformance job. */
   together?: TouchedSpec[][];
+  /** The track being planned into jobs now, nothing running: what is next is shown while it is. */
+  planning?: Track;
   /** The conformance tests halted, the code going on: until the spec or the code changes from `key`, or they are asked for again. */
   conformanceHalted?: { why: string; key: string };
   /** Nothing runs here until the spec changes from `specKey`, or it is asked for again. */
@@ -394,6 +396,16 @@ export function createWorkLoop(options: {
     });
   };
 
+  /** Plan a track with nothing running: while the planner works, the codebase says so rather than showing nothing. */
+  const planIdle = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track): Promise<PlannedJob[]> => {
+    state.planning = track;
+    try {
+      return await plan(state, spec, from, track);
+    } finally {
+      state.planning = undefined;
+    }
+  };
+
   /** A dry run's first jobs, by codebase: what each would start. */
   const firsts = new Map<string, { spec: SpecSnapshot; planned: PlannedJob }>();
 
@@ -618,7 +630,7 @@ export function createWorkLoop(options: {
         const testedKey = serializeTree(tested);
         const existing = state.conformancePlan;
         if (existing === undefined || existing.specKey !== specKey || existing.from !== testedKey || existing.jobs.length === 0) {
-          state.conformancePlan = { specKey, from: testedKey, jobs: await plan(state, spec, tested, "conformance") };
+          state.conformancePlan = { specKey, from: testedKey, jobs: await planIdle(state, spec, tested, "conformance") };
         }
         const next = state.conformancePlan!.jobs[0];
         if (next !== undefined) {
@@ -639,7 +651,7 @@ export function createWorkLoop(options: {
     }
     const fromKey = serializeTree(from);
     if (state.plan === undefined || state.plan.specKey !== specKey || state.plan.from !== fromKey || state.plan.jobs.length === 0) {
-      const jobs = await plan(state, spec, from);
+      const jobs = await planIdle(state, spec, from, "code");
       state.plan = { specKey, from: fromKey, jobs };
       if (jobs.length === 0) {
         state.why = "the planner found no way to cut the work into jobs that hold together";
@@ -654,7 +666,13 @@ export function createWorkLoop(options: {
     // What runs next: the conformance tests' jobs, then the code's - the running job at the head of its own.
     const running = state.running?.planned;
     const own = (jobs: PlannedJob[] | undefined) => (jobs ?? []).filter((job) => job !== running);
-    const jobs = [...(running !== undefined ? [running] : []), ...own(state.conformancePlan?.jobs), ...own(state.plan?.jobs)];
+    // A track being planned again shows as that, not as its plan before.
+    const replanning = state.running === undefined ? state.planning : undefined;
+    const jobs = [
+      ...(running !== undefined ? [running] : []),
+      ...(replanning === "conformance" ? [] : own(state.conformancePlan?.jobs)),
+      ...(replanning === "code" ? [] : own(state.plan?.jobs)),
+    ];
     // A scheduled conformance job comes after the code job that builds the last of its functional specs - last, when none planned does.
     const builds = (job: PlannedJob, unbuilt: string[]) => job.track === "code" && [...job.cases.add, ...job.cases.patch].some((touched) => unbuilt.includes(touched.frid));
     const after = (state.scheduled ?? []).map((group) => jobs.findLastIndex((job) => builds(job, group.unbuilt)));
@@ -664,7 +682,21 @@ export function createWorkLoop(options: {
           ? []
           : [{ title: group.specs.map((touched) => `fs ${touched.frid}`).join(", "), cases: { fresh: false, add: group.specs, patch: [], delete: [], mechanical: false }, track: "conformance" as const, waitsFor: group.unbuilt }],
       );
+    // Being planned, nothing running: what is next - for the conformance tests, the groups chosen that it plans - not nothing.
+    const together = (state.together ?? []).flat().map((touched) => `fs ${touched.frid}`);
+    const planningNow: ModuleStatus["planned"] =
+      state.running === undefined && state.planning !== undefined
+        ? [
+            {
+              title: state.planning === "conformance" ? (together.length > 0 ? together.join(", ") : "the conformance tests") : "the work",
+              cases: { fresh: false, add: [], patch: [], delete: [], mechanical: false },
+              track: state.planning,
+              planning: true,
+            },
+          ]
+        : [];
     const planned: ModuleStatus["planned"] = [
+      ...planningNow,
       ...jobs.flatMap((job, index) => [{ title: job.title, cases: job.cases, track: job.track }, ...scheduledAt(index)]),
       ...scheduledAt(-1),
     ];
@@ -836,6 +868,8 @@ export function createWorkLoop(options: {
             `${basename(tip.plainFile)} ${job.track === "conformance" ? "conformance: " : ""}${job.title}`,
             job.waitsFor !== undefined
               ? `Scheduled, not started: the conformance tests of ${job.title}, once ${waitsText(job.waitsFor)} built - the code record has to have them first.`
+            : job.planning === true
+              ? `Being planned into jobs now: ${job.title}. The first starts as soon as the plan is made.`
               : `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a job before it ends.`,
             before !== undefined ? [before] : [],
           );
@@ -1006,6 +1040,8 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
         lines.push(
           job.waitsFor !== undefined
             ? `  ${index + 1}. conformance tests: ${job.title} - scheduled, starts once ${waitsText(job.waitsFor)} built`
+            : job.planning === true
+              ? `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - being planned into jobs`
             : `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - ${casesText(job.cases)}`,
         ),
       );
