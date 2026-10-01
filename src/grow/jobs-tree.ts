@@ -1,6 +1,6 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { describeUsage } from "./activity.ts";
-import { summarizeDiff } from "./job-panel.ts";
+import { spinner, summarizeDiff } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 import { diffFiles, fileHeader, PLAIN_PAINT } from "./diff-view.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
@@ -99,7 +99,11 @@ export function jobsTreeRows(jobs: Job[], state: JobsTreeState): TreeRow[] {
   });
 }
 
-const MARK: Record<string, string> = { running: "▶", queued: "·", succeeded: "✓", failed: "✗", stopped: "■" };
+/**
+ * A job's status beside its name. Running is the panel's spinner, not a play mark: a `▶` next to the `▸` that opens the
+ * job reads as a second arrow to pick.
+ */
+const MARK: Record<string, (now: number) => string> = { running: spinner, queued: () => "·", succeeded: () => "✓", failed: () => "✗", stopped: () => "■" };
 
 /** What a job changes, in a line: its diff summed up, or what it builds. */
 export function changeLine(job: Job): string {
@@ -189,7 +193,7 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
     const open = isOpen(state, job);
     const spent = describeUsage(job.usage);
     const change = changeLine(job);
-    const head = `${pointer}   ${open ? "▾" : "▸"} ${MARK[job.status] ?? "·"} ${job.summary}${change !== "" ? ` · ${change}` : ""} · ${formatDuration(job)}${spent !== "" ? ` · ${spent}` : ""}  (job ${job.id})`;
+    const head = `${pointer}   ${open ? "▾" : "▸"} ${MARK[job.status]?.(Date.now()) ?? "·"} ${job.summary}${change !== "" ? ` · ${change}` : ""} · ${formatDuration(job)}${spent !== "" ? ` · ${spent}` : ""}  (job ${job.id})`;
     const [first = "", ...rest] = wrapTextWithAnsi(head, Math.max(10, width));
     lines.push(here ? style.heading(first) : first, ...rest.map((line) => `        ${line}`));
     // Running, its stage is the one thing wanted at a glance.

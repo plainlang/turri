@@ -96,7 +96,9 @@ describe("the jobs tree", () => {
     expect(state.openJobs.has("c")).toBe(true);
     moving.status = "running";
     const lines = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(lines).toContain("▸ ▶ app.plain c");
+    // Running is a spinner, never a play mark beside the arrow that opens it.
+    expect(lines).toMatch(/▸ [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app\.plain c/);
+    expect(lines).not.toContain("▶ app.plain");
     expect(lines).not.toContain("+- Users give kudos.");
     expect(state.openJobs.has("c")).toBe(false);
   });
