@@ -42,6 +42,12 @@ export interface PlanInput {
   /** The module's .plain file, as the diffs name it, and its text - for the diffs' layout. */
   specFile: string;
   specText: string;
+  /**
+   * Which work it is. The conformance tests' is anchored on functional specs: a job of theirs tests at least one -
+   * the definitions and reqs they are written against go with the functional specs whose tests need them.
+   * Default: the code's.
+   */
+  track?: "code" | "conformance";
 }
 
 /** One job of a plan: a title, why, and the changes it makes, by id. */
@@ -296,6 +302,34 @@ function titleOf(change: SpecChange): string {
  * the work loop runs: checked (checkDraft), or, when nothing holds, the whole work as one job.
  */
 export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
+  const draft = await cut(input, agents);
+  return input.track === "conformance" ? anchored(draft, netChanges(input.base, input.current)) : draft;
+}
+
+/**
+ * A conformance plan, every job of it testing a functional spec: a job that touches none - reqs or definitions alone -
+ * goes into the next job that does, or, with none after it, the last before it. Work that touches no functional spec
+ * at all - test reqs changed, say - stays as it is: it is mechanical, and nothing else.
+ */
+function anchored(draft: DraftJob[], net: SpecChange[]): DraftJob[] {
+  const sectionOf = new Map(net.map((change) => [change.id, change.section]));
+  const testsASpec = (job: DraftJob) => job.changes.some((id) => sectionOf.get(id) === FUNCTIONAL_REQUIREMENTS);
+  if (!draft.some(testsASpec)) return draft;
+  const jobs: DraftJob[] = [];
+  let carried: string[] = [];
+  for (const job of draft) {
+    if (!testsASpec(job)) {
+      carried.push(...job.changes);
+      continue;
+    }
+    jobs.push({ ...job, changes: [...carried, ...job.changes] });
+    carried = [];
+  }
+  if (carried.length > 0) jobs[jobs.length - 1] = { ...jobs.at(-1)!, changes: [...jobs.at(-1)!.changes, ...carried] };
+  return jobs;
+}
+
+async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   const net = netChanges(input.base, input.current);
   if (net.length === 0) return [];
   const specs = newSpecsOf(net, input.current);

@@ -109,6 +109,31 @@ describe("cutting the queue's work into jobs", () => {
     expect(MAX_LINES_PER_JOB).toBe(120);
   });
 
+  it("puts what is about everything in a job of its own for the code when the first job is too big - never for the conformance tests, whose every job tests a functional spec", async () => {
+    const long = `- A :User: does a big thing.\n${Array.from({ length: 130 }, (_, line) => `  - detail ${line}`).join("\n")}`;
+    const current = tree({ definitions: DEFS.slice(0, 2), impl: ["- :Implementation: is Python 3.12.", "- :Implementation: uses FastAPI."], specs: [long, "- A :User: signs in."] });
+    const place: PlaceAnswer = { implementationReqs: [{ req: 1, to: "all" }, { req: 2, to: "all" }], testReqs: [] };
+    const code = await planChunks(input({}, current), agents(undefined, place));
+    expect(code[0]!.title).toBe("What the whole of it is built with");
+
+    const from = { ...input({}, current), track: "conformance" as const };
+    const conformance = await planChunks(from, agents(undefined, place));
+    expect(checkDraft(from, conformance)).toEqual([]);
+    expect(conformance.map((job) => job.title)).not.toContain("What the whole of it is built with");
+    const steps = stepsOf(from, conformance);
+    for (const job of steps) expect(job.step.changes.some((change) => change.section === "functional specs")).toBe(true);
+    // The reqs go with the first functional spec's tests.
+    expect(steps[0]!.step.textDiff).toContain("+- :Implementation: is Python 3.12.");
+    expect(steps[0]!.step.textDiff).toContain("+- A :User: does a big thing.");
+  });
+
+  it("leaves conformance work that touches no functional spec as it is - the test reqs changed, say", async () => {
+    const base = tree({ tests: ["- :ConformanceTests: use pytest."], specs: ["- A :User: signs in."] });
+    const from = { ...input(base, tree({ tests: ["- :ConformanceTests: use pytest, one file each."], specs: ["- A :User: signs in."] })), track: "conformance" as const };
+    const plan = await planChunks(from, agents());
+    expect(plan).toHaveLength(1);
+    expect(checkDraft(from, plan)).toEqual([]);
+  });
 });
 
 describe("the checks a plan is held to", () => {
