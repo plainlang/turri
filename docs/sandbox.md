@@ -14,8 +14,9 @@ Its commands reach less: only its own module's folder (see below). The specs it 
 building from reach it only through the prompt the harness writes. Nor does any context file: pi puts
 every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt, and plainwright
 turns that off for every agent it starts - so the project's own `AGENTS.md`, or yours in
-`~/.pi/agent`, never reaches a rendering agent, a judge or a skill's agent. The conversation you
-talk to still loads them, as pi does.
+`~/.pi/agent`, never reaches a rendering agent, a judge or a skill's agent. Nor do pi's skills, which
+pi would list for an agent to load: each agent plainwright starts has one job, and plainwright runs its
+own gated skills itself. The conversation you talk to still loads both, as pi does.
 
 ## Every agent knows its walls
 

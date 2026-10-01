@@ -113,6 +113,10 @@ const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge"
  * plain_modules/<module>/code, so it would be given whatever the project says about itself. An
  * agent plainwright starts sees only what plainwright gives it. The conversation still loads
  * them, as pi does.
+ *
+ * Nor any of pi's skills. pi lists every skill it finds - the user's, the project's - in the system prompt, for the
+ * agent to load when one fits; an agent plainwright starts has one job, and plainwright runs its gated skills itself,
+ * giving each step to an agent as its task. The conversation keeps them.
  */
 export async function subAgentResources(cwd: string, withRules: boolean, system?: string): Promise<DefaultResourceLoader> {
   const rules = withRules ? renderRulesBlock(loadRules(RULES_DIR)) : "";
@@ -122,6 +126,7 @@ export async function subAgentResources(cwd: string, withRules: boolean, system?
     agentDir: getAgentDir(),
     noExtensions: true,
     noContextFiles: true,
+    noSkills: true,
     appendSystemPrompt: extra.length > 0 ? extra : undefined,
   });
   await loader.reload();

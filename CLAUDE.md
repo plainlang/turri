@@ -120,7 +120,7 @@ symlinks resolved) that fences agents to `plain_modules`. `vm.ts` runs every com
 test scripts) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
 and shut down when idle or when the project moves to another module. There is no host fallback,
 except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. plainwright turns off `AGENTS.md`/`CLAUDE.md`
-loading for every agent it starts (`noContextFiles` in `src/pi.ts`).
+loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` in `src/pi.ts`).
 
 **Agent sessions.** An agent's whole initial prompt is its system prompt (`createExecutor`'s `task`,
 opened with `BEGIN`), so pi's compaction never sums it up. The coding agent, the conformance agent,
