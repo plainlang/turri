@@ -326,17 +326,17 @@ export function createJobRegistry(options?: {
           if (error === undefined && !didNotPass(outcome!)) return outcome!;
           failures.push(error !== undefined ? (error instanceof Error ? error.message : String(error)) : outcome!.report);
           if (attempt < retries) {
-            sink.stage(`the job failed - trying it once more (${attempt + 1} of ${retries})`);
+            sink.stage(`the pulse failed - trying it once more (${attempt + 1} of ${retries})`);
             continue;
           }
           job.failedForGood = true;
           if (options?.diagnose !== undefined) {
-            sink.stage("the job failed again - working out why, and what has to be done");
+            sink.stage("the pulse failed again - working out why, and what has to be done");
             job.diagnosis = await withActivity(sink, () => options.diagnose!(job, failures, log?.file)).catch(() => undefined);
           }
           throw new Error(
             [
-              `Failed ${failures.length} time${failures.length === 1 ? "" : "s"}, so it and every job queued behind it have stopped.`,
+              `Failed ${failures.length} time${failures.length === 1 ? "" : "s"}, so it and every pulse queued behind it have stopped.`,
               ...(job.diagnosis !== undefined ? ["", job.diagnosis] : []),
               "",
               "The last attempt ended with:",
@@ -357,7 +357,7 @@ export function createJobRegistry(options?: {
           if (failedAhead !== undefined) {
             job.failedForGood = true;
             throw new Error(
-              `Not run: job ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) failed twice, so nothing queued behind it runs.` +
+              `Not run: pulse ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) failed twice, so nothing queued behind it runs.` +
                 (failedAhead.diagnosis !== undefined ? `\n\n${failedAhead.diagnosis}` : ""),
             );
           }
@@ -365,7 +365,7 @@ export function createJobRegistry(options?: {
           if (limit !== undefined && active >= limit) {
             job.status = "queued";
             job.waitingOn = [];
-            job.stage = `waiting for a free slot - ${active} of ${limit} jobs running at once (parallel-jobs)`;
+            job.stage = `waiting for a free slot - ${active} of ${limit} pulses running at once (parallel-jobs)`;
             changed();
           }
           await takeSlot();
@@ -381,7 +381,7 @@ export function createJobRegistry(options?: {
           log = startJobLog(job, claimed);
           if (log !== undefined) {
             job.logFile = log.file;
-            sink.activity(`job log: ${log.file}`);
+            sink.activity(`pulse log: ${log.file}`);
           }
           // The job holds the VMs it uses until it ends, and no longer.
           return guarded ? runGuarded() : runOnce();
@@ -458,7 +458,7 @@ export function createJobRegistry(options?: {
 
     async wait(id) {
       const promise = settled.get(id);
-      if (promise === undefined) throw new Error(`No such job: ${id}`);
+      if (promise === undefined) throw new Error(`No such pulse: ${id}`);
       return promise;
     },
   };
@@ -479,9 +479,9 @@ export function formatElapsed(ms: number): string {
 /** What the agent is told when it checks on a job. */
 export function describeJob(job: Job): string {
   if (job.status === "queued") {
-    return `job ${job.id} (${job.kind}): queued behind ${job.waitingOn.map((id) => `job ${id}`).join(" and ")} — ${job.summary}. It starts when that finishes.`;
+    return `pulse ${job.id} (${job.kind}): queued behind ${job.waitingOn.map((id) => `pulse ${id}`).join(" and ")} — ${job.summary}. It starts when that finishes.`;
   }
-  const header = `job ${job.id} (${job.kind}): ${job.status}, ${formatDuration(job)} — ${job.summary}`;
+  const header = `pulse ${job.id} (${job.kind}): ${job.status}, ${formatDuration(job)} — ${job.summary}`;
   if (job.status === "running") {
     return [
       header,

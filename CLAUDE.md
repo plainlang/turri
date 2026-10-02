@@ -53,7 +53,7 @@ which drives the work loop as the chat does. The old names (`module`, `regenerat
 `deploy`, `skill`) are aliases. `setup`, `doctor` and `vm-image` go to `setup.ts`. `chat` spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
-`cultivate`, `release`, `activate`, `/watch`, `/growth`, `/halt`, `/lineage`, `/engine`, ...).
+`cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/lineage`, `/engine`, ...).
 
 **The \*\*\*plain parser (`src/plain/`)** is a faithful port of the Python reference parser
 (`plain_file.py`, `plain_spec.py`, `concept_utils.py`). Marshalled trees are compared against the

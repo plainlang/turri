@@ -99,7 +99,7 @@ describe("continuous review", () => {
   });
 
   it("is parsed alongside the phase gate", () => {
-    const skill = loadSkill("skills/forge-plain");
+    const skill = loadSkill("skills/brood");
     const step = skill.steps.find((s) => s.name === "product")!;
     expect(step.gate?.continuous).toEqual({
       rubric: "./references/rubric-product-live.md",
@@ -112,24 +112,24 @@ describe("continuous review", () => {
   });
 });
 
-describe("forge-plain's phases", () => {
+describe("brood's phases", () => {
   it("are intent, stack, testing and product - testing before the product phase, so its changes are conformance tested as they are built", () => {
-    const skill = loadSkill("skills/forge-plain");
+    const skill = loadSkill("skills/brood");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "stack", "testing", "product"]);
     expect(skill.steps.find((step) => step.name === "product")!.gate).toBeDefined();
     expect(skill.steps.find((step) => step.name === "testing")!.gate).toBeUndefined();
   });
 });
 
-describe("spark-plain, forge-plain's quick twin", () => {
+describe("spawn, brood's quick twin", () => {
   it("asks only about intent, then sets up and writes the product on its own - unpaced, and ungated", () => {
-    const skill = loadSkill("skills/spark-plain");
+    const skill = loadSkill("skills/spawn");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "groundwork", "product"]);
     expect(skill.steps.every((step) => step.gate === undefined)).toBe(true);
     expect(skill.paced).toBe(false);
     expect(skill.allowedTools).toContain("write_spec_diff");
-    // forge-plain's interview stays paced: one answer, one change.
-    expect(loadSkill("skills/forge-plain").paced).toBe(true);
+    // brood's interview stays paced: one answer, one change.
+    expect(loadSkill("skills/brood").paced).toBe(true);
   });
 });
 
@@ -156,18 +156,18 @@ describe("a skill's tools", () => {
   });
 });
 
-describe("temper-plain", () => {
+describe("mature", () => {
   it("renders a rough spec until it is fully rendered, on its own - with the tools to watch, stop, check the goal and read what the builds decided", () => {
-    const skill = loadSkill("skills/temper-plain");
-    expect(skill.steps.map((step) => step.name)).toEqual(["intake", "temper", "report"]);
+    const skill = loadSkill("skills/mature");
+    expect(skill.steps.map((step) => step.name)).toEqual(["intake", "grow", "report"]);
     expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"]));
     expect(skill.paced).toBe(false);
   });
 });
 
-describe("add-feature", () => {
-  it("builds a feature as forge-plain builds a product: product questions, one spec diff per answer, paced", () => {
-    const skill = loadSkill("skills/add-feature");
+describe("bud", () => {
+  it("builds a feature as brood builds a product: product questions, one spec diff per answer, paced", () => {
+    const skill = loadSkill("skills/bud");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "scope", "product", "review"]);
     expect(skill.allowedTools).toContain("write_spec_diff");
     expect(skill.paced).toBe(true);
@@ -176,7 +176,7 @@ describe("add-feature", () => {
 
 describe("the status line while a skill runs", () => {
   const skill = {
-    name: "forge-plain",
+    name: "brood",
     steps: ["intent", "stack", "product"].map((name) => ({
       name,
       instructions: "",
@@ -184,10 +184,10 @@ describe("the status line while a skill runs", () => {
   } as unknown as Parameters<typeof skillStatus>[0];
 
   it("names the phase and where it sits among them", () => {
-    expect(skillStatus(skill, "stack", 1)).toBe("forge-plain: stack (phase 2 of 3)");
+    expect(skillStatus(skill, "stack", 1)).toBe("brood: stack (phase 2 of 3)");
   });
 
   it("says when a phase is being retried after its gate", () => {
-    expect(skillStatus(skill, "product", 2)).toBe("forge-plain: product (phase 3 of 3), attempt 2");
+    expect(skillStatus(skill, "product", 2)).toBe("brood: product (phase 3 of 3), attempt 2");
   });
 });

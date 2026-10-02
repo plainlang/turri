@@ -401,7 +401,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
     grouped !== undefined && groupProblems(numbered, grouped).length === 0
       ? grouped.groups
       : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));
-  if (grouped === undefined || groupProblems(numbered, grouped).length > 0) reportActivity("  the grouping did not hold - a functional spec a job");
+  if (grouped === undefined || groupProblems(numbered, grouped).length > 0) reportActivity("  the grouping did not hold - a functional spec a pulse");
   const bySpec = new Map(specs.map((change) => [change.position, change]));
   const chunksFor = (list: Array<{ specs: number[]; title: string }>): Chunk[] => [
     ...(hasBuilt ? [{ title: "Changes to what is built", specs: [], definitions: [], reqs: [], built: builtChanges }] : []),
@@ -427,7 +427,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
     };
     const answer = (await agents?.place(placeInput, (given) => placeProblems(placeInput, given)).catch(() => undefined)) ?? undefined;
     placement = answer !== undefined && placeProblems(placeInput, answer).length === 0 ? answer : undefined;
-    if (placement === undefined) reportActivity("  the placement did not hold - every implementation req with the first job, every test req with the first conformance job");
+    if (placement === undefined) reportActivity("  the placement did not hold - every implementation req with the first pulse, every test req with the first conformance pulse");
   }
   /** A req's chunk: its group, the built job, or the first job of the new work for "all". */
   const chunkOf = (to: Target): Chunk => (to === "built" ? builtChunk()! : to === "all" ? newChunks()[0]! : newChunks()[to - 1]!);
@@ -470,7 +470,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
   const draft = draftOf(chunks, net);
   if (checkDraft(input, draft).length === 0) return draft;
   // It does not hold together: a functional spec a job, every req with the first.
-  reportActivity(`  the plan did not hold together (${checkDraft(input, draft)[0]?.slice(0, 120)}) - a functional spec a job`);
+  reportActivity(`  the plan did not hold together (${checkDraft(input, draft)[0]?.slice(0, 120)}) - a functional spec a pulse`);
   placement = undefined;
   groups.splice(0, groups.length, ...numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) })));
   chunks = chunksFor(groups);

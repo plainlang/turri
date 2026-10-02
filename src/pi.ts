@@ -18,6 +18,7 @@ import {
   describeToolCall,
   describeToolResult,
   JobStoppedError,
+  shownName,
   reportActivity,
   reportNow,
   reportAgent,
@@ -266,17 +267,17 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
           lastCallReport = now;
           const block = update.partial.content[update.contentIndex] as { name?: string } | undefined;
           const size = callChars >= 1000 ? `${(callChars / 1000).toFixed(1)}k` : `${callChars}`;
-          reportNow(`writing ${block?.name ?? "a tool"} call · ${size} chars`, { keepSince: true });
+          reportNow(`writing ${block?.name !== undefined ? shownName(block.name) : "a tool"} call · ${size} chars`, { keepSince: true });
         }
       }
     }
     if (event.type === "tool_execution_start") {
       const args = JSON.stringify(event.args ?? {});
-      transcript({ kind: "tool", text: `${event.toolName} ${clipText(args, MAX_TOOL_ARGS)}`, full: `${event.toolName} ${args}` });
+      transcript({ kind: "tool", text: `${shownName(event.toolName)} ${clipText(args, MAX_TOOL_ARGS)}`, full: `${shownName(event.toolName)} ${args}` });
       const took = Date.now() - stepStarted;
       const line = describeToolCall(event.toolName, event.args);
       reportActivity(took >= 1000 ? `${line}   (model ${seconds(took)})` : line);
-      reportNow(`running ${event.toolName}`);
+      reportNow(`running ${shownName(event.toolName)}`);
     }
     if (event.type === "tool_execution_end") {
       failing = event.isError ? (event.toolName === failingTool ? failing + 1 : 1) : 0;
@@ -286,7 +287,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
         // make the same bad call, worded a little differently, thousands of times. Its turn ends here, and
         // the harness goes on from there, as after any turn.
         stoppedFailing = true;
-        reportActivity(`  stopped the agent's turn: ${failing} ${event.toolName} calls failed in a row`);
+        reportActivity(`  stopped the agent's turn: ${failing} ${shownName(event.toolName)} calls failed in a row`);
         debugLogOf(session)?.note(`turn stopped: ${failing} ${event.toolName} calls failed in a row`);
         void session.abort();
       }

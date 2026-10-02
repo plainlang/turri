@@ -556,7 +556,7 @@ describe("the work loop", () => {
       const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner, conformanceOn: () => false, run: code.run });
       const brought = loop.bringUp("app.plain");
       await vi.waitFor(() => expect(loop.status()[0]?.planned[0]).toMatchObject({ planning: true, track: "code", title: "the work" }));
-      expect(loop.planned()[0]!.note).toMatch(/^Being planned into jobs now/);
+      expect(loop.planned()[0]!.note).toMatch(/^Being planned into pulses now/);
       release();
       await brought;
       await loop.drain();

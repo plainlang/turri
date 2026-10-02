@@ -7,7 +7,7 @@ description: >-
   test reqs), a stub top-level module, the unit testing script, and
   (optionally) the conformance testing script under `test_scripts/`. Does NOT run `validate`. Use when the user wants a
   quick project skeleton to start writing functional specs against, without
-  the full forge-plain interview.
+  the full `brood` interview.
 allowed-tools: [read, write, edit, bash, ls, grep, find]
 ---
 
@@ -15,7 +15,7 @@ allowed-tools: [read, write, edit, bash, ls, grep, find]
 
 ## Scope
 
-This skill is intentionally **minimal**. It produces a runnable project skeleton — not a complete spec. **No `***definitions***` sections are written by this skill — not in the template module, not in the top module.** No functional specs, no concepts, no acceptance tests, no validation. The user will fill those in afterwards with `add-feature`, `add-concept`, `add-functional-spec`, etc.
+This skill is intentionally **minimal**. It produces a runnable project skeleton — not a complete spec. **No `***definitions***` sections are written by this skill — not in the template module, not in the top module.** No functional specs, no concepts, no acceptance tests, no validation. The user will fill those in afterwards with `bud`, `add-concept`, `add-functional-spec`, etc.
 
 What this skill writes:
 
@@ -105,7 +105,7 @@ Do **not** run `validate` here — keeping this skill light is the whole point. 
 Tell the user what was created and what's next:
 
 - Files written: `template/base.plain`, `<project>.plain`, the test scripts.
-- Suggested next steps: add concepts with `add-concept`, add functional specs with `add-functional-spec` or `add-functional-specs`, or jump straight into `add-feature`.
+- Suggested next steps: add concepts with `add-concept`, add functional specs with `add-functional-spec` or `add-functional-specs`, or jump straight into `bud`.
 - Mention that `validate` has not been run on `<project>.plain` yet.
 
 ## Validation checklist

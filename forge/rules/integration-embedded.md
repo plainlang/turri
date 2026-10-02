@@ -14,7 +14,7 @@ Embedded means: the host codebase already exists, has its own language / framewo
 
 - Language, framework, dependency manager, packaging layout, coding standards, error model, logging library, and architecture are **inherited** from the host — they are **never chosen** by the integration spec
 - Do not re-ask the user about any of these in any phase — they are facts to be discovered from the host's manifest files (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, …) and other integrations.
-- If a `forge-plain` stack-phase question seems to push back on a host rule, treat the host as ground truth and rewrite the question
+- If a `brood` stack-phase question seems to push back on a host rule, treat the host as ground truth and rewrite the question
 - Implementation reqs added in the stack phase are **transcribed** from the host stack verbatim — host language and exact version, host framework + version, dependency manager and manifest path, packaging layout, host conventions the contract must follow, and every host-package version the contract pins
 
 ## Project layout — the integration lives under `plain/` at the host root
@@ -146,7 +146,7 @@ Before declaring an embedded integration done, in addition to the shared checkli
 - [ ] Contract spec carries renderer directives (target language, target file path, target class name, host base class to subclass, host-package pins) and **links** to the contract schema; no class body is inlined
 - [ ] Every host symbol referenced in any spec uses its fully qualified import path and is tagged "imported from the host codebase; do not redefine"
 - [ ] Every host file the integration touches is linked at its **original host-relative path** — no host file has been copied into `resources/host/` or anywhere else, and no host file contents are inlined in any spec
-- [ ] `forge-plain`'s stack-phase decisions are transcribed verbatim from the host (no independent stack choices)
+- [ ] `brood`'s stack-phase decisions are transcribed verbatim from the host (no independent stack choices)
 - [ ] Host-package version pins are copied into `***implementation reqs***`
 - [ ] `run_unittests` copies `$1` into the host's source tree at the module's package path and invokes the host's test runner scoped to the module's package
 - [ ] `run_conformance_tests` makes the same copy of `$1` into the host, cleans the host's build-output directory, runs the host's install / build so the conformance suite resolves the integration from the local dependency cache, then copies `$2` into `/tmp/<lang>_conformance/` (system temp), `cd`s in, builds the conformance project, and runs the whole suite

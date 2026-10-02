@@ -26,4 +26,4 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 
 ## Recap
 
-- [ ] Told the user what was written, suggested next steps (`add-concept`, `add-functional-spec(s)`, `add-feature`), and noted that `validate` has not been run.
+- [ ] Told the user what was written, suggested next steps (`add-concept`, `add-functional-spec(s)`, `bud`), and noted that `validate` has not been run.

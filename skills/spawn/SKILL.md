@@ -1,7 +1,7 @@
 ---
-name: spark-plain
+name: spawn
 description: >-
-  The quick twin of forge-plain: asks only what the user wants to build, then writes the whole
+  The quick twin of `brood`: asks only what the user wants to build, then writes the whole
   `***plain` spec on its own - the stack, the unit tests and the product, feature by feature -
   making every choice itself where the user said nothing, and queues each feature as a render spec
   diff job the moment it is written. Conformance tests are off unless the user asks for them. No
@@ -9,14 +9,14 @@ description: >-
   talking in the conversation, and every change they ask for is a spec diff: what is left to build
   is worked out again from the spec. Use when the user wants to start a new project fast, or says to just build
   it. For a full interview that settles the stack, the testing and every feature with the user, use
-  forge-plain. Not for adding a feature to an existing project (use add-feature).
+  `brood`. Not for adding a feature to an existing project (use `bud`).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 metadata:
   # It writes its spec changes one after another on its own: no answer between them.
   paced: false
 ---
 
-# Spark Plain
+# Spawn
 
 Load the `***plain` syntax rules before writing anything - they are in the system prompt under
 `<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need to follow

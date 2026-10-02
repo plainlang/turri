@@ -31,7 +31,7 @@ export const PANEL_KEY = "ctrl+h";
 
 /** How the side panel is found your way around, as the job panel says it. */
 export const PANEL_HELP =
-  `in the side panel: ↑↓ move over the jobs · enter opens one - what it builds, whole · o/c open or close them all · t its trace · tab switches jobs · trace · esc back to the chat · ${PANEL_KEY} closes it`;
+  `in the side panel: ↑↓ move over the pulses · enter opens one - what it builds, whole · o/c open or close them all · t its trace · tab switches pulses · trace · esc back to the chat · ${PANEL_KEY} closes it`;
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -148,7 +148,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (lines.length > 0) lines.push("");
     const spent = describeUsage(job.usage);
     const model = job.model ? ` · ${shortModel(job.model)}` : "";
-    lines.push(`${spinner(now)} ${job.summary}${model} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (job ${job.id})`);
+    lines.push(`${spinner(now)} ${job.summary}${model} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (pulse ${job.id})`);
     if (job.diff !== undefined) {
       lines.push(`    ${summarizeDiff(job.diff, diffStyle)}`);
       if (expanded) {
@@ -188,7 +188,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (lines.length > 0) lines.push("");
     if (expanded || queued.length === 1) {
       for (const job of queued) {
-        lines.push(`  queued  ${job.summary}  (job ${job.id}, after ${job.waitingOn.join(", ")})`);
+        lines.push(`  queued  ${job.summary}  (pulse ${job.id}, after ${job.waitingOn.join(", ")})`);
         if (job.diff !== undefined) lines.push(`          ${summarizeDiff(job.diff, diffStyle)}`);
         if (job.note !== undefined) lines.push(`          ${job.note}`);
       }
@@ -203,10 +203,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
   } else if (expanded) {
-    lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each job builds, and the agents' traces`);
+    lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each pulse builds, and the agents' traces`);
     lines.push(`  ${PANEL_HELP}`);
   } else {
-    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ${PANEL_KEY} to see what each job builds`);
+    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ${PANEL_KEY} to see what each pulse builds`);
   }
   return lines;
 }

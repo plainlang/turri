@@ -4,7 +4,7 @@ description: >-
   Add a single functional spec to the ***functional specs*** section of a
   ***plain spec file. Use whenever exactly one new functional spec is being
   added — whether the user explicitly asks, or another skill/workflow
-  (e.g. forge-plain, add-feature) needs to author a new functional spec.
+  (e.g. `brood`, `bud`) needs to author a new functional spec.
   Every new entry under ***functional specs*** must go through either this
   skill or `add-functional-specs` (the bulk variant for adding multiple specs
   in one pass); hand-authoring functional specs without invoking one of these

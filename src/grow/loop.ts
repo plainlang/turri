@@ -195,7 +195,7 @@ export function describeDrift(reports: DriftReport[]): string {
       else if (report.conformance !== undefined) lines.push(`  conformance tests: to write or change - ${cases(report.conformance)}`);
       else lines.push("  conformance tests: none written here");
       for (const group of report.scheduled) lines.push(`  bound ahead: fs ${group.frids.join(", fs ")} - once ${group.unbuilt.map((frid) => `fs ${frid}`).join(", ")} ${group.unbuilt.length === 1 ? "is" : "are"} grown`);
-      if (report.running !== undefined) lines.push(`  growing now: job ${report.running.jobId} - ${report.running.title}`);
+      if (report.running !== undefined) lines.push(`  growing now: pulse ${report.running.jobId} - ${report.running.title}`);
       if (report.why !== undefined) lines.push(`  ${report.why}`);
       if (report.startOver !== undefined) lines.push(`  it has to be rejuvenated on ${report.startOver.requires.join(", ")} before anything more grows there`);
       return lines.join("\n");
@@ -418,7 +418,7 @@ export function createWorkLoop(options: {
     if (unknown.length > 0) {
       throw new Error(
         `${tip.moduleName} has ${items.length} functional spec${items.length === 1 ? "" : "s"}, and ${unknown.map((frid) => `fs ${frid}`).join(", ")} ` +
-          `${unknown.length === 1 ? "is not one of them" : "are not among them"}: no code job builds ${unknown.length === 1 ? "it" : "them"}, so no conformance ` +
+          `${unknown.length === 1 ? "is not one of them" : "are not among them"}: no code pulse builds ${unknown.length === 1 ? "it" : "them"}, so no conformance ` +
           "test could ever be written for it. Nothing was scheduled.",
       );
     }
@@ -480,7 +480,7 @@ export function createWorkLoop(options: {
       job.diff = shown.diff;
       job.diffWhere = shown.where;
     }
-    reportActivity(`  ⇢ steered job ${running.jobId} (${steering.steers} of ${MAX_STEERS}): ${why}`);
+    reportActivity(`  ⇢ steered pulse ${running.jobId} (${steering.steers} of ${MAX_STEERS}): ${why}`);
     return true;
   };
 
@@ -502,7 +502,7 @@ export function createWorkLoop(options: {
     const input: PlanInput = { base: from, current, specFile, specText, steering, track, ...(together.length > 0 ? { together } : {}) };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
-    reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into jobs`);
+    reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into pulses`);
     const draft = await planChunks(input, agents);
     const fresh = tip.requires === null && (track === "code" ? !started(tip) : readRecord(testsDirOf(state)) === null);
     return stepsOf(input, draft).map((job, index) => {
@@ -557,9 +557,9 @@ export function createWorkLoop(options: {
             const notBuiltText = `${missing.map((frid) => `fs ${frid}`).join(", ")} ${missing.length === 1 ? "is" : "are"} not built`;
             return {
               report:
-                `Not started: this conformance job is to test ${testing.map((frid) => `fs ${frid}`).join(", ")}, and ${notBuiltText} - ` +
+                `Not started: this conformance pulse is to test ${testing.map((frid) => `fs ${frid}`).join(", ")}, and ${notBuiltText} - ` +
                 `${record} does not have ${missing.length === 1 ? "it" : "them"} as the spec has ${missing.length === 1 ? "it" : "them"}. ` +
-                "No conformance test is written for code that is not built. Tell the user, and see with drift which code job grows it.",
+                "No conformance test is written for code that is not built. Tell the user, and see with drift which code pulse grows it.",
               details: { passed: false, landed: false, notBuilt: notBuiltText },
             };
           }
@@ -618,10 +618,10 @@ export function createWorkLoop(options: {
         const unbuilt = (settled?.details as { notBuilt?: string } | undefined)?.notBuilt;
         const why =
           settled?.status === "stopped"
-            ? `job ${running.jobId} was stopped`
+            ? `pulse ${running.jobId} was stopped`
             : unbuilt !== undefined
-              ? `conformance job ${running.jobId} ("${running.planned.title}") did not start: ${unbuilt}`
-              : `conformance job ${running.jobId} ("${running.planned.title}") did not pass`;
+              ? `conformance pulse ${running.jobId} ("${running.planned.title}") did not start: ${unbuilt}`
+              : `conformance pulse ${running.jobId} ("${running.planned.title}") did not pass`;
         state.conformanceHalted = { why: `${why} - its conformance tests are written again once the spec or the code changes, or they are asked for again`, key: conformanceKey(state) };
       }
     } else if (running !== undefined && !landed) {
@@ -635,7 +635,7 @@ export function createWorkLoop(options: {
         } catch {
           /* a spec that does not parse halts it all the same */
         }
-        const why = settled?.status === "stopped" ? `job ${running.jobId} was stopped` : `job ${running.jobId} ("${running.planned.title}") did not land`;
+        const why = settled?.status === "stopped" ? `pulse ${running.jobId} was stopped` : `pulse ${running.jobId} ("${running.planned.title}") did not land`;
         state.halted = { why: `${why} - it runs again once the spec changes, or the module is asked for again`, specKey: key };
       }
     } else {
@@ -739,15 +739,15 @@ export function createWorkLoop(options: {
         if (configForSpec(tip.plainFile).allowToStopJobs === false) {
           if (state.running.keptDespite !== why) {
             state.running.keptDespite = why;
-            reportActivity(`  ${tip.moduleName}: job ${state.running.jobId} runs on although ${why} - allow-to-stop-jobs is false: the change is grown on top of what it lands`);
+            reportActivity(`  ${tip.moduleName}: pulse ${state.running.jobId} runs on although ${why} - allow-to-stop-jobs is false: the change is grown on top of what it lands`);
           }
         } else {
           state.running.stopping = true;
-          state.why = `job ${state.running.jobId} was stopped: ${why}, which it was growing from`;
+          state.why = `pulse ${state.running.jobId} was stopped: ${why}, which it was growing from`;
           reportActivity(`  ${tip.moduleName}: ${state.why}`);
           options.registry.stop(
             state.running.jobId,
-            `Stopped by turri, not by you: ${why}, which it was growing from. What it had done is rolled back, and the spec as it is now is grown instead. To have a running job finish first and the change grown on top of it, set allow-to-stop-jobs: false in config.yaml.`,
+            `Stopped by turri, not by you: ${why}, which it was growing from. What it had done is rolled back, and the spec as it is now is grown instead. To have a running pulse finish first and the change grown on top of it, set allow-to-stop-jobs: false in config.yaml.`,
           );
           return;
         }
@@ -821,7 +821,7 @@ export function createWorkLoop(options: {
       const jobs = await planIdle(state, spec, from, "code");
       state.plan = { specKey, from: fromKey, jobs };
       if (jobs.length === 0) {
-        state.why = "the planner found no way to cut the work into jobs that hold together";
+        state.why = "the planner found no way to cut the work into pulses that hold together";
         return;
       }
     }
@@ -929,7 +929,7 @@ export function createWorkLoop(options: {
       const chains = chainsFor(asked);
       for (const chain of chains) {
         const tip = tipOf(chain);
-        if (modules.get(tip.buildDir)?.running !== undefined) throw new Error(`${tip.moduleName} has a job running: ask again once it is done.`);
+        if (modules.get(tip.buildDir)?.running !== undefined) throw new Error(`${tip.moduleName} has a pulse running: ask again once it is done.`);
       }
       const found = new Set<string>();
       for (const chain of chains) {
@@ -1022,7 +1022,7 @@ export function createWorkLoop(options: {
       }
       if (rebuild.size === 0) throw new Error(`Nothing of ${tipOf(own).moduleName} has to be started over: its code is built on every module it requires.`);
       for (const { entry } of rebuild.values()) {
-        if (modules.get(entry.buildDir)?.running !== undefined) throw new Error(`${entry.moduleName} has a job running: ask again once it is done.`);
+        if (modules.get(entry.buildDir)?.running !== undefined) throw new Error(`${entry.moduleName} has a pulse running: ask again once it is done.`);
       }
       for (const { entry, requires } of rebuild.values()) {
         startFromScratch(entry, `it now requires ${requires.join(", ")}, which its code was not built on`);
@@ -1077,7 +1077,7 @@ export function createWorkLoop(options: {
             row(
               id,
               `${basename(tip.plainFile)} - waits for ${state.waitsFor}`,
-              `Not planned yet: its work is planned into jobs once ${state.waitsFor} is built - the code it is built on.`,
+              `Not planned yet: its work is planned into pulses once ${state.waitsFor} is built - the code it is built on.`,
               behind !== undefined ? [behind] : [],
             ),
           ];
@@ -1089,8 +1089,8 @@ export function createWorkLoop(options: {
             job.waitsFor !== undefined
               ? `Scheduled, not started: the conformance tests of ${job.title}, once ${waitsText(job.waitsFor)} built - the code record has to have them first.`
             : job.planning === true
-              ? `Being planned into jobs now: ${job.title}. The first starts as soon as the plan is made.`
-              : `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a job before it ends.`,
+              ? `Being planned into pulses now: ${job.title}. The first starts as soon as the plan is made.`
+              : `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a pulse before it ends.`,
             before !== undefined ? [before] : [],
           );
           before = planned.id;
@@ -1218,7 +1218,7 @@ export async function previewJobs(options: {
 /** What the conversation is told, after a code job lands, of what it built that no conformance test is for, chosen or scheduled. */
 export function chooseNote(plainFile: string, specs: TouchedSpec[]): string {
   return [
-    "conformance-tests: chosen - the conformance tests are for the functional specs chosen. This job built or changed these,",
+    "conformance-tests: chosen - the conformance tests are for the functional specs chosen. This pulse built or changed these,",
     "and no conformance test is for them or scheduled:",
     ...specs.map((touched) => `- fs ${touched.frid}: ${touched.text}`),
     `Decide which of them black-box conformance tests are worth it for - what a user or a client of ${basename(plainFile)} relies on,`,
@@ -1230,11 +1230,11 @@ export function chooseNote(plainFile: string, specs: TouchedSpec[]): string {
 /** What the conversation is told, when the work is planned, of what the code jobs add or change that no conformance test is for, chosen or scheduled. */
 function chooseNow(plainFile: string, specs: TouchedSpec[]): string[] {
   return [
-    "  conformance-tests: chosen - the code jobs above add or change these, and no conformance test is for them or scheduled:",
+    "  conformance-tests: chosen - the code pulses above add or change these, and no conformance test is for them or scheduled:",
     ...specs.map((touched) => `  - fs ${touched.frid}: ${touched.text}`),
     `  Decide now which are worth black-box tests - what a user or a client of ${basename(plainFile)} relies on, not an internal`,
-    "  detail its unit tests cover - say why, and call bind with their numbers: one call a conformance job,",
-    "  scheduled now and started once every one of them is built, before the next code job. The rest stay without.",
+    "  detail its unit tests cover - say why, and call bind with their numbers: one call a conformance pulse,",
+    "  scheduled now and started once every one of them is built, before the next code pulse. The rest stay without.",
   ];
 }
 
@@ -1256,7 +1256,7 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
     .map((status) => {
       const lines = [`${status.module} (${basename(status.plainFile)}):`];
       if (status.running !== undefined) {
-        lines.push(`  running: job ${status.running.jobId} - ${status.running.title}`);
+        lines.push(`  running: pulse ${status.running.jobId} - ${status.running.title}`);
         // Steered, not stopped or planned again: what changed went to its agent.
         for (const why of status.running.steered ?? []) lines.push(`    ⇢ steered: ${why} - its agent was told, and it lands the spec as it is now there`);
       }
@@ -1265,7 +1265,7 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
           job.waitsFor !== undefined
             ? `  ${index + 1}. conformance tests: ${job.title} - scheduled, starts once ${waitsText(job.waitsFor)} built`
             : job.planning === true
-              ? `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - being planned into jobs`
+              ? `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - being planned into pulses`
             : `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - ${casesText(job.cases)}`,
         ),
       );

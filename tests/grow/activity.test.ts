@@ -82,6 +82,11 @@ describe("tool calls as one line", () => {
     expect(describeToolResult("run_unit_tests", { details: { exitCode: 1 } }, false)).toBe("  ✗ failing (exit 1)");
     expect(describeToolResult("write", {}, false)).toBeUndefined();
   });
+
+  it("shows a tool by the name the person knows it by, not the one its agent calls", () => {
+    expect(describeToolCall("write_spec_diff", { plain_file: "app.plain", diff: "" })).toBe("  mutate");
+    expect(describeToolResult("write_spec_diff", {}, true)).toBe("  ✗ mutate failed");
+  });
 });
 
 describe("the panel", () => {

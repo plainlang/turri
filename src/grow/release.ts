@@ -139,8 +139,8 @@ export function describeDeployment(deployment: Deployment): string {
     ...(deployment.unfinished
       ? [
           deployment.hostDir === undefined
-            ? "A job is at work on the module right now: what it has written so far is not finished, and is left out."
-            : `A job is at work on the module right now: what it has written so far is not finished, and is left out of ${shortPath(deployment.dir)} - but ${shortPath(deployment.buildDir)} holds it, so take the code from ${shortPath(deployment.dir)}, never from there.`,
+            ? "A pulse is at work on the module right now: what it has written so far is not finished, and is left out."
+            : `A pulse is at work on the module right now: what it has written so far is not finished, and is left out of ${shortPath(deployment.dir)} - but ${shortPath(deployment.buildDir)} holds it, so take the code from ${shortPath(deployment.dir)}, never from there.`,
         ]
       : []),
   ].join("\n");

@@ -109,7 +109,7 @@ const MARK: Record<string, (now: number) => string> = { running: spinner, queued
 export function changeLine(job: Job): string {
   if (job.diff !== undefined && job.diff.trim() !== "") return summarizeDiff(job.diff);
   if (job.building !== undefined) return `${job.building.label}: ${job.building.text.split("\n").find((line) => line.trim() !== "")?.trim() ?? ""}`;
-  if (job.follows !== undefined) return `the conformance tests of job ${job.follows}`;
+  if (job.follows !== undefined) return `the conformance tests of pulse ${job.follows}`;
   return "";
 }
 
@@ -130,7 +130,7 @@ function plannedOf(job: Job): Array<{ title: string; jobId: string }> {
 /** A job named for the one reading about another: what it was, and its id. */
 function named(jobs: Job[], id: string): string {
   const job = jobs.find((other) => other.id === id);
-  return job !== undefined ? `${job.summary} (job ${id}, ${job.status})` : `job ${id}`;
+  return job !== undefined ? `${job.summary} (pulse ${id}, ${job.status})` : `pulse ${id}`;
 }
 
 /** All of a job, opened: what it builds, and - running - what it is doing; waiting, what it waits on; done, how it ended. */
@@ -149,7 +149,7 @@ function detailLines(job: Job, jobs: Job[], width: number, style: TranscriptStyl
     if (index === 0) lines.push(style.muted(`${indent}planned ${all.length} spec diff${all.length === 1 ? "" : "s"}:`));
     lines.push(style.muted(`${indent}  ${index + 1}. ${step.title} → ${named(jobs, step.jobId)}`));
   });
-  if (job.status === "queued" && job.waitingOn.length > 0) lines.push(style.muted(`${indent}waits for ${job.waitingOn.map((id) => `job ${id}`).join(", ")}`));
+  if (job.status === "queued" && job.waitingOn.length > 0) lines.push(style.muted(`${indent}waits for ${job.waitingOn.map((id) => `pulse ${id}`).join(", ")}`));
   if (job.note !== undefined) lines.push(...wrap(job.note, width, indent, style.accent));
   if (job.status === "running") {
     for (const line of job.activity) lines.push(...wrap(line, width, indent, style.muted));
@@ -193,7 +193,7 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
     const open = isOpen(state, job);
     const spent = describeUsage(job.usage);
     const change = changeLine(job);
-    const head = `${pointer}   ${open ? "▾" : "▸"} ${MARK[job.status]?.(Date.now()) ?? "·"} ${job.summary}${change !== "" ? ` · ${change}` : ""} · ${formatDuration(job)}${spent !== "" ? ` · ${spent}` : ""}  (job ${job.id})`;
+    const head = `${pointer}   ${open ? "▾" : "▸"} ${MARK[job.status]?.(Date.now()) ?? "·"} ${job.summary}${change !== "" ? ` · ${change}` : ""} · ${formatDuration(job)}${spent !== "" ? ` · ${spent}` : ""}  (pulse ${job.id})`;
     const [first = "", ...rest] = wrapTextWithAnsi(head, Math.max(10, width));
     lines.push(here ? style.heading(first) : first, ...rest.map((line) => `        ${line}`));
     // Running, its stage is the one thing wanted at a glance.

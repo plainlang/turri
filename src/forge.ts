@@ -9,7 +9,7 @@ import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
 import { createSpecDiffTools } from "./spec-tools.ts";
-import { createTemperTools, TEMPER_TOOLS } from "./temper-tools.ts";
+import { createMatureTools, MATURE_TOOLS } from "./mature-tools.ts";
 import type { JobRegistry } from "./grow/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
@@ -130,15 +130,15 @@ export async function runSkill(opts: {
   }
   if (diffs !== undefined) customTools.push(...diffs.tools);
   // A skill that builds what the spec holds, waits for it, and reads back where the builds had to guess.
-  if (opts.renderQueue !== undefined && opts.jobs !== undefined && skill.allowedTools.some((tool) => TEMPER_TOOLS.includes(tool))) {
-    customTools.push(...createTemperTools({ loop: opts.renderQueue, jobs: opts.jobs, cwd: opts.cwd }));
+  if (opts.renderQueue !== undefined && opts.jobs !== undefined && skill.allowedTools.some((tool) => MATURE_TOOLS.includes(tool))) {
+    customTools.push(...createMatureTools({ loop: opts.renderQueue, jobs: opts.jobs, cwd: opts.cwd }));
   }
   customTools.push(...(opts.sharedTools ?? []));
 
   const names = customTools.map((tool) => tool.name);
   // Tools this harness provides are never pi built-ins, even when it did not provide them.
   const builtins = skill.allowedTools.filter(
-    (t) => !names.includes(t) && t !== WRITE_SPEC_DIFF && !TEMPER_TOOLS.includes(t),
+    (t) => !names.includes(t) && t !== WRITE_SPEC_DIFF && !MATURE_TOOLS.includes(t),
   );
   const executor = await createExecutor({
     cwd: opts.cwd,

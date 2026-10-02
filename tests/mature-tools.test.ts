@@ -20,7 +20,7 @@ vi.mock("../src/grow/regrow.ts", async (importOriginal) => {
   };
 });
 
-const { collectFindings, createTemperTools, noteStamp } = await import("../src/temper-tools.ts");
+const { collectFindings, createMatureTools, noteStamp } = await import("../src/mature-tools.ts");
 const { createJobRegistry } = await import("../src/grow/jobs.ts");
 const { createWorkLoop } = await import("../src/grow/loop.ts");
 const { recordNote, NOTES_FILE } = await import("../src/grow/notes.ts");
@@ -29,7 +29,7 @@ const { plainFileParser } = await import("../src/plain/parser.ts");
 
 let dir: string;
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), "turri-temper-")));
+  dir = realpathSync(mkdtempSync(join(tmpdir(), "turri-mature-")));
   mkdirSync(join(dir, "plain_modules", "app", "code"), { recursive: true });
   diffs.length = 0;
 });
@@ -38,9 +38,9 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const buildDir = () => join(dir, "plain_modules", "app", "code");
 const spec = (fs: string[]) => `***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n${fs.join("\n\n")}\n`;
 const text = (result: { content: Array<{ type: string; text?: string }> }) => result.content.map((part) => part.text ?? "").join("");
-const tool = (tools: ReturnType<typeof createTemperTools>, name: string) => tools.find((candidate) => candidate.name === name)!;
+const tool = (tools: ReturnType<typeof createMatureTools>, name: string) => tools.find((candidate) => candidate.name === name)!;
 
-describe("what a tempering run reads back", () => {
+describe("what a maturing run reads back", () => {
   it("is every assumption and pitfall recorded since it started, a failed job's diagnosis and a spec conflict - nothing from before", () => {
     const start = new Date(Date.now() - 60_000);
     const before = noteStamp(new Date(start.getTime() - 3_600_000));
@@ -74,7 +74,7 @@ describe("what a tempering run reads back", () => {
   it("hands each finding out once, numbered - and all of them again when asked", async () => {
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
-    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 60_000) });
+    const tools = createMatureTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 60_000) });
     recordNote(buildDir(), "assumptions", "Titles are trimmed before they are stored", "app 1");
     const first = text(await tool(tools, "spec_findings").execute("id", {}, undefined, undefined, {} as never));
     expect(first).toContain("f1 · assumption · app (app 1)");
@@ -92,9 +92,9 @@ describe("rendering and waiting, from a skill", () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
-    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const tools = createMatureTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     const queued = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
-    expect(queued).toMatch(/running: job \w+ - Say hello\./);
+    expect(queued).toMatch(/running: pulse \w+ - Say hello\./);
     expect(queued).toContain("1. Say goodbye. - adds fs 2");
     await loop.drain();
     const waited = text(await tool(tools, "watch_jobs").execute("id", { minutes: 1 }, undefined, undefined, {} as never));
@@ -111,11 +111,11 @@ describe("rendering and waiting, from a skill", () => {
     writeFileSync(join(buildDir(), "app.py"), "print('hello')\n");
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
-    const tools = createTemperTools({ loop, jobs: registry, cwd: dir });
+    const tools = createMatureTools({ loop, jobs: registry, cwd: dir });
     expect(text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never))).toContain("built from the spec as it is");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello, loudly."]));
     const changed = text(await tool(tools, "render_spec").execute("id", { plain_file: "app.plain" }, undefined, undefined, {} as never));
-    expect(changed).toContain("running: job");
+    expect(changed).toContain("running: pulse");
     expect(registry.list()[0]!.diff).toContain("+- Say hello, loudly.");
     registry.stop(registry.list()[0]!.id);
   });
@@ -123,7 +123,7 @@ describe("rendering and waiting, from a skill", () => {
 
 describe("watching the builds, for a run that goes on until the spec is built", () => {
   it("tells a build that struggles - sent back again and again, setbacks, a conflict, a retry, far too long - from one that goes well", async () => {
-    const { struggling, LONG_BUILD_MS } = await import("../src/temper-tools.ts");
+    const { struggling, LONG_BUILD_MS } = await import("../src/mature-tools.ts");
     const job = (stage: string | undefined, stages: string[], startedAt = Date.now()) =>
       ({ status: "running", stage, startedAt, transcript: stages.map((text) => ({ kind: "stage", text })) }) as never;
     expect(struggling(job("app 2: running the unit testing script (attempt 1)", ["app 2: turri is writing the code"]))).toBeUndefined();
@@ -137,7 +137,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
   it("comes back as soon as a build struggles - with what it went through - and says each struggle once", async () => {
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
-    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const tools = createMatureTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     let release!: () => void;
     const started = registry.start({
       kind: "render",
@@ -166,7 +166,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
   it("stops a struggling build so it is rendered again from the clarified spec", async () => {
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
-    const tools = createTemperTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
+    const tools = createMatureTools({ loop, jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
     const started = registry.start({ kind: "render", summary: "app.plain fs 2", run: async ({ signal } = {} as never) => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: String(signal) }) });
     const said = text(await tool(tools, "stop_job").execute("id", { job_id: started.id, reason: "the spec now says a duplicate email is refused with 409" }, undefined, undefined, {} as never));
     expect(said).toContain(`Stopped job ${started.id}`);
@@ -175,7 +175,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
   });
 
   it("knows the goal: the spec fully rendered - built from the spec as it stands, nothing running, its last builds passing", async () => {
-    const { specStatusOf } = await import("../src/temper-tools.ts");
+    const { specStatusOf } = await import("../src/mature-tools.ts");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     expect(specStatusOf(join(dir, "app.plain"), dir, []).text).toContain("nothing is built yet");
     const { writeCodeRecord } = await import("../src/grow/records.ts");

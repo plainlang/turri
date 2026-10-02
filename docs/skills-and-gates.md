@@ -15,7 +15,7 @@ Under `metadata:`, which the Agent Skills spec reserves for arbitrary key-values
 
 ```yaml
 ---
-name: forge-plain
+name: brood
 description: End-to-end ***plain spec authoring workflow.
 allowed-tools: [read, write, edit, bash, ls, grep, find]
 metadata:
@@ -43,12 +43,12 @@ metadata:
 A skill declares its steps with a `## Steps` section whose `###` headings are the steps; without
 it the whole skill is one step, which is what most skills are. Steps are never inferred from `###`
 headings elsewhere in the body - prose skills are full of those. Each gate becomes a conditional
-edge after its step; a single-step skill is gated by naming the skill itself. `forge-plain`
+edge after its step; a single-step skill is gated by naming the skill itself. `brood`
 declares gates today.
 
 `paced: false` under `metadata:` lets a skill write spec changes one after another on its own:
 `write_spec_diff` otherwise refuses a new change until the user has answered a question since the
-last one - one answer, one change, as an interview writes them. `spark-plain` is unpaced.
+last one - one answer, one change, as an interview writes them. `spawn` is unpaced.
 
 A skill gets the tools its `allowed-tools` names, and nothing else: one that names none has none. So
 every skill here names its own - the file tools (`read`, `write`, `edit`, `bash`, `ls`, `grep`, `find`)
@@ -62,7 +62,7 @@ reviewed. A `.plain` file a skill edited with the file tools is not rendered by 
 so, for the conversation to render the change.
 
 A skill that lists `render_spec`, `watch_jobs`, `stop_job`, `spec_status` and `spec_findings` in
-`allowed-tools` - as `temper-plain` does - can build what a module's spec holds (functionality by
+`allowed-tools` - as `mature` does - can build what a module's spec holds (functionality by
 functionality, or the difference as one spec diff); watch its builds, coming back as soon as one
 struggles - sent back four times or more, five setbacks, a spec conflict, a failure run again, over
 half an hour - with what it went through; stop one, to render it again from a clarified spec; check
@@ -108,9 +108,11 @@ change the step makes and puts its findings on the executor's next tool result.
   session of its own that the person never sees, so what it said since its last question - the
   brief it asks them to confirm, the plan it lays out - is shown above the question in the dialog,
   and kept in the run's trace with the answer.
-- **Build while it interviews.** `write_spec_diff` (forge-plain, spark-plain) writes a change to the
+- **Build while it interviews.** `write_spec_diff` (`brood`, `spawn`) writes a change to the
   spec and queues its render in one call; the interview carries on while the builds run in the
-  background, one after another. `render_status` shows the queue.
+  background, one after another. `render_status` shows the queue. The person sees its calls as
+  `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `grow/activity.ts`), while its
+  agent calls it by the one that says what it takes.
 - **Choose the render model**, when the user says so - `engine`, the same tool the
   conversation has.
 
@@ -136,7 +138,7 @@ skip. `src/rules.ts` is where to change it.
 
 The gate machinery - the no-artifact rejection, the retry loop, escalation - is verified by live
 runs rather than automated tests. To poke at it, edit the frontmatter of
-`skills/forge-plain/SKILL.md`:
+`skills/brood/SKILL.md`:
 
 | change | expected |
 | --- | --- |

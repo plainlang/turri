@@ -134,7 +134,7 @@ describe("the side panel", () => {
     const text = () => panel.render(100).join("\n");
 
     // Jobs first: the queue, with what finished - and, opened, what each was about.
-    expect(text()).toContain("[Jobs]");
+    expect(text()).toContain("[Regeneration]");
     expect(text()).toContain("▸ finished (1)");
     openFinished(panel);
     expect(text()).toContain("▾ finished (1)");
@@ -194,7 +194,7 @@ describe("the side panel", () => {
     expect(lines).toContain("backend.plain render spec diff");
     expect(lines).toContain("+ - :OrderController: takes the :AuthData: from the request.");
     expect(lines).not.toContain("+++ b/backend.plain");
-    expect(lines).toContain(`the conformance of backend.plain render spec diff (job ${job.id}, succeeded)`);
+    expect(lines).toContain(`the conformance of backend.plain render spec diff (pulse ${job.id}, succeeded)`);
   });
 
   it("says what a module's render planned - the spec diffs it queued - and, under each, which job planned it", async () => {
@@ -218,8 +218,8 @@ describe("the side panel", () => {
     }
     const lines = panel.render(140).join("\n");
     expect(lines).toContain("planned 1 spec diff:");
-    expect(lines).toContain(`1. Implement comments on study sessions → backend.plain render spec diff (job ${step.id}, succeeded)`);
-    expect(lines).toContain(`planned by backend.plain module (job ${planner.id}, succeeded)`);
+    expect(lines).toContain(`1. Implement comments on study sessions → backend.plain render spec diff (pulse ${step.id}, succeeded)`);
+    expect(lines).toContain(`planned by backend.plain module (pulse ${planner.id}, succeeded)`);
   });
 });
 

@@ -14,7 +14,7 @@ import { codeWork } from "./grow/drift.ts";
 import { getFrids } from "./plain/spec.ts";
 
 /**
- * The tools a skill that tempers a spec works with: build what the spec holds, wait for the builds,
+ * The tools a skill that matures a spec works with: build what the spec holds, wait for the builds,
  * and read back where the spec left the agents to decide.
  *
  * A render that passes can still have been built on a guess: where the spec is silent, the agent
@@ -25,7 +25,7 @@ import { getFrids } from "./plain/spec.ts";
 
 type AnyTool = ToolDefinition<any, any, any>;
 
-/** What a tempering skill found: where it came from, and what it says. */
+/** What a maturing skill found: where it came from, and what it says. */
 export interface SpecFinding {
   id: string;
   kind: "assumption" | "pitfall" | "diagnosis" | "conflict";
@@ -139,7 +139,7 @@ function describeStruggle(job: Job, struggle: Struggle): string {
 }
 
 /**
- * Whether a module's spec is fully rendered - the goal of a tempering run: its code built from the
+ * Whether a module's spec is fully rendered - the goal of a maturing run: its code built from the
  * spec as it stands, nothing queued or running for it, and the last build of each kind on its
  * codebase passing.
  */
@@ -180,7 +180,7 @@ export function specStatusOf(plainFile: string, cwd: string, jobs: Job[]): { don
   };
 }
 
-export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
+export function createMatureTools(options: { loop: WorkLoop; jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
   const startedAt = options.startedAt ?? new Date();
   const mine = () => options.jobs.list().filter((job) => job.queuedAt >= startedAt.getTime());
   /** Findings already handed out, by what they say: each is reported once. */
@@ -267,7 +267,7 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
       if (job === undefined) return say(`No build ${params.job_id} queued by this run.`);
       if (job.status !== "running" && job.status !== "queued") return say(`Job ${job.id} is already ${job.status}.`);
       options.jobs.stop(job.id);
-      job.note = `Stopped by temper-plain: ${params.reason}. It is rendered again from the spec as it now says it.`;
+      job.note = `Stopped by the mature skill: ${params.reason}. It is rendered again from the spec as it now says it.`;
       try {
         await options.jobs.wait(job.id);
       } catch {
@@ -329,6 +329,6 @@ export function createTemperTools(options: { loop: WorkLoop; jobs: JobRegistry; 
   return [renderSpec, watchJobs, stopJob, specStatus, specFindings];
 }
 
-/** The names of the tempering tools, as a skill's allowed-tools names them. */
-export const TEMPER_TOOLS = ["render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"];
+/** The names of the maturing tools, as a skill's allowed-tools names them. */
+export const MATURE_TOOLS = ["render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"];
 

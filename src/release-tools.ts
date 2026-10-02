@@ -115,7 +115,7 @@ export function guidedGuide(deployment: Deployment, guidance: string): string {
     guidance.trim(),
     "",
     `What to do now - on this machine, outside the sandbox, from ${host}:`,
-    `1. The code to release is in ${dist}: the last commit that landed whole. Take it from there, never from ${built}, where a job may be writing. Where the guidance's own tooling reads ${built}, point it at ${dist} if it can take another source; if it cannot, do by hand, from ${dist}, what it does.`,
+    `1. The code to release is in ${dist}: the last commit that landed whole. Take it from there, never from ${built}, where a pulse may be writing. Where the guidance's own tooling reads ${built}, point it at ${dist} if it can take another source; if it cannot, do by hand, from ${dist}, what it does.`,
     `2. Read what the guidance leaves open - the scripts, files and commands it names, in ${host} - then do what it says, in its order. Where it says to change the host - a registration, an import, a config entry - change it. Never change ${built} or ${dist}: a fix to the code belongs in the spec.`,
     "3. A command that runs a project script, installs or downloads: only through propose_setup, which asks the person first and runs it - the shell refuses such commands. One that keeps running (a start script, a dev server) goes in propose_setup's long_running, and activate starts it.",
     "4. Start what keeps running with activate, with the URL it serves at - never in the shell with & or nohup.",

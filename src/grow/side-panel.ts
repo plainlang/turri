@@ -16,7 +16,7 @@ import { agentsOf, roleOf, transcriptLines, type TranscriptStyle } from "./trans
 export type PanelView = "jobs" | "trace";
 
 const VIEWS: Array<{ view: PanelView; title: string }> = [
-  { view: "jobs", title: "Jobs" },
+  { view: "jobs", title: "Regeneration" },
   { view: "trace", title: "Trace" },
 ];
 
@@ -68,7 +68,7 @@ export function createSidePanel(options: SidePanelOptions) {
 
   const body = (width: number): string[] => {
     const job = current();
-    if (job === undefined) return [style.muted("(no job yet)")];
+    if (job === undefined) return [style.muted("(no pulse yet)")];
     return transcriptLines(job, width, style, agent);
   };
 
@@ -113,7 +113,7 @@ export function createSidePanel(options: SidePanelOptions) {
       const keys =
         view === "jobs"
           ? ["↑↓ move", "enter open/close", "←→", "o/c all", "t trace", "pgup pgdn scroll", "tab view", "esc chat", `${options.key} close`]
-          : ["tab view", "a agent", "j job", "↑↓ pgup pgdn scroll", "esc chat", `${options.key} close`];
+          : ["tab view", "a agent", "j pulse", "↑↓ pgup pgdn scroll", "esc chat", `${options.key} close`];
       return [
         truncateToWidth(tabs, width),
         style.muted(truncateToWidth(about, width)),

@@ -1,5 +1,5 @@
 ---
-name: forge-plain
+name: brood
 description: >-
   `***plain` spec authoring in four phases - intent, stack, testing, product - where every answer
   in the product interview becomes one spec change, written as a git diff of the .plain files and
@@ -8,8 +8,8 @@ description: >-
   conformance tests and writes the test reqs and the conformance testing script. Gated review of
   the product phase. Use when the user starts a new project or wants to build
   something new from scratch and settle it with you step by step; when they want it built fast from
-  what they want alone, use its quick twin, spark-plain. Not for adding a
-  feature to an existing project (use add-feature) or for editing generated code (the .plain
+  what they want alone, use its quick twin, `spawn`. Not for adding a
+  feature to an existing project (use `bud`) or for editing generated code (the .plain
   specs are the source of truth).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 metadata:
@@ -28,7 +28,7 @@ metadata:
         judge_tools: [read, ls, grep, find]
 ---
 
-# Forge Plain
+# Brood
 
 Load the `***plain` syntax rules before writing anything — they are in the system prompt
 under `<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need

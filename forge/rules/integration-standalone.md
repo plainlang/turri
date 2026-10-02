@@ -10,7 +10,7 @@ Standalone means: the integration is a complete application in its own right, pi
 
 ## The integration owns its tech stack
 
-Unlike embedded integrations, a standalone integration has no host to inherit from. Every stack decision is **explicit**, captured during `forge-plain`'s stack phase, and recorded in `***implementation reqs***`:
+Unlike embedded integrations, a standalone integration has no host to inherit from. Every stack decision is **explicit**, captured during `brood`'s stack phase, and recorded in `***implementation reqs***`:
 
 - **Implementation language** and its exact version
 - **HTTP client library** (e.g. `httpx`, `requests`, `node-fetch`, `axios`, `go-resty`, `reqwest`) — pinned, with the auth/retry/timeout features the integration uses called out
@@ -131,5 +131,5 @@ Before declaring a standalone integration done, in addition to the shared checkl
 - **Inlining fields from `resources/contract/<entry-point>.schema.json` into a functional spec.** The schema is the source of truth and is **published** — duplicating fields in spec text guarantees drift
 - **Mutating a published schema's `$id` / version path** instead of shipping a new file. Consumers may already be pinning the old version
 - **Treating configuration as "whatever env vars seem useful at runtime".** Every key lives in `resources/config.schema.json` with type, default, and validation; the loader fails fast on missing required values
-- **Picking a tech stack incrementally while writing functional specs.** Decide it once in `forge-plain`'s stack phase and transcribe into `***implementation reqs***`; don't accrete a stack across several specs
+- **Picking a tech stack incrementally while writing functional specs.** Decide it once in `brood`'s stack phase and transcribe into `***implementation reqs***`; don't accrete a stack across several specs
 - **Hitting the live provider in rate-limit (429) or destructive-error (500) tests.** Use a local mock; live calls are for the happy path and for sandbox-safe error paths

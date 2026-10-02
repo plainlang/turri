@@ -61,7 +61,7 @@ describe("where a skill run keeps its state", () => {
   it("is .turri/runs/<skill>, which the project's history ignores", async () => {
     const { skillRunDir } = await import("../../src/grow/paths.ts");
     const { existsSync, readFileSync } = await import("node:fs");
-    expect(skillRunDir(root, "forge-plain")).toBe(join(root, ".turri", "runs", "forge-plain"));
+    expect(skillRunDir(root, "brood")).toBe(join(root, ".turri", "runs", "brood"));
     expect(readFileSync(join(root, ".turri", ".gitignore"), "utf8")).toBe("*\n");
     expect(existsSync(join(root, ".forge"))).toBe(false);
   });
@@ -69,9 +69,9 @@ describe("where a skill run keeps its state", () => {
   it("takes over a run left in .forge/run, so it can still be resumed, and removes .forge", async () => {
     const { skillRunDir } = await import("../../src/grow/paths.ts");
     const { existsSync, readFileSync } = await import("node:fs");
-    mkdirSync(join(root, ".forge", "run", "forge-plain"), { recursive: true });
-    writeFileSync(join(root, ".forge", "run", "forge-plain", "manifest.json"), '{"status":"running"}');
-    const dir = skillRunDir(root, "forge-plain");
+    mkdirSync(join(root, ".forge", "run", "brood"), { recursive: true });
+    writeFileSync(join(root, ".forge", "run", "brood", "manifest.json"), '{"status":"running"}');
+    const dir = skillRunDir(root, "brood");
     expect(readFileSync(join(dir, "manifest.json"), "utf8")).toBe('{"status":"running"}');
     expect(existsSync(join(root, ".forge"))).toBe(false);
   });

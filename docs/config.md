@@ -113,7 +113,7 @@ A job keeps the model it was queued with: choosing another holds for what is que
 
 ## Conformance tests
 
-`conformance-tests:` is the one switch, and the chat, every render and `forge-plain`'s testing phase
+`conformance-tests:` is the one switch, and the chat, every render and `brood`'s testing phase
 follow it. `false` turns them off entirely: no conformance tests are written, the ones already in a
 codebase are not run, and no agent is shown the conformance testing script. `true`, or no key, means
 on wherever a module has `***test reqs***` - a module without them has nothing to write conformance
@@ -121,8 +121,8 @@ tests from, so it writes none, but still keeps the codebase's existing ones pass
 conversation, or with `--conformance` / `--no-conformance` on the command line, a render does
 otherwise.
 
-`spark-plain` writes `conformance-tests: false` into a new project unless you ask for tests;
-`forge-plain` asks.
+`spawn` writes `conformance-tests: false` into a new project unless you ask for tests;
+`brood` asks.
 
 ## The testing scripts
 

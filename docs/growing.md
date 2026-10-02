@@ -65,7 +65,8 @@ scripts, models and conformance in its own `config.<module>.yaml`, laid over `co
 
 ## One job
 
-Every piece of work on the code is a job of the work loop (see [a whole module](#a-whole-module)): a
+Every piece of work on the code is a job of the work loop (see [a whole module](#a-whole-module)) - in the chat, a
+**pulse**, and the side panel that shows them all the **regeneration**, while the code and this page call it a job: a
 spec diff that takes the code from the spec it is built from to the spec the job ends on. To see what
 the first jobs would be told:
 
@@ -335,7 +336,7 @@ where the person looks (`drift`, `growth`, and what `regrow` returns).
 never overrides the limits and checks. It comes from three places, each labelled with where it came from:
 the conversation (`steer`, for the whole project or one module, for the session); the project's
 `AGENTS.md`, every section whose heading names the queue (`## Queue guidance`), read afresh with every plan;
-and whatever asks for the work - `regrow` and forge-plain's `write_spec_diff`
+and whatever asks for the work - `regrow` and `brood`'s `write_spec_diff`
 take a `guidance` of their own, which the loop keeps with that module.
 
 ### When the spec changes
@@ -369,7 +370,7 @@ was growing, and the next job grows what changed since as a patch on top of it. 
 it can, and the software evolves job by job - the first build of an integration lands and throws, the next
 patch fills in what was missing - at the cost of growing what the spec has already moved on from. Your own
 `halt` stops a job either way.
-forge-plain's `write_spec_diff` makes an edit and gives the notice in one call, and so does `turri spec-diff` on
+`brood`'s `write_spec_diff` makes an edit and gives the notice in one call, and so does `turri spec-diff` on
 the command line. What is left to grow, without growing it, is `drift`.
 
 ### Regrowing a functionality

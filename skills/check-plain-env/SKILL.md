@@ -18,8 +18,8 @@ This skill answers one question: **does the host machine have everything the ***
 ## When to run
 
 - **First time you open a ***plain project on a new machine** — before the first `turri regrow <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
-- **Once a new project's stack is settled** — at the end of `forge-plain`'s stack phase, so the first build does not stop on a missing toolchain.
-- **After `add-feature`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
+- **Once a new project's stack is settled** — at the end of `brood`'s stack phase, so the first build does not stop on a missing toolchain.
+- **After `bud`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
 - **Before a real render** — alongside `validate`. `validate` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.
 - **Onboarding** — when a teammate (or CI runner, or fresh dev container) is about to start using the project.
 - **Debugging a confusing failure** — when a test script exits with "command not found", "module not found", "could not connect", or similar before any test runs.
@@ -265,7 +265,7 @@ When the host OS detection in Step 1 was inconclusive (e.g. an unrecognized Linu
 - **Don't stop at the first FAIL.** Run the full sweep so the report is complete in one pass.
 - **Don't suggest `curl | sh` installs when a package manager works.** Reserve the upstream installer fallback for cases where no package-manager option exists (e.g. `rustup`, sometimes Go).
 - **Don't ignore version mismatches.** If a spec says Java 17 and the host has Java 21, surface that as a `WARN` so the user can decide — don't silently let it pass.
-- **Don't duplicate this check inline elsewhere.** Other skills (`forge-plain`, `add-feature`) that need an env check should **delegate to `check-plain-env`** rather than re-implementing the probe themselves. This skill is the single source of truth.
+- **Don't duplicate this check inline elsewhere.** Other skills (`brood`, `bud`) that need an env check should **delegate to `check-plain-env`** rather than re-implementing the probe themselves. This skill is the single source of truth.
 
 ## Validation Checklist
 

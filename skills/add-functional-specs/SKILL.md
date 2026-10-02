@@ -4,7 +4,7 @@ description: >-
   Add multiple functional specs to the ***functional specs*** section of a
   ***plain spec file in a single batch. Use whenever more than one new
   functional spec is being added — whether the user explicitly asks, or
-  another skill/workflow (e.g. forge-plain, add-feature) needs to author
+  another skill/workflow (e.g. `brood`, `bud`) needs to author
   several specs in one pass. Bulk-writing or hand-authoring functional
   specs without invoking this skill is forbidden; for adding a single spec,
   use add-functional-spec instead.
@@ -16,7 +16,7 @@ allowed-tools: [read, write, edit, bash, ls, grep, find]
 ## When to Use
 
 - The user asks for several functional specs to be added in one go (e.g. "add these three specs", "spec out this feature in a few bullets").
-- A higher-level skill or workflow (`forge-plain`, `add-feature`, `debug-specs`) needs to author a tight group of related specs.
+- A higher-level skill or workflow (`brood`, `bud`, `debug-specs`) needs to author a tight group of related specs.
 - Anywhere you would otherwise be tempted to write more than one functional spec without running per-spec analysis.
 
 If you only need to add a single spec, use the `add-functional-spec` skill instead. Either way, **never** edit the `***functional specs***` section by hand — every new entry must go through one of these two skills so the complexity and conflict checks actually run.

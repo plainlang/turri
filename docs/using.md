@@ -22,9 +22,9 @@ The skills that build from scratch:
 
 | skill | how it works |
 | --- | --- |
-| `forge-plain` | intent, stack, then testing - conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff job the moment it is written, with its conformance tests when they are on |
-| `spark-plain` | its quick twin: asks only what you want to build and confirms a five-line brief, then chooses the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
-| `temper-plain` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
+| `brood` | intent, stack, then testing - conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff pulse the moment it is written, with its conformance tests when they are on |
+| `spawn` | its quick twin: asks only what you want to build and confirms a five-line brief, then chooses the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
+| `mature` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
 
 `skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
@@ -35,17 +35,17 @@ where it stopped.
 
 | tool | |
 | --- | --- |
-| `regrow` | regrow a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into jobs of one to three functional specs, each with the definitions and reqs it uses, and a job growing what the spec no longer wants is stopped. With functional specs named, those grow again though their spec did not change |
+| `regrow` | regrow a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped. With functional specs named, those grow again though their spec did not change |
 | `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
-| `glimpse` | the job a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
+| `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
-| `bind` | bind functional specs to conformance tests - now, or ahead of their code: a conformance job is scheduled and starts once every one named is grown; whatever the config says |
+| `bind` | bind functional specs to conformance tests - now, or ahead of their code: a conformance pulse is scheduled and starts once every one named is grown; whatever the config says |
 | `rejuvenate` | grow a codebase again from the bottom of its chain, when it was grown without a module it now requires - only once you agree |
 | `validate` | validate a spec, growing nothing |
 | `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |
-| `growth` | the jobs - running, planned and finished - or one of them |
-| `halt` | halt a job, or what `activate` started |
-| `diagnose` | why a job did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
+| `growth` | the pulses - running, planned and finished - or one of them |
+| `halt` | halt a pulse, or what `activate` started |
+| `diagnose` | why a pulse did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
 | `lineage` | a module's lineage: what each regrowth and conformance run changed in it, and what it grew from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
 | `release`, `activate`, `propose_setup` | try what is grown: release it to `dist/<module>`, activate it on this machine, ask before installing anything - see [deploy](deploy.md) |
@@ -61,28 +61,28 @@ start says how many stacks there are, and **`/stdlib`** lists them, each with wh
 [the standard library](authoring-plain.md#the-standard-library)).
 
 The agent does this work with these tools, never by running turri's command line - or
-another pi - through its shell: that would be a separate, headless run outside the job panel,
+another pi - through its shell: that would be a separate, headless run outside the regeneration,
 `/watch` and `/halt`. The harness refuses such a command unless your message asks for the
 command line ("run it headless", "use the CLI", or the command itself). pi configuring itself -
 `pi install`, `update`, `list`, `config`, `auth`, its settings - is not affected.
 
-## Background jobs
+## Pulses
 
-A render takes minutes, so in the TUI every render tool starts the work as a background job and
-returns straight away. The conversation carries on; jobs on the same module - or on modules of one
-`requires` chain - queue behind each other, in the order they were asked for, from the first job on:
+A render takes minutes, so in the TUI every render tool starts the work as a pulse and
+returns straight away. The conversation carries on; pulses on the same module - or on modules of one
+`requires` chain - queue behind each other, in the order they were asked for, from the first pulse on:
 one queued while the spec is only a scaffold, with no functional specs yet, or while it does not
-parse, still holds its module, so nothing on the module runs beside it. Jobs on modules
+parse, still holds its module, so nothing on the module runs beside it. Pulses on modules
 that share nothing run side by side, each module in its own VM, with its own progress panel - two
 modules or ten. How many run at once is capped by what the machine has room for: past
-`parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a job whose turn has
+`parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a pulse whose turn has
 come waits for a free slot, and says so.
 
-- **The panel** above the input shows each running job - its stage, what its agents are doing,
+- **The panel** above the input shows each running pulse - its stage, what its agents are doing,
   its model, time and cost - and the queue. `ctrl+o` expands it.
-- **A job's change** is what its agent works from, not a text diff of the module's file: the items
-  `<spec change>` gives the agent - only what the job's functional specs use, an import's items as
-  well as the module's own, a code job's without the test reqs - each in the file it is written in,
+- **A pulse's change** is what its agent works from, not a text diff of the module's file: the items
+  `<spec change>` gives the agent - only what the pulse's functional specs use, an import's items as
+  well as the module's own, a code pulse's without the test reqs - each in the file it is written in,
   under its section, in the file's order (`change-view.ts`).
 - **A spec diff**, wherever a panel shows one, reads as an editor shows a diff: its \*\*\*plain highlighted
   as [plyn](https://github.com/plainlang/plyn) highlights it - section headers, concepts, names in
@@ -98,40 +98,40 @@ come waits for a free slot, and says so.
   the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
   as GitHub names a hunk's function: each section is named once. Opened with `ctrl+o`, the panel wraps
   every line rather than cutting it off.
-- **The side panel** (`ctrl+h`, or **`/jobs`** - not `ctrl+j`, which a terminal without the Kitty
+- **The side panel** (`ctrl+h`, or **`/regeneration`** - `/regen` for short, `/growth` too - not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) opens on the right, beside the chat, with two views - `tab`
   switches between them:
-  - **Jobs** - the whole queue as three sections - running, queued, finished - each opened and closed on
-    its own (running and queued start open). A job is one line: what it is and what it changes, with time
+  - **Regeneration** - every pulse as three sections - running, queued, finished - each opened and closed on
+    its own (running and queued start open). A pulse is one line: what it is and what it changes, with time
     and cost - a running one adds its stage. Opened, it shows what it is doing, running, and under it a row
     for each file its spec diff changes - the file of the module being rendered first and open, the rest by
     name and closed - each opening onto that file's lines. A file with nothing added or taken out is not
     listed. `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
-    (`←` on a closed job goes to its section, on a closed file to its job), `o` and `c` open or close every
-    job of the section - or, on a file, every file of its job - `t`
-    opens a job's trace, `pgup` `pgdn` and the wheel scroll. The cursor stays on its row when the job under
-    it moves on; a job opened closes when it moves to another section. What is open is kept while the
+    (`←` on a closed pulse goes to its section, on a closed file to its pulse), `o` and `c` open or close every
+    pulse of the section - or, on a file, every file of its pulse - `t`
+    opens a pulse's trace, `pgup` `pgdn` and the wheel scroll. The cursor stays on its row when the pulse under
+    it moves on; a pulse opened closes when it moves to another section. What is open is kept while the
     panel is closed;
-  - **Trace** - a job's agents at work: every prompt, reply, thought and tool call, each agent's
+  - **Trace** - a pulse's agents at work: every prompt, reply, thought and tool call, each agent's
     turn headed by who it is and the model it runs on. `a` follows one agent at a time, `j` switches
-    job.
+    pulse.
 
   It scrolls with the arrows, PgUp/PgDn and the wheel, and follows the newest line at the bottom
   (`g`/`G` top and bottom). `esc` goes back to the chat and leaves it open and live; `ctrl+h` takes
-  the keys back to it, and closes it from there. **`/watch [job]`** opens it on a job's trace.
+  the keys back to it, and closes it from there. **`/watch [pulse]`** opens it on a pulse's trace.
 - `turri chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
-  the jobs redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
+  the pulses redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
-- **`/growth`** lists every job, and what `activate` has running; **`/halt <id>`** halts one - a queued
-  one never starts - and **`/halt activated <name>`** halts a server `activate` started.
+- **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
+  server `activate` started; it lists both when no id is given.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
-  and the spec as it is now - again whenever a job ends or the spec changes - and the first job of
-  it runs; see [a whole module](growing.md#a-whole-module). Changes that overlap never pile up: the next job
-  builds the spec as it is. The jobs planned after the one running are listed behind it, as queued,
+  and the spec as it is now - again whenever a pulse ends or the spec changes - and the first pulse of
+  it runs; see [a whole module](growing.md#a-whole-module). Changes that overlap never pile up: the next pulse
+  builds the spec as it is. The pulses planned after the one running are listed behind it, as queued,
   and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
-  A change inside what the running job grows - a spec it grows reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a job at most. Otherwise a job building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.yaml`, which has it land first and the change grown on top. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
+  A change inside what the running pulse grows - a spec it grows reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a pulse at most. Otherwise a pulse building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.yaml`, which has it land first and the change grown on top. To drop something, take it out of the spec - one spec diff. Stopping a pulse leaves its change
   in the spec: the codebase waits until the spec changes or it is asked for again.
 - **A change to a module below** is made in the codebase at the tip of the chain, where its code
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new
@@ -140,35 +140,35 @@ come waits for a free slot, and says so.
   conformance tests taken out, kept in its history, and built again from the bottom of the chain.
   That is never done unasked: the chat asks you, saying why, and `rejuvenate` does it once you agree;
   on the command line `turri regrow` asks at the terminal, and `--rejuvenate` agrees in advance.
-- **Conformance tests are a track of their own.** A code job lands once its unit tests pass and are
-  reviewed. Then, before the next one builds on it, a conformance job writes and runs the tests of what it
+- **Conformance tests are a track of their own.** A code pulse lands once its unit tests pass and are
+  reviewed. Then, before the next one builds on it, a conformance pulse writes and runs the tests of what it
   built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one
   fails, fixes the test or the code, whichever is wrong; what they are written for is recorded in
   `tests/.turri.json`. With `conformance-tests: false` none is written until you ask -
-  `bind`, for a module or some of its functional specs. A conformance job that does not pass
+  `bind`, for a module or some of its functional specs. A conformance pulse that does not pass
   is undone whole and halts the conformance tests alone: the code goes on being built.
-- **A job that fails** - its work errors, or it does not pass - is run once more. Failing again, it
-  stops, and so does every job queued behind it on the same module, without running - the other
-  modules' jobs go on. The harness then works out why: an
+- **A pulse that fails** - its work errors, or it does not pass - is run once more. Failing again, it
+  stops, and so does every pulse queued behind it on the same module, without running - the other
+  modules' pulses go on. The harness then works out why: an
   agent that can read the project's specs, code, tests, testing scripts and logs, and turri's
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
   environment, the code or turri itself, and exactly what to do.
-- **When a job finishes** the transcript shows its line - `✓`, `✗` or `■`, what it was, how long it
+- **When a pulse finishes** the transcript shows its line - `✓`, `✗` or `■`, what it was, how long it
   took and what it cost - and the chat, which gets its whole report, reacts then and there, whatever
   else is running or queued, without waiting for you to speak: at once when it is idle, else as soon
-  as the reply it is in ends. It does what the project's guidance says to do when a job finishes -
+  as the reply it is in ends. It does what the project's guidance says to do when a pulse finishes -
   release what was built, say - or tells you what finished and what it means. Ask to try it ("let me
   try it") and the chat releases what is built to `dist/<module>` and starts it on your machine, even
-  while other jobs run. See [deploy](deploy.md). The chat reacts to it then and there,
+  while other pulses run. See [deploy](deploy.md). The chat reacts to it then and there,
   whatever else is running or queued, without waiting for you to speak - at once when it is idle, else
-  as soon as the reply it is in ends: it does what the project's guidance says to do when a job
+  as soon as the reply it is in ends: it does what the project's guidance says to do when a pulse
   finishes (release what was built, say), or tells you in a line or two what finished.
-- **When a job stops** - a gate still failing after 20 attempts - it says where it stopped, why in
+- **When a pulse stops** - a gate still failing after 20 attempts - it says where it stopped, why in
   plain words, and what to change in the spec - which section, and how.
   Running the same build again picks up from there.
 
 In `print`, `json` and `rpc` modes the process ends when the answer is written, so the tools wait
-for the work there instead. Jobs live in memory for the session; the work itself is on disk.
+for the work there instead. Pulses live in memory for the session; the work itself is on disk.
 
 ## The project's config.yaml
 
@@ -220,11 +220,11 @@ for everything" - and the agent calls `engine`, which holds for the rest of the 
 
 | kind of work | covers |
 | --- | --- |
-| spec changes | render spec diff jobs, including the ones forge-plain queues as you answer |
+| spec changes | render spec diff pulses, including the ones `brood` queues as you answer |
 | functionalities | render functionality, render module, regenerate, conformance |
 | everything | both |
 
-It works mid-interview as well: the skill's agent has the same tool. Jobs already queued keep the
+It works mid-interview as well: the skill's agent has the same tool. Pulses already queued keep the
 model they were queued with; `"chat"` drops the session's choice, back to the default coding model -
 `--coding-model`, `config.yaml`, or the conversation's. `/engine` shows
 what each kind of work runs on. A render tool can also be given a model for one call.
@@ -257,12 +257,12 @@ rather than surfacing as an agent that said nothing.
 
 Each `plain_modules/<module>` is a git repository whose git directory is `.plaingit` rather than
 `.git`, so it stays plain files to your own repository. A commit is made after every step that
-changes the module - a render, a regeneration, a conformance run, a regression repair, a spec
+changes the module - a render, a rejuvenation, a conformance run, a regression repair, a spec
 change. `/lineage [module]` and `lineage` show it.
 
-The last commit is also the last known good state. Every render, regeneration, spec change and
+The last commit is also the last known good state. Every render, rejuvenation, spec change and
 conformance run starts by putting the codebase it works in back to it, so if turri was
-stopped or restarted mid-job, whatever that job left half-written is undone first - and one that
+stopped or restarted mid-pulse, whatever that pulse left half-written is undone first - and one that
 does not pass is undone the same way when it ends, commits and all. Only work that passed is
 committed. Installed dependencies and caches are not in the history and stay. With git directly:
 
@@ -279,21 +279,21 @@ whole conversation to a file of its own, always.
 
 The logs are in `.turri/debug/` in the project, beside `plain_modules`, one per agent, named
 by when it started and what it is: `2026-09-26T13-45-02-123Z-app-3-coding-agent.log`. Each starts
-with the job it runs for, its model and thinking level, its folder, its saved pi session, its
+with the pulse it runs for, its model and thinking level, its folder, its saved pi session, its
 tools and its system prompt, and then has, in order and stamped with the time: every prompt it is
 sent, whole; its thinking and replies as they stream; every tool call with its arguments, numbered
 - `→ #3 bash` - and its whole result under the same number, `← #3 bash done`, since calls made
 together run at once and finish in any order; a tool call a response was cut off in, marked as
 never run; each response's stop reason, tokens and cost; the provider's
 retries and errors; and how each turn ended. Every line is on disk as it happens, so
-`tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The job
+`tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The pulse
 panel names each agent's log as it starts.
 
-Beside them, each job has a log of its own in `.turri/jobs/` - `<time>-<job id>-<kind>.log`:
+Beside them, each pulse has a log of its own in `.turri/jobs/` - `<time>-<pulse id>-<kind>.log`:
 what `/watch` shows for it, written as it happens. The harness's stages, the functional spec or the
 diff it builds, and every one of its agents in turn - each prompt, its thinking and replies, every
-tool call and its result, whole where the screen clips them - and how the job ended. The panel names
-it when the job starts. It is the one to read for a job as a whole; an agent's own log has its system
+tool call and its result, whole where the screen clips them - and how the pulse ended. The panel names
+it when the pulse starts. It is the one to read for a pulse as a whole; an agent's own log has its system
 prompt, tokens and retries besides.
 
 No agent can read the logs: they are outside `plain_modules` - or, for a `--build-dir` outside it,
@@ -316,7 +316,7 @@ turri regrow <file.plain> 2            # grow functionality 2 again, changed or 
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regrow it
 turri bind <file.plain> 1              # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when
-turri cultivate skills/forge-plain     # run a gated skill directly
+turri cultivate skills/brood     # run a gated skill directly
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
 
@@ -324,7 +324,7 @@ The commands' names before turri had its name - `module`, `regenerate`, `conform
 `skill` - still run them.
 
 The ones that build take `--model provider/model-id`; `module` also takes `--build-dir` and
-`--dry-run`, which plans the work, prints the prompt of each codebase's first job and starts nothing.
+`--dry-run`, which plans the work, prints the prompt of each codebase's first pulse and starts nothing.
 Template directories come from `PLAIN_TEMPLATE_DIRS`. `--help`
 on any of them lists the rest. The bin is
 `turri`, not `forge`: `forge` is already Foundry's.

@@ -1,18 +1,18 @@
 ---
-name: add-feature
+name: bud
 description: >-
-  Add a feature to an existing ***plain project the way forge-plain builds one: a short
+  Add a feature to an existing ***plain project the way `brood` builds one: a short
   feature-intent interview, then product questions one at a time - a trigger and its outcome, an
   edge case, a rule - where every answer becomes one spec change, written as a git diff of the
   .plain files and built the moment it is written, so the feature appears while the interview is
   still going. A change that touches what is already specified or being built is a spec diff too: what
   is left to build is worked out again from the spec. Use when the user wants to add a
-  feature to an existing project. Not for starting a new project (use forge-plain, or spark-plain
+  feature to an existing project. Not for starting a new project (use `brood`, or `spawn`
   to start fast) or for editing generated code (the .plain specs are the source of truth).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 ---
 
-# Add Feature
+# Bud
 
 Load the `***plain` syntax rules before writing anything - they are in the system prompt under
 `<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need to follow
@@ -27,7 +27,7 @@ every one of them is a **spec diff**: a git diff of the `.plain` files, written 
 change a `.plain` file by any other means. Frame every message in terms of specs: "I'll add this to
 the spec."
 
-This is `forge-plain`'s product phase, scoped to one feature, on top of what is there: the stack,
+This is `brood`'s product phase, scoped to one feature, on top of what is there: the stack,
 the testing setup and every earlier feature are settled - read them, build on them, restart none.
 
 ## Question style

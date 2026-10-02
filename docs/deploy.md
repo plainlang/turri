@@ -6,9 +6,9 @@ project, and starts it on your machine. An app with a backend and a frontend is 
 you are told where to open your browser. For a command-line tool or a library you get a few commands
 to paste, run from `dist/<module>`, and what they print.
 
-Every job that lands code - a render, a spec diff, a conformance run, a regeneration - ends with
+Every pulse that lands code - a render, a spec diff, a conformance run, a rejuvenation - ends with
 "Want to try it? Just ask me - I'll set it up from what's built so far." When a render's conformance
-tests follow as a job of their own, the conformance job says it, once they pass too.
+tests follow as a pulse of their own, the conformance pulse says it, once they pass too.
 
 ## When the project says how it is released
 
@@ -22,9 +22,9 @@ in what you said, the project's AGENTS.md, a skill, anything it was given - and 
 - **There is guidance.** The code goes on from `dist/<module>` as the guidance says, on your machine,
   from the host codebase - the git repository the project is in, or else where **turri** runs: the
   scripts it names, in their order, and any change it says the host needs. The code is taken from
-  `dist`, never from `plain_modules`, where a job may be writing; where the host's tooling reads
+  `dist`, never from `plain_modules`, where a pulse may be writing; where the host's tooling reads
   `plain_modules` itself, the model points it at `dist`, or does by hand from `dist` what it does. When
-  to release - after every job, say - is the guidance's to say too. The rules below hold as they do for `dist`: a project script, an
+  to release - after every pulse, say - is the guidance's to say too. The rules below hold as they do for `dist`: a project script, an
   install or a download runs only once you agreed to it in a dialog, and what keeps running - a
   start script, a server - is started with `activate`. Nothing built is changed.
 - **There is none.** The default: it is started from `dist/<module>`, as below, as best it can be.
@@ -33,7 +33,7 @@ Guidance is whatever says it, in any words - a line in AGENTS.md such as *integr
 with `scripts/deploy_integrations.sh`, then the app is started with `scripts/start.sh`*, or the
 same said in the chat.
 
-The chat reacts to every job that finishes as it finishes, without waiting for you to speak: guidance
+The chat reacts to every pulse that finishes as it finishes, without waiting for you to speak: guidance
 that says to release after a build - *release each integration once it is grown* - is followed then.
 
 ## What goes in dist
@@ -43,10 +43,10 @@ that says to release after a build - *release each integration once it is grown*
   project's `module` from `config.yaml` unless another spec is named. Before the module on top has
   anything built, it takes the nearest one below it that has, and says so.
 - **Its last commit.** Each `plain_modules/<module>` is a git repository (`.plaingit`), and every unit
-  of work starts from a commit and ends with one. What a job is writing right now is half-done, so it
+  of work starts from a commit and ends with one. What a pulse is writing right now is half-done, so it
   is left out: deploy exports the commit - `git archive` of `code/` - which is the working tree with
   every unstaged and untracked change put back, and no `node_modules`, `.venv`, `target` or other
-  build leftovers, whatever the stack. The working tree the job is using is never read or touched.
+  build leftovers, whatever the stack. The working tree the pulse is using is never read or touched.
   The harness's own files - `.turri.json`, the agents' notes - are left out too.
 - **Replaced whole.** Each deploy stops what the last one of the module started, empties
   `dist/<module>` and exports again. Change nothing there you want to keep. `dist/` is not added to
@@ -76,7 +76,7 @@ then:
    comes back with the end of its output. A port something else holds is said, with what holds it,
    and nothing is started there: the app is not moved to a port you were not told about.
 
-What it started is listed by **`/growth`** and stopped by **`/halt activated <name>`**, by
+What it started is listed by the `growth` tool and by **`/halt`**, and stopped by **`/halt activated <name>`**, by
 `halt`, by the next deploy of the module, and when the chat exits.
 
 ## On the command line

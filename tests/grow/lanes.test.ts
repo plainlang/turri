@@ -28,7 +28,7 @@ describe("jobs that write the same module", () => {
     expect(b.status).toBe("queued");
     expect(b.waitingOn).toEqual([a.id]);
     expect(c.waitingOn).toEqual([b.id]);
-    expect(describeJob(b)).toContain(`queued behind job ${a.id}`);
+    expect(describeJob(b)).toContain(`queued behind pulse ${a.id}`);
 
     const queuedAt = b.queuedAt;
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -74,7 +74,7 @@ describe("jobs that write the same module", () => {
     const a = jobs.start({ kind: "render", summary: "app 3", lanes: ["m"], run: run("a") });
     const b = jobs.start({ kind: "render", summary: "app 4", lanes: ["m"], run: run("b") });
     const lines = jobPanelLines(jobs.list());
-    expect(lines).toContain(`  queued  app 4  (job ${b.id}, after ${a.id})`);
+    expect(lines).toContain(`  queued  app 4  (pulse ${b.id}, after ${a.id})`);
   });
 
   it("count the whole queue in one line while compact, so none of it goes missing", () => {
@@ -85,7 +85,7 @@ describe("jobs that write the same module", () => {
     }
     const lines = jobPanelLines(jobs.list());
     expect(lines).toContain("  queued (9): app 4 → app 5 → app 6 → app 7 → app 8 → app 9 → app 10 → app 11 → app 12");
-    expect(lines.at(-1)).toContain("ctrl+o for the full queue and activity · ctrl+h to see what each job builds");
+    expect(lines.at(-1)).toContain("ctrl+o for the full queue and activity · ctrl+h to see what each pulse builds");
     expect(lines.length).toBeLessThanOrEqual(10);
   });
 
@@ -96,11 +96,11 @@ describe("jobs that write the same module", () => {
       (frid) => jobs.start({ kind: "render", summary: `app ${frid}`, lanes: ["m"], run: run(`${frid}`) }).id,
     );
     const lines = jobPanelLines(jobs.list(), { expanded: true });
-    expect(lines).toContain(`  queued  app 6  (job ${ids[3]}, after ${ids[2]})`);
+    expect(lines).toContain(`  queued  app 6  (pulse ${ids[3]}, after ${ids[2]})`);
     expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(3);
     // Expanded, the help says how to collapse, and how to find your way around the side panel.
-    expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+h to see what each job builds");
-    expect(lines.at(-1)).toContain("in the side panel: ↑↓ move over the jobs · enter opens one - what it builds, whole");
+    expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+h to see what each pulse builds");
+    expect(lines.at(-1)).toContain("in the side panel: ↑↓ move over the pulses · enter opens one - what it builds, whole");
     expect(lines.at(-1)).toContain("esc back to the chat · ctrl+h closes it");
   });
 });

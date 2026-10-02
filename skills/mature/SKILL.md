@@ -1,7 +1,7 @@
 ---
-name: temper-plain
+name: mature
 description: >-
-  Temper a rough `***plain` spec until it is fully rendered, on its own: the goal is the spec built
+  Mature a rough `***plain` spec until it is fully rendered, on its own: the goal is the spec built
   - every functionality from the spec as it stands, its tests passing - and the loop is render,
   watch the agents building it, and when one struggles on something the spec leaves open or
   unclear, settle it in the spec, stop that build and render again. It reads what the builds had to
@@ -9,15 +9,15 @@ description: >-
   itself - and writes what the spec should have said, as spec diffs. It decides open choices itself
   and records every decision; it does not ask. It stops when the spec is fully rendered, or when it
   is stuck on something the spec cannot settle. Use when the user has a rough or hand-written spec
-  and wants it made to build without steering it. Not for starting from nothing (forge-plain,
-  spark-plain) or adding a feature (add-feature).
+  and wants it made to build without steering it. Not for starting from nothing (`brood`,
+  `spawn`) or adding a feature (`bud`).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff, render_spec, watch_jobs, stop_job, spec_status, spec_findings]
 metadata:
   # It writes its fixes one after another, from what the builds show: no answer between them.
   paced: false
 ---
 
-# Temper Plain
+# Mature
 
 Load the `***plain` syntax rules before writing anything - they are in the system prompt under
 `<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need to follow
@@ -63,7 +63,7 @@ diff, with `write_spec_diff`.
 
 Say in two lines what will be rendered, and go on.
 
-### temper
+### grow
 
 Run cycles until the goal is met - or you are stuck - and at most twenty. Each cycle:
 
@@ -100,7 +100,7 @@ term into `***definitions***`, following `add-concept`, `add-functional-spec` an
 to build is worked out again from the spec - only what it changes is rendered again.
 
 **When you are stuck, stop.** The same functionality struggling three times after you clarified the
-spec for it is not something the spec can settle: stop tempering it, and report it. Two cycles in a
+spec for it is not something the spec can settle: stop maturing it, and report it. Two cycles in a
 row with nothing newly built and nothing newly settled: stop, and report what is open. Twenty cycles:
 stop, and report.
 

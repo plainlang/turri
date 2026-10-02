@@ -138,6 +138,6 @@ nohup turri chat -p "Render app.plain as a whole module, with conformance tests"
 ```
 
 It reports what it did at the end, and nothing streams in between, so for long runs
-`turri regrow` is the better choice. The interview skill (`forge-plain`) needs
+`turri regrow` is the better choice. The interview skill (`brood`) needs
 someone to answer; without one they decide and record their assumptions, and a gate that escalates
 to a human stops the run.

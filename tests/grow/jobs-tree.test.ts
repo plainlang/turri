@@ -61,7 +61,7 @@ describe("the jobs tree", () => {
     const open = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
     expect(open).toContain("▾ · app.plain c");
     expect(open).toContain("+ - Users give kudos.");
-    expect(open).toContain("waits for job b");
+    expect(open).toContain("waits for pulse b");
   });
 
   it("shows a running job's stage under it, and - opened - what it is doing", () => {

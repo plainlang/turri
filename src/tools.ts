@@ -173,7 +173,7 @@ export function createRenderTools(loop: WorkLoop, liveReview?: LiveReviewer) {
   const status = defineTool({
     name: "render_status",
     label: "Render status",
-    description: "What is being built, module by module: the job running, the jobs planned after it, and why nothing runs where nothing does.",
+    description: "What is being built, module by module: the pulse running, the pulses planned after it, and why nothing runs where nothing does.",
     promptSnippet: "how the background builds are doing",
     parameters: Type.Object({}),
     async execute() {

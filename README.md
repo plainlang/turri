@@ -193,8 +193,8 @@ specs, and builds each one as it is written. While it works:
   model and cost - and the queue behind it;
 - ask to try it at any time - "let me try it" - and **`release`** puts what is grown so far in
   `dist/<module>` and **`activate`** starts it, asking before it installs anything;
-- the **side panel** (`ctrl+h`, or `/jobs`), on the right, shows the whole queue and each build's agents at work, one agent at a time if you like (`/watch` opens it on a build);
-- **`/growth`** lists every job, **`/halt`** halts one, **`/lineage`** shows what grew into a
+- the **side panel** (`ctrl+h`, or `/regeneration`), on the right, shows the regeneration - every pulse, growing, planned and finished - and each pulse's agents at work, one agent at a time if you like (`/watch` opens it on a pulse);
+- **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
   module, and the **`drift`** tool says what is left to grow.
 
 Other things to ask for:
@@ -228,7 +228,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | | |
 | --- | --- |
 | [Installation](docs/installation.md) | setup and doctor, the VM image, **turri** in every `pi`, environment variables |
-| [Using **turri**](docs/using.md) | the conversation, skills, tools, background jobs, choosing models, the command line |
+| [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and the regeneration, choosing models, the command line |
 | [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |

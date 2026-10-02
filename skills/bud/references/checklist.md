@@ -1,4 +1,4 @@
-# Add Feature Checklist
+# Bud Checklist
 
 Use this to verify the workflow was followed - never as a substitute for it. Walk it once in the
 review step, before the handover. A box counts only when the change is in the `.plain` files, not

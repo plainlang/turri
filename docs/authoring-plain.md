@@ -122,7 +122,7 @@ entry point.
   conformance tests.
 - **Known to the agents.** The `stdlib` rule, in every spec-writing agent's system prompt, says when
   to import which, and lists every template with what it is and the folder it is in, read from
-  `stdlib/` when the rules load. `spark-plain` and `forge-plain` import a stack when the one chosen
+  `stdlib/` when the rules load. `spawn` and `brood` import a stack when the one chosen
   is in it, and its conformance template when conformance tests are on.
 
 A requirement beyond the stack - storage, an outside service - is added on top of it. A module that
@@ -166,16 +166,16 @@ The ones that shape a spec most:
 
 In a conversation (`turri chat`), say what you want and the matching skill runs. Two build a
 project from scratch, and write each spec change as a git diff that is built in the background the
-moment it is written. `forge-plain` interviews you one question at a time and writes the specs as
-you answer; `spark-plain`, its quick twin, asks only what you want to build and writes the rest on
+moment it is written. `brood` interviews you one question at a time and writes the specs as
+you answer; `spawn`, its quick twin, asks only what you want to build and writes the rest on
 its own:
 
 | skill | phases | how a spec change is written |
 | --- | --- | --- |
-| `forge-plain` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
-| `spark-plain` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs, and what is left to build is worked out again from the spec |
+| `brood` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
+| `spawn` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs, and what is left to build is worked out again from the spec |
 
-`temper-plain` starts from a spec you already have, rough or hand-written, and runs on its own until
+`mature` starts from a spec you already have, rough or hand-written, and runs on its own until
 it is fully rendered - every functionality built from the spec as it stands, its tests passing. It
 renders what is not built and watches the agents building it; when one struggles on something the
 spec leaves open or unclear - sent back again and again, the judge going back and forth, a spec
@@ -186,7 +186,7 @@ the reading that fits the rest of the spec, and marks each such decision in its 
 code, environment and turri problems to the builds, and stops when a functionality keeps
 struggling after the spec was clarified, when two cycles change nothing, or after twenty.
 
-For an existing project, `add-feature` works the same way, scoped to one feature: intent → scope →
+For an existing project, `bud` works the same way, scoped to one feature: intent → scope →
 product → review. After a short feature-intent interview it asks product questions one at a time -
 a trigger and its outcome, an edge case, a rule - and every answer is one spec change, a git diff
 written with `write_spec_diff` and built the moment it is written. A change to something already
@@ -208,9 +208,9 @@ Every skill in `skills/` can be run from a conversation; most are also used by t
 
 | to… | skills |
 | --- | --- |
-| start a project | `forge-plain`, `spark-plain`, `init-plain-project` |
-| make a rough spec build | `temper-plain` |
-| add to a spec | `add-feature`, `add-functional-spec`, `add-functional-specs`, `add-concept`, `add-implementation-requirement`, `add-test-requirement`, `add-acceptance-test`, `add-resource`, `add-template` |
+| start a project | `brood`, `spawn`, `init-plain-project` |
+| make a rough spec build | `mature` |
+| add to a spec | `bud`, `add-functional-spec`, `add-functional-specs`, `add-concept`, `add-implementation-requirement`, `add-test-requirement`, `add-acceptance-test`, `add-resource`, `add-template` |
 | check what is written | `analyze-if-func-spec-too-complex`, `analyze-2-func-specs`, `analyze-func-specs`, `resolve-section-ownership` |
 | fix what is written | `break-down-func-spec`, `resolve-spec-conflict`, `debug-specs` |
 | restructure modules | `create-import-module`, `create-requires-module`, `refactor-module`, `consolidate-concepts` |

@@ -213,10 +213,10 @@ export default function (pi: ExtensionAPI) {
           customType: "forge_job",
           content:
             (job.status === "succeeded"
-              ? `Background job ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
+              ? `Pulse ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
               : job.status === "stopped"
-                ? `Background job ${job.id} (${job.kind}) was stopped after ${formatDuration(job)}. ${job.error ?? STOPPED_ON_REQUEST}${job.error === undefined || job.error === STOPPED_ON_REQUEST ? " The person stopped it; what it was building counts as not built." : ""}`
-                : `Background job ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`) + `\n\n${JOB_FINISHED_REACTION}`,
+                ? `Pulse ${job.id} (${job.kind}) was stopped after ${formatDuration(job)}. ${job.error ?? STOPPED_ON_REQUEST}${job.error === undefined || job.error === STOPPED_ON_REQUEST ? " The person stopped it; what it was building counts as not built." : ""}`
+                : `Pulse ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`) + `\n\n${JOB_FINISHED_REACTION}`,
           display: false,
           details: { jobId: job.id, status: job.status },
         },
@@ -268,7 +268,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_settled", endTurnCapture);
 
   // Whether renders write conformance tests, always in sight: read again as each turn starts and
-  // ends, since a turn can change it - forge-plain's testing phase writes it into config.yaml.
+  // ends, since a turn can change it - `brood`'s testing phase writes it into config.yaml.
   const showConformance = (ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
     try {
@@ -280,7 +280,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => showConformance(ctx));
   // Where the keys are, from the first moment - before any job shows its panel.
   pi.on("session_start", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect jobs · ctrl+o expand`);
+    if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect pulses · ctrl+o expand`);
   });
   // Sandbox VMs a turri that was killed left running: stopped as this one starts, and said once.
   const orphans = stopOrphanedVms();
@@ -487,7 +487,7 @@ export default function (pi: ExtensionAPI) {
         // growth sees them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
         renderQueue: workLoopFor(jobs, cwd, ctx),
-        // A skill that waits for its builds and reads what they recorded - temper-plain - sees the same jobs.
+        // A skill that waits for its builds and reads what they recorded - `mature` - sees the same jobs.
         jobs,
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // validate too: a skill validates what it wrote with the same check the conversation has.
@@ -550,7 +550,7 @@ async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: boolean
     "",
     wait
       ? "Tell the user how it went."
-      : "It grows in the background: tell the user what runs and what is planned, and carry on. Use growth with a job's id if they ask how it is going.",
+      : "It grows in the background: tell the user what runs and what is planned, and carry on. Use growth with a pulse's id if they ask how it is going.",
   ].join("\n");
   return { content: [{ type: "text" as const, text }], details: { jobIds } };
 }
@@ -563,16 +563,16 @@ function registerRegrow(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       "Regrow a .plain module's code from its spec as the files have it now - and every module it requires, bottom of the " +
       "requires chain first. Call it after any change to the spec, by any means: the file tools, a skill, the user in an " +
       "editor. It takes no diff: what is left to grow - from what each module's code was grown from to its spec now - is " +
-      "worked out and planned into jobs, and a job running that grows something the spec no longer wants is stopped and " +
+      "worked out and planned into pulses, and a pulse running that grows something the spec no longer wants is stopped and " +
       "rolled back. Nothing to do where the code is grown from the spec as it is. With functional specs named, those are " +
       "grown again even though their spec did not change.",
     promptSnippet: "regrow a module's code from its spec as it is now - after any change to the spec",
     promptGuidelines: [
       "Call regrow after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
-      "regrow returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the jobs report when they finish.",
+      "regrow returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the pulses report when they finish.",
       "Name functional specs in `functionalities` only when the user wants ones whose spec did not change grown again. When they want one to come out differently, change its spec first - the spec is what persists - then regrow.",
       "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regrow sees it by itself, and grows again every functional spec that uses what links it. Never name functional specs in `functionalities` for it.",
-      "Never stop jobs and start them again yourself to follow a spec change: regrow does it.",
+      "Never stop pulses and start them again yourself to follow a spec change: regrow does it.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(
@@ -623,7 +623,7 @@ function registerDrift(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       "nothing and starts nothing, and calls no model.",
     promptSnippet: "drift: what is left to grow in a module, code and conformance tests - starting nothing",
     promptGuidelines: [
-      "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last grown. To see the next job's prompt as well, use glimpse.",
+      "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last grown. To see the next pulse's prompt as well, use glimpse.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" })),
@@ -645,18 +645,18 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
     label: "Bind conformance tests",
     description:
       "Write and run the black-box conformance tests of a module's functional specs - the ones named, or every one - on " +
-      "the code as it is built, as jobs of their own: each writes its tests from the spec's test reqs and acceptance " +
+      "the code as it is built, as pulses of their own: each writes its tests from the spec's test reqs and acceptance " +
       "tests, runs them with the whole suite the module inherits, and, where one fails, fixes the test or the code, " +
       "whichever is wrong. What they are written for is recorded apart from the code. For this session, whatever the " +
-      "config's conformance-tests says. Functional specs not built yet can be named: the conformance job is scheduled at " +
-      "once and starts when every one named is built - each call one job - before the next code job. A functional spec " +
-      "the spec does not have, or a module without test reqs, is refused. A conformance job checks, as it starts, that " +
+      "config's conformance-tests says. Functional specs not built yet can be named: the conformance pulse is scheduled at " +
+      "once and starts when every one named is built - each call one pulse - before the next code pulse. A functional spec " +
+      "the spec does not have, or a module without test reqs, is refused. A conformance pulse checks, as it starts, that " +
       "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
     promptGuidelines: [
       "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.yaml for it, and never regenerate a functionality to get them.",
-      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code jobs add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. Name together the ones to test in one job. A code job's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
-      "A conformance job that did not start because its code is not built: tell the user which functional specs it waits for, and which code job builds them.",
+      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. Name together the ones to test in one pulse. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module" }),
@@ -710,14 +710,14 @@ function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: Jo
 function registerGlimpse(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "glimpse",
-    label: "Glimpse the next job",
+    label: "Glimpse the next pulse",
     description:
-      "Plan the work of a module as regrow would, and show the job each codebase would start next and the whole " +
-      "prompt its coding agent would get - starting nothing. A codebase with a job running is left out: what its next job " +
+      "Plan the work of a module as regrow would, and show the pulse each codebase would start next and the whole " +
+      "prompt its coding agent would get - starting nothing. A codebase with a pulse running is left out: what its next pulse " +
       "is given depends on what the running one lands.",
-    promptSnippet: "glimpse: the next job of a module and its coding agent's whole prompt, starting nothing",
+    promptSnippet: "glimpse: the next pulse of a module and its coding agent's whole prompt, starting nothing",
     promptGuidelines: [
-      "Use glimpse when the user wants to see what a job will be told before it runs, or to check a plan before steering it with steer.",
+      "Use glimpse when the user wants to see what a pulse will be told before it runs, or to check a plan before steering it with steer.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "Path to the .plain file" }),
@@ -739,17 +739,17 @@ function registerGlimpse(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       });
       const text = [
         describeModules(statuses),
-        ...busy.map((module) => `\n${module} has a job running: its next job is planned from what that one lands - preview it once it has.`),
+        ...busy.map((module) => `\n${module} has a pulse running: its next pulse is planned from what that one lands - preview it once it has.`),
         ...previews.map((preview) =>
           [
             "",
-            `<next job module="${preview.module}" track="${preview.track}" title="${preview.title}">`,
-            preview.task ?? "A conformance job's prompt is built from what the code it tests holds once it is built: it is not shown before.",
-            "</next job>",
+            `<next pulse module="${preview.module}" track="${preview.track}" title="${preview.title}">`,
+            preview.task ?? "A conformance pulse's prompt is built from what the code it tests holds once it is built: it is not shown before.",
+            "</next pulse>",
           ].join("\n"),
         ),
         "",
-        "Nothing was started. Tell the user what the next job is and what it will be told - the parts they are likely to care about, not the whole prompt unless they ask.",
+        "Nothing was started. Tell the user what the next pulse is and what it will be told - the parts they are likely to care about, not the whole prompt unless they ask.",
       ].join("\n");
       return { content: [{ type: "text" as const, text }], details: {} };
     },
@@ -979,12 +979,12 @@ export function projectConfigBlock(root: string): string {
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === "chosen"
-            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with bind - when the work is planned, ahead of its code: what is planned lists what the code jobs add or change that has none, and a conformance job scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
+            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with bind - when the work is planned, ahead of its code: what is planned lists what the code pulses add or change that has none, and a conformance pulse scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
             : config.conformanceTests === true
             ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
         config.review === false
-          ? "- review: false - the code and its tests are not reviewed: a job lands once its tests pass."
+          ? "- review: false - the code and its tests are not reviewed: a pulse lands once its tests pass."
           : `- review: ${config.review === true ? "true" : "not set"} - the code and its tests are reviewed once they pass: two reviews at most, the arbiter weighing the second.`,
         ...(() => {
           // Each as it holds, with what it inherits: judge from coding, coding from harness.
@@ -1177,11 +1177,11 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
     description:
       "The engine: which model the agents that grow the code run on. With no model, say which it is. With one, choose it " +
       "for the rest of this session: for spec changes " +
-      "(render spec diff jobs, and the ones write_spec_diff queues), for functionalities (render, module, " +
+      "(render spec diff pulses, and the ones write_spec_diff queues), for functionalities (render, module, " +
       "regenerate, conformance), or for everything. By default " +
       "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
-      "list - ask the user which they meant, never pick one yourself. Jobs already queued keep their model.",
+      "list - ask the user which they meant, never pick one yourself. Pulses already queued keep their model.",
     promptSnippet: "the engine: show or choose the model that grows the code",
     promptGuidelines: [
       "When the user says which model should grow or build something, call engine with it - once; it holds for the rest of the session. To say which one it is, call engine with no model.",
@@ -1251,8 +1251,8 @@ function registerRenderModels(pi: ExtensionAPI) {
 const WAIT_PARAM = Type.Optional(
   Type.Boolean({
     description:
-      "Block until the work finishes instead of returning a job id. Defaults to false in the " +
-      "interactive TUI and true elsewhere, where a background job would not outlive the turn.",
+      "Block until the work finishes instead of returning a pulse id. Defaults to false in the " +
+      "interactive TUI and true elsewhere, where a pulse would not outlive the turn.",
   }),
 );
 
@@ -1345,10 +1345,10 @@ async function deliver(
         type: "text" as const,
         text:
           (job.status === "queued"
-            ? `Queued ${input.kind} as background job ${job.id}: ${summary}${onModel}. It writes the same ` +
-              `module as ${job.waitingOn.map((id) => `job ${id}`).join(" and ")}, so it starts when that ` +
+            ? `Queued ${input.kind} as pulse ${job.id}: ${summary}${onModel}. It writes the same ` +
+              `module as ${job.waitingOn.map((id) => `pulse ${id}`).join(" and ")}, so it starts when that ` +
               "finishes. Tell the user it is queued and why, and carry on. "
-            : `Started ${input.kind} as background job ${job.id}: ${summary}${onModel}.\n` +
+            : `Started ${input.kind} as pulse ${job.id}: ${summary}${onModel}.\n` +
               "It is running now and will report back when it finishes. Tell the user it has started, " +
               "and carry on. ") +
           `Use growth with "${job.id}" if they ask how it is going.`,
@@ -1362,17 +1362,17 @@ async function deliver(
 function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   pi.registerTool({
     name: "diagnose",
-    label: "Diagnose a job",
+    label: "Diagnose a pulse",
     description:
-      "Why a job did not land, from its whole transcript: how it ended and its diagnosis, the stages that went wrong, the " +
+      "Why a pulse did not land, from its whole transcript: how it ended and its diagnosis, the stages that went wrong, the " +
       "last failing test run with its output, the last review that sent the work back, and the tool calls that failed - " +
       "and where the whole log is.",
-    promptSnippet: "diagnose: why a job did not land, from its transcript",
-    promptGuidelines: ["When a job failed or did not land, call diagnose before you explain it or change the spec: go by what happened, not by the report alone."],
-    parameters: Type.Object({ job_id: Type.String({ description: "The job's id" }) }),
+    promptSnippet: "diagnose: why a pulse did not land, from its transcript",
+    promptGuidelines: ["When a pulse failed or did not land, call diagnose before you explain it or change the spec: go by what happened, not by the report alone."],
+    parameters: Type.Object({ job_id: Type.String({ description: "The pulse's id" }) }),
     async execute(_id, params) {
       const job = jobs.get(params.job_id);
-      if (job === undefined) return { content: [{ type: "text" as const, text: `No job ${params.job_id} has run in this session.` }], details: { status: "unknown" } };
+      if (job === undefined) return { content: [{ type: "text" as const, text: `No pulse ${params.job_id} has run in this session.` }], details: { status: "unknown" } };
       return { content: [{ type: "text" as const, text: whyFailed(job) }], details: { status: job.status as string } };
     },
   });
@@ -1381,13 +1381,13 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     name: "growth",
     label: "Growth",
     description:
-      "What is growing: with no job, every job of this session - running, planned and finished - and what deploy started; " +
-      "with a job's id, that job - whether it is still running, its latest output, and its report once it has finished.",
-    promptSnippet: "growth: the jobs, or one job - what is growing and how it is going",
+      "What is growing: with no pulse, every pulse of this session - running, planned and finished - and what deploy started; " +
+      "with a pulse's id, that pulse - whether it is still running, its latest output, and its report once it has finished.",
+    promptSnippet: "growth: the pulses, or one pulse - what is growing and how it is going",
     parameters: Type.Object({
-      job_id: Type.Optional(Type.String({ description: "The id returned when the job started. Omitted: every job" })),
+      job_id: Type.Optional(Type.String({ description: "The id returned when the pulse started. Omitted: every pulse" })),
       wait: Type.Optional(
-        Type.Boolean({ description: "With a job: block until it finishes instead of reporting its current state" }),
+        Type.Boolean({ description: "With a pulse: block until it finishes instead of reporting its current state" }),
       ),
     }),
     async execute(_id, params) {
@@ -1408,7 +1408,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           content: [
             {
               type: "text" as const,
-              text: `No job ${params.job_id}. ${known.length > 0 ? `Known jobs: ${known.join(", ")}.` : "No jobs have been started."}`,
+              text: `No pulse ${params.job_id}. ${known.length > 0 ? `Known pulses: ${known.join(", ")}.` : "No pulses have been started."}`,
             },
           ],
           details: { status: "unknown" },
@@ -1429,15 +1429,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     name: "halt",
     label: "Halt",
     description:
-      "Halt a job, or what activate started. A job: a queued one never starts, a running one has its agent stopped at once, " +
-      "and the jobs queued behind it move up - what a running job already changed is rolled back, and what it was growing " +
+      "Halt a pulse, or what activate started. A pulse: a queued one never starts, a running one has its agent stopped at once, " +
+      "and the pulses queued behind it move up - what a running pulse already changed is rolled back, and what it was growing " +
       "counts as not grown. What activate started: the one named, or every one.",
-    promptSnippet: "halt a job, or what activate started",
+    promptSnippet: "halt a pulse, or what activate started",
     promptGuidelines: [
-      "Halt a job only when the user asks. Name which one, and say which jobs were queued behind it - they will now run.",
+      "Halt a pulse only when the user asks. Name which one, and say which pulses were queued behind it - they will now run.",
     ],
     parameters: Type.Object({
-      job_id: Type.Optional(Type.String({ description: "The job's id, or the start of it" })),
+      job_id: Type.Optional(Type.String({ description: "The pulse's id, or the start of it" })),
       activated: Type.Optional(Type.String({ description: 'What activate started, by name - or "all" for every one' })),
     }),
     async execute(_id, params) {
@@ -1453,7 +1453,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   pi.registerCommand("halt", {
-    description: "Halt a queued or running job, or what activate started: /halt [job id | activated <name>]",
+    description: "Halt a queued or running pulse, or what activate started: /halt [pulse id | activated <name>]",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const live = jobs.list().filter((job) => job.status === "running" || job.status === "queued");
@@ -1591,7 +1591,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   };
 
   pi.registerCommand("watch", {
-    description: `Read a background job's agents at work, in the side panel: /watch [job id]. ${PANEL_KEY} opens the panel; esc goes back to the chat.`,
+    description: `Read a pulse's agents at work, in the side panel: /watch [pulse id]. ${PANEL_KEY} opens the panel; esc goes back to the chat.`,
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const job = await chooseJob(jobs, args.trim(), ctx.ui);
@@ -1599,28 +1599,27 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  pi.registerCommand("jobs", {
-    description: `The job queue, in the side panel - what each job builds, and its agents' traces. ${PANEL_KEY} opens it too.`,
-    handler: async (_args, ctx) => {
-      if (!ctx.hasUI) return;
-      openPanel(ctx, { view: "jobs" });
-    },
-  });
+  // The regeneration: every pulse - growing, planned and finished - what each grows, and its agents' traces. /regen is
+  // its short form, and /growth, which once listed the pulses in the chat, opens it too.
+  for (const [name, description] of [
+    ["regeneration", `The regeneration, in the side panel - every pulse, growing, planned and finished: what each grows, and its agents' traces. ${PANEL_KEY} opens it too.`],
+    ["regen", "The regeneration, in the side panel: the short form of /regeneration."],
+    ["growth", "The regeneration, in the side panel: the same as /regeneration."],
+  ] as const) {
+    pi.registerCommand(name, {
+      description,
+      handler: async (_args, ctx) => {
+        if (!ctx.hasUI) return;
+        openPanel(ctx, { view: "jobs" });
+      },
+    });
+  }
 
   pi.registerShortcut(PANEL_KEY, {
-    description: "Open the side panel - the job queue and the agents' traces - or go back to it",
+    description: "Open the side panel - the regeneration and the agents' traces - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
       openPanel(ctx);
-    },
-  });
-
-  // An entry rather than a message, so it shows straight away even while a skill is
-  // running - which is exactly when someone wants to know what the queue is doing.
-  pi.registerCommand("growth", {
-    description: "List every job: growing, planned and finished",
-    handler: async () => {
-      pi.appendEntry(JOBS_LIST_ENTRY, { text: listJobs(jobs) });
     },
   });
 }
@@ -1632,7 +1631,7 @@ const WATCH_REDRAW_MS = 500;
  */
 const JOB_FINISHED_REACTION = [
   "React to this now - the person has not asked, and need not. If guidance for this project - its AGENTS.md, a skill,",
-  "what the person said earlier - says what to do when a job finishes (release what was built, run something, tell",
+  "what the person said earlier - says what to do when a pulse finishes (release what was built, run something, tell",
   "someone), do that, as it says. Otherwise say in a line or two what finished and what it means for the person - the",
   "report is theirs to read in full; do not repeat it - and, when it failed, what they can do. Start no other work.",
 ].join("\n");
@@ -1652,12 +1651,12 @@ function modulesWithHistory(cwd: string): string[] {
 /** Stop a job by id or id prefix, and say what that means for the queue. */
 function stopJob(jobs: JobRegistry, named: string): string {
   const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
-  if (matches.length === 0) return `No job ${named}. /growth lists them.`;
+  if (matches.length === 0) return `No pulse ${named}. /regeneration shows them.`;
   if (matches.length > 1) return `'${named}' matches ${matches.map((job) => job.id).join(", ")}. Give more of the id.`;
   const target = matches[0]!;
   const behind = jobs.list().filter((job) => job.status === "queued" && job.waitingOn.includes(target.id));
   const stopped = jobs.stop(target.id);
-  if (stopped === undefined) return `Job ${target.id} (${target.summary}) is already ${target.status}.`;
+  if (stopped === undefined) return `Pulse ${target.id} (${target.summary}) is already ${target.status}.`;
   const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
   // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
   const inSpec =
@@ -1682,17 +1681,17 @@ async function chooseJob(
   const all = jobs.list();
   if (named !== "") {
     const found = all.find((job) => job.id.startsWith(named));
-    if (found === undefined) ui.notify(`No job ${named}. /growth lists them.`, "warning");
+    if (found === undefined) ui.notify(`No pulse ${named}. /regeneration shows them.`, "warning");
     return found;
   }
   if (all.length === 0) {
-    ui.notify("No jobs have been started.", "info");
+    ui.notify("No pulses have been started.", "info");
     return undefined;
   }
   const running = all.filter((job) => job.status === "running");
   if (running.length === 1) return running[0];
   const label = (job: Job) => `${job.id}  ${job.status.padEnd(9)} ${job.summary}`;
-  const picked = await ui.select("Watch which job?", all.map(label));
+  const picked = await ui.select("Watch which pulse?", all.map(label));
   return all.find((job) => picked !== undefined && label(job) === picked);
 }
 
@@ -1711,7 +1710,7 @@ function listJobs(jobs: JobRegistry): string {
   const all = [...shownJobs(jobs)].reverse().filter((job) => job.replacedBy === undefined);
   const deployed = runningDeployed().map((item) => `deploy ${item.name}  running  ${item.moduleName}: ${item.url ?? item.command}  (pid ${item.pid}, output in ${relative(process.cwd(), item.log) || item.log})`);
   const listed = deployed.length > 0 ? `\n\nActivated from dist - /halt activated <name> halts one:\n${deployed.join("\n")}` : "";
-  if (all.length === 0) return `No jobs have been started.${listed}`;
+  if (all.length === 0) return `No pulses have been started.${listed}`;
   return `${jobLines(all)}${listed}`;
 }
 
@@ -1736,7 +1735,7 @@ function registerBuildVmImage(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) 
     name: "build_vm_image",
     label: "Build VM image",
     description:
-      "Build a sandbox VM image from its recipe, as a background job: the default one - turri's recipe with the " +
+      "Build a sandbox VM image from its recipe, in the background: the default one - turri's recipe with the " +
       `person's changes from ${userImageFile()} - or, with scope "project", the project's own, from its config.yaml's ` +
       "vm-image: over that, under a tag of its own. Every VM started after it runs the new image; one already running " +
       "keeps the one it started with. About 7 minutes and 2 GB with every toolchain, less with fewer.",
@@ -1822,7 +1821,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
     label: "Steer",
     description:
       "Say how the work is to be planned from now on - which functional specs grow together, what goes first, how " +
-      "big a job may be - for the whole project, or one module: every plan after this follows it as a strong preference, " +
+      "big a pulse may be - for the whole project, or one module: every plan after this follows it as a strong preference, " +
       "within the planner's limits, for the rest of the session. It changes nothing queued by itself: the next plan of the " +
       "module follows it - regrow makes one now. What the project's AGENTS.md says under a heading " +
       "naming the queue is followed too, with every plan.",
@@ -2050,7 +2049,7 @@ function registerInterviewLog(pi: ExtensionAPI) {
     const data = entry.data as { text: string } | undefined;
     if (data === undefined) return undefined;
     const box = new Box(1, 0);
-    box.addChild(new Text([theme.fg("muted", "background jobs"), theme.fg("text", data.text)].join("\n"), 0, 0));
+    box.addChild(new Text([theme.fg("muted", "pulses"), theme.fg("text", data.text)].join("\n"), 0, 0));
     return box;
   });
 

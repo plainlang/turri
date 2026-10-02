@@ -109,7 +109,7 @@ describe("the job registry", () => {
   });
 
   it("rejects a wait on an unknown job", async () => {
-    await expect(createJobRegistry().wait("nope")).rejects.toThrow("No such job: nope");
+    await expect(createJobRegistry().wait("nope")).rejects.toThrow("No such pulse: nope");
   });
 
   it("shows the latest output while running and the report once done", async () => {
@@ -156,14 +156,14 @@ describe("a job that fails", () => {
     expect(done.status).toBe("failed");
     expect(done.failedForGood).toBe(true);
     expect(diagnose).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }), ["attempt 1: the tests do not pass", "attempt 2: the tests do not pass"], undefined);
-    expect(done.error).toContain("Failed 2 times, so it and every job queued behind it have stopped.");
+    expect(done.error).toContain("Failed 2 times, so it and every pulse queued behind it have stopped.");
     expect(done.error).toContain("Say where the auth data comes from.");
 
     // Everything behind it fails without running - pointing at it, with its diagnosis.
     for (const later of [second, third]) {
       const settled = await registry.wait(later.id);
       expect(settled.status).toBe("failed");
-      expect(settled.error).toMatch(/^Not run: job \S+ ahead of it in the queue \(.+\) failed twice/);
+      expect(settled.error).toMatch(/^Not run: pulse \S+ ahead of it in the queue \(.+\) failed twice/);
     }
     expect(laterRan).toBe(false);
   });
@@ -191,7 +191,7 @@ describe("a job that fails", () => {
     expect(started.filter((job) => registry.get(job.id)!.status === "running")).toHaveLength(3);
     const waiting = registry.get(started[5]!.id)!;
     expect(waiting.status).toBe("queued");
-    expect(waiting.stage).toContain("waiting for a free slot - 3 of 3 jobs running at once");
+    expect(waiting.stage).toContain("waiting for a free slot - 3 of 3 pulses running at once");
     // A job stopped while it waits for a slot gives its turn up, and never runs.
     registry.stop(started[9]!.id);
     for (let done = 0; done < 9; done += 1) {
