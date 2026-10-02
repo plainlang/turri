@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { freemem } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
@@ -257,8 +257,8 @@ export function vmImageFor(project: string): { tag: string; path: string; own: b
 
 /** Room for dependencies and build output, and for compilers to run. */
 const VM_DISK = process.env.TURRI_VM_DISK ?? "8G";
-/** A VM's memory unless the project says (vm-memory) or TURRI_VM_MEMORY does: enough for a Python or Node project's tests. */
-const DEFAULT_VM_MEMORY = "1G";
+/** A VM's memory unless the project says (vm-memory) or TURRI_VM_MEMORY does: room for a project's dependencies to install. */
+const DEFAULT_VM_MEMORY = "2G";
 const VM_CPUS = Number(process.env.TURRI_VM_CPUS ?? 4);
 
 /** A size as the VM takes it - "2G", "512M" - in bytes. */
@@ -269,7 +269,7 @@ function bytesOf(size: string): number {
   return Number(match[1]) * 1024 ** power;
 }
 
-/** The memory each of a project's VMs is given: TURRI_VM_MEMORY, else its config.yaml's vm-memory, else 1G. */
+/** The memory each of a project's VMs is given: TURRI_VM_MEMORY, else its config.yaml's vm-memory, else 2G. */
 export function vmMemoryFor(dir: string): string {
   const configured = process.env.TURRI_VM_MEMORY ?? readProjectConfig(projectRootOf(dir)).vmMemory;
   return configured !== undefined && /^\d+(?:\.\d+)?\s*[KMGT]?i?B?$/i.test(configured.trim()) ? configured.trim() : DEFAULT_VM_MEMORY;
@@ -547,6 +547,9 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
   } else if (ready.exitCode !== 0 && packages.length > 0) {
     reportActivity(`  the project's system packages did not all install: ${ready.output.trim().split("\n").at(-1) ?? ""}`);
   }
+  // Running now - it boots on its first command: stopped with this process, however it ends - killed outright
+  // too, which runs nothing on the way out.
+  watchVmProcesses();
   const localhost = await exec(vm, localhostSetup(), { cwd: mounts[0]!, env: guestEnv(cache) });
   if (localhost.exitCode !== 0) {
     // The VM is still usable; only this machine's localhost is out of reach.
@@ -956,6 +959,54 @@ export function orphanedVmPids(psOutput: string, store: string): number[] {
     if (ppid === "1" && command!.includes(store) && /qemu-system|krun/.test(command!)) pids.push(Number(pid));
   }
   return pids;
+}
+
+/**
+ * Start the VM a job's agent will run its commands in, in the background, as the job begins: it boots while the agent
+ * reads its task and writes its first files, rather than when its first command comes - out of that turn's minutes.
+ * Called inside the job, so the job holds it, and lets go of it when it ends; nothing waits for it, and a VM that
+ * cannot start is left for the first command to say so.
+ */
+export function warmVm(dir: string): void {
+  // TURRI_VM_WARM=0: started at the first command instead - the tests, whose agents are scripted, need none.
+  if (process.env.TURRI_VM_WARM === "0" || !vmSupported() || !qemuInstalled()) return;
+  void runInVm("true", { cwd: dir }).catch(() => undefined);
+}
+
+/** The VM processes a watcher is already out for. */
+const watched = new Set<number>();
+
+/**
+ * Put a watcher beside each VM process this one started: a small shell that checks every two seconds that this process
+ * is alive, and stops the VM the moment it is not. A VM does not die with the process that started it - killed, crashed,
+ * a test worker terminated - and would hold its memory for as long as the machine runs. The watcher ends with its VM
+ * when the VM ends first, and stops only a process that is still that VM, so a reused process id is never hit.
+ */
+function watchVmProcesses(): void {
+  let store: string;
+  try {
+    store = getImageStoreDirectory();
+  } catch {
+    return;
+  }
+  const listed = spawnSync("ps", ["-eo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000 });
+  if (listed.status !== 0) return;
+  for (const line of listed.stdout.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (match === null || Number(match[2]) !== process.pid || !match[3]!.includes(store) || !/qemu-system|krun/.test(match[3]!)) continue;
+    const vmPid = Number(match[1]);
+    if (watched.has(vmPid)) continue;
+    watched.add(vmPid);
+    const script = [
+      `while kill -0 ${process.pid} 2>/dev/null && kill -0 ${vmPid} 2>/dev/null; do sleep 2; done`,
+      `if ! kill -0 ${process.pid} 2>/dev/null; then ps -o command= -p ${vmPid} 2>/dev/null | grep -q -e qemu-system -e krun && kill ${vmPid}; fi`,
+    ].join("; ");
+    try {
+      spawn("/bin/sh", ["-c", script], { detached: true, stdio: "ignore" }).unref();
+    } catch {
+      /* the start-up sweep (stopOrphanedVms) is there still */
+    }
+  }
 }
 
 /** Close every VM. Called as the process ends; they would otherwise outlive it. */

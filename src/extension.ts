@@ -32,7 +32,7 @@ import { plainFileParser } from "./plain/parser.ts";
 import { TEST_REQUIREMENTS } from "./plain/spec.ts";
 import { sectionsOf } from "./grow/state.ts";
 import { runningDeployed, stopDeployed } from "./grow/release.ts";
-import { createDeployState, createDeployTools, refuseInstall } from "./release-tools.ts";
+import { APPROVALS, createDeployState, createDeployTools, refuseInstall } from "./release-tools.ts";
 import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./grow/steer.ts";
 import { vmSummary } from "./grow/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
@@ -1877,9 +1877,12 @@ function registerDeploy(pi: ExtensionAPI, cwd: string) {
   const tools = createDeployTools({
     cwd,
     state,
+    // Once, for the session, always, or not: what the commands are, then the four answers.
     approve: async (title, body, ctx) => {
-      const ui = ctx as { hasUI?: boolean; ui?: { confirm(title: string, message: string): Promise<boolean> } } | undefined;
-      return ui?.hasUI === true && ui.ui !== undefined ? ui.ui.confirm(title, body) : undefined;
+      const ui = ctx as { hasUI?: boolean; ui?: { select(title: string, options: string[]): Promise<string | undefined> } } | undefined;
+      if (ui?.hasUI !== true || ui.ui === undefined) return undefined;
+      const picked = await ui.ui.select(`${title}\n\n${body}`, APPROVALS.map((approval) => approval.label));
+      return APPROVALS.find((approval) => approval.label === picked)?.answer ?? "no";
     },
     defaultPlainFile: () => readProjectConfig(cwd).module,
   });

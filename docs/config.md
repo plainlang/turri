@@ -58,7 +58,7 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `turri vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
 | `system-packages` | Alpine packages every VM of the project installs when it starts - a library or tool a build needs, `sqlite`, `jq` | none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
-| `vm-memory` | the memory each of the project's sandbox VMs is given - `1G`, `2G`, `512M`: more for a project that compiles Java, Rust or C++ - `TURRI_VM_MEMORY` wins. The project's alone | `1G` |
+| `vm-memory` | the memory each of the project's sandbox VMs is given - `1G`, `2G`, `512M`: more for a project that compiles Java, Rust or C++, less on a machine short of memory - `TURRI_VM_MEMORY` wins. The project's alone | `2G` |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the memory free then holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
 | `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](growing.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
 
@@ -71,7 +71,7 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 
 Jobs on the same module, or on modules of one `requires` chain, always run one after another.
 Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, and
-each module's jobs start VMs of their own: its code's and its tests', `vm-memory` each (1 GB unless
+each module's jobs start VMs of their own: its code's and its tests', `vm-memory` each (2 GB unless
 `config.yaml` or `TURRI_VM_MEMORY` says). So the chat runs at most `parallel-jobs` jobs at once; a
 job whose turn has come waits for a free slot past that, and its line says so. Unset, it is three
 quarters of the memory free when the chat starts - free and what the system takes back at once, as

@@ -67,13 +67,14 @@ function parseArgs(argv: string[]) {
   return { plainFile: positional[0], model, inModule, guidance };
 }
 
-/** Yes or no at the terminal - or undefined when there is none, and so no one to ask. */
+/** Once, for the session, always, or not, at the terminal - or undefined when there is none, and so no one to ask. */
 const askAtTerminal: Approve = async (title, body) => {
   if (process.stdin.isTTY !== true) return undefined;
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await prompt.question(`\n\n${c.bold(title)}\n${body}\n\n${c.bold("Go ahead? [y/N] ")}`);
-    return /^y(es)?$/i.test(answer.trim());
+    const answer = await prompt.question(`\n\n${c.bold(title)}\n${body}\n\n${c.bold("[o]nce · [s]ession · [a]lways · [N]o: ")}`);
+    const said = answer.trim().toLowerCase();
+    return said === "o" || said === "once" || said === "y" || said === "yes" ? "once" : said === "s" || said === "session" ? "session" : said === "a" || said === "always" ? "always" : "no";
   } finally {
     prompt.close();
   }

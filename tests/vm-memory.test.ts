@@ -20,9 +20,9 @@ function project(config: string): string {
 }
 
 describe("a VM's memory", () => {
-  it("is 1G unless config.yaml's vm-memory says, and TURRI_VM_MEMORY wins over both", () => {
+  it("is 2G unless config.yaml's vm-memory says, and TURRI_VM_MEMORY wins over both", () => {
     delete process.env.TURRI_VM_MEMORY;
-    expect(vmMemoryFor(project("module: app.plain\n"))).toBe("1G");
+    expect(vmMemoryFor(project("module: app.plain\n"))).toBe("2G");
     const sized = project("vm-memory: 3G\n");
     expect(vmMemoryFor(sized)).toBe("3G");
     process.env.TURRI_VM_MEMORY = "512M";
@@ -31,7 +31,7 @@ describe("a VM's memory", () => {
 
   it("ignores a size that is not one", () => {
     delete process.env.TURRI_VM_MEMORY;
-    expect(vmMemoryFor(project("vm-memory: lots\n"))).toBe("1G");
+    expect(vmMemoryFor(project("vm-memory: lots\n"))).toBe("2G");
   });
 
   it("measures what is free now, and runs at least one job however little that is", () => {

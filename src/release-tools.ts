@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -28,14 +29,63 @@ export interface DeployState {
   current?: Deployment;
   /** Commands that keep running the person agreed to start, word for word - ones that fetch as they start. */
   approvedStarts: Set<string>;
+  /** Commands the person allowed for the rest of the session, with the folder each runs in. */
+  allowedThisSession: Set<string>;
 }
 
 export function createDeployState(): DeployState {
-  return { approvedStarts: new Set() };
+  return { approvedStarts: new Set(), allowedThisSession: new Set() };
 }
 
-/** Put a question to the person: yes, no, or undefined when there is no one to ask. `ctx` is the tool call's. */
-export type Approve = (title: string, body: string, ctx: unknown) => Promise<boolean | undefined>;
+/**
+ * How the person answered: allowed once, for the rest of the session, always - in this project, remembered - or not.
+ * Undefined when there is no one to ask. A bare yes or no is once or not.
+ */
+export type Approval = "once" | "session" | "always" | "no";
+
+/** Put a question to the person. `ctx` is the tool call's. */
+export type Approve = (title: string, body: string, ctx: unknown) => Promise<Approval | boolean | undefined>;
+
+/** The answers, as the person is offered them. */
+export const APPROVALS: Array<{ answer: Approval; label: string }> = [
+  { answer: "once", label: "Allow once" },
+  { answer: "session", label: "Allow for this session" },
+  { answer: "always", label: "Allow always" },
+  { answer: "no", label: "Don't allow" },
+];
+
+/** What allowing remembers: a command, word for word, and the folder it runs in. */
+function allowedKey(dir: string, command: string): string {
+  return `${dir}\n${command.trim()}`;
+}
+
+/** Where a project keeps the commands its person allowed always - delete it to take them back. */
+function allowedFile(plainFile: string): string {
+  return join(projectDirOf(plainFile), ".turri", "allowed-commands.json");
+}
+
+function allowedAlways(plainFile: string): Set<string> {
+  try {
+    const parsed = JSON.parse(readFileSync(allowedFile(plainFile), "utf8")) as { allowed?: Array<{ dir: string; command: string }> };
+    return new Set((parsed.allowed ?? []).map((entry) => allowedKey(entry.dir, entry.command)));
+  } catch {
+    return new Set();
+  }
+}
+
+function allowAlways(plainFile: string, dir: string, commands: string[]): void {
+  const file = allowedFile(plainFile);
+  let allowed: Array<{ dir: string; command: string }> = [];
+  try {
+    allowed = (JSON.parse(readFileSync(file, "utf8")) as { allowed?: typeof allowed }).allowed ?? [];
+  } catch {
+    /* none yet */
+  }
+  const have = new Set(allowed.map((entry) => allowedKey(entry.dir, entry.command)));
+  for (const command of commands) if (!have.has(allowedKey(dir, command))) allowed.push({ dir, command: command.trim() });
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify({ allowed }, null, 2)}\n`);
+}
 
 /** What the agent is to do once the code is in dist - in the deploy tool's answer, and the CLI agent's prompt. */
 export function deployGuide(dir: string): string {
@@ -177,16 +227,21 @@ export function createDeployTools(options: {
         ...(starts.length > 0 ? ["", "and later start:", ...starts.map((command) => `  $ ${command}`)] : []),
         "",
         params.why,
-        "",
-        "Nothing runs unless you say yes.",
       ].join("\n");
-      const answer = await options.approve("turri wants to run this", body, ctx);
+      // Allowed before - this session, or always in this project - every one of them, word for word, here: run, unasked.
+      const all = [...params.commands, ...starts];
+      const always = allowedAlways(current.plainFile);
+      const known = all.every((command) => state.allowedThisSession.has(allowedKey(dir, command)) || always.has(allowedKey(dir, command)));
+      const asked = known ? "once" : await options.approve("turri wants to run this", body, ctx);
+      const answer: Approval | undefined = asked === true ? "once" : asked === false ? "no" : asked;
       if (answer === undefined) {
         return text(`There is no one to ask here, so nothing was run. Tell the person what it needs, as commands they can run themselves in ${shortPath(dir)}, and start nothing that needs them.`, { approved: false });
       }
-      if (!answer) {
+      if (answer === "no") {
         return text(`The person said no: nothing was run. Tell them what it needs - the commands, to run themselves in ${shortPath(dir)} - and stop.`, { approved: false });
       }
+      if (answer === "session" || answer === "always") for (const command of all) state.allowedThisSession.add(allowedKey(dir, command));
+      if (answer === "always") allowAlways(current.plainFile, dir, all);
       for (const command of starts) state.approvedStarts.add(command);
       const results: string[] = [];
       for (const command of params.commands) {
@@ -197,7 +252,8 @@ export function createDeployTools(options: {
           return text([`The person agreed, but this failed - the ones after it were not run:`, "", ...results].join("\n"), { approved: true, failed: command });
         }
       }
-      return text([`The person agreed, and ${params.commands.length === 1 ? "it" : `all ${params.commands.length}`} ran:`, "", ...results].join("\n"), { approved: true });
+      const agreed = known ? "The person allowed these before, so they ran without asking" : "The person agreed";
+      return text([`${agreed}, and ${params.commands.length === 1 ? "it" : `all ${params.commands.length}`} ran:`, "", ...results].join("\n"), { approved: true, ...(known ? { allowedBefore: true } : {}) });
     },
   });
 

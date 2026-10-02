@@ -249,5 +249,5 @@ For Gemini, `GEMINI_API_KEY` is what makes pi *offer* the google provider, but w
 | --- | --- |
 | `PLAIN_TEMPLATE_DIRS` | colon-separated template directories, e.g. the standard library |
 | `TURRI_VM_IMAGE` | a different Gondolin image to boot (default `turri:latest`) |
-| `TURRI_VM_DISK`, `TURRI_VM_MEMORY`, `TURRI_VM_CPUS` | the VM's size (default `8G`, `1G` - or `vm-memory` in `config.yaml` - and `4`) |
+| `TURRI_VM_DISK`, `TURRI_VM_MEMORY`, `TURRI_VM_CPUS` | the VM's size (default `8G`, `2G` - or `vm-memory` in `config.yaml` - and `4`) |
 | `TURRI_COMMAND_TIMEOUT` | seconds a command in the VM may run before it is stopped - an agent's own, its tests, an install (default `120`) |

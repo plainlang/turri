@@ -13,6 +13,7 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
+import { warmVm } from "./vm.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
@@ -384,6 +385,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   }
   // The spec's images need a model that reads them: refused before the agent starts.
   await refuseIfModelIsBlind(options.model, resourceImages(linkedResources).length);
+  // Its shell's VM boots while it reads and writes: ready by its first command.
+  warmVm(buildDir);
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   // One session for the whole change: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({

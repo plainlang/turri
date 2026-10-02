@@ -240,6 +240,36 @@ describe("the deploy tools", () => {
     expect(state.current?.hostDir).toBeUndefined();
   });
 
+  it("runs, unasked, what the person allowed for this session - and asks again for anything else", async () => {
+    built("app", { "app.py": "print('hello')\n" });
+    spec("app");
+    let asks = 0;
+    const { deploy, proposeSetup, state } = tools(async () => ((asks += 1), "session"));
+    await call(deploy, {});
+    await call(proposeSetup, { commands: ["touch one.txt"], why: "a marker" });
+    const again = await call(proposeSetup, { commands: ["touch one.txt"], why: "a marker" });
+    expect(asks).toBe(1);
+    expect(again).toContain("allowed these before, so they ran without asking");
+    await call(proposeSetup, { commands: ["touch two.txt"], why: "another" });
+    expect(asks).toBe(2);
+    expect(existsSync(join(state.current!.dir, "two.txt"))).toBe(true);
+  });
+
+  it("remembers what the person allowed always, in the project, for every later session", async () => {
+    built("app", { "app.py": "print('hello')\n" });
+    spec("app");
+    const first = tools(async () => "always");
+    await call(first.deploy, {});
+    await call(first.proposeSetup, { commands: ["touch kept.txt"], why: "a marker" });
+    expect(readFileSync(join(dir, ".turri", "allowed-commands.json"), "utf8")).toContain("touch kept.txt");
+    // A new session: nobody to ask, and it runs all the same.
+    const later = tools(async () => undefined);
+    await call(later.deploy, {});
+    const text = await call(later.proposeSetup, { commands: ["touch kept.txt"], why: "a marker" });
+    expect(text).toContain("ran without asking");
+    expect(existsSync(join(later.state.current!.dir, "kept.txt"))).toBe(true);
+  });
+
   it("installs nothing the person says no to, and nothing when there is no one to ask", async () => {
     built("app", { "app.py": "print('hello')\n" });
     spec("app");

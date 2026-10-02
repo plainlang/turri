@@ -87,14 +87,17 @@ Either way the command is killed in the VM too, with everything it started - Gon
 stops waiting for a command, so each one records its process ID and is killed by it.
 
 A project works through its modules one at a time, and so has one module's VMs at a time. Each starts
-on the first command run in it, and the module's jobs - functionalities, spec changes, conformance
+as a job begins - in the background, so it boots while the agent reads its task and writes its first
+files, and is ready by its first command (`TURRI_VM_WARM=0`: on the first command instead) - and the module's jobs - functionalities, spec changes, conformance
 tests - reuse them one after another; a job holds both while it works in the module. The moment the
 project moves on to another module, the old module's VMs are shut down and the new one's started, which costs a second or two; the system packages the agents installed before, and the image lacks, come back from the cache -
 offline first, from the network only for one the cache does not hold, and for 90 seconds at most
 (`TURRI_VM_SETUP_TIMEOUT`), after which the VM goes on without them - and the dependencies are in the
 module's folder. A command waiting for its VM to start waits as long as a start can take - its boot and that
-setup - and not once it is stopped: it is not run, and says so, and the VM goes on starting for the next one. A VM nothing has used for a minute is shut down too, and every VM when turri exits. One a turri left
-running when it was killed rather than exiting - its parent gone, the system holding it - is stopped
+setup - and not once it is stopped: it is not run, and says so, and the VM goes on starting for the next one. A VM nothing has used for a minute is shut down too, and every VM when turri exits. A VM does not die with
+the process that started it, so each has a watcher beside it - a small shell that stops it within
+two seconds of its turri ending, however it ends: killed outright, crashed, a test worker
+terminated. One left running all the same - its parent gone, the system holding it - is stopped
 when turri next starts, and you are told: nothing else would ever stop it, and it holds its memory. Two
 modules rendering at once each keep their own, and several projects never share one. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent

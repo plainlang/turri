@@ -62,7 +62,10 @@ then:
    install, and starts nothing. It never installs a toolchain.
 2. **Asks before it installs anything.** Dependencies into a virtual environment or `node_modules`, a
    build that downloads packages, an image pull: every command that installs or downloads is shown to
-   you in a dialog, word for word, with what it installs and where, and runs only when you say yes.
+   you in a dialog, word for word, with what it does, and runs only when you allow it: **once**, **for
+   this session** - the same commands in the same folder then run without asking until turri exits -
+   or **always**, kept in the project's `.turri/allowed-commands.json` (delete it to take them back).
+   **Don't allow**, and nothing runs. A guided release's project scripts are asked about the same way.
    Say no, and nothing is installed - you are told what it needs instead. This is enforced, not only
    asked for: once something is deployed, the chat's own shell refuses any package manager, download,
    `make`, `just` or project script, and `activate` refuses a command that fetches as it starts

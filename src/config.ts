@@ -188,7 +188,7 @@ export interface ProjectConfig {
    * agent's, by name: a rule a project's own skills or AGENTS.md replace. The project's alone.
    */
   rulesOff?: string[];
-  /** The memory each of the project's sandbox VMs is given: "1G", "2G", "512M". TURRI_VM_MEMORY wins. Unset: 1G. */
+  /** The memory each of the project's sandbox VMs is given: "1G", "2G", "512M". TURRI_VM_MEMORY wins. Unset: 2G. */
   vmMemory?: string;
   /**
    * The project's own VM image: toolchains and packages removed from and added to what the default image
