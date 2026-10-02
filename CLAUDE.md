@@ -102,7 +102,8 @@ is reported as pending, not dropped.
   specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses, an agent
   places the reqs), and runs the first; again whenever a job ends or the spec changes. A chain is built in
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
-  (`stillWanted`). `regrow`, `write_spec_diff`, `turri spec-diff` and
+  (`stillWanted`) - unless the change is inside what it grows, which steers it instead (`steering.ts`: its agent
+told mid-turn or at its next turn, its record moved, twice a job at most). `regrow`, `write_spec_diff`, `turri spec-diff` and
   `turri regrow` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
@@ -136,10 +137,12 @@ the harness between turns past `compact-at` (`compactIfDue` in `pi.ts`, instruct
 `grow/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
 agents (`reportAgent`, `Job.agents`) into its log.
 
-**Release (`grow/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is grown: `release`
-exports the tip module's last `.plaingit` commit (`git archive` of `code/`) to `<project>/dist/<module>`
-and the chat model - or `turri release`'s one-off agent on `harness-model` - starts it on the
-host. `installsSoftware` tells installs apart; they run only through `propose_setup`, which asks the
+**Release (`grow/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is grown: the model
+first looks for guidance on how the project is released (what the person said, AGENTS.md, a skill) and
+passes it to `release` - then it is followed from the host codebase (`releaseInPlace`, nothing
+exported); without guidance `release` exports the tip module's last `.plaingit` commit (`git archive`
+of `code/`) to `<project>/dist/<module>`. The chat model - or `turri release`'s one-off agent on
+`harness-model` - starts it on the host. `installsSoftware` tells installs apart; they run only through `propose_setup`, which asks the
 person, and the chat's `bash` refuses them once something is released. `activate` owns what
 keeps running, stopped on redeploy, `/halt activated <name>` and exit.
 

@@ -24,11 +24,23 @@ import { RECORD_FILE } from "./records.ts";
  * everything started is the harness's to stop: on a redeploy, on /halt, and when turri exits.
  */
 
+/**
+ * How a module is released - always from its last commit, exported to `dist/<module>` first. `dist`, the default: started
+ * from there. `guided`: taken on from there as there is guidance to - the person's, the project's AGENTS.md, a skill -
+ * into the host codebase, say.
+ */
+export type ReleaseWay = "dist" | "guided";
+
 export interface Deployment {
   moduleName: string;
   plainFile: string;
-  /** `dist/<module>`, in the project. */
+  way: ReleaseWay;
+  /** `dist/<module>`, in the project: the module's last commit, exported. */
   dir: string;
+  /** Guided: the host codebase the guidance takes the code into, and what release runs and starts runs from. */
+  hostDir?: string;
+  /** Where the module's code is built: `plain_modules/<module>/code`. */
+  buildDir: string;
   commit: string;
   /** The commit's subject: what the last unit of work that landed did. */
   subject: string;
@@ -92,13 +104,24 @@ export function exportModule(plainFile: string, inModule?: string): Deployment {
   return {
     moduleName: entry.moduleName,
     plainFile: entry.plainFile,
+    way: "dist",
     dir,
+    buildDir: entry.buildDir,
     commit: short ?? commit.slice(0, 8),
     subject: subject ?? "",
     when: when ?? "",
     unfinished,
     ...(instead !== undefined ? { instead } : {}),
   };
+}
+
+/**
+ * The host codebase a guided release works in: the git repository the project is in - an embedded project's host -
+ * or else `fallback`, where turri runs.
+ */
+export function hostDirOf(plainFile: string, fallback: string): string {
+  const top = spawnSync("git", ["-C", projectDirOf(plainFile), "rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  return top.status === 0 && top.stdout.trim() !== "" ? top.stdout.trim() : fallback;
 }
 
 /** Where a path is, said from the current directory when it is below it. */
@@ -111,8 +134,15 @@ export function shortPath(path: string): string {
 export function describeDeployment(deployment: Deployment): string {
   return [
     `Deployed ${deployment.moduleName} to ${shortPath(deployment.dir)} - commit ${deployment.commit}, ${deployment.when}: ${deployment.subject}.`,
+    ...(deployment.hostDir !== undefined ? [`Its guidance takes it on from there, in ${shortPath(deployment.hostDir)}.`] : []),
     ...(deployment.instead !== undefined ? [`${deployment.instead}, the module on top, has nothing built yet - this is ${deployment.moduleName}, the module below it.`] : []),
-    ...(deployment.unfinished ? ["A job is at work on the module right now: what it has written so far is not finished, and is left out."] : []),
+    ...(deployment.unfinished
+      ? [
+          deployment.hostDir === undefined
+            ? "A job is at work on the module right now: what it has written so far is not finished, and is left out."
+            : `A job is at work on the module right now: what it has written so far is not finished, and is left out of ${shortPath(deployment.dir)} - but ${shortPath(deployment.buildDir)} holds it, so take the code from ${shortPath(deployment.dir)}, never from there.`,
+        ]
+      : []),
   ].join("\n");
 }
 

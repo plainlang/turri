@@ -98,9 +98,10 @@ come waits for a free slot, and says so.
   the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
   as GitHub names a hunk's function: each section is named once. Opened with `ctrl+o`, the panel wraps
   every line rather than cutting it off.
-- **The side panel** (`ctrl+j`, which in turri replaces pi's own new-line key - `shift+enter` still
-  inserts one; pi outside turri keeps it, and a `tui.input.newLine` of your own in
-  `~/.pi/agent/keybindings.json` is kept as you set it) opens on the right, beside the chat, with two views - `tab`
+- **The side panel** (`ctrl+h`, or **`/jobs`** - not `ctrl+j`, which a terminal without the Kitty
+  keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
+  `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
+  terminal set to send `^H` for its Backspace key would open the panel on it) opens on the right, beside the chat, with two views - `tab`
   switches between them:
   - **Jobs** - the whole queue as three sections - running, queued, finished - each opened and closed on
     its own (running and queued start open). A job is one line: what it is and what it changes, with time
@@ -118,7 +119,7 @@ come waits for a free slot, and says so.
     job.
 
   It scrolls with the arrows, PgUp/PgDn and the wheel, and follows the newest line at the bottom
-  (`g`/`G` top and bottom). `esc` goes back to the chat and leaves it open and live; `ctrl+j` takes
+  (`g`/`G` top and bottom). `esc` goes back to the chat and leaves it open and live; `ctrl+h` takes
   the keys back to it, and closes it from there. **`/watch [job]`** opens it on a job's trace.
 - `turri chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the jobs redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
@@ -130,7 +131,7 @@ come waits for a free slot, and says so.
   it runs; see [a whole module](growing.md#a-whole-module). Changes that overlap never pile up: the next job
   builds the spec as it is. The jobs planned after the one running are listed behind it, as queued,
   and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
-  A job building something the spec no longer wants is stopped and rolled back. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
+  A change inside what the running job grows - a spec it grows reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a job at most. Otherwise a job building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.yaml`, which has it land first and the change grown on top. To drop something, take it out of the spec - one spec diff. Stopping a job leaves its change
   in the spec: the codebase waits until the spec changes or it is asked for again.
 - **A change to a module below** is made in the codebase at the tip of the chain, where its code
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new
@@ -152,9 +153,16 @@ come waits for a free slot, and says so.
   agent that can read the project's specs, code, tests, testing scripts and logs, and turri's
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
   environment, the code or turri itself, and exactly what to do.
-- **When a job finishes** it says what was built, and - when it landed code - that you can try it:
-  ask ("let me try it"), and the chat deploys what is built to `dist/<module>` and starts it on your
-  machine, even while other jobs run. See [deploy](deploy.md).
+- **When a job finishes** the transcript shows its line - `✓`, `✗` or `■`, what it was, how long it
+  took and what it cost - and the chat, which gets its whole report, reacts then and there, whatever
+  else is running or queued, without waiting for you to speak: at once when it is idle, else as soon
+  as the reply it is in ends. It does what the project's guidance says to do when a job finishes -
+  release what was built, say - or tells you what finished and what it means. Ask to try it ("let me
+  try it") and the chat releases what is built to `dist/<module>` and starts it on your machine, even
+  while other jobs run. See [deploy](deploy.md). The chat reacts to it then and there,
+  whatever else is running or queued, without waiting for you to speak - at once when it is idle, else
+  as soon as the reply it is in ends: it does what the project's guidance says to do when a job
+  finishes (release what was built, say), or tells you in a line or two what finished.
 - **When a job stops** - a gate still failing after 20 attempts - it says where it stopped, why in
   plain words, and what to change in the spec - which section, and how.
   Running the same build again picks up from there.

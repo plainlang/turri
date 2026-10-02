@@ -20,7 +20,6 @@ import { modulesRootOf } from "./paths.ts";
 import { truncateOutput } from "./testing.ts";
 import {
   COMMAND_TIMEOUT_MS,
-  installSystemPackages,
   MAX_COMMAND_TIMEOUT_MS,
   vmBashOperations,
   vmEnvironmentNote,
@@ -299,7 +298,8 @@ export function confinedTools(c: Confinement): ConfinedTools {
       exposeSessionEnvironment: false,
     });
     bash.description = `${bash.description}\n\n${vmEnvironmentNote()}\n\n${timeLimitNote()}`;
-    tools.push(bash, installSystemPackagesTool(workdir));
+    // No installing into the VM: what it lacks is the person's to add to its image (vm-image in config.yaml).
+    tools.push(bash);
     description += ", bash in a VM holding only its module";
   } else {
     // Without a VM there is no honest way to fence a shell, so the agent does not get one.
@@ -322,34 +322,3 @@ function timeLimitNote(): string {
   );
 }
 
-/**
- * Install what the VM does not have - a language, a compiler, a system library - with `apk`.
- * The packages are remembered for the project, and every VM it starts installs them again.
- */
-function installSystemPackagesTool(dir: string): AnyTool {
-  return defineTool({
-    name: "install_system_packages",
-    label: "Install system packages",
-    description:
-      "Install Alpine Linux packages into the VM your commands run in - a language runtime, a compiler, a system " +
-      "library or tool (e.g. ruby, php83, openjdk17, dotnet8-sdk, sqlite-dev). They stay installed for every later " +
-      "render of this project. Use it for what the project's own package manager cannot provide; project " +
-      "dependencies still go in the project's manifest.",
-    promptSnippet: "install a missing language, compiler or system library in the VM",
-    parameters: Type.Object({
-      packages: Type.Array(Type.String(), { description: "Alpine package names, e.g. [\"ruby\", \"ruby-dev\"]" }),
-    }),
-    async execute(_id, params, signal) {
-      const { exitCode, output } = await installSystemPackages(dir, params.packages, { signal });
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: exitCode === 0 ? `Installed ${params.packages.join(", ")}.\n\n${truncateOutput(output)}` : `exit code: ${exitCode}\n\n${truncateOutput(output)}`,
-          },
-        ],
-        details: { packages: params.packages, exitCode },
-      };
-    },
-  });
-}

@@ -65,6 +65,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 const { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/grow/regrow.ts");
 const { buildSpecDiffPrompt } = await import("../../src/grow/prompt.ts");
 const { readRecord } = await import("../../src/grow/records.ts");
+const { createSteering } = await import("../../src/grow/steering.ts");
 const { listFiles } = await import("../../src/grow/testing.ts");
 /** The spec as the parser has it now. */
 const parsed = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")))[1];
@@ -185,6 +186,31 @@ describe("rendering a spec diff", () => {
     expect(result.attempts).toBe(1);
     expect(result.missingToolchain).toEqual({ command: "flutter", where: "host" });
     expect(describeSpecDiff(result)).toContain("`flutter` is not installed on this machine");
+  });
+
+  it("gives a steer that came between turns as the agent's next turn, runs the tests again, and lands the spec as it was steered to", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
+    const grown = snapshotSpec("app.plain", { cwd: dir });
+    // While it works, the spec gains a sub-bullet under what it grows: the loop steered it, the agent not yet told.
+    writeFileSync(join(dir, "app.plain"), plain(["- One.", "- Two.\n  - Twice."]));
+    const steered = parsed();
+    const steering = createSteering(grown.tree);
+    steering.target = steered;
+    steering.agent = steered;
+    steering.steers = 1;
+    steering.notes.push("functional specs 2 reads otherwise now");
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir, applied: "already applied", spec: grown, steering });
+
+    expect(result.passed).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes("The spec changed while you work") && prompt.includes("Twice."))).toBe(true);
+    expect(result.steered).toEqual(["functional specs 2 reads otherwise now"]);
+    expect(describeSpecDiff(result)).toContain("Steered while it grew");
+    expect(JSON.stringify(readRecord(result.buildDir))).toContain("Twice.");
+    // Told, nothing waits; and the job no longer reaches its agent once it is done.
+    expect(steering.told).toBe(steered);
+    expect(steering.deliver).toBeUndefined();
   });
 
   it("from scratch: applies the diff, renders it, and records the specs as they now stand", async () => {

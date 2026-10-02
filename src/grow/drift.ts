@@ -1,7 +1,7 @@
 import { DEFAULT_CONCEPTS, extractConceptsFromDefinition, extractConceptsFromSpecText } from "../plain/concepts.ts";
 import { DEFINITIONS, FUNCTIONAL_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { codeTree, conformanceTarget, type Chosen } from "./records.ts";
-import { applyChanges, changesBetween, parseTree, serializeTree, type SpecChange } from "./spec-steps.ts";
+import { applyChanges, changesBetween, parseTree, resourcesChanged, serializeTree, type SpecChange } from "./spec-steps.ts";
 
 /**
  * The work, derived from the records - see docs/growing.md. Nothing here is stored: what is left
@@ -168,6 +168,34 @@ function sameChange(a: SpecChange, b: SpecChange): boolean {
  * both measured from the same record, which nothing changes while the job runs. When one is not, the
  * job is making something the spec no longer wants, and it is stopped and rolled back.
  */
+/**
+ * Why a running job is no longer wanted, in a line: the files it links that hold something else now - the commonest
+ * cause, a resource edited while the job grew from it - else the items whose text changed under it, by section and place.
+ */
+export function whyNotWanted(running: SpecChange[], work: SpecChange[]): string {
+  const taken = new Set<number>();
+  const gone = running.filter((mine) => {
+    const at = work.findIndex((change, index) => !taken.has(index) && sameChange(mine, change));
+    if (at === -1) return true;
+    taken.add(at);
+    return false;
+  });
+  const files = new Set<string>();
+  const items: string[] = [];
+  for (const mine of gone) {
+    // The same item as the spec has it now: by section and place.
+    const now = work.find((change) => change.section === mine.section && change.position === mine.position);
+    const changedFiles = now !== undefined ? resourcesChanged(mine.after, now.after).map((resource) => resource.target) : [];
+    if (changedFiles.length > 0) changedFiles.forEach((file) => files.add(file));
+    else items.push(`${mine.section} ${mine.position}`);
+  }
+  const parts = [
+    ...(files.size > 0 ? [`${[...files].join(", ")} ${files.size === 1 ? "holds" : "hold"} something else now`] : []),
+    ...(items.length > 0 ? [`${items.join(", ")} ${items.length === 1 ? "reads" : "read"} otherwise now`] : []),
+  ];
+  return parts.length > 0 ? parts.join("; ") : "the spec it was building from changed";
+}
+
 export function stillWanted(running: SpecChange[], work: SpecChange[]): boolean {
   const taken = new Set<number>();
   return running.every((mine) => {

@@ -25,6 +25,16 @@ afterEach(async () => {
 });
 
 describe.runIf(vmSupported())("a module's VMs", { timeout: 180_000 }, () => {
+  it("leave a command stopped while its VM starts: not run", async () => {
+    const p = project();
+    const stop = new AbortController();
+    const waiting = runInVm("echo hi", { cwd: p.aCode, signal: stop.signal });
+    stop.abort();
+    await expect(waiting).rejects.toThrow("aborted");
+    // The VM went on starting: the next command has it.
+    expect(await run("echo hi", p.aCode)).toBe("hi");
+  });
+
   it("are two - its code's and its tests' - each holding its own folder, reused by its jobs, and shut down once the project moves on", async () => {
     const p = project();
     // Two jobs in module a's code, one after the other: the second finds what the first left in the VM.

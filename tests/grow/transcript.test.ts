@@ -183,7 +183,7 @@ describe("the side panel", () => {
     await registry.wait(job.id);
     const conformance = registry.start({ kind: "bind", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
     await registry.wait(conformance.id);
-    const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 30, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
+    const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 30, style: PLAIN, key: "ctrl+h", back: () => {}, close: () => {} });
     // Newest first: the conformance job, then the spec diff - each opened, past the row of the conformance job's file.
     const down = "\x1b[B";
     for (const key of [down, down, "\r", down, "\r", down, down, "\r"]) {
@@ -210,7 +210,7 @@ describe("the side panel", () => {
     });
     await registry.wait(planner.id);
     await registry.wait(step.id);
-    const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 40, style: PLAIN, key: "ctrl+j", back: () => {}, close: () => {} });
+    const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 40, style: PLAIN, key: "ctrl+h", back: () => {}, close: () => {} });
     const down = "\x1b[B";
     for (const key of [down, down, "\r", down, "o"]) {
       panel.render(140);

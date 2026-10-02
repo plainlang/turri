@@ -33,6 +33,8 @@ function runner() {
     gate.hold = new Promise<void>((resolve) => (gate.release = resolve));
   };
   const run: JobRunner = async (job) => {
+    // Its agent is in its turn: a steer reaches it at once.
+    if (job.steering !== undefined) job.steering.deliver = () => true;
     ran.push({ module: job.moduleName, title: job.planned.title, add: job.planned.cases.add.map((spec) => spec.frid), patch: job.planned.cases.patch.map((spec) => spec.frid), fresh: job.planned.cases.fresh });
     const hold = gate.hold;
     gate.hold = undefined;
@@ -41,7 +43,8 @@ function runner() {
     // As a render leaves it: code, and the record of what it is built from, committed.
     mkdirSync(job.buildDir, { recursive: true });
     writeFileSync(join(job.buildDir, `${job.moduleName}.py`), `# ${job.planned.title}\n`, { flag: "a" });
-    writeCodeRecord(job.buildDir, job.spec.tree);
+    // Steered while it ran, it lands what it was steered to - as a render does.
+    writeCodeRecord(job.buildDir, job.steering?.target ?? job.spec.tree);
     recordHistory(job.buildDir, job.planned.title);
     return { landed: true, report: "landed" };
   };
@@ -93,8 +96,8 @@ describe("the work loop", () => {
     holdNext();
     await loop.bringUp("app.plain");
     const first = loop.status()[0]!.running!.jobId;
-    // The functional spec it is building is rewritten while it runs.
-    writeFileSync(join(dir, "app.plain"), app(["Say hello in French."]));
+    // The functional spec it is building is replaced by another while it runs - no steer: a spec taken out, one put in.
+    writeFileSync(join(dir, "app.plain"), app(["Count the stars in the night sky."]));
     await loop.bringUp("app.plain");
     // Stopped, its agent is aborted and it lands nothing.
     gate.land = false;
@@ -104,7 +107,116 @@ describe("the work loop", () => {
     gate.land = true;
     await loop.drain();
     expect(ran).toHaveLength(2);
-    expect(JSON.stringify(readRecord(codeDir()))).toContain("Say hello in French.");
+    expect(JSON.stringify(readRecord(codeDir()))).toContain("Count the stars in the night sky.");
+  });
+
+  it("says it was turri that stopped the job, and what changed under it", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { gate, holdNext, run } = runner();
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("app.plain");
+    const first = loop.status()[0]!.running!.jobId;
+    writeFileSync(join(dir, "app.plain"), app(["Count the stars in the night sky."]));
+    await loop.bringUp("app.plain");
+    gate.land = false;
+    gate.release!();
+    const stopped = await registry.wait(first);
+    expect(stopped.error).toContain("Stopped by turri, not by you: functional specs 1 reads otherwise now");
+    expect(stopped.error).toContain("allow-to-stop-jobs: false");
+    gate.land = true;
+    await loop.drain();
+  });
+
+  describe("steering the running job", () => {
+    /** A module whose one job is running, held, and the loop over it. */
+    async function running(specs: string[]) {
+      writeFileSync(join(dir, "app.plain"), app(specs));
+      const stub = runner();
+      const registry = createJobRegistry();
+      const loop = createWorkLoop({ registry, cwd: dir, planner: false, run: stub.run });
+      stub.holdNext();
+      await loop.bringUp("app.plain");
+      return { ...stub, registry, loop, first: loop.status()[0]!.running!.jobId };
+    }
+
+    it("steers it when a functional spec it grows is reworded or gains a sub-bullet - not stopped, and it lands the spec as it is now", async () => {
+      const { ran, gate, registry, loop, first } = await running(["Say hello."]);
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.\n  - In French."]));
+      await loop.bringUp("app.plain");
+      expect(loop.status()[0]!.running).toMatchObject({ jobId: first, steered: [expect.stringContaining("functional specs 1")] });
+      expect(describeModules(loop.status())).toContain("⇢ steered");
+      gate.release!();
+      expect((await registry.wait(first)).status).toBe("succeeded");
+      await loop.drain();
+      // One job: the steer was it, no second one for the change.
+      expect(ran).toHaveLength(1);
+      expect(JSON.stringify(readRecord(codeDir()))).toContain("In French.");
+    });
+
+    it("steers it when a file one of its specs links is edited", async () => {
+      mkdirSync(join(dir, "resources"));
+      writeFileSync(join(dir, "resources", "api.yaml"), "openapi: 3.0.0\n");
+      const { ran, gate, registry, loop, first } = await running(["Say hello as [the API](resources/api.yaml) says."]);
+      writeFileSync(join(dir, "resources", "api.yaml"), "openapi: 3.1.0\n");
+      await loop.bringUp("app.plain");
+      expect(loop.status()[0]!.running!.steered).toEqual([expect.stringContaining("resources/api.yaml holds something else now")]);
+      gate.release!();
+      expect((await registry.wait(first)).status).toBe("succeeded");
+      await loop.drain();
+      expect(ran).toHaveLength(1);
+    });
+
+    it("leaves a new item to the next job - the running one goes on, unsteered", async () => {
+      const { ran, gate, registry, loop, first } = await running(["Say hello."]);
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      await loop.bringUp("app.plain");
+      expect(loop.status()[0]!.running!.steered).toBeUndefined();
+      gate.release!();
+      expect((await registry.wait(first)).status).toBe("succeeded");
+      await loop.drain();
+      expect(ran.map((job) => job.add)).toEqual([["1"], ["2"]]);
+    });
+
+    it("steers it twice at most: a third change stops it, as allow-to-stop-jobs says", async () => {
+      const { gate, registry, loop, first } = await running(["Say hello."]);
+      for (const version of ["Say hello.\n  - In French.", "Say hello.\n  - In German."]) {
+        writeFileSync(join(dir, "app.plain"), app([version]));
+        await loop.bringUp("app.plain");
+      }
+      expect(loop.status()[0]!.running!.steered).toHaveLength(2);
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.\n  - In Italian."]));
+      await loop.bringUp("app.plain");
+      gate.land = false;
+      gate.release!();
+      expect((await registry.wait(first)).status).toBe("stopped");
+      gate.land = true;
+      await loop.drain();
+      expect(JSON.stringify(readRecord(codeDir()))).toContain("In Italian.");
+    });
+  });
+
+  it("lets the running job land under allow-to-stop-jobs: false, and grows what changed since on top of it", async () => {
+    writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\nallow-to-stop-jobs: false\n");
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { ran, gate, holdNext, run } = runner();
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("app.plain");
+    const first = loop.status()[0]!.running!.jobId;
+    // Not a steer - the spec replaced by another - and not stopped either.
+    writeFileSync(join(dir, "app.plain"), app(["Count the stars in the night sky."]));
+    await loop.bringUp("app.plain");
+    gate.release!();
+    // Not stopped: it lands what it was growing.
+    expect((await registry.wait(first)).status).toBe("succeeded");
+    await loop.drain();
+    // Then the change - the spec taken out, another put in - in jobs of its own on top of what it landed.
+    expect(ran[0]).toMatchObject({ add: ["1"] });
+    expect(ran.length).toBeGreaterThan(1);
+    expect(JSON.stringify(readRecord(codeDir()))).toContain("Count the stars in the night sky.");
   });
 
   it("plans what comes after the running job as soon as the spec changes - from what it will land - and lists it as jobs queued behind it", async () => {

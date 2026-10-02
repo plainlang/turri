@@ -18,19 +18,7 @@ if (!args.includes("--verbose")) {
   SettingsManager.prototype.getQuietStartup = () => true;
 }
 
-// ctrl+j opens turri's side panel. pi binds it to a new line as well, besides shift+enter, and
-// says so on every start when an extension takes it. For this run only, a new line is shift+enter -
-// unless keybindings.json says what it is, which is kept as written. Loaded from the file, since the
-// class pi resolves its keys with is not exported.
-const keybindings = pathToFileURL(join(PACKAGE_ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "core", "keybindings.js")).href;
-const { KeybindingsManager } = (await import(keybindings)) as {
-  KeybindingsManager: { loadFromFile: (path: string) => Record<string, unknown> };
-};
-const loadFromFile = KeybindingsManager.loadFromFile.bind(KeybindingsManager);
-KeybindingsManager.loadFromFile = (path: string) => {
-  const bindings = loadFromFile(path);
-  return "tui.input.newLine" in bindings ? bindings : { ...bindings, "tui.input.newLine": ["shift+enter"] };
-};
+// pi's own keys stand: a new line is shift+enter or ctrl+j. turri's side panel is on ctrl+h (job-panel.ts PANEL_KEY).
 
 // What pi's CLI does before main: the process title, pi's environment markers, the HTTP
 // dispatcher. Not exported, so loaded from the file.

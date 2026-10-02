@@ -193,7 +193,7 @@ specs, and builds each one as it is written. While it works:
   model and cost - and the queue behind it;
 - ask to try it at any time - "let me try it" - and **`release`** puts what is grown so far in
   `dist/<module>` and **`activate`** starts it, asking before it installs anything;
-- the **side panel** (`ctrl+j`), on the right, shows the whole queue and each build's agents at work, one agent at a time if you like (`/watch` opens it on a build);
+- the **side panel** (`ctrl+h`, or `/jobs`), on the right, shows the whole queue and each build's agents at work, one agent at a time if you like (`/watch` opens it on a build);
 - **`/growth`** lists every job, **`/halt`** halts one, **`/lineage`** shows what grew into a
   module, and the **`drift`** tool says what is left to grow.
 

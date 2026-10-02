@@ -270,9 +270,9 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
             "needs to be built and run belongs in the code (its dependency manifest), never only in your VM.",
         ]
       : [
-          "A toolchain or system library the script needs and the VM lacks, install with install_system_packages: the runs " +
-            "that decide use the same VM. What the code needs to be built and run belongs in the code (its dependency " +
-            "manifest), so a fresh copy of it builds.",
+          "A toolchain or system library the script needs and the VM lacks is not yours to install: say what is missing, " +
+            "and the person adds it to the VM's image. What the code needs to be built and run belongs in the code (its " +
+            "dependency manifest), so a fresh copy of it builds.",
         ]),
     "",
     prompt,
@@ -637,8 +637,10 @@ export function onThisMachine(command: string): string | undefined {
  * VM, a command this machine has is most likely one the project means to run here - `run-testing-scripts-in: host` -
  * or one only the person knows how to set up, as an SDK. Either way the job stops and asks them.
  */
-export function needsThePerson(missing: { command?: string }, where: "vm" | "host" | undefined): boolean {
-  return where === "host" || (missing.command !== undefined && onThisMachine(missing.command) !== undefined);
+export function needsThePerson(_missing: { command?: string }, _where: "vm" | "host" | undefined): boolean {
+  // Agents install nothing into the VM: a toolchain missing there is the person's to add to its image, as one missing
+  // on this machine is theirs to install.
+  return true;
 }
 
 /** What a failed script run means, for the agent that has to fix it. */
@@ -652,12 +654,12 @@ export function scriptFailure(run: ScriptRun, what: string): string {
         "That is theirs to set up, not yours: do not work around it, and do not change the code for it. End your turn, saying " +
         "the tests cannot run until it is."
       : missing !== undefined && run.where === "vm"
-      ? `It could not run: ${needs} is not installed in the VM, where the testing scripts run. Install it with ` +
-        "install_system_packages - the runs that decide use the same VM - and run the tests again. The code is not what is wrong."
+      ? `It could not run: ${needs} is not installed in the VM, where the testing scripts run. That is the person's to add to ` +
+        "the VM's image, not yours: do not work around it, and do not change the code for it. End your turn, saying exactly " +
+        "what is missing."
       : missing !== undefined
       ? `It could not run: ${needs} is not installed on this machine, where the testing scripts run. That cannot be ` +
-        "fixed from your sandbox - install_system_packages installs into your VM, not here. Say in your report exactly what is " +
-        "missing, so the person can install it."
+        "fixed from your sandbox. Say in your report exactly what is missing, so the person can install it."
       : [
           ...fixMethod({
             what: what === "unit testing" ? "unit tests" : "conformance tests",

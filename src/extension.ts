@@ -16,7 +16,7 @@ import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
-import { defaultParallelJobs, installedPackages, STOCK_IMAGE, vmImageFor } from "./grow/vm.ts";
+import { defaultParallelJobs, installedPackages, STOCK_IMAGE, stopOrphanedVms, vmImageFor, vmMemoryFor } from "./grow/vm.ts";
 import { stackAgainstImage } from "./vm-stack.ts";
 import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, projectImageTag, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
 import { buildVmImage } from "./setup.ts";
@@ -41,7 +41,7 @@ import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/c
 import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeDrift, describeModules, previewJobs, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
 import { plainPaint } from "./grow/plain-palette.ts";
-import { createJobPanel } from "./grow/job-panel.ts";
+import { createJobPanel, PANEL_KEY } from "./grow/job-panel.ts";
 import { createSidePanel, type PanelView } from "./grow/side-panel.ts";
 import { createJobsTreeState } from "./grow/jobs-tree.ts";
 import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
@@ -59,6 +59,7 @@ import {
   describeJob,
   formatDuration,
   shouldWait,
+  STOPPED_ON_REQUEST,
   type Job,
   type JobOutcome,
   type JobRegistry,
@@ -169,11 +170,12 @@ export default function (pi: ExtensionAPI) {
   const panel = createJobPanel(() => shownJobs(jobs));
 
   // Finished work is announced twice, to two audiences, because pi treats them differently.
-  // A message - what the agent reads - is held until the current turn ends, and a skill's
-  // interview is one long turn: a render finishing mid-interview would say nothing until the
-  // interview was over. An entry is drawn the moment it is appended. So the person gets an
-  // entry, now, and the agent gets the full report as a hidden message, whenever its turn
-  // allows. Neither starts a turn, so nothing talks over the person.
+  // An entry is drawn the moment it is appended: the person sees the job end, now. The agent
+  // gets the full report as a hidden message that starts a turn of its own - at once when it is
+  // idle, else as soon as the turn it is in ends (a follow-up, never cutting into a reply or an
+  // interview) - so it reacts to every job that ends without waiting for the person to speak:
+  // does what the project's guidance says to do then (release what was built, say), or says
+  // what finished.
   const jobs: JobRegistry = createJobRegistry({
     // A job that fails is run once more; failing again, it and every job behind it fail, and the
     // harness - which can read the skills, the rules, the code, the tests and turri itself -
@@ -210,15 +212,15 @@ export default function (pi: ExtensionAPI) {
         {
           customType: "forge_job",
           content:
-            job.status === "succeeded"
+            (job.status === "succeeded"
               ? `Background job ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
               : job.status === "stopped"
-                ? `Background job ${job.id} (${job.kind}) was stopped by the user after ${formatDuration(job)}. What it built before it stopped is on disk, but the functionality it was on counts as not built.`
-                : `Background job ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`,
+                ? `Background job ${job.id} (${job.kind}) was stopped after ${formatDuration(job)}. ${job.error ?? STOPPED_ON_REQUEST}${job.error === undefined || job.error === STOPPED_ON_REQUEST ? " The person stopped it; what it was building counts as not built." : ""}`
+                : `Background job ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`) + `\n\n${JOB_FINISHED_REACTION}`,
           display: false,
           details: { jobId: job.id, status: job.status },
         },
-        { triggerTurn: false },
+        { triggerTurn: true, deliverAs: "followUp" },
       );
     },
   });
@@ -227,7 +229,7 @@ export default function (pi: ExtensionAPI) {
   // identical each time, so it sits inside the cached prefix rather than invalidating it.
   // With them, the instruction to do turri's work with its tools rather than its command
   // line - enforced below, not only asked for.
-  const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"));
+  const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"), readProjectConfig(cwd).rulesOff ?? []);
   const rulesBlock = chatRulesBlock(rules);
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
@@ -279,6 +281,14 @@ export default function (pi: ExtensionAPI) {
   // Where the keys are, from the first moment - before any job shows its panel.
   pi.on("session_start", (_event, ctx) => {
     if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect jobs · ctrl+o expand`);
+  });
+  // Sandbox VMs a turri that was killed left running: stopped as this one starts, and said once.
+  const orphans = stopOrphanedVms();
+  let orphansSaid = orphans === 0;
+  pi.on("session_start", (_event, ctx) => {
+    if (orphansSaid || !ctx.hasUI) return;
+    orphansSaid = true;
+    ctx.ui.notify(`Stopped ${orphans} sandbox VM${orphans === 1 ? "" : "s"} a turri that was killed left running - ${orphans === 1 ? "it was" : "they were"} holding memory.`, "info");
   });
   pi.on("agent_start", (_event, ctx) => showConformance(ctx));
   pi.on("agent_end", (_event, ctx) => showConformance(ctx));
@@ -821,7 +831,7 @@ export function conformanceStatus(root: string): string | undefined {
 export function parallelJobs(cwd: string): number {
   const fromEnv = Number(process.env.TURRI_PARALLEL_JOBS);
   if (Number.isInteger(fromEnv) && fromEnv >= 1) return fromEnv;
-  return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs();
+  return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs(vmMemoryFor(cwd));
 }
 
 /** The project's own files and a digest of each - not plain_modules, dependencies, or turri's and git's folders. */
@@ -897,7 +907,7 @@ export function sandboxBlock(cwd: string): string {
         ? `- ${module}: its implementation reqs name no toolchain this knows.`
         : `- ${module}: its implementation reqs need ${needs.map((need) => `${need.toolchain} (${need.words.join(", ")})`).join(", ")}${missing.length > 0 ? ` - the image LACKS ${missing.map((need) => `${need.toolchain} (Alpine: ${need.package})`).join(", ")}` : " - the image has them"}.`,
     ),
-    `- Extra packages every VM of this project installs when it starts: system-packages: in config.yaml${configured.length > 0 ? ` - ${configured.join(", ")}` : " - none"}; the coding agents' install_system_packages${installed.length > 0 ? ` - ${installed.join(", ")}` : " - none"}.`,
+    `- Extra packages every VM of this project installs when it starts: system-packages: in config.yaml${configured.length > 0 ? ` - ${configured.join(", ")}` : " - none"}; what the agents installed before they could no longer${installed.length > 0 ? ` - ${installed.join(", ")}` : " - none"}.`,
     "</sandbox VM>",
   ].join("\n");
 }
@@ -1506,8 +1516,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   // The side panel: the job queue and the agents' traces - on the right,
-  // beside the conversation. Alt+O opens it with the keyboard in it; esc goes back to the chat and
-  // leaves it open and live; alt+O again takes the keyboard back to it, and closes it from there.
+  // beside the conversation. Its key (PANEL_KEY) opens it with the keyboard in it; esc goes back to the chat and
+  // leaves it open and live; the key again takes the keyboard back to it, and closes it from there.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
   // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
   const jobsTree = createJobsTreeState();
@@ -1581,11 +1591,19 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   };
 
   pi.registerCommand("watch", {
-    description: "Read a background job's agents at work, in the side panel: /watch [job id]. Alt+O opens the panel; esc goes back to the chat.",
+    description: `Read a background job's agents at work, in the side panel: /watch [job id]. ${PANEL_KEY} opens the panel; esc goes back to the chat.`,
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const job = await chooseJob(jobs, args.trim(), ctx.ui);
       if (job !== undefined) openPanel(ctx, { jobId: job.id, view: "trace" });
+    },
+  });
+
+  pi.registerCommand("jobs", {
+    description: `The job queue, in the side panel - what each job builds, and its agents' traces. ${PANEL_KEY} opens it too.`,
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) return;
+      openPanel(ctx, { view: "jobs" });
     },
   });
 
@@ -1608,8 +1626,18 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 }
 
 const WATCH_REDRAW_MS = 500;
+/**
+ * What the agent is to do with a job that just ended, unasked: what the project's guidance says to do then, or else say
+ * in a line or two what ended - the person saw it end already, in the transcript.
+ */
+const JOB_FINISHED_REACTION = [
+  "React to this now - the person has not asked, and need not. If guidance for this project - its AGENTS.md, a skill,",
+  "what the person said earlier - says what to do when a job finishes (release what was built, run something, tell",
+  "someone), do that, as it says. Otherwise say in a line or two what finished and what it means for the person - the",
+  "report is theirs to read in full; do not repeat it - and, when it failed, what they can do. Start no other work.",
+].join("\n");
+
 /** Opens the side panel, and goes back to it from the conversation. */
-const PANEL_KEY = "ctrl+j";
 
 /** The modules in this project that have a history, by name. */
 function modulesWithHistory(cwd: string): string[] {
@@ -1991,7 +2019,6 @@ function registerInterviewLog(pi: ExtensionAPI) {
   pi.registerEntryRenderer(JOB_ENTRY, (entry, _options, theme) => {
     const data = entry.data as JobAnnouncement | undefined;
     if (data === undefined) return undefined;
-    const ok = data.status === "succeeded";
     // A job that ran to its end but whose build did not pass is not a success: it says so.
     const header =
       data.status === "succeeded" && data.incomplete === true
@@ -2002,8 +2029,9 @@ function registerInterviewLog(pi: ExtensionAPI) {
           ? `${theme.fg("warning", "■")} ${theme.fg("text", data.summary)} ${theme.fg("warning", `stopped after ${data.duration}`)}`
           : `${theme.fg("error", "✗")} ${theme.fg("text", data.summary)} ${theme.fg("error", `failed after ${data.duration}`)}`;
     const spent = data.spent ? ` ${theme.fg("muted", `· ${data.spent}`)}` : "";
+    // Its headline only: the chat has the whole report, and says what it means - or does what the project says to.
     const box = new Box(1, 0);
-    box.addChild(new Text([header + spent, "", theme.fg(ok ? "text" : "muted", data.text.trim())].join("\n"), 0, 0));
+    box.addChild(new Text(header + spent, 0, 0));
     return box;
   });
 

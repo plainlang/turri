@@ -10,6 +10,32 @@ Every job that lands code - a render, a spec diff, a conformance run, a regenera
 "Want to try it? Just ask me - I'll set it up from what's built so far." When a render's conformance
 tests follow as a job of their own, the conformance job says it, once they pass too.
 
+## When the project says how it is released
+
+Every release starts the same way: the module's last commit - what last landed whole - goes in
+`dist/<module>`, as below. Not everything is tried from there, though. An integration that a host
+application loads goes on into the host's own tree, with the host's own scripts, and then the host
+is started. So the model asks itself whether there is guidance for how this project is released -
+in what you said, the project's AGENTS.md, a skill, anything it was given - and passes it to
+`release` whole:
+
+- **There is guidance.** The code goes on from `dist/<module>` as the guidance says, on your machine,
+  from the host codebase - the git repository the project is in, or else where **turri** runs: the
+  scripts it names, in their order, and any change it says the host needs. The code is taken from
+  `dist`, never from `plain_modules`, where a job may be writing; where the host's tooling reads
+  `plain_modules` itself, the model points it at `dist`, or does by hand from `dist` what it does. When
+  to release - after every job, say - is the guidance's to say too. The rules below hold as they do for `dist`: a project script, an
+  install or a download runs only once you agreed to it in a dialog, and what keeps running - a
+  start script, a server - is started with `activate`. Nothing built is changed.
+- **There is none.** The default: it is started from `dist/<module>`, as below, as best it can be.
+
+Guidance is whatever says it, in any words - a line in AGENTS.md such as *integrations are released
+with `scripts/deploy_integrations.sh`, then the app is started with `scripts/start.sh`*, or the
+same said in the chat.
+
+The chat reacts to every job that finishes as it finishes, without waiting for you to speak: guidance
+that says to release after a build - *release each integration once it is grown* - is followed then.
+
 ## What goes in dist
 
 - **The module on top.** Code accumulates up a `requires` chain: a module starts from a copy of the
@@ -53,12 +79,13 @@ What it started is listed by **`/growth`** and stopped by **`/halt activated <na
 ## On the command line
 
 ```bash
-turri release [file.plain] [--in-module <module>] [--model <provider/id>]
+turri release [file.plain] [--in-module <module>] [--guidance <text>] [--model <provider/id>]
 ```
 
-The same, without the chat: it exports to `dist/<module>`, then a one-off agent on `harness-model`
-(or `--model`; without either, pi's default) works out how to start it and starts it here, asking
-at the terminal - `[y/N]` - before it installs anything. With no terminal to ask (CI, output piped),
+The same, without the chat: a one-off agent on `harness-model` (or `--model`; without either, pi's
+default) is given the project's AGENTS.md and what `--guidance <text>` says, looks for guidance in
+them, and releases as above - as the guidance says, or to `dist/<module>` - then works out how to
+start it and starts it here, asking at the terminal - `[y/N]` - before it installs or runs anything. With no terminal to ask (CI, output piped),
 nothing is installed and it says what is needed. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 

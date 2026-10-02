@@ -110,7 +110,7 @@ export interface JobRegistry {
    * ends as stopped. Returns the job, or undefined when there is no such job or it has
    * already finished.
    */
-  stop(id: string): Job | undefined;
+  stop(id: string, reason?: string): Job | undefined;
   get(id: string): Job | undefined;
   list(): Job[];
   /** Resolves when the job settles. Used by callers that asked to wait. */
@@ -123,6 +123,9 @@ const ACTIVITY_LINES = 6;
 /** A long render's full transcript is kept, up to about this much text. */
 const MAX_TRANSCRIPT_CHARS = 600_000;
 
+
+/** What a stopped job says when the person stopped it. */
+export const STOPPED_ON_REQUEST = "Stopped on request.";
 
 export function createJobRegistry(options?: {
   onFinish?: (job: Job) => void;
@@ -165,6 +168,8 @@ export function createJobRegistry(options?: {
   /** The last job to claim each lane. A new job waits for it and becomes the new tail. */
   const lanes = new Map<string, string>();
   const controllers = new Map<string, AbortController>();
+  /** Why turri stopped a job, when it did: a job stopped without a reason was stopped by the person. */
+  const stopReasons = new Map<string, string>();
   /**
    * Jobs whose work is over. Not the same as a finished status: a queued job that was
    * stopped says "stopped" at once, but still sits in its lanes until the job ahead of it
@@ -385,7 +390,7 @@ export function createJobRegistry(options?: {
           (outcome) => {
             // Asked to stop, it is stopped - whether its work threw as it unwound or returned what it had.
             job.status = controller.signal.aborted ? "stopped" : "succeeded";
-            if (controller.signal.aborted) job.error = "Stopped on request.";
+            if (controller.signal.aborted) job.error = stopReasons.get(id) ?? STOPPED_ON_REQUEST;
             job.report = outcome.report;
             job.announce = outcome.announce;
             job.details = outcome.details;
@@ -394,7 +399,7 @@ export function createJobRegistry(options?: {
           (error: unknown) => {
             // Asked to stop is not a failure, whatever the work threw as it unwound.
             job.status = controller.signal.aborted ? "stopped" : "failed";
-            job.error = controller.signal.aborted ? "Stopped on request." : error instanceof Error ? error.message : String(error);
+            job.error = controller.signal.aborted ? (stopReasons.get(id) ?? STOPPED_ON_REQUEST) : error instanceof Error ? error.message : String(error);
             return job;
           },
         )
@@ -429,17 +434,19 @@ export function createJobRegistry(options?: {
       return jobs.get(id);
     },
 
-    stop(id) {
+    stop(id, reason) {
       const job = jobs.get(id);
       const controller = controllers.get(id);
       if (job === undefined || controller === undefined || done.has(id) || job.status === "stopped") return undefined;
+      // Who stopped it, and why: turri, saying so - or, without a reason, the person.
+      if (reason !== undefined) stopReasons.set(id, reason);
       controller.abort();
       // A queued job is done with at once, so the queue behind it shows it gone; a running
       // one stays running until its agent has actually stopped.
       if (job.status === "queued") {
         job.status = "stopped";
         job.waitingOn = [];
-        job.error = "Stopped on request.";
+        job.error = stopReasons.get(id) ?? STOPPED_ON_REQUEST;
         options?.onChange?.(job);
       }
       return job;
@@ -488,7 +495,7 @@ export function describeJob(job: Job): string {
     ].join("\n");
   }
   if (job.status === "failed") return `${header}\n\n${job.error ?? "no error recorded"}`;
-  if (job.status === "stopped") return `${header}\n\nStopped on request. Whatever it changed before it stopped is still on disk.`;
+  if (job.status === "stopped") return `${header}\n\n${job.error ?? STOPPED_ON_REQUEST}`;
   const agents = describeAgents(job.agents ?? []);
   return `${header}\n\n${job.report ?? "(no report)"}${agents.length > 0 ? `\n\n<its agents>\n${agents.join("\n")}\n</its agents>` : ""}`;
 }

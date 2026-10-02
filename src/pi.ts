@@ -119,7 +119,8 @@ const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge"
  * giving each step to an agent as its task. The conversation keeps them.
  */
 export async function subAgentResources(cwd: string, withRules: boolean, system?: string): Promise<DefaultResourceLoader> {
-  const rules = withRules ? renderRulesBlock(loadRules(RULES_DIR)) : "";
+  // Less any the project leaves out (rules-off).
+  const rules = withRules ? renderRulesBlock(loadRules(RULES_DIR, readProjectConfig(projectRootOf(cwd)).rulesOff ?? [])) : "";
   const extra = [rules, system ?? ""].filter((part) => part !== "");
   const loader = new DefaultResourceLoader({
     cwd,

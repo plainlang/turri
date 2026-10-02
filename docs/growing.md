@@ -346,6 +346,29 @@ while every change it makes is still part of the work, measured from the same re
 something the spec no longer wants is stopped, rolled back, and the work planned again - a fixed rule, no
 agent. Say a module of 50 functionalities is rendering and the spec changes while functionality 25 builds:
 25 goes on if the change leaves it as it is, and the work after it is planned again from what 25 lands.
+A job stopped so says it was turri, not you, and what changed under it - the functional spec that reads
+otherwise now, or the file it links that holds something else (`whyNotWanted`).
+
+**A change inside what the running job grows steers it** (`steering.ts`), before any of that: a functional
+spec it grows reworded or given a sub-bullet, a definition or an implementation req it is given edited, a
+file one of them links edited - a change to an item it already has, never an item added or removed. Its
+coding agent is told, in the same shape as its first change (`describeSpecChange`): in its turn when it is in
+one, else as its next turn once the step it is at ends - a test run, a review - even when the tests passed
+or the review approved; edits made before it is told are one steer, the newest of each item. The unit tests
+run again after it, and a review still to come sees the change as steered, within its two reviews. The job's
+target moves with it: it lands built from the spec as it was steered to. A definition or req that functional
+specs built before the job use too is told to the agent but kept out of the record, so those specs - and
+this job's with them - are patched by the next job. What else changed is the next job's; a change that is
+partly a steer is split. Two steers a job: a third goes the way above, stopped or - with `allow-to-stop-jobs:
+false` - left to the next job. Conformance jobs are not steered: they are planned from what the code lands.
+A steer shows in the job's view in the panel (what it grows now), in the transcript (`⇢ steered job …`),
+under the job in `regrow`'s answer, and in the job's report.
+
+With `allow-to-stop-jobs: false` in `config.yaml` it is not stopped: it runs to its end and lands what it
+was growing, and the next job grows what changed since as a patch on top of it. Something lands as soon as
+it can, and the software evolves job by job - the first build of an integration lands and throws, the next
+patch fills in what was missing - at the cost of growing what the spec has already moved on from. Your own
+`halt` stops a job either way.
 forge-plain's `write_spec_diff` makes an edit and gives the notice in one call, and so does `turri spec-diff` on
 the command line. What is left to grow, without growing it, is `drift`.
 
@@ -395,14 +418,12 @@ runs in, with the same toolchains and the packages they installed - so what pass
 shell passes in the run that decides. That is the only way the two scripts are ever run: the
 harness's own runs, and the agents' `run_unit_tests` and `run_conformance_tests`, which run them
 exactly as the harness does. A toolchain the script needs and the VM lacks - exit 69, exit 127, or
-a `command not found` / `failed to run command` in its output (`missingToolchain`) - the agent
-installs with `install_system_packages`, and the next run has it. It has two rounds to: the unit
-tests still cannot run after them, the job stops rather than sending it back again, and says what
-is missing. When this machine has the command the VM lacks - an SDK such as Flutter, most often - it
-is the person's to set up, not the agent's (`needsThePerson`): the agent is told to end its turn
+a `command not found` / `failed to run command` in its output (`missingToolchain`) - is the person's
+to set up, never the agent's: agents install nothing into the VM. The agent is told to end its turn
 rather than work around it, and the job stops at the first run that cannot find it, nothing built,
-saying where the command is here and what to do - `run-testing-scripts-in: host` in config.yaml to
-run the scripts on this machine, or the command put in the VM image.
+saying what is missing and what to do - the command put in the VM image (`vm-image:` in config.yaml,
+then `turri vm-image`), or, when this machine has it - an SDK such as Flutter, most often -
+`run-testing-scripts-in: host` in config.yaml to run the scripts here.
 
 Each run is given a fresh copy of the code, and of the whole conformance suite, in
 `plain_modules/.turri/scripts/`, named for its module and the run, with the project's script

@@ -85,7 +85,7 @@ describe("jobs that write the same module", () => {
     }
     const lines = jobPanelLines(jobs.list());
     expect(lines).toContain("  queued (9): app 4 → app 5 → app 6 → app 7 → app 8 → app 9 → app 10 → app 11 → app 12");
-    expect(lines.at(-1)).toContain("ctrl+o for the full queue and activity · ctrl+j to see what each job builds");
+    expect(lines.at(-1)).toContain("ctrl+o for the full queue and activity · ctrl+h to see what each job builds");
     expect(lines.length).toBeLessThanOrEqual(10);
   });
 
@@ -99,8 +99,8 @@ describe("jobs that write the same module", () => {
     expect(lines).toContain(`  queued  app 6  (job ${ids[3]}, after ${ids[2]})`);
     expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(3);
     // Expanded, the help says how to collapse, and how to find your way around the side panel.
-    expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+j to see what each job builds");
+    expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+h to see what each job builds");
     expect(lines.at(-1)).toContain("in the side panel: ↑↓ move over the jobs · enter opens one - what it builds, whole");
-    expect(lines.at(-1)).toContain("esc back to the chat · ctrl+j closes it");
+    expect(lines.at(-1)).toContain("esc back to the chat · ctrl+h closes it");
   });
 });

@@ -37,19 +37,16 @@ describe("a testing script that cannot find its toolchain", () => {
     expect(vm).toMatch(/It is installed on this machine \(.*\/sh\): set `run-testing-scripts-in: host`/);
   });
 
-  it("needs the person when the scripts run on this machine, or when this machine has what the VM lacks", () => {
+  it("always needs the person: the agents install nothing", () => {
     expect(needsThePerson({ command: "anything-at-all-xyz" }, "host")).toBe(true);
-    expect(needsThePerson({ command: "sh" }, "vm")).toBe(true);
-    expect(needsThePerson({ command: "no-such-toolchain-xyz" }, "vm")).toBe(false);
-    expect(needsThePerson({}, "vm")).toBe(false);
+    expect(needsThePerson({ command: "no-such-toolchain-xyz" }, "vm")).toBe(true);
+    expect(needsThePerson({}, "vm")).toBe(true);
   });
 
-  it("tells the agent to stop, not to work around it, when the command is the person's to set up", () => {
-    const run = { command: "run_unittests.sh", exitCode: 127, output: "sh: command not found", timeoutMs: 1000, where: "vm" as const };
-    const told = scriptFailure({ ...run, output: "run.sh: line 2: sh: command not found" }, "unit testing");
-    expect(told).toContain("it is on the person's machine");
+  it("tells the agent to stop, not to work around it, whatever the command", () => {
+    const run = { command: "run_unittests.sh", exitCode: 127, output: "run.sh: line 2: no-such-toolchain-xyz: command not found", timeoutMs: 1000, where: "vm" as const };
+    const told = scriptFailure(run, "unit testing");
     expect(told).toContain("End your turn");
-    const installs = scriptFailure({ ...run, output: "run.sh: line 2: no-such-toolchain-xyz: command not found" }, "unit testing");
-    expect(installs).toContain("install_system_packages");
+    expect(told).not.toContain("install_system_packages");
   });
 });

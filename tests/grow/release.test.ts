@@ -207,6 +207,39 @@ describe("the deploy tools", () => {
     expect(text).toContain("propose_setup");
   });
 
+  it("puts the last commit in dist first even with guidance, which takes it on from there in the host codebase, the person asked first", async () => {
+    const code = built("app", { "app.py": "print('hello')\n" });
+    spec("app");
+    // A job at work: what it has half written is not what is released.
+    writeFileSync(join(code, "app.py"), "print('hel");
+    mkdirSync(join(dir, "scripts"));
+    writeFileSync(join(dir, "scripts", "deploy.sh"), "#!/bin/bash\ncp dist/app/app.py deployed.py\n");
+    let asked = "";
+    const { deploy, proposeSetup, state } = tools(async (_title, body) => ((asked = body), true));
+
+    const text = await call(deploy, { guidance: "Run scripts/deploy.sh, then scripts/start.sh." });
+
+    expect(text).toContain("Deployed app to");
+    expect(text).toContain("Its guidance takes it on from there");
+    expect(text).toContain("Run scripts/deploy.sh, then scripts/start.sh.");
+    expect(text).toContain("never from");
+    expect(readFileSync(join(dir, "dist", "app", "app.py"), "utf8")).toBe("print('hello')\n");
+    expect(state.current).toMatchObject({ way: "guided", dir: join(dir, "dist", "app"), hostDir: dir });
+    // The host's script, run from the host codebase once the person agreed to it - taking the code from dist.
+    await call(proposeSetup, { commands: ["bash scripts/deploy.sh"], why: "the host's own release" });
+    expect(asked).toContain("$ bash scripts/deploy.sh");
+    expect(readFileSync(join(dir, "deployed.py"), "utf8")).toBe("print('hello')\n");
+  });
+
+  it("releases to dist when there is no guidance, or only blank guidance", async () => {
+    built("app", { "app.py": "print('hello')\n" });
+    spec("app");
+    const { deploy, state } = tools(async () => true);
+    await call(deploy, { guidance: "   " });
+    expect(state.current).toMatchObject({ way: "dist", dir: join(dir, "dist", "app") });
+    expect(state.current?.hostDir).toBeUndefined();
+  });
+
   it("installs nothing the person says no to, and nothing when there is no one to ask", async () => {
     built("app", { "app.py": "print('hello')\n" });
     spec("app");
@@ -214,7 +247,7 @@ describe("the deploy tools", () => {
       const { deploy, proposeSetup, state } = tools(async () => answer);
       await call(deploy, {});
       const text = await call(proposeSetup, { commands: ["touch installed.txt"], why: "a marker" });
-      expect(text).toContain("nothing was installed");
+      expect(text).toContain("nothing was run");
       expect(existsSync(join(state.current!.dir, "installed.txt"))).toBe(false);
     }
   });
@@ -253,7 +286,7 @@ describe("the deploy tools", () => {
     const started = await call(start, { name: "sleeper", command: "sleep 30" });
     expect(started).toContain("sleeper is running");
     const again = await call(deploy, {});
-    expect(again).toContain("Stopped what the last deploy started: sleeper.");
+    expect(again).toContain("Stopped what the last release started: sleeper.");
     expect(runningDeployed()).toEqual([]);
   }, 30_000);
 });

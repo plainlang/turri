@@ -79,7 +79,7 @@ other modules, the specs, the home directory and every other project do not exis
 
 No command can hang a build. Every one has a time limit - 2 minutes, or
 `TURRI_COMMAND_TIMEOUT` seconds: the agent's own `bash` unless it gives a timeout (at most 30
-minutes), its unit and conformance test runs, the harness's own runs, `install_system_packages`. A
+minutes), its unit and conformance test runs, the harness's own runs. A
 command that runs out is killed and reports exit 124 with a note on what to do instead: a server,
 a watcher or a prompt waiting for input never ends on its own, and has to be started in the
 background or given its input. A job that is stopped ends the command it is waiting on at once.
@@ -89,8 +89,13 @@ stops waiting for a command, so each one records its process ID and is killed by
 A project works through its modules one at a time, and so has one module's VMs at a time. Each starts
 on the first command run in it, and the module's jobs - functionalities, spec changes, conformance
 tests - reuse them one after another; a job holds both while it works in the module. The moment the
-project moves on to another module, the old module's VMs are shut down and the new one's started, which costs a second or two; the system packages come back from the cache and
-the dependencies are in the module's folder. A VM nothing has used for a minute is shut down too. Two
+project moves on to another module, the old module's VMs are shut down and the new one's started, which costs a second or two; the system packages the agents installed before, and the image lacks, come back from the cache -
+offline first, from the network only for one the cache does not hold, and for 90 seconds at most
+(`TURRI_VM_SETUP_TIMEOUT`), after which the VM goes on without them - and the dependencies are in the
+module's folder. A command waiting for its VM to start waits as long as a start can take - its boot and that
+setup - and not once it is stopped: it is not run, and says so, and the VM goes on starting for the next one. A VM nothing has used for a minute is shut down too, and every VM when turri exits. One a turri left
+running when it was killed rather than exiting - its parent gone, the system holding it - is stopped
+when turri next starts, and you are told: nothing else would ever stop it, and it holds its memory. Two
 modules rendering at once each keep their own, and several projects never share one. VMs run on Apple Silicon macOS and
 on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent
 gets no shell and commands are refused, because there is no honest way to fence one on the host.
@@ -136,10 +141,11 @@ It lives in `plain_modules/.turri`, which ignores itself in git:
 The default full image has Python, Node, Java 21 with Maven and Gradle, Go, Rust, C/C++ with make
 and cmake, and git. You can change it for every project, or give a project an image of its own -
 see [what goes into the image](installation.md#what-goes-into-the-image). A language, compiler or
-system library it lacks, the agent installs with `install_system_packages` (Alpine packages). The
-packages are recorded in `system-packages.json` and installed again - from the project's cache -
-whenever the project's VM starts, so what one render set up is there for every later one; so are
-the ones `system-packages:` in the project's `config.yaml` names. They come from the repositories
+system library it lacks is not the agents' to install: they install nothing into the VM, and say what
+is missing - for you to add to the project's image (`vm-image:` in `config.yaml`, then `turri vm-image`).
+What `system-packages:` in `config.yaml` names, and what agents installed before they could no longer
+(`system-packages.json`), is added from the project's cache whenever the project's VM starts - only what
+the image does not have. They come from the repositories
 the image was built with - Alpine's own, or the mirror the recipe names (see
 [where it is downloaded from](installation.md#where-it-is-downloaded-from)).
 Project dependencies go through the project's own package manager as usual.

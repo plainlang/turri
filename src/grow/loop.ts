@@ -33,10 +33,11 @@ import { withTryItLine } from "./delivery.ts";
 import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./regrow.ts";
 import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
 import { agentChanges, changeDiffInFiles } from "./change-view.ts";
+import { createSteering, MAX_STEERS, markTold, steer, waitingSteer, type JobSteering } from "./steering.ts";
 import { projectDirOf } from "./paths.ts";
-import { changesBetween, parseTree, serializeTree, type SpecStep } from "./spec-steps.ts";
+import { changesBetween, parseTree, serializeTree, type SpecChange, type SpecStep } from "./spec-steps.ts";
 import { listFiles } from "./testing.ts";
-import { casesOf, codeWork, stillWanted, type JobCases, type TouchedSpec } from "./drift.ts";
+import { casesOf, codeWork, stillWanted, whyNotWanted, type JobCases, type TouchedSpec } from "./drift.ts";
 
 /**
  * The work loop - see docs/growing.md.
@@ -75,7 +76,17 @@ export type Track = "code" | "conformance";
 
 /** What renders a job. Injectable, so the loop can be tested without a model. */
 export type JobRunner = (
-  job: { plainFile: string; moduleName: string; buildDir: string; spec: SpecSnapshot; planned: PlannedJob; model?: string; cwd: string },
+  job: {
+    plainFile: string;
+    moduleName: string;
+    buildDir: string;
+    spec: SpecSnapshot;
+    planned: PlannedJob;
+    model?: string;
+    cwd: string;
+    /** A code job's: how the loop steers it when the spec changes inside what it grows - and the record it lands. */
+    steering?: JobSteering;
+  },
   onDelta: (delta: string) => void,
 ) => Promise<{ landed: boolean; report: string }>;
 
@@ -84,7 +95,7 @@ export interface ModuleStatus {
   module: string;
   plainFile: string;
   /** The job running now, if one is. */
-  running?: { jobId: string; title: string };
+  running?: { jobId: string; title: string; steered?: string[] };
   /**
    * The jobs planned after it, in order. A conformance job scheduled for functional specs not all built yet -
    * `waitsFor`, those that are not - comes after the code job that builds the last of them.
@@ -115,7 +126,17 @@ interface ModuleState {
   plan?: { specKey: string; from: string; jobs: PlannedJob[] };
   /** The conformance tests' plan, apart from the code's: planned from what they are written for. */
   conformancePlan?: { specKey: string; from: string; jobs: PlannedJob[] };
-  running?: { jobId: string; planned: PlannedJob; from: MarshalledPlainSource; after: MarshalledPlainSource; stopping?: boolean };
+  running?: {
+    jobId: string;
+    planned: PlannedJob;
+    from: MarshalledPlainSource;
+    after: MarshalledPlainSource;
+    stopping?: boolean;
+    /** Running on although the spec moved on from it - allow-to-stop-jobs is false - and why: said once a reason. */
+    keptDespite?: string;
+    /** A code job's steering: what it lands, what its agent is told, and how many times it was steered. */
+    steering?: JobSteering;
+  };
   /**
    * Conformance tests asked for in the conversation - over a config that has them off - and for which functional
    * specs: none named, every one. Not asked: as the config says.
@@ -425,6 +446,44 @@ export function createWorkLoop(options: {
     return undefined;
   };
 
+  /**
+   * Steer the running code job when the spec moved on inside what it grows: its target moved to the spec as it now is
+   * there, its agent told - now, in its turn, or when the step it is at ends - its view in the panel moved too. Whatever
+   * else changed is the next job's. True when it was steered: not a third time, unless into a steer still waiting.
+   */
+  const trySteer = (state: ModuleState, spec: SpecSnapshot, own: SpecChange[], work: SpecChange[]): boolean => {
+    const running = state.running;
+    const steering = running?.steering;
+    if (running === undefined || steering === undefined || running.planned.track !== "code") return false;
+    const waiting = waitingSteer(steering) !== undefined;
+    if (steering.steers >= MAX_STEERS && !waiting) return false;
+    const moved = steer(steering, running.from, own, (tree) => workOf("code", tree, state, spec));
+    if (moved === undefined) return false;
+    // Steered, everything it grows is wanted - else something it grows was taken out, and that is no steer.
+    if (!stillWanted(changesBetween(serializeTree(running.from), serializeTree(moved.target)), work)) return false;
+    const why = whyNotWanted(own, work);
+    steering.target = moved.target;
+    steering.agent = moved.agent;
+    if (!waiting) steering.steers += 1;
+    steering.notes.push(why);
+    running.after = moved.target;
+    const text = waitingSteer(steering);
+    if (text !== undefined && steering.deliver?.(text) === true) markTold(steering);
+    const tip = tipEntry(state);
+    const job = options.registry.get(running.jobId);
+    if (job !== undefined) {
+      const shown = changeDiffInFiles(
+        agentChanges(changesBetween(serializeTree(running.from), serializeTree(steering.agent)), "code"),
+        relative(projectDirOf(tip.plainFile), tip.plainFile) || basename(tip.plainFile),
+        (diff) => whereInFiles(diff, state.chain),
+      );
+      job.diff = shown.diff;
+      job.diffWhere = shown.where;
+    }
+    reportActivity(`  ⇢ steered job ${running.jobId} (${steering.steers} of ${MAX_STEERS}): ${why}`);
+    return true;
+  };
+
   const plan = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track = "code"): Promise<PlannedJob[]> => {
     const tip = tipEntry(state);
     const current = track === "code" ? codeTree(spec.tree) : conformanceOf(state, spec);
@@ -474,6 +533,8 @@ export function createWorkLoop(options: {
       return;
     }
     const conformance = planned.track === "conformance";
+    // A code job can be steered while it grows: its target moves with the spec, inside what it grows.
+    const steering = conformance ? undefined : createSteering(planned.step.tree);
     // Shown as its agent is given it: the job's own items, from whichever file they are written in - its imports too.
     const shown = changeDiffInFiles(
       agentChanges(planned.step.changes, planned.track),
@@ -515,7 +576,16 @@ export function createWorkLoop(options: {
         }
         // A conformance job is shown the spec whole - its test reqs and acceptance tests are its to write from.
         const result = await (conformance ? runConformance : run)(
-          { plainFile: tip.plainFile, moduleName: tip.moduleName, buildDir: tip.buildDir, spec: conformance ? spec : { ...spec, tree: planned.step.tree }, planned, model: state.model, cwd: options.cwd },
+          {
+            plainFile: tip.plainFile,
+            moduleName: tip.moduleName,
+            buildDir: tip.buildDir,
+            spec: conformance ? spec : { ...spec, tree: planned.step.tree },
+            planned,
+            model: state.model,
+            cwd: options.cwd,
+            ...(steering !== undefined ? { steering } : {}),
+          },
           onDelta,
         );
         // Under conformance-tests: chosen, what it built that no conformance test is for is the conversation's to choose.
@@ -529,7 +599,7 @@ export function createWorkLoop(options: {
     });
     // Its lines where they are written: the module's .plain file, those it imports, and those of the modules below it.
     job.diffWhere = shown.where;
-    state.running = { jobId: job.id, planned, from, after: planned.step.tree };
+    state.running = { jobId: job.id, planned, from, after: planned.step.tree, ...(steering !== undefined ? { steering } : {}) };
     void options.registry.wait(job.id).then(
       (settled) => settle(state, settled),
       () => settle(state, undefined),
@@ -659,12 +729,28 @@ export function createWorkLoop(options: {
       // The stop rule: every change the running job makes is still part of the work, measured from the same record.
       const track = state.running.planned.track;
       const own = changesBetween(serializeTree(state.running.from), serializeTree(state.running.after));
-      if (!stillWanted(own, workOf(track, state.running.from, state, spec))) {
-        state.running.stopping = true;
-        state.why = `job ${state.running.jobId} was stopped: the spec no longer wants what it was building`;
-        reportActivity(`  ${tip.moduleName}: ${state.why}`);
-        options.registry.stop(state.running.jobId);
-        return;
+      let work = workOf(track, state.running.from, state, spec);
+      // A change inside what it grows steers it, rather than stopping it or leaving it to the next job.
+      if (!stillWanted(own, work) && trySteer(state, spec, own, work)) work = workOf(track, state.running.from, state, spec);
+      const ownNow = changesBetween(serializeTree(state.running.from), serializeTree(state.running.after));
+      if (!stillWanted(ownNow, work)) {
+        const why = whyNotWanted(ownNow, work);
+        // The project may have it run to its end instead: what it lands, the next job grows the change on top of.
+        if (configForSpec(tip.plainFile).allowToStopJobs === false) {
+          if (state.running.keptDespite !== why) {
+            state.running.keptDespite = why;
+            reportActivity(`  ${tip.moduleName}: job ${state.running.jobId} runs on although ${why} - allow-to-stop-jobs is false: the change is grown on top of what it lands`);
+          }
+        } else {
+          state.running.stopping = true;
+          state.why = `job ${state.running.jobId} was stopped: ${why}, which it was growing from`;
+          reportActivity(`  ${tip.moduleName}: ${state.why}`);
+          options.registry.stop(
+            state.running.jobId,
+            `Stopped by turri, not by you: ${why}, which it was growing from. What it had done is rolled back, and the spec as it is now is grown instead. To have a running job finish first and the change grown on top of it, set allow-to-stop-jobs: false in config.yaml.`,
+          );
+          return;
+        }
       }
       // Still wanted: what comes after it is planned now, from what it will land - not once it has.
       const planOf = track === "code" ? state.plan : state.conformancePlan;
@@ -787,7 +873,15 @@ export function createWorkLoop(options: {
     return {
       module: tip.moduleName,
       plainFile: tip.plainFile,
-      ...(state.running !== undefined ? { running: { jobId: state.running.jobId, title: state.running.planned.title } } : {}),
+      ...(state.running !== undefined
+        ? {
+            running: {
+              jobId: state.running.jobId,
+              title: state.running.planned.title,
+              ...(state.running.steering !== undefined && state.running.steering.steers > 0 ? { steered: [...state.running.steering.notes] } : {}),
+            },
+          }
+        : {}),
       planned: state.running !== undefined ? planned.slice(1) : planned,
       ...(choose.size > 0 ? { toChoose: [...choose.values()] } : {}),
       ...(state.running === undefined && state.why !== undefined ? { why: state.why } : {}),
@@ -1161,7 +1255,11 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
   return statuses
     .map((status) => {
       const lines = [`${status.module} (${basename(status.plainFile)}):`];
-      if (status.running !== undefined) lines.push(`  running: job ${status.running.jobId} - ${status.running.title}`);
+      if (status.running !== undefined) {
+        lines.push(`  running: job ${status.running.jobId} - ${status.running.title}`);
+        // Steered, not stopped or planned again: what changed went to its agent.
+        for (const why of status.running.steered ?? []) lines.push(`    ⇢ steered: ${why} - its agent was told, and it lands the spec as it is now there`);
+      }
       status.planned.forEach((job, index) =>
         lines.push(
           job.waitsFor !== undefined
@@ -1213,6 +1311,7 @@ const defaultRunner: JobRunner = async (job, onDelta) => {
     spec: job.spec,
     cases: job.planned.cases,
     ...(job.model !== undefined ? { model: job.model } : {}),
+    ...(job.steering !== undefined ? { steering: job.steering } : {}),
     onDelta,
   });
   // Landed code can be tried.

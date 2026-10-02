@@ -20,6 +20,8 @@ import { projectDirOf } from "./grow/paths.ts";
  *   model: google/gemini-3.1-pro
  * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chat chose) or false (default: all, with test reqs)
  * review: false                                             # review the code and its tests once they pass (default: true)
+ * allow-to-stop-jobs: false                                 # stop a running job the spec moved on from (default: true)
+ * rules-off: [integrations]                                 # ***plain rules to leave out of the prompts, by name (default: none)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters - see test-scripts.ts
@@ -155,6 +157,13 @@ export interface ProjectConfig {
    * most, the second weighed by the arbiter. false: the work goes on once its tests pass. Unset: true.
    */
   review?: boolean;
+  /**
+   * Whether turri stops a running job the spec has moved on from - a spec change, or a file it links edited - and
+   * grows the spec as it now is instead. false: the job runs to its end and lands what it was growing, and what
+   * changed since is grown on top of it by the next job: something lands as soon as it can, the software evolving
+   * job by job. The person's own halt stops a job either way. Unset: true.
+   */
+  allowToStopJobs?: boolean;
   /** Path from the root to the unit testing script. */
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
@@ -174,6 +183,13 @@ export interface ProjectConfig {
    * cache after the first time: a toolchain the image does not hold (zig), a library a build needs.
    */
   systemPackages?: string[];
+  /**
+   * The ***plain authoring rules (forge/rules/<name>.md) left out of the conversation's prompt and every spec-writing
+   * agent's, by name: a rule a project's own skills or AGENTS.md replace. The project's alone.
+   */
+  rulesOff?: string[];
+  /** The memory each of the project's sandbox VMs is given: "1G", "2G", "512M". TURRI_VM_MEMORY wins. Unset: 1G. */
+  vmMemory?: string;
   /**
    * The project's own VM image: toolchains and packages removed from and added to what the default image
    * holds - `{ remove: ["java"], add: ["zig"] }`. Given, turri vm-image in the project builds it, and
@@ -195,12 +211,15 @@ export const CONFIG_KEYS = {
   judgeModel: "judge-model",
   conformanceTests: "conformance-tests",
   review: "review",
+  allowToStopJobs: "allow-to-stop-jobs",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
   staticChecksScript: "static-checks-script",
   runTestingScriptsIn: "run-testing-scripts-in",
   parallelJobs: "parallel-jobs",
   systemPackages: "system-packages",
+  rulesOff: "rules-off",
+  vmMemory: "vm-memory",
   vmImage: "vm-image",
   compactAt: "compact-at",
 } as const satisfies Record<keyof ProjectConfig, string>;
@@ -231,7 +250,7 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
   // The project's alone: one conversation, one module built when none is named.
   const merged: ProjectConfig = { ...project };
   for (const key of Object.keys(CONFIG_KEYS) as Array<keyof ProjectConfig>) {
-    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "vmImage" || key === "compactAt" || own[key] === undefined) continue;
+    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "rulesOff" || key === "vmMemory" || key === "vmImage" || key === "compactAt" || own[key] === undefined) continue;
     (merged as Record<string, unknown>)[key] = own[key];
   }
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
@@ -331,6 +350,7 @@ function readConfigFile(path: string): ProjectConfig {
     judgeModel: modelChoice(raw[CONFIG_KEYS.judgeModel]),
     conformanceTests: conformanceSetting(conformance),
     review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
+    allowToStopJobs: typeof raw[CONFIG_KEYS.allowToStopJobs] === "boolean" ? (raw[CONFIG_KEYS.allowToStopJobs] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),
@@ -340,6 +360,8 @@ function readConfigFile(path: string): ProjectConfig {
     systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
       ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())
       : undefined,
+    vmMemory: typeof raw[CONFIG_KEYS.vmMemory] === "string" ? (raw[CONFIG_KEYS.vmMemory] as string) : typeof raw[CONFIG_KEYS.vmMemory] === "number" ? `${raw[CONFIG_KEYS.vmMemory] as number}G` : undefined,
+    rulesOff: Array.isArray(raw[CONFIG_KEYS.rulesOff]) ? (raw[CONFIG_KEYS.rulesOff] as unknown[]).filter((name): name is string => typeof name === "string") : undefined,
     compactAt:
       typeof raw[CONFIG_KEYS.compactAt] === "number" && Number.isInteger(raw[CONFIG_KEYS.compactAt]) && (raw[CONFIG_KEYS.compactAt] as number) >= 1000
         ? (raw[CONFIG_KEYS.compactAt] as number)

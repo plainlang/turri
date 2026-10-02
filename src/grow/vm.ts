@@ -2,16 +2,17 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { totalmem } from "node:os";
+import { spawnSync } from "node:child_process";
+import { freemem } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-import { createHttpHooks, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
+import { createHttpHooks, getImageStoreDirectory, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
 import { currentStopSignal, reportActivity } from "./activity.ts";
 import { credentialFiles, credentialRefusal, restoreCredentialFiles } from "./credentials.ts";
 import { ensureInVmScratch, MODULES_DIR, modulesRootOf, projectRootOf, vmScratchDir } from "./paths.ts";
 import { readProjectConfig } from "../config.ts";
-import { hasProjectImage, projectImageTag } from "../vm-image.ts";
+import { hasProjectImage, imagePlan, projectImageTag } from "../vm-image.ts";
 import { legacyImageTag } from "../legacy.ts";
 
 /**
@@ -256,7 +257,8 @@ export function vmImageFor(project: string): { tag: string; path: string; own: b
 
 /** Room for dependencies and build output, and for compilers to run. */
 const VM_DISK = process.env.TURRI_VM_DISK ?? "8G";
-const VM_MEMORY = process.env.TURRI_VM_MEMORY ?? "2G";
+/** A VM's memory unless the project says (vm-memory) or TURRI_VM_MEMORY does: enough for a Python or Node project's tests. */
+const DEFAULT_VM_MEMORY = "1G";
 const VM_CPUS = Number(process.env.TURRI_VM_CPUS ?? 4);
 
 /** A size as the VM takes it - "2G", "512M" - in bytes. */
@@ -267,13 +269,48 @@ function bytesOf(size: string): number {
   return Number(match[1]) * 1024 ** power;
 }
 
+/** The memory each of a project's VMs is given: TURRI_VM_MEMORY, else its config.yaml's vm-memory, else 1G. */
+export function vmMemoryFor(dir: string): string {
+  const configured = process.env.TURRI_VM_MEMORY ?? readProjectConfig(projectRootOf(dir)).vmMemory;
+  return configured !== undefined && /^\d+(?:\.\d+)?\s*[KMGT]?i?B?$/i.test(configured.trim()) ? configured.trim() : DEFAULT_VM_MEMORY;
+}
+
 /**
- * How many jobs this machine runs at once, by default: each job's module may have two VMs - its
- * code's and its tests' - of VM_MEMORY each, and three quarters of the memory is theirs to take.
- * At least one.
+ * The memory this machine can give a VM now, in bytes: what is free and what the system takes back at once - on
+ * Linux its own MemAvailable; on macOS free, inactive, speculative and purgeable pages, as vm_stat counts them.
+ * Node's freemem() says less on macOS, leaving out what it would reclaim; it is the fallback.
  */
-export function defaultParallelJobs(): number {
-  return Math.max(1, Math.floor((totalmem() * 0.75) / (2 * bytesOf(VM_MEMORY))));
+export function availableMemory(): number {
+  try {
+    if (process.platform === "linux") {
+      const line = /^MemAvailable:\s+(\d+)\s+kB/m.exec(readFileSync("/proc/meminfo", "utf8"));
+      if (line !== null) return Number(line[1]) * 1024;
+    }
+    if (process.platform === "darwin") {
+      const out = spawnSync("vm_stat", { encoding: "utf8", timeout: 5000 }).stdout ?? "";
+      const page = Number(/page size of (\d+) bytes/.exec(out)?.[1] ?? 4096);
+      const count = (name: string) => Number(new RegExp(`Pages ${name}:\\s+(\\d+)`).exec(out)?.[1] ?? 0);
+      const pages = count("free") + count("inactive") + count("speculative") + count("purgeable");
+      if (pages > 0) return pages * page;
+    }
+  } catch {
+    /* the fallback */
+  }
+  return freemem();
+}
+
+/** A size in bytes, as a person reads it: "3.1 GB". */
+function gigabytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/**
+ * How many jobs this machine runs at once, by default: each job's module may have two VMs - its code's and its
+ * tests' - of `memory` each, and three quarters of the memory free now is theirs to take - not of what the machine
+ * has: a machine already swapping would start every VM out of swap, minutes instead of seconds. At least one.
+ */
+export function defaultParallelJobs(memory: string = DEFAULT_VM_MEMORY): number {
+  return Math.max(1, Math.floor((availableMemory() * 0.75) / (2 * bytesOf(memory))));
 }
 
 const REGULAR_FILE = 0o100000;
@@ -462,6 +499,14 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
   reportActivity(`  starting the sandbox VM for ${holds} (${image ? image.tag : "stock image"}) - the first command waits for it`);
   // Every host, internal ones included: the network is open (see HOST_ALIAS).
   const { httpHooks } = createHttpHooks({ blockInternalRanges: false });
+  // Short of memory, it starts out of swap - minutes, not seconds: said, so a slow start is no mystery.
+  const memory = vmMemoryFor(project);
+  const free = availableMemory();
+  if (free < bytesOf(memory)) {
+    reportActivity(
+      `  this machine has ${gigabytes(free)} free - less than the ${memory} a VM is given: it starts slowly, out of swap. Close other apps, or set vm-memory or parallel-jobs lower in config.yaml`,
+    );
+  }
   const vm = await VM.create({
     vfs: {
       mounts: Object.fromEntries(
@@ -473,20 +518,35 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
     dns: { mode: "synthetic", syntheticHostMapping: "per-host" },
     tcp: { hosts: HOST_PORTS },
     sessionLabel: "turri",
-    memory: VM_MEMORY,
+    memory,
     cpus: VM_CPUS,
     // The stock image cannot grow its disk, so only ours is given more.
     ...(image ? { sandbox: { imagePath: image.path }, rootfs: { size: VM_DISK } } : {}),
   });
   // Alpine keeps what it downloads when /etc/apk/cache exists, so the packages installed
-  // again at every start come from the project's cache rather than the network.
+  // again at every start come from the project's cache: offline first - every one is there once
+  // it was installed - and from the network only for one that is not. Under a time limit: a
+  // network that stalls must not hold every command of the job; the VM goes on without them.
   const setup = [`ln -sfn ${join(cache, "apk")} /etc/apk/cache`];
-  const packages = systemPackages(project);
-  if (packages.length > 0) {
-    reportActivity(`  installing the project's system packages again: ${packages.join(", ")}`);
-    setup.push(`apk add --no-progress ${packages.join(" ")}`);
+  // Every VM starts from its image as it was built: what the project's agents installed before, and config.yaml
+  // names, is added again - only what the image does not have already.
+  const wanted = systemPackages(project);
+  const missing = packagesMissing(project, wanted);
+  if (missing.length > 0) {
+    reportActivity(
+      `  adding the system packages this project's agents installed before, which the image does not have: ${missing.join(", ")} - put them in config.yaml's vm-image and run turri vm-image to have them in the image`,
+    );
+    const list = missing.join(" ");
+    setup.push(`{ apk add --no-network --no-progress ${list} >/dev/null 2>&1 || apk add --no-progress ${list}; }`);
   }
-  await exec(vm, setup.join(" && "), { cwd: mounts[0]!, env: guestEnv(cache) });
+  const packages = missing;
+  const limit = AbortSignal.timeout(VM_SETUP_TIMEOUT_MS);
+  const ready = await exec(vm, setup.join(" && "), { cwd: mounts[0]!, env: guestEnv(cache), signal: limit }).catch((error: unknown) => ({ exitCode: -1, output: String(error) }));
+  if (limit.aborted) {
+    reportActivity(`  installing the project's system packages took over ${Math.round(VM_SETUP_TIMEOUT_MS / 1000)}s - given up: the VM goes on without them`);
+  } else if (ready.exitCode !== 0 && packages.length > 0) {
+    reportActivity(`  the project's system packages did not all install: ${ready.output.trim().split("\n").at(-1) ?? ""}`);
+  }
   const localhost = await exec(vm, localhostSetup(), { cwd: mounts[0]!, env: guestEnv(cache) });
   if (localhost.exitCode !== 0) {
     // The VM is still usable; only this machine's localhost is out of reach.
@@ -500,7 +560,7 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
  * The VM for a command, counted as running one until `done` is called. The job it runs for holds
  * it from now on; the project's other idle VMs are shut down - it has moved on.
  */
-async function acquire(dir: string, forDir?: string): Promise<{ vm: VM; project: string; done: () => void }> {
+async function acquire(dir: string, forDir?: string, wait: { signals?: AbortSignal[]; timeoutMs?: number } = {}): Promise<{ vm: VM; project: string; done: () => void }> {
   const { project, module, key, mounts, readOnly } = vmFor(dir, forDir);
   let entry = pool.get(key);
   if (entry === undefined) {
@@ -546,16 +606,63 @@ async function acquire(dir: string, forDir?: string): Promise<{ vm: VM; project:
     finished = true;
     current.running -= 1;
   };
+  // Waited for no longer than a start can take, and not once it is stopped: the VM goes on starting, for the next one.
+  let stopWaiting: (() => void) | undefined;
+  const given = new Promise<never>((_, reject) => {
+    const timer = wait.timeoutMs !== undefined ? setTimeout(() => reject(new VmWaitError(`its sandbox VM was still starting after ${Math.round(wait.timeoutMs! / 1000)}s`)), wait.timeoutMs) : undefined;
+    // Stopped is "aborted", as for a command stopped once it runs: what stops it reads it so.
+    const onAbort = () => reject(new Error("aborted"));
+    for (const signal of wait.signals ?? []) signal.addEventListener("abort", onAbort, { once: true });
+    stopWaiting = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      for (const signal of wait.signals ?? []) signal.removeEventListener("abort", onAbort);
+    };
+  });
+  given.catch(() => undefined);
   try {
-    return { vm: await current.vm, project, done };
+    return { vm: await Promise.race([current.vm, given]), project, done };
   } catch (error) {
     done();
+    if (error instanceof Error && error.message === "aborted") throw error;
+    if (error instanceof VmWaitError) throw new Error(`The command was not run: ${error.message}. Run it again - the VM keeps starting.`);
     throw new Error(
       `The command could not be run: its sandbox VM did not start (${error instanceof Error ? error.message : String(error)}). ` +
         "Commands are only ever run inside one. Run `turri doctor` to see what is missing.",
     );
+  } finally {
+    stopWaiting?.();
   }
 }
+
+/** A command that gave up waiting for its VM: stopped, or out of time. */
+class VmWaitError extends Error {}
+
+/**
+ * The packages a project's VMs have from their image: what it was built from - turri's recipe, with the person's and
+ * the project's changes. Not apk's own record, which the image builder does not fill: it unpacks the packages
+ * itself, so apk knows only its base. None for the stock image, which none of them is in.
+ */
+function imagePackages(project: string): Set<string> {
+  const image = vmImageFor(projectRootOf(project));
+  if (image === undefined) return new Set();
+  try {
+    return new Set(imagePlan(image.own ? { project: projectRootOf(project) } : {}).packages);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Which of `packages` a project's VMs do not have from their image. */
+function packagesMissing(project: string, packages: string[]): string[] {
+  const have = imagePackages(project);
+  return packages.filter((name) => !have.has(name.replace(/[<>=~].*$/, "")));
+}
+
+/** How long a VM's own setup - the project's system packages - may take before it goes on without them. */
+const VM_SETUP_TIMEOUT_MS = Number(process.env.TURRI_VM_SETUP_TIMEOUT ?? 90) * 1000;
+
+/** How long a command waits for its VM to start: booting, and its setup at most. */
+const VM_START_WAIT_MS = VM_SETUP_TIMEOUT_MS + 60_000;
 
 /**
  * Kill a command and everything it started - its children, a server it put in the background -
@@ -632,9 +739,10 @@ export async function runInVm(
     for?: string;
   },
 ): Promise<VmRunResult> {
-  const { vm, project, done } = await acquire(options.cwd, options.for);
   const timeoutMs = options.timeoutMs ?? COMMAND_TIMEOUT_MS;
   const signals = [options.signal, currentStopSignal()].filter((signal): signal is AbortSignal => signal !== undefined);
+  // Its own time is for running: a VM starting gets as long as a start can take, and no longer.
+  const { vm, project, done } = await acquire(options.cwd, options.for, { signals, timeoutMs: VM_START_WAIT_MS });
   // Stopped while the VM was starting: the command is not started at all. (An abort that has
   // already happened fires no event, so nothing below would ever end it.)
   if (signals.some((signal) => signal.aborted)) {
@@ -720,7 +828,9 @@ export async function installSystemPackages(
   const result = await runInVm(`apk add --no-progress ${names.join(" ")}`, { cwd: dir, ...options });
   if (result.exitCode === 0) {
     // What the agents installed, kept apart from what config.yaml names - the config says those itself.
-    const all = [...new Set([...installedPackages(root), ...names])].sort();
+    // In its image already, it is not the agents' to remember: every VM has it.
+    const added = packagesMissing(dir, names);
+    const all = [...new Set([...installedPackages(root), ...added])].sort();
     writeFileSync(packagesFile(root), `${JSON.stringify({ packages: all }, null, 2)}\n`);
   }
   return result;
@@ -740,8 +850,8 @@ export function vmEnvironmentNote(): string {
       where,
       "Installed: Python 3.12 (venv, pip inside a venv, uv) and Node 24 (npm). Project dependencies go through the " +
         "project's own package manager and install into the project, as usual.",
-      "Not installed, and not installable here: C/C++ compilers and make, git, Java, Go, Rust. The VM's own disk has " +
-        "about 80 MB free - install_system_packages fits small Alpine packages (jq, sqlite), never a compiler or JDK.",
+      "Not installed, and not installable here: C/C++ compilers and make, git, Java, Go, Rust - nor any other system " +
+        "package: you install nothing into the VM.",
       "If the project needs any of those - or a Python or npm package that has to compile native code - do not " +
         "try to work around it: say plainly that it needs turri's full VM image, built with " +
         "`turri vm-image`.",
@@ -750,9 +860,9 @@ export function vmEnvironmentNote(): string {
   }
   return (
     `${where} Installed: Python 3 (pip, uv), Node (npm), Java 21 (Maven, Gradle), Go, Rust (cargo), C/C++ (gcc, ` +
-    "make, cmake) and git. A language, compiler or system library that is missing is installed with " +
-    "install_system_packages (Alpine packages), which keeps it for every later render; project dependencies go " +
-    `through the project's own package manager as usual. ${network}`
+    "make, cmake) and git. A language, compiler or system library that is missing is not yours to install: say what is " +
+    "missing, and the person adds it to the VM's image (vm-image in config.yaml). Project dependencies go through the " +
+    `project's own package manager as usual. ${network}`
   );
 }
 
@@ -806,6 +916,46 @@ export function runningVms(): string[] {
 
 export function vmSupported(): boolean {
   return (process.platform === "darwin" && process.arch === "arm64") || process.platform === "linux";
+}
+
+/**
+ * Stop the sandbox VMs nothing owns any more: a VM process booted from gondolin's image store whose parent is gone -
+ * the turri that started it was killed rather than exiting, and the system took the VM over (its parent is now
+ * launchd, or init). Nothing would ever stop it, and it holds its memory - gigabytes - for as long as the machine runs.
+ * A VM another turri still runs has that turri as its parent, and is left alone. Returns how many it stopped.
+ */
+export function stopOrphanedVms(): number {
+  if (process.platform !== "darwin" && process.platform !== "linux") return 0;
+  let store: string;
+  try {
+    store = getImageStoreDirectory();
+  } catch {
+    return 0;
+  }
+  const listed = spawnSync("ps", ["-eo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000 });
+  if (listed.status !== 0) return 0;
+  let stopped = 0;
+  for (const pid of orphanedVmPids(listed.stdout, store)) {
+    try {
+      process.kill(pid, "SIGTERM");
+      stopped += 1;
+    } catch {
+      /* gone already, or not ours to stop */
+    }
+  }
+  return stopped;
+}
+
+/** The orphaned VMs in `ps -eo pid=,ppid=,command=` output: a VM process booted from `store`, its parent gone. */
+export function orphanedVmPids(psOutput: string, store: string): number[] {
+  const pids: number[] = [];
+  for (const line of psOutput.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (match === null) continue;
+    const [, pid, ppid, command] = match;
+    if (ppid === "1" && command!.includes(store) && /qemu-system|krun/.test(command!)) pids.push(Number(pid));
+  }
+  return pids;
 }
 
 /** Close every VM. Called as the process ends; they would otherwise outlive it. */

@@ -6,6 +6,7 @@ import {
   deployTarget,
   describeDeployment,
   exportModule,
+  hostDirOf,
   installsSoftware,
   runHostCommand,
   shortPath,
@@ -50,6 +51,28 @@ export function deployGuide(dir: string): string {
   ].join("\n");
 }
 
+/**
+ * What the agent is to do on a guided release: the code is in dist, as on any release, and the guidance takes it on from
+ * there. The rules of a release to dist hold here too: nothing run or installed that the person did not agree to, what
+ * keeps running started with activate, and the built code never edited.
+ */
+export function guidedGuide(deployment: Deployment, guidance: string): string {
+  const host = shortPath(deployment.hostDir ?? deployment.dir);
+  const dist = shortPath(deployment.dir);
+  const built = shortPath(deployment.buildDir);
+  return [
+    "The guidance for releasing it - follow it:",
+    guidance.trim(),
+    "",
+    `What to do now - on this machine, outside the sandbox, from ${host}:`,
+    `1. The code to release is in ${dist}: the last commit that landed whole. Take it from there, never from ${built}, where a job may be writing. Where the guidance's own tooling reads ${built}, point it at ${dist} if it can take another source; if it cannot, do by hand, from ${dist}, what it does.`,
+    `2. Read what the guidance leaves open - the scripts, files and commands it names, in ${host} - then do what it says, in its order. Where it says to change the host - a registration, an import, a config entry - change it. Never change ${built} or ${dist}: a fix to the code belongs in the spec.`,
+    "3. A command that runs a project script, installs or downloads: only through propose_setup, which asks the person first and runs it - the shell refuses such commands. One that keeps running (a start script, a dev server) goes in propose_setup's long_running, and activate starts it.",
+    "4. Start what keeps running with activate, with the URL it serves at - never in the shell with & or nohup.",
+    `5. Then tell the person briefly: what was done, what you changed in ${host} if anything, and where to open it or how to try it. Where the guidance does not fit what you find, say so, and do not guess past it.`,
+  ].join("\n");
+}
+
 function text(value: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text: value }], details };
 }
@@ -58,11 +81,15 @@ function clip(output: string, max = 3000): string {
   return output.length > max ? `…${output.slice(-max)}` : output;
 }
 
-/** The folder a command runs in: the deployment's, or one inside it. */
+/** The folder a command runs in: dist's, or - guided - the host codebase's, or one inside either. */
 function inside(current: Deployment, dir: string | undefined): string {
-  const target = resolve(current.dir, dir ?? ".");
-  const rel = relative(current.dir, target);
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${dir} is outside ${shortPath(current.dir)}: what deploy starts runs from there.`);
+  const base = current.hostDir ?? current.dir;
+  const target = resolve(base, dir ?? ".");
+  const within = (root: string) => {
+    const rel = relative(root, target);
+    return !rel.startsWith("..") && !isAbsolute(rel);
+  };
+  if (!within(base) && !within(current.dir)) throw new Error(`${dir} is outside ${shortPath(base)}: what release starts runs from there.`);
   return target;
 }
 
@@ -83,33 +110,43 @@ export function createDeployTools(options: {
     name: "release",
     label: "Release",
     description:
-      "Put a module's code out for the person to try, in dist/<module>: its last commit - what the last render, spec diff " +
-      "or conformance run that finished left, never what a job is writing now - replacing what was there, and stopping " +
-      "whatever an earlier deploy of it started. Always the module on top of the spec's requires chain: it holds the " +
-      "code of the ones below. Call it when the person wants to try, run, see or use what was built. It says what to do next.",
-    promptSnippet: "release the grown code to dist/<module> for the person to try, then activate it",
+      "Release a module's code for the person to try - the module on top of the spec's requires chain, which holds the " +
+      "code of the ones below - stopping whatever an earlier release of it started. Before you call it, ask yourself: is " +
+      "there guidance for releasing this project - in what the person said, the project's AGENTS.md, a skill, or anything " +
+      "else you were given? An integration a host application loads, say, released with the host's own scripts. If there " +
+      "is, pass it as guidance, in full. Either way its last commit - what last landed whole - is exported to dist/<module> " +
+      "first; with guidance it is taken on from there as the guidance says, in the host codebase; without, it is started " +
+      "from there, as best it can be. Call it when the " +
+      "person wants to try, run, see or use what was built. It says what to do next.",
+    promptSnippet: "release the grown code for the person to try - as the project's release guidance says, or to dist/<module> - then activate it",
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "A .plain file of the module. Default: the project's module from config.yaml." })),
       in_module: Type.Optional(Type.String({ description: "The codebase to take, when modules built on this one branch" })),
+      guidance: Type.Optional(
+        Type.String({ description: "The guidance for releasing this project, whole, from wherever it is - the person, AGENTS.md, a skill: the scripts to run and in which order, where the code goes. Omit when there is none." }),
+      ),
     }),
     async execute(_id, params) {
       const named = params.plain_file ?? options.defaultPlainFile();
       if (named === undefined) throw new Error("Which spec? config.yaml names no module: pass plain_file.");
       const plainFile = resolve(options.cwd, named);
       const target = deployTarget(plainFile, params.in_module);
-      // What the last deploy started runs from the folder about to be replaced.
+      const guidance = params.guidance?.trim() || undefined;
+      // What the last release started runs from what is about to be replaced.
       const stopped = await stopDeployed({ moduleName: target.entry.moduleName });
-      const deployment = exportModule(plainFile, params.in_module);
+      // Always the last commit, clean, in dist first; guidance takes it on from there.
+      const exported = exportModule(plainFile, params.in_module);
+      const deployment: Deployment = guidance === undefined ? exported : { ...exported, way: "guided", hostDir: hostDirOf(plainFile, options.cwd) };
       state.current = deployment;
       state.approvedStarts.clear();
       return text(
         [
           describeDeployment(deployment),
-          ...(stopped.length > 0 ? [`Stopped what the last deploy started: ${stopped.join(", ")}.`] : []),
+          ...(stopped.length > 0 ? [`Stopped what the last release started: ${stopped.join(", ")}.`] : []),
           "",
-          deployGuide(deployment.dir),
+          guidance === undefined ? deployGuide(deployment.dir) : guidedGuide(deployment, guidance),
         ].join("\n"),
-        { module: deployment.moduleName, dir: deployment.dir, commit: deployment.commit },
+        { module: deployment.moduleName, way: deployment.way, dir: deployment.dir, ...(deployment.hostDir !== undefined ? { host: deployment.hostDir } : {}), commit: deployment.commit },
       );
     },
   });
@@ -118,15 +155,16 @@ export function createDeployTools(options: {
     name: "propose_setup",
     label: "Propose setup",
     description:
-      "Ask the person to allow what installs or downloads software on this machine - dependencies, a build that fetches " +
-      "packages, an image pull - and, when they say yes, run it in the deployed folder, in order, stopping at the first " +
-      "that fails. List every command it takes, as it will run; nothing is installed unless they agree. `long_running` " +
-      "are commands to start later with activate that fetch as they start (`go run .`, `docker compose up`).",
-    promptSnippet: "ask the person before installing anything, then run the setup they agreed to",
+      "Ask the person to allow commands on this machine that the shell will not run on its own - what installs or " +
+      "downloads software (dependencies, a build that fetches packages, an image pull), and a project's own scripts - " +
+      "and, when they say yes, run them in the release's folder, in order, stopping at the first that fails. List every " +
+      "command it takes, as it will run; nothing runs unless they agree. `long_running` are commands to start later with " +
+      "activate (`scripts/start.sh`, `go run .`, `docker compose up`).",
+    promptSnippet: "ask the person before running scripts or installing anything, then run what they agreed to",
     parameters: Type.Object({
       commands: Type.Array(Type.String(), { description: "Commands to run now, one line each, as they will run from the deployed folder" }),
       long_running: Type.Optional(Type.Array(Type.String(), { description: "Commands activate will start later that fetch as they start" })),
-      why: Type.String({ description: "What they install and where, in a sentence: 'Python packages from requirements.txt, into .venv here'" }),
+      why: Type.String({ description: "What they do, in a sentence: 'Python packages from requirements.txt, into .venv here', or 'copy the integration into the host, then start it'" }),
       dir: Type.Optional(Type.String({ description: "A folder inside the deployed one to run them in, e.g. frontend. Default: the deployed folder." })),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
@@ -134,20 +172,20 @@ export function createDeployTools(options: {
       const dir = inside(current, params.dir);
       const starts = params.long_running ?? [];
       const body = [
-        `turri would run these on this machine, in ${shortPath(dir)}:`,
+        `On this machine, in ${shortPath(dir)}:`,
         ...params.commands.map((command) => `  $ ${command}`),
         ...(starts.length > 0 ? ["", "and later start:", ...starts.map((command) => `  $ ${command}`)] : []),
         "",
         params.why,
         "",
-        "Nothing is installed unless you say yes.",
+        "Nothing runs unless you say yes.",
       ].join("\n");
-      const answer = await options.approve("Install on this machine?", body, ctx);
+      const answer = await options.approve("turri wants to run this", body, ctx);
       if (answer === undefined) {
-        return text(`There is no one to ask here, so nothing was installed. Tell the person what it needs, as commands they can run themselves in ${shortPath(dir)}, and start nothing that needs them.`, { approved: false });
+        return text(`There is no one to ask here, so nothing was run. Tell the person what it needs, as commands they can run themselves in ${shortPath(dir)}, and start nothing that needs them.`, { approved: false });
       }
       if (!answer) {
-        return text(`The person said no: nothing was installed. Tell them what it needs - the commands, to run themselves in ${shortPath(dir)} - and stop.`, { approved: false });
+        return text(`The person said no: nothing was run. Tell them what it needs - the commands, to run themselves in ${shortPath(dir)} - and stop.`, { approved: false });
       }
       for (const command of starts) state.approvedStarts.add(command);
       const results: string[] = [];

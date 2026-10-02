@@ -153,10 +153,10 @@ describe("the testing scripts, run", () => {
     }
   });
 
-  it("tell an agent a missing toolchain is its to install in the VM, and the person's to install on the host", async () => {
+  it("tell an agent a missing toolchain is the person's to add, in the VM's image or on the host", async () => {
     const { scriptFailure } = await import("../../src/grow/test-scripts.ts");
     const run = { command: "test_scripts/run_unittests_python.sh", exitCode: 69, output: "Error: Python 3.12 or newer is required", timeoutMs: 120_000 };
-    expect(scriptFailure({ ...run, where: "vm" }, "unit testing")).toContain("Install it with install_system_packages");
+    expect(scriptFailure({ ...run, where: "vm" }, "unit testing")).toContain("End your turn");
     expect(scriptFailure({ ...run, where: "host" }, "unit testing")).toContain("so the person can install it");
   });
 });

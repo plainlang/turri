@@ -178,7 +178,7 @@ Gondolin installs packages from the repositories the base system lists, so turri
 chosen ones into its `/etc/apk/repositories` before the build. The base system is kept, and the
 build runs, in a folder of that set of sources' own under `~/.cache/turri/vm-build/`, so
 Alpine's own downloads never mix with a mirror's. The image keeps the repositories: what a VM
-installs later - `system-packages:`, or a coding agent's `install_system_packages` - comes from them
+installs later - what `system-packages:` names - comes from them
 too. Changing the sources takes a rebuild, and `doctor` says so. What a mirror serves is taken as it
 serves it, so name only servers you trust. The libkrun kernel always comes from GitHub, and the
 stock image, which runs before any image is built, is Gondolin's own download.
@@ -193,7 +193,7 @@ Until the image is built, commands run in Gondolin's stock image, downloaded on 
 | works | Python 3.12 (`venv`, `pip` inside a venv, `uv`) and Node 24 (`npm`) projects. Their dependencies install into the project folder, so there is room for them - FastAPI, SQLAlchemy, pytest, Express, Vitest all install. |
 | missing | C/C++ compilers and `make`, `git`, Java, Go, Rust. |
 | so | A Java, Go, Rust or C/C++ project cannot be built. A Python or npm package that has to compile native code - one with no prebuilt build for Alpine - fails to install. |
-| installing more | The VM's own disk has about 80 MB free. `install_system_packages` fits small packages (`jq`, `sqlite`), never a compiler or a JDK. |
+| installing more | Agents install nothing into the VM; `system-packages:` adds small packages (`jq`, `sqlite`) at each start - the VM's own disk has about 80 MB free - never a compiler or a JDK. |
 
 The agents are told the same, so on the stock image a project that needs more is reported as
 needing the full image rather than fought with.
@@ -249,5 +249,5 @@ For Gemini, `GEMINI_API_KEY` is what makes pi *offer* the google provider, but w
 | --- | --- |
 | `PLAIN_TEMPLATE_DIRS` | colon-separated template directories, e.g. the standard library |
 | `TURRI_VM_IMAGE` | a different Gondolin image to boot (default `turri:latest`) |
-| `TURRI_VM_DISK`, `TURRI_VM_MEMORY`, `TURRI_VM_CPUS` | the VM's size (default `8G`, `2G`, `4`) |
+| `TURRI_VM_DISK`, `TURRI_VM_MEMORY`, `TURRI_VM_CPUS` | the VM's size (default `8G`, `1G` - or `vm-memory` in `config.yaml` - and `4`) |
 | `TURRI_COMMAND_TIMEOUT` | seconds a command in the VM may run before it is stopped - an agent's own, its tests, an install (default `120`) |

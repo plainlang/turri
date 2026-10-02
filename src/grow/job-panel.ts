@@ -21,9 +21,17 @@ import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
 
 export const JOB_PANEL_KEY = "turri-jobs";
 
+/**
+ * The key that opens the side panel on its jobs, and goes back to it. Not ctrl+j: a terminal without the Kitty keyboard
+ * protocol sends ctrl+j as a line feed - what it sends for shift+enter too, and what a dialog reads as enter - so it
+ * would answer a question, and take a new line from the editor. ctrl+h is the byte old terminals sent for backspace;
+ * every terminal now sends backspace as DEL, which pi never takes for ctrl+h, so it is free - in pi, and in a dialog.
+ */
+export const PANEL_KEY = "ctrl+h";
+
 /** How the side panel is found your way around, as the job panel says it. */
 export const PANEL_HELP =
-  "in the side panel: ↑↓ move over the jobs · enter opens one - what it builds, whole · o/c open or close them all · t its trace · tab switches jobs · trace · esc back to the chat · ctrl+j closes it";
+  `in the side panel: ↑↓ move over the jobs · enter opens one - what it builds, whole · o/c open or close them all · t its trace · tab switches jobs · trace · esc back to the chat · ${PANEL_KEY} closes it`;
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -195,10 +203,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
   } else if (expanded) {
-    lines.push("  ctrl+o collapse · ctrl+j to see what each job builds, and the agents' traces");
+    lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each job builds, and the agents' traces`);
     lines.push(`  ${PANEL_HELP}`);
   } else {
-    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ctrl+j to see what each job builds`);
+    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ${PANEL_KEY} to see what each job builds`);
   }
   return lines;
 }

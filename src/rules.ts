@@ -9,10 +9,12 @@ import { stdlibCatalogue } from "./stdlib.ts";
  * 40k tokens - and that is the deliberate trade: a rule the model has to decide to go and
  * read is a rule it can skip, and these govern every spec this project writes.
  */
-export function loadRules(rulesDir: string): Array<{ name: string; content: string }> {
+export function loadRules(rulesDir: string, off: readonly string[] = []): Array<{ name: string; content: string }> {
   let entries: string[];
   try {
-    entries = readdirSync(rulesDir).filter((entry) => entry.endsWith(".md")).sort();
+    // A project's config.yaml can leave rules out (rules-off): by name, with or without .md.
+    const left = new Set(off.map((name) => name.replace(/\.md$/, "")));
+    entries = readdirSync(rulesDir).filter((entry) => entry.endsWith(".md") && !left.has(basename(entry, ".md"))).sort();
   } catch {
     return [];
   }

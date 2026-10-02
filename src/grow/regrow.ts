@@ -26,7 +26,6 @@ import {
   createScriptTool,
   findStaticChecks,
   findTestScripts,
-  needsThePerson,
   projectRootFor,
   requireTestScripts,
   runUnitScript,
@@ -41,6 +40,7 @@ import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } from "./requires.ts";
 import { loadLinkedResources, resourceImages } from "./resources.ts";
+import { markTold, waitingSteer, type JobSteering } from "./steering.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { sectionsOf } from "./state.ts";
 import { inheritedRecord, readRecord, withResourceDigests, writeCodeRecord } from "./records.ts";
@@ -81,8 +81,6 @@ import {
 
 const MAX_FOLLOW_UPS = ATTEMPTS["unit tests"];
 
-/** Rounds the agent has to install a toolchain the unit testing script cannot find in the VM, before the job stops. */
-const INSTALL_ROUNDS = 2;
 
 /**
  * Bring the .plain files to the state the diff describes, with git. A diff that is already
@@ -227,6 +225,8 @@ export interface RenderSpecDiffOptions {
   /** The unit test review's model. Default: the project's judge-model, else `model`. */
   judgeModel?: string;
   onDelta?: (delta: string) => void;
+  /** The loop's: steers the coding agent when the spec changes inside what it grows, and holds the record it lands. */
+  steering?: JobSteering;
 }
 
 export interface RenderSpecDiffResult {
@@ -244,6 +244,8 @@ export interface RenderSpecDiffResult {
   stoppedAt: "unit tests" | null;
   /** Stopped because the unit testing script cannot run: what it needs is not installed where it runs. */
   missingToolchain?: MissingToolchain;
+  /** What the spec changed while it grew that its agent was told - a line each. */
+  steered?: string[];
   /** The specs were only restructured: nothing was rendered, the spec as now laid out was recorded. */
   restructured?: boolean;
   /** A dry run: the task the coding agent would be given. */
@@ -336,6 +338,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // the conformance job's to read, from the whole change (`changeText`), not the code's.
   const codingChanges = changes.filter((change) => change.section !== TEST_REQUIREMENTS);
   const codingText = codingChanges.length > 0 ? describeSpecChange(codingChanges) : undefined;
+  /** Steered, the change as its agent has it now: from what the code is built from to what it was steered to. */
+  const steeredChange = (): string | undefined => {
+    if (options.steering === undefined || options.steering.steers === 0) return undefined;
+    const now = changesBetween(serializeTree(builtNow), serializeTree(options.steering.agent)).filter((change) => change.section !== TEST_REQUIREMENTS);
+    return now.length > 0 ? describeSpecChange(now) : undefined;
+  };
   const builtFrids = [...getFrids(builtNow)];
   const specificationsBefore: Specifications =
     builtFrids.length > 0 ? getSpecificationsForFrid(builtNow, builtFrids.at(-1)!)[0] : { ...sectionsOf(builtNow), [FUNCTIONAL_REQUIREMENTS]: [] };
@@ -406,10 +414,28 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   let attempts = 0;
   /** How many times the agent, having written nothing, was asked for a draft. */
   let draftAsks = 0;
-  /** What the unit testing script needs and does not find, last run - and how many rounds the agent had to install it. */
+  /** What the unit testing script needs and does not find, last run. */
   let missing: MissingToolchain | undefined;
-  let installRounds = 0;
   const testRemovals: TestRemoval[] = [];
+  const steering = options.steering;
+  // The loop reaches the agent in its turn while there is one; between turns a steer waits for the next.
+  if (steering !== undefined) {
+    steering.deliver = (text) => {
+      if (!executor.isStreaming) return false;
+      void Promise.resolve(executor.steer(text)).catch(() => undefined);
+      stage("the spec changed inside what it grows - the coding agent is told, in its turn");
+      return true;
+    };
+  }
+  /** A steer the agent has not had yet, given as its next turn: true when there was one. */
+  const steerIfWaiting = async (): Promise<boolean> => {
+    const text = steering !== undefined ? waitingSteer(steering) : undefined;
+    if (text === undefined) return false;
+    markTold(steering!);
+    stage("the spec changed inside what it grows - the coding agent is told");
+    response = await ask(executor, text, options.onDelta);
+    return true;
+  };
   try {
     stage("turri is implementing the spec change");
     let inventory = inventoryTests(buildDir);
@@ -419,6 +445,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // when called again.
     const untilPassing = async (): Promise<boolean> => {
       for (; followUp < MAX_FOLLOW_UPS; followUp += 1) {
+        // A steer that came between its turns: its own turn, then the tests run again.
+        if (await steerIfWaiting()) continue;
         const current = inventoryTests(buildDir);
         const removals = findTestRemovals(inventory, current);
         if (removals.length > 0) {
@@ -448,20 +476,20 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
         if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
-        // A toolchain the script cannot find is no failure of the code. Where only the person can set it up - on this
-        // machine, or in the VM when this machine has it - the job stops now and asks them; otherwise the agent has a
-        // round or two to install it in the VM, then the job stops.
+        // A toolchain the script cannot find is no failure of the code, and the agents install nothing: the person sets it
+        // up - on this machine, or in the VM's image - so the job stops now and asks them.
         missing = verdict.ok ? undefined : verdict.missing;
-        if (missing !== undefined && (needsThePerson(missing, missing.where) || installRounds >= INSTALL_ROUNDS)) {
+        if (missing !== undefined) {
           stage(`the unit testing script cannot run: ${missing.command ?? "a toolchain it needs"} is not installed ${missing.where === "host" ? "on this machine" : "in the VM"} - stopping`);
           return false;
         }
-        if (missing !== undefined) installRounds += 1;
         if (!verdict.ok) {
           stage(`unit tests not passing - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
           response = await ask(executor, verdict.prompt, options.onDelta);
           continue;
         }
+        // Passing on what it was told before - a steer since, and they run again.
+        if (await steerIfWaiting()) continue;
         return true;
       }
       return false;
@@ -475,7 +503,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         atStart: digestsBefore,
         what: `the spec change to module \`${moduleName}\``,
         // As the coding agent had it: the spec the code was built from, and the change.
-        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: codingText ?? changeText ?? options.diff }),
+        // Steered before the review, the change as the agent has it now.
+        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: steeredChange() ?? codingText ?? changeText ?? options.diff }),
         forChange: true,
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
@@ -493,10 +522,13 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       verified = reviewed.passed;
       if (!reviewed.passed) unitReviewStopped = true;
     }
+    // A steer that came during the review: the agent's turn, and the tests until they pass - within its rounds.
+    while (verified && steering !== undefined && waitingSteer(steering) !== undefined) verified = await untilPassing();
 
     stage("checking the working notes were left");
     await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
   } finally {
+    if (steering !== undefined) steering.deliver = undefined;
     executor.dispose();
     await services.stopAll();
   }
@@ -504,12 +536,23 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // Passing means the harness's own run of the unit testing script passed, last.
   const unitPassed = verified;
   const files = diffFiles(digestsBefore, digestFiles(buildDir));
-  const base = { moduleName, buildDir, diff: applied, response, runs, attempts, testRemovals, files };
+  const base = {
+    moduleName,
+    buildDir,
+    diff: applied,
+    response,
+    runs,
+    attempts,
+    testRemovals,
+    files,
+    ...(steering !== undefined && steering.steers > 0 ? { steered: [...steering.notes] } : {}),
+  };
 
   /** The change landed: what the code is built from is now the spec with the change in, committed with it. */
   const land = () => {
     stage("recording what the code is built from, and committing it");
-    writeCodeRecord(buildDir, tree);
+    // Steered, it is built from the spec as it was steered to - the record the loop moved with it.
+    writeCodeRecord(buildDir, steering?.target ?? tree);
     recordHistory(buildDir, `spec diff: ${summarizeDiff(options.diff)}`, options.diff);
   };
 
@@ -543,6 +586,7 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
     result.diff === "applied" ? "The diff was applied to the .plain files." : "The diff was already applied.",
     `Files: ${added.length} added, ${changed.length} changed, ${removed.length} removed.`,
     result.testRemovals.length > 0 ? `Unit tests removed and justified: ${result.testRemovals.map((r) => r.file).join(", ")}.` : "",
+    ...(result.steered !== undefined ? [`Steered while it grew - the spec changed inside what it was growing, and its agent was told: ${result.steered.join("; ")}.`] : []),
     "",
     "<agent report>",
     result.response,

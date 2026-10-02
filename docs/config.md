@@ -50,13 +50,16 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, a conformance job after each code job. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
 | `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
+| `rules-off` | a list of rule names - `integrations`, `concise-specs`, the files of `forge/rules/` without `.md` - left out of the conversation's prompt and every spec-writing agent's: a rule this project's own skills or AGENTS.md replace, such as one that says to probe a live API before any spec is written. The project's alone | none |
+| `allow-to-stop-jobs` | `true` or `false`: whether turri stops a running job the spec has moved on from - a functional spec it grows changed, or a file one links was edited - rolls it back and grows the spec as it now is. `false`: the job runs to its end and lands, and what changed since is grown on top of it by the next job - see [growing the code](growing.md). Your own `halt` stops a job either way | `true` |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
 | `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](growing.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
 | `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `turri vm-image` in the project, or `build_vm_image`, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
 | `system-packages` | Alpine packages every VM of the project installs when it starts - a library or tool a build needs, `sqlite`, `jq` | none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
-| `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the machine's memory holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
+| `vm-memory` | the memory each of the project's sandbox VMs is given - `1G`, `2G`, `512M`: more for a project that compiles Java, Rust or C++ - `TURRI_VM_MEMORY` wins. The project's alone | `1G` |
+| `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the memory free then holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
 | `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](growing.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
@@ -68,11 +71,14 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 
 Jobs on the same module, or on modules of one `requires` chain, always run one after another.
 Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, and
-each module's jobs start VMs of their own: its code's and its tests', `TURRI_VM_MEMORY` (2 GB)
-each. So the chat runs at most `parallel-jobs` jobs at once; a job whose turn has come waits for a
-free slot past that, and its line says so. Unset, it is three quarters of the machine's memory over
-two VMs' worth - three on a 16 GB machine. `TURRI_PARALLEL_JOBS` wins over the config. It is
-the project's alone, never read from a module's file.
+each module's jobs start VMs of their own: its code's and its tests', `vm-memory` each (1 GB unless
+`config.yaml` or `TURRI_VM_MEMORY` says). So the chat runs at most `parallel-jobs` jobs at once; a
+job whose turn has come waits for a free slot past that, and its line says so. Unset, it is three
+quarters of the memory free when the chat starts - free and what the system takes back at once, as
+`vm_stat` or `/proc/meminfo` count it - over two VMs' worth. Not the machine's whole memory: a machine
+already swapping starts every VM out of swap, minutes instead of seconds. A VM starting with less free
+than it is given says so. `TURRI_PARALLEL_JOBS` wins over the config. It is the project's alone,
+never read from a module's file.
 
 The testing scripts all run on this machine, each on a copy of its module's code, so they never
 share files - but they do share its network: two modules whose conformance scripts start a server

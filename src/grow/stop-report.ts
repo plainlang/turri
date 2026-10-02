@@ -79,7 +79,7 @@ export function describeStop(facts: StopFacts): string {
       ...(where === "vm"
         ? [
             ...(onHost !== undefined ? [`- It is installed on this machine (${onHost}): set \`run-testing-scripts-in: host\` in config.yaml to run the testing scripts here.`] : []),
-            `- Or put it in the VM: add it to \`vm-image:\` in config.yaml and run \`turri vm-image\`${command !== undefined ? `, or name it in the implementation reqs so the agents install ${command}` : ""}.`,
+            `- Or put it in the VM: add it to \`vm-image:\` in config.yaml and run \`turri vm-image\`.`,
           ]
         : [`- Install ${command ?? "it"} on this machine, so the testing script finds it on its PATH.`]),
       "",

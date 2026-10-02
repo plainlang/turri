@@ -237,7 +237,9 @@ describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () =>
       );
     expect(await run("python3 app.py")).toContain("hi");
     expect(await run(`cat ${join(outside, "secret.ts")}`)).not.toContain("const secret");
-    expect(bash.description).toContain("install_system_packages");
+    // Nothing to install with: what the VM lacks is the person's to add to its image.
+    expect(fence.names).not.toContain("install_system_packages");
+    expect(bash.description).toContain("not yours to install");
   });
 
   it("puts back a credential file the agent's bash wrote, in its module or the VM scratch, and tells it why", async () => {
@@ -283,11 +285,9 @@ describe.runIf(vmSupported() && vmImage() !== undefined)("the turri image", { ti
     expect(result.output).toContain("attached");
   });
 
-  it("keeps a system package the agent installed, for every VM the project starts", async () => {
-    const fence = confinedTools({ workdir: code });
-    const install = fence.tools.find((t) => t.name === "install_system_packages")!;
-    const installed = await (install as any).execute("id", { packages: ["jq"] }, undefined, undefined, {} as never);
-    expect(installed.details.exitCode).toBe(0);
+  it("keeps a system package installed before, for every VM the project starts", async () => {
+    const installed = await installSystemPackages(code, ["jq"]);
+    expect(installed.exitCode).toBe(0);
     expect(systemPackages(code)).toEqual(["jq"]);
 
     await closeAllVms();
