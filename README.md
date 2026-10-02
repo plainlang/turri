@@ -23,11 +23,22 @@ similar) or WSL 2, with KVM passed in - see [installation](docs/installation.md#
 git clone git@github.com:plainlang/turri.git && cd turri
 npm install && npm link   # puts `turri` on your PATH
 turri setup               # checks the machine, offers to build the VM image (about 7 minutes)
-cd ~/my-project && turri chat
 ```
 
-Then say: *Let's start a new project: a small API where people can register and sign in.* What
-`setup` checks and where **turri** runs: [install](#install); what to do next: [use](#use).
+Then start it, signed in to your model providers, choosing the model you talk to and the one that
+writes the code:
+
+```bash
+cd ~/my-project
+export ANTHROPIC_API_KEY=...   # a key for each provider you use - or skip these,
+export OPENAI_API_KEY=...      # and type /login in turri once it has started
+turri chat --harness-model anthropic/claude-opus-5-5 --coding-model openai/gpt-6-luna
+```
+
+Then say: *Let's start a new project: a small API where people can register and sign in.*
+
+What `setup` checks and where **turri** runs: [install](#install); choosing models:
+[models](#models); what to do next: [use](#use).
 
 ## Why
 
@@ -142,6 +153,27 @@ provider for pi, and the VM image - and offers to build the image, which takes a
 VM for real. `turri doctor` runs the same checks later without changing anything.
 
 Details, and what each check means: [installation](docs/installation.md).
+
+## Models
+
+**turri** is built on [pi](https://github.com/earendil-works/pi), so a model is reached as pi
+reaches it - `/login`, in `turri chat` as in `pi`, or the provider's API key in the environment (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) - and named as pi names it, `provider/model-id`, with
+`:high`, `:low` and so on for how hard it thinks. It uses three: the **harness** model you talk
+to, which writes the specs and plans the work - worth a capable one - and the **coding** and
+**judge** models its agents build and judge with, which can be smaller and cheaper, such as GPT-6
+Luna or Gemini 3.1 Flash Lite. `turri chat --harness-model` and `--coding-model` choose them for a
+session, and pi's `/model` switches the one you talk to as you go; to keep them for the project,
+write them in its `config.yaml`:
+
+```yaml
+harness-model: anthropic/claude-opus-5-5    # the model you talk to: a capable one
+coding-model: openai/gpt-6-luna             # writes the code and the tests: a smaller one will do
+judge-model: google/gemini-3.1-flash-lite   # judges the conformance runs
+```
+
+One left out is the one before it: judge from coding, coding from harness. Every way to set them:
+[models](docs/config.md#models).
 
 ## Use
 
