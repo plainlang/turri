@@ -9,8 +9,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import type { OverlayHandle } from "@earendil-works/pi-tui";
-import { allocateImageId, Box, type Component, getCapabilities, getPngDimensions, type ImageDimensions, matchesKey, renderImage, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
+import { allocateImageId, Box, type Component, compositeTuiLine, getCapabilities, getPngDimensions, type ImageDimensions, matchesKey, renderImage, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
@@ -568,23 +568,28 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
     label: "Bind conformance tests",
     description:
       "Write and run the black-box conformance tests of a module's functional specs - the ones named, or every one - on " +
-      "the code as it is built, as pulses of their own: each writes its tests from the spec's test reqs and acceptance " +
+      "the code as it is built, in a pulse of their own - every functional spec tested in one, as far as a size guardrail " +
+      "lets, or one a functional spec when the user asks for that: each writes its tests from the spec's test reqs and acceptance " +
       "tests, runs them with the whole suite the module inherits, and, where one fails, fixes the test or the code, " +
       "whichever is wrong. What they are written for is recorded apart from the code. For this session, whatever the " +
       "config's conformance-tests says. Functional specs not built yet can be named: the conformance pulse is scheduled at " +
-      "once and starts when every one named is built - each call one pulse - before the next code pulse. A functional spec " +
+      "once and starts when every one named is built, before the next code pulse. A functional spec " +
       "the spec does not have, or a module without test reqs, is refused. A conformance pulse checks, as it starts, that " +
       "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
     promptGuidelines: [
       "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.yaml for it, and never rejuvenate a functionality to get them.",
-      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. Name together the ones to test in one pulse. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "Conformance tests go in one pulse for all the functional specs tested. Set one_by_one only when the user asks for a pulse a functional spec - one at a time, separately, or the like.",
       "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module" }),
       working_dir: WORKING_DIR_PARAM,
       frids: Type.Optional(Type.Array(Type.String(), { description: "The functional specs to test, by id - added to those chosen before. Omitted: every one" })),
+      one_by_one: Type.Optional(
+        Type.Boolean({ description: "Only when the user asks for it: a pulse a functional spec. Omitted: every functional spec tested in one pulse, as far as the size guardrail lets" }),
+      ),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -593,7 +598,11 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       const plainFile = resolve(params.base, params.plain_file);
       const model = jobModel(ctx, "spec_changes", params.model, plainFile);
       const loop = workLoopFor(jobs, cwd, ctx);
-      const statuses = await loop.conformance(plainFile, { ...(params.frids !== undefined ? { frids: params.frids } : {}), ...(model !== undefined ? { model } : {}) });
+      const statuses = await loop.conformance(plainFile, {
+        ...(params.frids !== undefined ? { frids: params.frids } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(params.one_by_one === true ? { separately: true } : {}),
+      });
       return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
@@ -1332,8 +1341,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
   const jobsTree = createJobsTreeState();
 
-  sidePanelShowing = () => panel !== undefined && panel.handle?.isHidden() !== true;
-
   const openPanel = (ctx: ExtensionContext, show?: { jobId?: string; view?: PanelView }) => {
     if (panel !== undefined) {
       if (show !== undefined) panel.view.show(show);
@@ -1998,9 +2005,8 @@ function animateJellyfish(ctx: ExtensionContext): void {
   ctx.ui.setWidget(
     JELLYFISH_CLOCK_KEY,
     (tui) => {
+      drawOverlaysBesidePicture(tui);
       const timer = setInterval(() => {
-        // The panel covers a picture, which the banner leaves out meanwhile; text it is drawn over, and it goes on.
-        if (sidePanelShowing() && getCapabilities().images !== null) return;
         if (tui.render(tui.terminal.columns).length > tui.terminal.rows) {
           clearInterval(timer);
           return;
@@ -2021,6 +2027,32 @@ function animateJellyfish(ctx: ExtensionContext): void {
 }
 
 const JELLYFISH_CLOCK_KEY = "turri-jellyfish";
+
+/** What the banner puts between a row's text and the picture after it: back to the jellyfish's column. */
+const PICTURE_AT = "\x1b[2G";
+
+/** The columns the banner's picture takes from the left edge, while it shows one; 0 when it does not. */
+let pictureRight = 0;
+
+/**
+ * pi-tui draws no overlay over a line holding an image: it leaves the line as it is, and the side panel
+ * would have a gap on the banner's row that carries the picture. So that row's text gets the overlay as
+ * any other does, and the picture goes back on after it - unless the overlay reaches over the picture,
+ * which is then left out of that row until it no longer does.
+ */
+function drawOverlaysBesidePicture(tui: TUI): void {
+  const target = tui as unknown as { compositeLineAt?: (base: string, overlay: string, col: number, width: number, total: number) => string; turriPicture?: true };
+  if (target.turriPicture === true || typeof target.compositeLineAt !== "function") return;
+  target.turriPicture = true;
+  const original = target.compositeLineAt.bind(tui);
+  target.compositeLineAt = (base, overlay, col, width, total) => {
+    const at = base.lastIndexOf(PICTURE_AT);
+    const picture = at === -1 ? "" : base.slice(at + PICTURE_AT.length);
+    if (!/^(\x1b\[\d+A)?(\x1b_G|\x1b\]1337;File=)/.test(picture)) return original(base, overlay, col, width, total);
+    const drawn = compositeTuiLine(base.slice(0, at), overlay, col, width, total);
+    return col >= pictureRight ? `${drawn}${PICTURE_AT}${picture}` : drawn;
+  };
+}
 
 /** Columns between the jellyfish and the lines beside it. */
 const JELLYFISH_GAP = 3;
@@ -2068,11 +2100,11 @@ class Banner implements Component {
       const before = placed !== undefined ? ` ${jellyfish}${" ".repeat(JELLYFISH_GAP)}` : " ";
       return line !== undefined ? `${before}${line}` : placed?.kind === "text" ? ` ${jellyfish}` : "";
     });
-    // Under the side panel the picture is left out: pi-tui draws no overlay over a line holding an image.
-    // Its rows are kept, so the conversation does not move when the panel opens or closes.
-    if (placed?.kind === "image" && !sidePanelShowing()) {
+    // The side panel is drawn beside the picture (drawOverlaysBesidePicture), which goes on showing.
+    pictureRight = placed?.kind === "image" ? 1 + placed.columns : 0;
+    if (placed?.kind === "image") {
       const at = placed.onLastRow ? placed.rows - 1 : 0;
-      rows[at] = `${rows[at]}\x1b[2G${placed.sequence}`;
+      rows[at] = `${rows[at]}${PICTURE_AT}${placed.sequence}`;
     }
     return [...rows, ` ${this.rule("─".repeat(inner))}`];
   }
@@ -2104,12 +2136,6 @@ class Banner implements Component {
 type JellyfishArt =
   | { kind: "image"; frames: string[]; dimensions: ImageDimensions }
   | { kind: "text"; frames: string[][]; columns: number; rows: number };
-
-/**
- * Whether the side panel is showing. An overlay is not drawn over a line holding an image - pi-tui leaves
- * such a line as it is - so the banner leaves the picture out meanwhile.
- */
-let sidePanelShowing: () => boolean = () => false;
 
 const jellyfishFrameCache = new Map<string, string[]>();
 

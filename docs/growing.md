@@ -49,7 +49,7 @@ The harness's scratch - each ignores itself, and is never part of a module's his
 | `plain_modules/.turri/scripts/` | the copies each testing script run happens in, one folder a run |
 | `plain_modules/.turri/logs/` | each testing script run's whole output, by time and script |
 | `plain_modules/.turri/system-packages.json` | the system packages the agents installed, installed again by every VM of the project |
-| `.turri/jobs/` | each job's log: its diff, its stages, its agents and what they cost |
+| `.turri/jobs/` | each job's log: its diff, its stages, its agents and what they cost, and its sandbox VM starting - how long, and where the time went |
 | `.turri/debug/` | each agent's log: its prompt, every tool call and every answer |
 | `.turri/sessions/` | the agents' saved sessions |
 | `.turri/runs/<skill>/` | a gated skill's run: what an interrupted one resumes from, and its gates' evidence |
@@ -123,7 +123,7 @@ The agents with one thing to decide have a budget of tool calls: the judge 30, t
 explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
 with what it knows; past twice the budget its turn is stopped. Handing the decision over starts the
 count again - a reviewer kept for the next review gets its whole budget for it. And every turn of an agent a render
-starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none). It is told so, and when they
+starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none) - not counting a command's wait for its sandbox VM to start, which stops the clock. It is told so, and when they
 are up its turn ends where it is and the harness takes it from there - it runs the tests, and judges.
 A code fix has to build and pass the code's unit tests before the conformance suite runs again: one
 that does not goes straight back to the coding agent, with the output, rather than to a judge. So is an agent whose calls to one tool fail ten times in a row with nothing going through
@@ -324,8 +324,9 @@ work is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
 Changes to what is built - an item edited or taken out, a functional spec built worded differently - go
 first, in a job of their own. Every answer is checked: every new functional spec once, in order, next to
 each other, at most three; every req placed once. One that does not hold goes back to its agent, twice at
-most, and then the plan is a functional spec a job with every req in the first. A group past 120 lines
-goes a functional spec a job. The planner runs on the chat's model in a conversation, and on the
+most, and then the plan is a functional spec a job with every req in the first. A group whose functional specs
+and the definitions they bring pass 120 lines goes a functional spec a job; its reqs do not count, as a split
+leaves them with its first job whatever happens. The planner runs on the chat's model in a conversation, and on the
 harness model under `turri regrow`. No agent reviews its plan: the harness checks it - every
 change in exactly one job, the spec holding together after each, the last ending on the spec as it is.
 
@@ -569,9 +570,13 @@ and the work is from that record to what they are to be: of the functional specs
 those chosen - every one, or those `bind` names - as the spec has them, with its test reqs. A
 functional spec whose code is behind the spec - built from other text, or not in the code record at all, as while
 `regrow` grows it again by name - keeps its tests until the code lands; they are taken out only once the spec and the
-code have both dropped it. The work is cut into jobs
-as the code's is, anchored on functional specs - every conformance job tests at least one, and the definitions
-and reqs they are written against go with the first that needs them, never in a job of their own; only work that
+code have both dropped it. The harness cuts the work into jobs, and no agent is asked: every functional spec
+tested - added or changed, asked for by `bind`, chosen, or left by the code jobs - is in one conformance job, a
+module's own together, as far as a guardrail lets: a new job begins only where the next functional spec would take
+the job's functional specs and the definitions they bring past 120 lines. The reqs they are written against go
+with the first job, and do not count. When the person asks for it - one at a time, separately - `bind`'s
+`one_by_one` (`turri bind --one-by-one`) makes it a job a functional spec instead, until conformance tests are asked
+for again without it. Only work that
 touches no functional spec at all, the test reqs changed say, is a job without one - and a conformance job runs on the module's lane before its
 next code job: after a job lands, the tests of what it built come before anything is built on it.
 
@@ -591,14 +596,13 @@ to those chosen before, and a functional spec that has conformance tests keeps t
 changes, never taken out because others were named.
 
 **Scheduled ahead of the code.** `bind` may name functional specs whose code is not built yet:
-each call schedules one conformance job, shown at once in what is planned, after the code job that builds the
+each call schedules them as one group, shown at once in what is planned, after the code job that builds the
 last of them. Its functional specs are chosen once the code record has every one as the spec has it - not one
 by one as each lands - and its tests are written then, before the next code job. Say code jobs a and b are
 planned, then d and e: conformance tests named for what a and b build run once b lands, before d, and those
 named for e's after e. A functional spec the spec does not have - built by no code job - or a module with no
 test reqs is refused, and nothing is scheduled; one taken out of the spec later is dropped from its group.
-When every functional spec a conformance plan tests is in a group scheduled together, the groups are its jobs:
-no planning agent is asked.
+Groups whose code is built by then are tested together, in one job with the rest, as far as the guardrail lets.
 
 While a codebase's work is being planned into jobs, with nothing running there, what is planned says so - the
 conformance tests of the groups being planned, or the work - rather than showing nothing until the plan is made.

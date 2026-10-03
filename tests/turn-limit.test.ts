@@ -33,6 +33,28 @@ describe("an agent's turn", () => {
     expect(reply).toContain("[the turn was stopped: its 1 second were up]");
   });
 
+  it("does not pay for waiting on its sandbox VM: the clock stops meanwhile, and runs on from where it was", async () => {
+    const { offTheTurnClock } = await import("../src/grow/activity.ts");
+    const { session, aborted } = slowSession();
+    const prompt = session.prompt.bind(session);
+    // A turn whose first command waits 1.5s for its VM - longer than the whole turn's 1 second - then works on.
+    (session as unknown as { prompt: (text: string) => Promise<void> }).prompt = async (text: string) => {
+      const working = prompt(text);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await offTheTurnClock(new Promise((resolve) => setTimeout(resolve, 1500)));
+      await working;
+    };
+    timeTurns(session);
+    const started = Date.now();
+    const reply = await ask(session, "Fix the failing test.");
+    const took = Date.now() - started;
+    // Its 1 second is the 0.3s before the wait and 0.7s after it: stopped at about 2.5s, not at 1s.
+    expect(took).toBeGreaterThanOrEqual(2400);
+    expect(took).toBeLessThan(4000);
+    expect(aborted()).toBe(1);
+    expect(reply).toContain("[the turn was stopped: its 1 second were up]");
+  });
+
   it("is not timed for a session a render did not start - the conversation, a skill's agent", async () => {
     const { session, prompts, aborted } = slowSession();
     const reply = ask(session, "Write the spec.");

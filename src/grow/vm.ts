@@ -8,7 +8,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { createHttpHooks, getImageStoreDirectory, ReadonlyProvider, RealFSProvider, resolveImageSelector, VM } from "@earendil-works/gondolin";
 import { qemuInstalled, qemuInstallHint } from "../environment.ts";
-import { currentStopSignal, reportActivity } from "./activity.ts";
+import { currentStopSignal, offTheTurnClock, reportNote } from "./activity.ts";
 import { credentialFiles, credentialRefusal, restoreCredentialFiles } from "./credentials.ts";
 import { ensureInVmScratch, MODULES_DIR, modulesRootOf, projectRootOf, vmScratchDir } from "./paths.ts";
 import { readProjectConfig } from "../config.ts";
@@ -493,17 +493,17 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
   const cache = packageCacheDir(project);
   ensureInVmScratch(project, join(cache, "apk"));
   const image = vmImageFor(projectRootOf(project));
-  if (image?.missing !== undefined) reportActivity(`  ${image.missing}; this VM runs ${image.tag} meanwhile`);
+  if (image?.missing !== undefined) reportNote(`  ${image.missing}; this VM runs ${image.tag} meanwhile`);
   const started = Date.now();
   const holds = mounts.map((mount) => relative(dirname(project), mount)).join(" and ");
-  reportActivity(`  starting the sandbox VM for ${holds} (${image ? image.tag : "stock image"}) - the first command waits for it`);
+  reportNote(`  starting the sandbox VM for ${holds} (${image ? image.tag : "stock image"}) - the first command waits for it`);
   // Every host, internal ones included: the network is open (see HOST_ALIAS).
   const { httpHooks } = createHttpHooks({ blockInternalRanges: false });
   // Short of memory, it starts out of swap - minutes, not seconds: said, so a slow start is no mystery.
   const memory = vmMemoryFor(project);
   const free = availableMemory();
   if (free < bytesOf(memory)) {
-    reportActivity(
+    reportNote(
       `  this machine has ${gigabytes(free)} free - less than the ${memory} a VM is given: it starts slowly, out of swap. Close other apps, or set vm-memory or parallel-jobs lower in config.yaml`,
     );
   }
@@ -523,6 +523,7 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
     // The stock image cannot grow its disk, so only ours is given more.
     ...(image ? { sandbox: { imagePath: image.path }, rootfs: { size: VM_DISK } } : {}),
   });
+  const created = Date.now();
   // Alpine keeps what it downloads when /etc/apk/cache exists, so the packages installed
   // again at every start come from the project's cache: offline first - every one is there once
   // it was installed - and from the network only for one that is not. Under a time limit: a
@@ -533,7 +534,7 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
   const wanted = systemPackages(project);
   const missing = packagesMissing(project, wanted);
   if (missing.length > 0) {
-    reportActivity(
+    reportNote(
       `  adding the system packages this project's agents installed before, which the image does not have: ${missing.join(", ")} - put them in config.yaml's vm-image and run turri vm-image to have them in the image`,
     );
     const list = missing.join(" ");
@@ -542,10 +543,11 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
   const packages = missing;
   const limit = AbortSignal.timeout(VM_SETUP_TIMEOUT_MS);
   const ready = await exec(vm, setup.join(" && "), { cwd: mounts[0]!, env: guestEnv(cache), signal: limit }).catch((error: unknown) => ({ exitCode: -1, output: String(error) }));
+  const booted = Date.now();
   if (limit.aborted) {
-    reportActivity(`  installing the project's system packages took over ${Math.round(VM_SETUP_TIMEOUT_MS / 1000)}s - given up: the VM goes on without them`);
+    reportNote(`  installing the project's system packages took over ${Math.round(VM_SETUP_TIMEOUT_MS / 1000)}s - given up: the VM goes on without them`);
   } else if (ready.exitCode !== 0 && packages.length > 0) {
-    reportActivity(`  the project's system packages did not all install: ${ready.output.trim().split("\n").at(-1) ?? ""}`);
+    reportNote(`  the project's system packages did not all install: ${ready.output.trim().split("\n").at(-1) ?? ""}`);
   }
   // Running now - it boots on its first command: stopped with this process, however it ends - killed outright
   // too, which runs nothing on the way out.
@@ -553,9 +555,14 @@ async function start(project: string, mounts: string[], readOnly: string[] = [])
   const localhost = await exec(vm, localhostSetup(), { cwd: mounts[0]!, env: guestEnv(cache) });
   if (localhost.exitCode !== 0) {
     // The VM is still usable; only this machine's localhost is out of reach.
-    reportActivity(`  this machine's localhost could not be made reachable from the VM: ${localhost.output.trim().split("\n").at(-1) ?? ""}`);
+    reportNote(`  this machine's localhost could not be made reachable from the VM: ${localhost.output.trim().split("\n").at(-1) ?? ""}`);
   }
-  reportActivity(`  sandbox VM ready after ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  // Where the time went, so a slow start can be told apart afterwards: the job's log keeps this line.
+  const took = (from: number, to: number) => `${((to - from) / 1000).toFixed(1)}s`;
+  const now = Date.now();
+  reportNote(
+    `  sandbox VM ready after ${took(started, now)} - created in ${took(started, created)}, booted${packages.length > 0 ? " and given its packages" : ""} in ${took(created, booted)}, localhost reachable in ${took(booted, now)}`,
+  );
   return vm;
 }
 
@@ -622,8 +629,13 @@ async function acquire(dir: string, forDir?: string, wait: { signals?: AbortSign
     };
   });
   given.catch(() => undefined);
+  const waitStarted = Date.now();
   try {
-    return { vm: await Promise.race([current.vm, given]), project, done };
+    // The agent's turn does not pay for its VM starting: the clock on it stops meanwhile.
+    const vm = await offTheTurnClock(Promise.race([current.vm, given]));
+    const waited = Date.now() - waitStarted;
+    if (waited >= 1000) reportNote(`  a command waited ${(waited / 1000).toFixed(1)}s for its sandbox VM - not counted in the agent's turn`);
+    return { vm, project, done };
   } catch (error) {
     done();
     if (error instanceof Error && error.message === "aborted") throw error;
@@ -890,7 +902,7 @@ export function vmBashOperations(): BashOperations {
       } finally {
         const restored = restoreCredentialFiles(credentials, holds);
         if (restored.length > 0) {
-          reportActivity(`  an agent's command wrote ${restored.join(", ")}, which holds credentials - put back as it was`);
+          reportNote(`  an agent's command wrote ${restored.join(", ")}, which holds credentials - put back as it was`);
           onData(Buffer.from(`\n[turri put back ${restored.map((path) => basename(path)).join(", ")} as it was. ${credentialRefusal(restored[0]!)}]\n`));
         }
       }

@@ -51,8 +51,11 @@ export interface PlanInput {
    * Default: the code's.
    */
   track?: "code" | "conformance";
-  /** For the conformance tests: functional specs, by number, whose tests are written in one job - as the conversation scheduled them. */
-  together?: string[][];
+  /**
+   * For the conformance tests: a job a functional spec, as the person asked. Otherwise every functional spec tested is
+   * in one job, as far as the guardrail (MAX_LINES_PER_JOB) lets.
+   */
+  separately?: boolean;
 }
 
 /** One job of a plan: a title, why, and the changes it makes, by id. */
@@ -299,6 +302,14 @@ function placeDefinitions(chunks: Chunk[], definitions: SpecChange[]): void {
   if (left.length > 0 && chunks.length > 0) chunks.at(-1)!.definitions.push(...left);
 }
 
+/**
+ * The lines of a chunk that a split can move to a later job: its functional specs and the definitions they bring. Its
+ * reqs stay with the first job of the split whatever happens, so they never decide one.
+ */
+function movableSize(chunk: Chunk): number {
+  return [...chunk.specs, ...chunk.definitions].reduce((total, change) => total + linesOf(change), 0);
+}
+
 function sizeOf(chunk: Chunk): number {
   return [...chunk.specs, ...chunk.definitions, ...chunk.reqs, ...(chunk.built ?? [])].reduce((total, change) => total + linesOf(change), 0);
 }
@@ -338,51 +349,8 @@ function titleOf(change: SpecChange): string {
  */
 export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   if (input.track !== "conformance") return cut(input, agents);
-  const net = netChanges(input.base, input.current);
-  // Every functional spec tested is in a group scheduled together: the jobs are those groups, and no agent is asked.
-  const draft = await cut(input, decided(net, input) ? undefined : agents);
-  return joined(anchored(draft, net), net, input);
-}
-
-/** A conformance change's functional spec, by its number: in the tree after it, or - taken out - before it. */
-function fridsOf(net: SpecChange[], input: PlanInput): Map<string, string | undefined> {
-  const fridAt = (tree: MarshalledPlainSource, position: number) => ((tree[FUNCTIONAL_REQUIREMENTS] as Array<{ frid?: string }> | undefined) ?? [])[position - 1]?.frid;
-  return new Map(
-    net
-      .filter((change) => change.section === FUNCTIONAL_REQUIREMENTS)
-      .map((change) => [change.id, fridAt(change.kind === "remove" ? input.base : input.current, change.position)]),
-  );
-}
-
-/** Whether the groups scheduled together hold every functional spec a conformance plan tests: then they are its jobs. */
-function decided(net: SpecChange[], input: PlanInput): boolean {
-  const together = new Set((input.together ?? []).flat());
-  const frids = [...fridsOf(net, input).values()];
-  return frids.length > 0 && frids.every((frid) => frid !== undefined && together.has(frid));
-}
-
-/**
- * A conformance plan with the jobs that test functional specs scheduled together made one, where the first of them is:
- * the tests of each are written on the code as built, so none waits for another's.
- */
-function joined(draft: DraftJob[], net: SpecChange[], input: PlanInput): DraftJob[] {
-  if (input.together === undefined || input.together.length === 0) return draft;
-  const fridOf = fridsOf(net, input);
-  const order = new Map(net.map((change, index) => [change.id, index]));
-  let jobs = draft;
-  for (const group of input.together) {
-    const tests = (job: DraftJob) => job.changes.some((id) => group.includes(fridOf.get(id) ?? ""));
-    const into = jobs.findIndex(tests);
-    if (into === -1) continue;
-    const merged = jobs.filter(tests);
-    const job: DraftJob = {
-      title: merged.map((entry) => entry.title).join("; "),
-      reason: merged[0]!.reason,
-      changes: merged.flatMap((entry) => entry.changes).sort((a, b) => order.get(a)! - order.get(b)!),
-    };
-    jobs = jobs.flatMap((entry, index) => (index === into ? [job] : tests(entry) ? [] : [entry]));
-  }
-  return jobs;
+  // The conformance tests are grouped by the harness, as one job as far as the guardrail lets: no agent is asked.
+  return anchored(await cut(input), netChanges(input.base, input.current));
 }
 
 /**
@@ -408,13 +376,45 @@ function anchored(draft: DraftJob[], net: SpecChange[]): DraftJob[] {
   return jobs;
 }
 
+/**
+ * How the conformance tests are cut, with no agent: every functional spec tested in one job - those of one module
+ * together - a new job begun only where the next functional spec would take the job's functional specs and the
+ * definitions they bring past MAX_LINES_PER_JOB; or, `separately`, a job a functional spec, as the person asked.
+ * `size`: the movable lines of the last group of a grouping, its definitions placed.
+ */
+function conformanceGroups(
+  specs: NewSpec[],
+  separately: boolean,
+  size: (groups: Array<{ specs: number[]; title: string }>) => number,
+  titleOfSpec: (number: number) => string,
+): Array<{ specs: number[]; title: string }> {
+  const groups: Array<{ specs: number[] }> = [];
+  for (const spec of specs) {
+    const last = groups.at(-1);
+    const sameModule = last !== undefined && specs.find((other) => other.number === last.specs[0])?.module === spec.module;
+    if (!separately && last !== undefined && sameModule) {
+      const trial = [...groups.slice(0, -1), { specs: [...last.specs, spec.number] }].map((group) => ({ ...group, title: "" }));
+      if (size(trial) <= MAX_LINES_PER_JOB) {
+        last.specs.push(spec.number);
+        continue;
+      }
+    }
+    groups.push({ specs: [spec.number] });
+  }
+  return groups.map((group) => ({ specs: group.specs, title: group.specs.map(titleOfSpec).join("; ") }));
+}
+
 async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   const net = netChanges(input.base, input.current);
   if (net.length === 0) return [];
   // What is grouped into jobs: the functional specs grown again - the modules' below first, as the codebase is built on
   // them - and the codebase's own, grown again or new at the end, in the spec's order.
   const below = net.filter((change) => growsAgain(change) && change.section === REQUIRED_FUNCTIONAL_SPECS).sort((a, b) => a.position - b.position);
-  const own = [...net.filter((change) => growsAgain(change) && change.section === FUNCTIONAL_REQUIREMENTS), ...newSpecsOf(net, input.current)].sort((a, b) => a.position - b.position);
+  // The conformance tests are written on the code as built: every functional spec added or changed is tested alike, wherever it is.
+  const own =
+    input.track === "conformance"
+      ? net.filter((change) => change.section === FUNCTIONAL_REQUIREMENTS && change.kind !== "remove").sort((a, b) => a.position - b.position)
+      : [...net.filter((change) => growsAgain(change) && change.section === FUNCTIONAL_REQUIREMENTS), ...newSpecsOf(net, input.current)].sort((a, b) => a.position - b.position);
   const specs = [...below, ...own];
   const inSpecs = new Set(specs);
   const isNew = (change: SpecChange, section: string) => change.section === section && change.kind === "add";
@@ -442,17 +442,23 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
       ...(growsAgain(change) ? { again: true } : {}),
     };
   });
-  const grouped = (await agents?.group(numbered, (answer) => groupProblems(numbered, answer), input.steering).catch(() => undefined)) ?? undefined;
-  const groups =
-    grouped !== undefined && groupProblems(numbered, grouped).length === 0
-      ? grouped.groups
-      : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));
-  if (grouped === undefined || groupProblems(numbered, grouped).length > 0) reportActivity("  the grouping did not hold - a functional spec a pulse");
   const bySpec = new Map(specs.map((change, index) => [index + 1, change]));
   const chunksFor = (list: Array<{ specs: number[]; title: string }>): Chunk[] => [
     ...(hasBuilt ? [{ title: "Changes to what is built", specs: [], definitions: [], reqs: [], built: builtChanges }] : []),
     ...list.map((group) => ({ title: group.title, specs: group.specs.map((number) => bySpec.get(number)!), definitions: [], reqs: [] })),
   ];
+  const conformance = input.track === "conformance";
+  const grouped = conformance ? undefined : ((await agents?.group(numbered, (answer) => groupProblems(numbered, answer), input.steering).catch(() => undefined)) ?? undefined);
+  const groups = conformance
+    ? conformanceGroups(numbered, input.separately === true, (list) => {
+        const trial = chunksFor(list);
+        placeDefinitions(trial, definitions);
+        return movableSize(trial.at(-1)!);
+      }, (number) => titleOf(bySpec.get(number)!))
+    : grouped !== undefined && groupProblems(numbered, grouped).length === 0
+      ? grouped.groups
+      : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));
+  if (!conformance && (grouped === undefined || groupProblems(numbered, grouped).length > 0)) reportActivity("  the grouping did not hold - a functional spec a pulse");
   let chunks = chunksFor(groups);
 
   // 2. The definitions each group uses.
@@ -473,7 +479,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
     };
     const answer = (await agents?.place(placeInput, (given) => placeProblems(placeInput, given)).catch(() => undefined)) ?? undefined;
     placement = answer !== undefined && placeProblems(placeInput, answer).length === 0 ? answer : undefined;
-    if (placement === undefined) reportActivity("  the placement did not hold - every implementation req with the first pulse, every test req with the first conformance pulse");
+    if (placement === undefined && agents !== undefined) reportActivity("  the placement did not hold - every implementation req with the first pulse, every test req with the first conformance pulse");
   }
   /** A req's chunk: its group, the built job, or the first job of the new work for "all". */
   const chunkOf = (to: Target): Chunk => (to === "built" ? builtChunk()! : to === "all" ? newChunks()[0]! : newChunks()[to - 1]!);
@@ -488,10 +494,10 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
   place();
 
   // A group too big to render well goes a functional spec a job; its reqs with the first of them.
-  if (newChunks().some((chunk) => chunk.specs.length > 1 && sizeOf(chunk) > MAX_LINES_PER_JOB)) {
+  if (newChunks().some((chunk) => chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB)) {
     const split = groups.flatMap((group) => {
       const chunk = newChunks().find((candidate) => candidate.specs[0] === bySpec.get(group.specs[0]!));
-      return chunk !== undefined && chunk.specs.length > 1 && sizeOf(chunk) > MAX_LINES_PER_JOB ? group.specs.map((number) => ({ specs: [number], title: titleOf(bySpec.get(number)!) })) : [group];
+      return chunk !== undefined && chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB ? group.specs.map((number) => ({ specs: [number], title: titleOf(bySpec.get(number)!) })) : [group];
     });
     const before = placement;
     // A req placed with a group that split goes with the first functional spec of it.

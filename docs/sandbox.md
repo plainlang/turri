@@ -94,7 +94,10 @@ project moves on to another module, the old module's VMs are shut down and the n
 offline first, from the network only for one the cache does not hold, and for 90 seconds at most
 (`TURRI_VM_SETUP_TIMEOUT`), after which the VM goes on without them - and the dependencies are in the
 module's folder. A command waiting for its VM to start waits as long as a start can take - its boot and that
-setup - and not once it is stopped: it is not run, and says so, and the VM goes on starting for the next one. A VM nothing has used for a minute is shut down too, and every VM when turri exits. A VM does not die with
+setup - and not once it is stopped: it is not run, and says so, and the VM goes on starting for the next one. The wait
+is not the agent's: the clock on its turn stops while a command waits for its VM, and runs on from where it was once the
+VM is up. A start says how long it took and where the time went - created, booted, localhost made reachable - and that,
+with every other line about the VM, is kept in the job's log in `.turri/jobs/`, beside what the agents did. A VM nothing has used for a minute is shut down too, and every VM when turri exits. A VM does not die with
 the process that started it, so each has a watcher beside it - a small shell that stops it within
 two seconds of its turri ending, however it ends: killed outright, crashed, a test worker
 terminated. One left running all the same - its parent gone, the system holding it - is stopped

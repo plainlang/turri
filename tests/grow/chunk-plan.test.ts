@@ -163,6 +163,59 @@ describe("cutting the queue's work into jobs", () => {
     expect(steps[0]!.step.textDiff).toContain("+- A :User: does a big thing.");
   });
 
+  /** Agents that count how often they are asked: the conformance tests are grouped without them. */
+  const counted = () => {
+    const asked = { group: 0, place: 0 };
+    const given: ChunkAgents = {
+      group: async () => ((asked.group += 1), undefined),
+      place: async () => ((asked.place += 1), undefined),
+    };
+    return { asked, given };
+  };
+  const manyReqs = (count: number, what: string) => Array.from({ length: count }, (_, n) => `- :Implementation: ${what} rule ${n + 1}, which runs on\n  over a second line.`);
+
+  it("writes the conformance tests of every functional spec in one job, asking no agent - however many reqs come with them, as the test reqs a module imports once cut five functional specs into five", async () => {
+    const current = tree({ definitions: DEFS, impl: manyReqs(30, "build"), tests: manyReqs(30, "test"), specs: SPECS });
+    const from = { ...input({}, current), track: "conformance" as const };
+    const { asked, given } = counted();
+    const plan = await planChunks(from, given);
+    expect(asked).toEqual({ group: 0, place: 0 });
+    expect(plan).toHaveLength(1);
+    expect(checkDraft(from, plan)).toEqual([]);
+    const [all] = jobs(plan, from);
+    for (const spec of SPECS) expect(all!.diff).toContain(`+${spec}`);
+  });
+
+  it("rewrites the tests of functional specs that changed in the same job as it writes those of new ones", async () => {
+    const base = tree({ definitions: DEFS, specs: SPECS.slice(0, 3) });
+    const current = tree({ definitions: DEFS, specs: ["- A visitor registers a :User: with a :Handle:.", ...SPECS.slice(1)] });
+    const from = { ...input(base, current), track: "conformance" as const };
+    const plan = await planChunks(from, counted().given);
+    expect(plan).toHaveLength(1);
+    expect(checkDraft(from, plan)).toEqual([]);
+    const [all] = jobs(plan, from);
+    expect(all!.diff).toContain("+- A visitor registers a :User: with a :Handle:.");
+    expect(all!.diff).toContain("+- A :User: gives :Kudos:.");
+  });
+
+  it("writes them a job a functional spec when the person asked for that", async () => {
+    const from = { ...input({}, tree({ definitions: DEFS, specs: SPECS })), track: "conformance" as const, separately: true };
+    const plan = await planChunks(from, counted().given);
+    expect(plan).toHaveLength(SPECS.length);
+    expect(checkDraft(from, plan)).toEqual([]);
+    expect(jobs(plan, from)[2]!.diff).toContain("+- A :User: writes a :Comment:.");
+  });
+
+  it("begins another conformance job only where the next functional spec would take the job's functional specs and the definitions they bring past the guardrail", async () => {
+    // Each functional spec 50 lines: two of them and their definitions fit in 120, a third does not.
+    const long = SPECS.map((spec) => `${spec}\n${Array.from({ length: 49 }, (_, line) => `  - detail ${line}`).join("\n")}`);
+    const from = { ...input({}, tree({ definitions: DEFS, tests: manyReqs(30, "test"), specs: long })), track: "conformance" as const };
+    const plan = await planChunks(from, counted().given);
+    expect(checkDraft(from, plan)).toEqual([]);
+    const cut = jobs(plan, from).map((job) => SPECS.filter((spec) => job.diff.includes(`+${spec}`)).length);
+    expect(cut).toEqual([2, 2, 1]);
+  });
+
   it("leaves conformance work that touches no functional spec as it is - the test reqs changed, say", async () => {
     const base = tree({ tests: ["- :ConformanceTests: use pytest."], specs: ["- A :User: signs in."] });
     const from = { ...input(base, tree({ tests: ["- :ConformanceTests: use pytest, one file each."], specs: ["- A :User: signs in."] })), track: "conformance" as const };

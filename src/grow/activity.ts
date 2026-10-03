@@ -16,6 +16,8 @@ export interface ActivitySink {
   stage(label: string): void;
   /** One thing that just happened, e.g. "✎ write greeter.py". */
   activity(line: string): void;
+  /** A line about the machinery under the work - the sandbox VM starting, what it waited on - kept in the job's log too. */
+  note?(line: string): void;
   /**
    * What is happening at this moment, e.g. "thinking", or undefined when nothing is.
    * `keepSince` updates the words without restarting the clock on it.
@@ -215,6 +217,39 @@ export function reportStage(label: string): void {
 
 export function reportActivity(line: string): void {
   store.getStore()?.activity(line);
+}
+
+/** Say something about the machinery under the work: shown as activity, and kept in the job's log, which the activity is not. */
+export function reportNote(line: string): void {
+  const sink = store.getStore();
+  sink?.activity(line);
+  sink?.note?.(line);
+}
+
+/** The clock on an agent's turn, held off while the harness keeps it waiting on its own business. */
+export interface TurnClock {
+  /** Stops the clock until the function it returns is called; pauses overlap. */
+  pause(): () => void;
+}
+
+const turnClock = new AsyncLocalStorage<TurnClock>();
+
+/** Run an agent's turn with its clock, so what it calls can hold the clock off. */
+export function withTurnClock<T>(clock: TurnClock, run: () => Promise<T>): Promise<T> {
+  return turnClock.run(clock, run);
+}
+
+/**
+ * Wait for `work` with the turn's clock stopped: time an agent spends waiting on the harness - its VM starting - is not
+ * the agent's, and does not count against its turn. Outside a timed turn, just the wait.
+ */
+export async function offTheTurnClock<T>(work: Promise<T>): Promise<T> {
+  const resume = turnClock.getStore()?.pause();
+  try {
+    return await work;
+  } finally {
+    resume?.();
+  }
 }
 
 export function reportNow(label: string | undefined, options?: { keepSince?: boolean }): void {

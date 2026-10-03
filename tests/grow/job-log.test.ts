@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { reportAgent, reportStage, reportTranscript } from "../../src/grow/activity.ts";
+import { reportActivity, reportAgent, reportNote, reportStage, reportTranscript } from "../../src/grow/activity.ts";
 import { createJobRegistry, describeJob } from "../../src/grow/jobs.ts";
 
 let root: string;
@@ -15,6 +15,32 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("a job's log", () => {
+  it("keeps the harness's notes - the sandbox VM starting and how long it took - and not every activity line", async () => {
+    const jobs = createJobRegistry();
+    const job = jobs.start({
+      kind: "regrow",
+      summary: "app.plain render spec diff",
+      lanes: [lane],
+      run: async () => {
+        reportNote("  starting the sandbox VM for plain_modules/app/code (turri:latest) - the first command waits for it");
+        reportActivity("$ mkdir -p src");
+        reportTranscript({ kind: "thinking", text: "First the folders." });
+        reportNote("  sandbox VM ready after 2.2s - created in 0.4s, booted in 1.6s, localhost reachable in 0.2s");
+        reportTranscript({ kind: "thinking", text: "Now the code." });
+        return { report: "Rendered the spec change." };
+      },
+    });
+    await jobs.wait(job.id);
+    expect(jobs.get(job.id)!.activity).toContain("$ mkdir -p src");
+    const dir = join(root, ".turri", "jobs");
+    const text = readFileSync(join(dir, readdirSync(dir)[0]!), "utf8");
+    expect(text).toMatch(/\[[\d:.]+\] · starting the sandbox VM for plain_modules\/app\/code/);
+    expect(text).toMatch(/\[[\d:.]+\] · sandbox VM ready after 2\.2s - created in 0\.4s/);
+    expect(text).not.toContain("mkdir");
+    // A note between two thoughts parts them: the second is not run on into the note.
+    expect(text).toMatch(/· sandbox VM ready[^\n]*\n+\[[\d:.]+\] thinking ▸\nNow the code\./);
+  });
+
   it("ends with each of its agents - turns, compactions and what it cost - and growth says the same", async () => {
     const jobs = createJobRegistry();
     const spent = { input: 1000, output: 200, cacheRead: 5000, cacheWrite: 0, cost: 0.05 };

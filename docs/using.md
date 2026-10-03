@@ -39,7 +39,7 @@ where it stopped.
 | `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
-| `bind` | bind functional specs to conformance tests - now, or ahead of their code: a conformance pulse is scheduled and starts once every one named is grown; whatever the config says |
+| `bind` | bind functional specs to conformance tests - now, or ahead of their code: every one tested in one conformance pulse, as far as a size guardrail lets (or one a functional spec, when you ask for that), started once every one named is grown; whatever the config says |
 | `rejuvenate` | grow again what is grown: functional specs named grow again though their spec did not change - rewritten or started over, planned into pulses as any change is, those next to each other together; with none named, a codebase grown without a module it now requires starts over from the bottom of its chain - only once you agree |
 | `validate` | validate a spec, growing nothing |
 | `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |

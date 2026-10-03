@@ -143,13 +143,15 @@ interface ModuleState {
    * specs: none named, every one. Not asked: as the config says.
    */
   conformance?: { chosen?: Set<string> };
+  /** The conformance tests a job a functional spec, as the person asked when they asked for them - not one job for all. */
+  conformanceSeparately?: boolean;
   /**
    * Conformance tests the conversation scheduled, one group a request, for functional specs not all built yet -
    * `unbuilt`, those that are not, as of the last look. A group is chosen once the code record has every one of
    * them as the spec has it, and its tests are then written in a conformance job before the next code job.
    */
   scheduled?: Array<{ specs: TouchedSpec[]; unbuilt: string[] }>;
-  /** The groups scheduled that are chosen now, their tests not written yet: each is planned as one conformance job. */
+  /** The groups scheduled that are chosen now, their tests not written yet: shown as what is planned while it is planned. */
   together?: TouchedSpec[][];
   /** The track being planned into jobs now, nothing running: what is next is shown while it is. */
   planning?: Track;
@@ -235,7 +237,7 @@ export interface WorkLoop {
    * code as it is built, in the codebases where its code lives: for this session, whatever the config says. Asked
    * again, it clears a halt. Says what it planned.
    */
-  conformance(plainFile: string, options?: { frids?: string[]; model?: string }): Promise<ModuleStatus[]>;
+  conformance(plainFile: string, options?: { frids?: string[]; model?: string; separately?: boolean }): Promise<ModuleStatus[]>;
   /**
    * Start over the codebases of a spec's module that now require a module their code was not built on (see
    * `ModuleStatus.startOver`): their code and conformance tests taken out - committed, so their history keeps
@@ -506,8 +508,8 @@ export function createWorkLoop(options: {
       ...(options.steering?.(state.askedFile) ?? []),
       ...state.guidance.map((text) => ({ source: "the request that asked for the work", text })),
     ];
-    const together = track === "conformance" ? (state.together ?? []).map((specs) => specs.map((touched) => touched.frid)) : [];
-    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, ...(together.length > 0 ? { together } : {}) };
+    const separately = track === "conformance" && state.conformanceSeparately === true;
+    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, ...(separately ? { separately } : {}) };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into pulses`);
@@ -1015,6 +1017,10 @@ export function createWorkLoop(options: {
         state.conformance = all ? {} : { chosen: before?.chosen ?? new Set() };
         // Scheduled now, chosen once all of them are built - at once, those that are.
         state.scheduled = all ? undefined : [...(state.scheduled ?? []), { specs: named, unbuilt: named.map((touched) => touched.frid) }];
+        // One job for all of them, or one a functional spec: as this request asks. Changed, the plan is made again.
+        const separately = request.separately === true;
+        if ((state.conformanceSeparately === true) !== separately) state.conformancePlan = undefined;
+        state.conformanceSeparately = separately;
         state.conformanceHalted = undefined;
         state.halted = undefined;
       }

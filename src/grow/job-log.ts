@@ -17,6 +17,8 @@ import { ensureInScratch, MODULES_DIR, projectRootOf, scratchDir } from "./paths
 export interface JobLog {
   readonly file: string;
   entry(entry: TranscriptEntry): void;
+  /** A line about the machinery under the work (activity.ts `reportNote`): the sandbox VM starting, what it waited on. */
+  note(line: string): void;
   /** `agents`: a line per agent - its turns, compactions and cost. */
   end(status: string, report: string | undefined, agents?: string[]): void;
 }
@@ -102,6 +104,10 @@ export function startJobLog(job: { id: string; kind: string; summary: string; mo
           write(`${at} ${entry.error ? "✗" : "↳"}\n${text === "" ? "    (no output)" : text.replace(/\n+$/, "").split("\n").map((line) => `    ${line}`).join("\n")}\n`);
           break;
       }
+    },
+    note(line) {
+      last = undefined;
+      write(`\n\n${stamp()} · ${line.trim()}\n`);
     },
     end(status, report, agents = []) {
       last = undefined;

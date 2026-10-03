@@ -268,6 +268,9 @@ export function createJobRegistry(options?: {
           job.activity = [...job.activity, line].slice(-ACTIVITY_LINES);
           changed();
         },
+        note(line: string) {
+          log?.note(line);
+        },
         usage(spent: UsageReport) {
           job.usage = {
             input: job.usage.input + spent.input,
