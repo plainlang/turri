@@ -2,12 +2,13 @@ import type { JobCases, TouchedSpec } from "./drift.ts";
 
 /**
  * What a job's agents are told to do, by its cases - see docs/growing.md. A job's functional specs each fall in
- * one case - fresh, added, changed (patched), taken out - or, with none touched, the job is mechanical. The coding
+ * one case - fresh, added, changed (patched), grown again, taken out - or, with none touched, the job is mechanical. The coding
  * agent and the conformance agent are each told, case by case, exactly what to do with the functional specs of that
  * case; their reviewers, what to hold each to. A job holding several cases gets a section for each.
  */
 
-const named = (specs: TouchedSpec[]) => specs.map((spec) => `fs ${spec.frid} (${spec.text})`).join("; ");
+/** Functional specs, each by its number and - each module numbering its own from 1 - the module it belongs to. */
+const named = (specs: TouchedSpec[]) => specs.map((spec) => `fs ${spec.frid}${spec.module !== undefined ? ` of module \`${spec.module}\`` : ""} (${spec.text})`).join("; ");
 
 /** What the coding agent does, case by case. */
 export function codeCasesBlock(cases: JobCases): string[] {
@@ -23,6 +24,15 @@ export function codeCasesBlock(cases: JobCases): string[] {
     lines.push(
       `- Changed - its text, or a concept it uses: ${named(cases.patch)}.`,
       "  Its code and unit tests exist: change them to match what it says now. Do not build it again from scratch.",
+    );
+  }
+  if (cases.again.length > 0) {
+    lines.push(
+      `- Grown again - its code and unit tests are built, and are to be grown again: ${named(cases.again)}.`,
+      "  Replace its implementation: rewrite it, or take it out and build it anew - made better, and doing exactly what",
+      "  the specification says now. Take out what the new code replaces: no second implementation beside the old one,",
+      "  nothing of the old left unused. What the rest of the code uses from it keeps working. Its unit tests may be",
+      "  rewritten, to test what the specification says.",
     );
   }
   if (cases.delete.length > 0) {
@@ -52,6 +62,13 @@ export function codeReviewCasesBlock(cases: JobCases): string[] {
     "What this work does, by functional spec - hold each part to its own:",
     ...(cases.add.length > 0 ? [`- New: ${named(cases.add)} - implemented, and tested as below.`] : []),
     ...(cases.patch.length > 0 ? [`- Changed: ${named(cases.patch)} - the code and its tests changed to match it now, not left as they were.`] : []),
+    ...(cases.again.length > 0
+      ? [
+          `- Grown again: ${named(cases.again)} - its implementation replaced, not patched beside the old one: nothing of what it`,
+          "  replaced left behind or duplicated, it does what the specification says, what the rest of the code uses from it",
+          "  still works, and its unit tests test the specification.",
+        ]
+      : []),
     ...(cases.delete.length > 0 ? [`- Taken out: ${named(cases.delete)} - its code and the tests only it had removed, and nothing else.`] : []),
   ];
 }

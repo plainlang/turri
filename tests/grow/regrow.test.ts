@@ -157,8 +157,8 @@ describe("rendering a spec diff", () => {
     expect(prompts[0]).not.toContain("- One, loudly.\n</functionality>");
     // The change section by section - functionality 1 reworded, 2 added - not the raw diff.
     expect(prompts[0]).toContain('<spec change>\n<functional specs change="1 added, 1 changed">');
-    expect(prompts[0]).toContain("  functionality 1\n    before:\n      - One.\n    now:\n      - One, loudly.");
-    expect(prompts[0]).toContain("Added:\n  functionality 2:\n  - Two.");
+    expect(prompts[0]).toContain("  functionality 1 of module `app`\n    before:\n      - One.\n    now:\n      - One, loudly.");
+    expect(prompts[0]).toContain("Added:\n  functionality 2 of module `app`:\n  - Two.");
   });
 
   it("hands the coding agent a linked image to look at, and its prompt says which attachment it is", async () => {
@@ -398,10 +398,10 @@ describe("the work loop rendering spec diffs", () => {
     expect(changes[2]).not.toContain("loudly");
     // Each coding agent is told its job's case: the changed functional spec changed in place, the new ones built.
     const tasks = prompts.filter((prompt) => prompt.includes("<spec change>"));
-    expect(tasks[0]).toContain("Changed - its text, or a concept it uses: fs 1 (Say one number, loudly.)");
+    expect(tasks[0]).toContain("Changed - its text, or a concept it uses: fs 1 of module `app` (Say one number, loudly.)");
     expect(tasks[0]).toContain("Do not build it again from scratch.");
-    expect(tasks[1]).toContain("New - build each, and write its unit tests: fs 2 (Two.)");
-    expect(tasks[2]).toContain("New - build each, and write its unit tests: fs 3 (Three.)");
+    expect(tasks[1]).toContain("New - build each, and write its unit tests: fs 2 of module `app` (Two.)");
+    expect(tasks[2]).toContain("New - build each, and write its unit tests: fs 3 of module `app` (Three.)");
     // Each job that landed code says it can be tried.
     const { TRY_IT_LINE } = await import("../../src/grow/delivery.ts");
     const reports = registry.list().map((job) => job.report ?? "");

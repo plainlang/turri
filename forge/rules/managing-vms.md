@@ -34,8 +34,8 @@ Never edit turri's own recipe, `vm/image.json`: the next update puts it back.
 Everything in an image is Alpine Linux: its base system and every package, with all they depend
 on, from Alpine's own repositories - `main` and `community`, on `dl-cdn.alpinelinux.org`, for the
 Alpine release the recipe builds on. Nothing else is downloaded into it. When the person asks what
-they are getting - which Python, from where, how big - `build_vm_image` with `plan: true` answers
-it without building: every package the recipe names, its version, repository, the project it is
+they are getting - which Python, from where, how big - `turri vm-image --plan` answers it without
+building: run it with bash, in the project for its own image, with `--default` for the person's: every package the recipe names, its version, repository, the project it is
 built from, its licence and size, what each toolchain costs beyond the basics, and any name the
 repositories do not have. Show that before a build that changes what the image holds.
 
@@ -71,9 +71,10 @@ script, or the language's own installer run by the build.
 ## Writing and building
 
 - Write the change with the file tools - the person's file, or `vm-image:` in the project's
-  `config.yaml` - and then build it with `build_vm_image` (`scope: "project"` for the project's own,
-  `"default"` for the person's). Say before you start what the image will hold and that the build
-  takes minutes - about 7 with every toolchain, less with fewer.
+  `config.yaml` - and then ask the person to build it: `turri vm-image` in the project for the
+  project's own, `turri vm-image --default` for theirs - in a terminal of their own, since it holds
+  the shell for minutes: about 7 with every toolchain, less with fewer. Say first what the image will
+  hold.
 - A build is only needed when the recipe changed: the `<sandbox VM>` block says when the image was
   not built with what its recipe now asks for.
 - Every VM started after the build runs the new image; one already running keeps its own. A project

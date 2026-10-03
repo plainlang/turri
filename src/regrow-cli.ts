@@ -8,7 +8,8 @@ Regrows the module's code from its spec as it is now, and everything it requires
 the chat does: what is left to grow - from what each module's code was grown from to its spec now -
 is planned into jobs, and they run one after the other until the code is grown from the spec, each
 followed by the conformance tests of what it grew when they are on. Then it says how each went.
-With functional specs named, those are grown again though their spec did not change.
+With functional specs named, those are grown again though their spec did not change - as rejuvenate
+does in the chat: their code rewritten or started over, doing what the spec says.
 
 The project's config.yaml, in the current directory, gives the defaults: module (the file to
 build when none is given), coding-model (the agents that build), harness-model (the planner), and
@@ -59,7 +60,7 @@ runLoop({
   startOver: options.rejuvenate !== undefined || options["start-over"] !== undefined,
   ask: (loop) =>
     again.length > 0
-      ? loop.regenerate(named, again, options.model !== undefined ? { model: options.model } : {})
+      ? loop.growAgain(named, again, options.model !== undefined ? { model: options.model } : {})
       : loop.bringUp(named, options.model !== undefined ? { model: options.model } : {}),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

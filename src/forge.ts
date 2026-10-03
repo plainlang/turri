@@ -7,12 +7,14 @@ import { createExecutor } from "./pi.ts";
 import { describeToolCall, describeToolResult } from "./grow/activity.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
-import { createAskUserTool, createRenderTools, createWriteArtifactTool, type AskUser } from "./tools.ts";
+import { createAskUserTool, createReviewTools, createWriteArtifactTool, withReviewNote, type AskUser } from "./tools.ts";
 import { createSpecDiffTools } from "./spec-tools.ts";
 import { createMatureTools, MATURE_TOOLS } from "./mature-tools.ts";
 import type { JobRegistry } from "./grow/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
+/** The conversation's tools a skill acts on the work loop with - never pi built-ins. */
+const LOOP_TOOLS = ["regrow", "drift", "halt"];
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
 import type { WorkLoop } from "./grow/loop.ts";
@@ -59,6 +61,11 @@ export async function runSkill(opts: {
    * talks to the skill's agent while it runs - choosing the render model, for one.
    */
   sharedTools?: ToolDefinition[];
+  /**
+   * The conversation's tools that act on the work loop (loop-tools.ts): drift, for every skill with the loop - how its
+   * builds stand - and regrow and halt for a skill that names them in its allowed-tools.
+   */
+  loopTools?: ToolDefinition[];
   /** The jobs the render queue runs, for a skill that waits for its builds and reads what they recorded. */
   jobs?: JobRegistry;
 }): Promise<RunSkillResult> {
@@ -126,19 +133,23 @@ export async function runSkill(opts: {
     );
   }
   if (opts.renderQueue !== undefined) {
-    customTools.push(...createRenderTools(opts.renderQueue, liveProxy));
+    customTools.push(...createReviewTools(liveProxy));
+    for (const tool of opts.loopTools ?? []) {
+      if (tool.name === "drift") customTools.push(withReviewNote(tool, liveProxy));
+      else if (skill.allowedTools.includes(tool.name)) customTools.push(tool);
+    }
   }
   if (diffs !== undefined) customTools.push(...diffs.tools);
   // A skill that builds what the spec holds, waits for it, and reads back where the builds had to guess.
   if (opts.renderQueue !== undefined && opts.jobs !== undefined && skill.allowedTools.some((tool) => MATURE_TOOLS.includes(tool))) {
-    customTools.push(...createMatureTools({ loop: opts.renderQueue, jobs: opts.jobs, cwd: opts.cwd }));
+    customTools.push(...createMatureTools({ jobs: opts.jobs, cwd: opts.cwd }));
   }
   customTools.push(...(opts.sharedTools ?? []));
 
   const names = customTools.map((tool) => tool.name);
   // Tools this harness provides are never pi built-ins, even when it did not provide them.
   const builtins = skill.allowedTools.filter(
-    (t) => !names.includes(t) && t !== WRITE_SPEC_DIFF && !MATURE_TOOLS.includes(t),
+    (t) => !names.includes(t) && t !== WRITE_SPEC_DIFF && !MATURE_TOOLS.includes(t) && !LOOP_TOOLS.includes(t),
   );
   const executor = await createExecutor({
     cwd: opts.cwd,

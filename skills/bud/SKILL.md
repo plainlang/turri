@@ -65,7 +65,7 @@ Keep this short: enough to ask the first product question, not a design on paper
    acceptance test the feature will sit beside. Read `config.yaml` (and a module's own
    `config.<module>.yaml`) for whether conformance tests are on.
 2. Ask which module only if it is genuinely ambiguous; otherwise do not.
-3. Look at what is built and queued (`render_status`), so you know which specs already have code and
+3. Look at what is built and queued (`drift`), so you know which specs already have code and
    which builds are still waiting - a change to either is still just a spec diff.
 
 Say in one line where the feature goes, and move on. Write nothing to disk.
@@ -134,6 +134,6 @@ A short consistency pass over what the feature changed, then the handover.
    user only when a fix is a decision the brief and the answers do not settle.
 
 Walk `references/checklist.md` once, as a self-audit. Then hand over in a few lines: the feature's
-spec changes in order, the builds they queued and how they stand (`render_status`), and that any
+spec changes in order, the builds they queued and how they stand (`drift`), and that any
 further change is asked for in the conversation - each one a spec diff, and what is left to build is
 worked out again from the spec. The next feature starts again from the intent.

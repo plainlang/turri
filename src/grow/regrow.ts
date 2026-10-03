@@ -17,7 +17,7 @@ import { warmVm } from "./vm.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
-import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec } from "./prompt.ts";
+import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec, sectionModules } from "./prompt.ts";
 import { abandonWork, recordHistory, startWork } from "./lineage.ts";
 import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
 import type { JobCases } from "./drift.ts";
@@ -334,16 +334,16 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // The change as it is to the code - from what it is built from to the spec this job records - section by section:
   // what every agent of this change is shown, in place of the raw diff.
   const changes = changesBetween(serializeTree(builtNow), serializeTree(tree));
-  const changeText = changes.length > 0 ? describeSpecChange(changes) : undefined;
+  const changeText = changes.length > 0 ? describeSpecChange(changes, moduleName) : undefined;
   // The coding agent's view of the change leaves its test reqs out: they say how the conformance tests are written -
   // the conformance job's to read, from the whole change (`changeText`), not the code's.
   const codingChanges = changes.filter((change) => change.section !== TEST_REQUIREMENTS);
-  const codingText = codingChanges.length > 0 ? describeSpecChange(codingChanges) : undefined;
+  const codingText = codingChanges.length > 0 ? describeSpecChange(codingChanges, moduleName) : undefined;
   /** Steered, the change as its agent has it now: from what the code is built from to what it was steered to. */
   const steeredChange = (): string | undefined => {
     if (options.steering === undefined || options.steering.steers === 0) return undefined;
     const now = changesBetween(serializeTree(builtNow), serializeTree(options.steering.agent)).filter((change) => change.section !== TEST_REQUIREMENTS);
-    return now.length > 0 ? describeSpecChange(now) : undefined;
+    return now.length > 0 ? describeSpecChange(now, moduleName) : undefined;
   };
   const builtFrids = [...getFrids(builtNow)];
   const specificationsBefore: Specifications =
@@ -355,6 +355,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // The change as it is to the code: from what it is built from to the spec this job records, section by section.
     changes: codingChanges,
     specifications: specificationsBefore,
+    modules: sectionModules(builtNow, moduleName),
     required: getInheritedFunctionalSpecs(builtNow),
     linkedResources,
     codebase: codebaseMap(seen),
@@ -507,7 +508,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         what: `the spec change to module \`${moduleName}\``,
         // As the coding agent had it: the spec the code was built from, and the change.
         // Steered before the review, the change as the agent has it now.
-        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, required: getInheritedFunctionalSpecs(builtNow), change: steeredChange() ?? codingText ?? changeText ?? options.diff }),
+        spec: reviewedSpec({ moduleName, specifications: specificationsBefore, modules: sectionModules(builtNow, moduleName), required: getInheritedFunctionalSpecs(builtNow), change: steeredChange() ?? codingText ?? changeText ?? options.diff }),
         forChange: true,
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,

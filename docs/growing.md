@@ -310,9 +310,11 @@ A job that renders the whole of a new spec is too big to build well, and a rende
 the first carrying every definition and req, is no better: most of the work lands in one job. So the
 work is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
 
-1. **Which new functional specs go together.** An agent groups them: at most three a job, only ones
-   next to each other in the spec's order - the specs that build one component or feature together (a component
-   and the parts only it uses), a spec alone when it stands on its own or is big.
+1. **Which functional specs go together** - the new ones, and those [grown again](#what-a-job-is-given-and-what-it-records).
+   An agent groups them: at most three a job, only ones next to each other in the same module - the specs that build
+   one component or feature together (a component and the parts only it uses), a spec alone when it stands on its own
+   or is big. Each is shown with its module and its id there, and a number of its own to answer with: a codebase
+   grows again the functional specs of the modules it is built on too, and each module numbers its own from 1.
 2. **The definitions each group uses**, in code: the concepts its functional specs name, and the
    concepts those definitions name in turn. A definition goes with the first group that uses it; later
    groups have it built. One nothing uses goes with the last.
@@ -463,10 +465,21 @@ definition is itself by its concept: one reworded or moved is shown as changed, 
 Test reqs and acceptance tests are for conformance only: the code record holds neither, and no coding
 agent is shown them.
 
+**Every part of the spec is given with its module.** A codebase is built from the spec of its whole requires chain,
+and each module numbers its functional specs from 1, so every agent is shown each section grouped under the module
+each item belongs to - `<module name="base">`, then `<module name="app" role="current">` - as `<already implemented>`
+groups the functional specs (`moduleSection`, `functionalitiesByModule` in `prompt.ts`). A module's own items, and
+what it imports, are the current module's. `<spec change>` names a functional spec as "functionality 2 of module
+`app`", and a definition or req of a module below with its module; each case line does too ("fs 2 of module `app`").
+The primer every agent reads first says that modules are how the \*\*\*plain spec is written, not how the code is laid
+out: the agent works only in the current module's codebase, which holds the code of every module it requires, and
+organises the code as the implementation reqs say.
+
 It is told, too, what to do with each functional spec the job touches, by its case (`src/grow/cases.ts`): a
 fresh project is set up first, with its unit tests where the unit
 testing script runs them; a new functional spec is built and unit tested; a changed one - its text, or a concept
-it uses - is changed in place, its code and tests to match, never built again from scratch; one taken out has its
+it uses - is changed in place, its code and tests to match, never built again from scratch; one grown again is
+replaced, not patched - rewritten or started over, what it replaces taken out; one taken out has its
 code and the tests only it had removed. A job holding several cases has a line for each. A job that touches no
 functional spec - implementation reqs, or definitions none uses - is mechanical: the code adapts, no new test is
 written, and an existing one may change only mechanically, never what it asserts. The unit test review holds each
@@ -478,8 +491,20 @@ agent and its reviewer are told the same, for the tests:
 | fresh | the module requires none and nothing is built | set up the project and its unit tests where the unit testing script runs them, then build | set up `tests/` so the conformance testing script, which brings the tests together with `code/`, runs them, then write |
 | add | a functional spec is new | build it and write its unit tests | write its tests |
 | patch | its text changed, or a concept it uses did | change the existing code and tests to match - never build it again from scratch | rewrite its existing tests to match |
+| again | `rejuvenate` named it: it is built, and marked in the code record to grow again | replace its implementation - rewrite it or start it over, doing what the spec says now; no second implementation beside the old, nothing of it left unused; its unit tests may be rewritten | none: its tests stay as they are |
 | delete | a functional spec is gone | take out its code and the tests only it had | take out its tests |
 | mechanical | no functional spec is touched - only reqs, or definitions none uses | adapt the code; write no new test; an existing one may change only mechanically - an import, a fixture, its setup - never what it asserts | the same, for test reqs, definitions or implementation reqs alone |
+
+**Growing again.** `rejuvenate` with functional specs named grows them again though their spec did not change -
+made better, on another model, after many patches. Each is marked in the code record of every codebase it is built
+in (`grow_again`, committed), and nothing else changes: the record now differs from the spec at that item, so the
+work loop plans it as it plans any change. A functional spec of a module below is grown again where its code
+lives - the codebase at the tip of each chain built on it, never the module's own codebase left behind - marked
+among that codebase's required functional specs. The planner groups the ones grown again as it groups new ones - up
+to three a job, only those next to each other in one module together - and the job is given the definitions and
+implementation reqs as every job is; `<spec change>` lists each under "To grow again", with its text as it is now. The job that grows it
+records it as the spec has it, without the mark. Its conformance tests compare its text, which did not change: they
+stay as they are, and are not rewritten.
 
 A functional spec is patched when a concept it uses changed as well as when its own text did: the
 harness follows each functional spec's concepts through the definitions. Fresh is only where nothing
@@ -864,7 +889,8 @@ What goes into them:
 - **A module started from another's code:** that code's record, as a lower module's - see
   [where things go](#where-things-go) - and an empty tests record: the tests it inherits are the module
   below's.
-- **A functionality regenerated:** it is taken out of the code record, so the next job builds it again.
+- **A functional spec rejuvenated:** it is marked to grow again in the code record, so the next job grows it
+  again; that job's record drops the mark.
 
 A unit of work - a code job, a conformance job - lands whole or is undone whole. It starts from the
 module's last commit, putting back whatever an interrupted run left; a module with no commit yet is

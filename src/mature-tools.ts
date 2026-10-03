@@ -1,21 +1,14 @@
 import { existsSync, readdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { formatDuration, type Job, type JobRegistry } from "./grow/jobs.ts";
 import { readNotes } from "./grow/notes.ts";
 import { modulesRoot, projectDirOf } from "./grow/paths.ts";
-import { chainSpec, describeModules, type WorkLoop } from "./grow/loop.ts";
-import { readRecord } from "./grow/records.ts";
-import { builtTips } from "./grow/requires.ts";
-import { snapshotSpec } from "./grow/regrow.ts";
-import { describeChange } from "./grow/spec-steps.ts";
-import { codeWork } from "./grow/drift.ts";
-import { getFrids } from "./plain/spec.ts";
 
 /**
- * The tools a skill that matures a spec works with: build what the spec holds, wait for the builds,
- * and read back where the spec left the agents to decide.
+ * The tools a skill that matures a spec works with, besides the conversation's regrow, drift and halt: wait for
+ * the builds, and read back where the spec left the agents to decide.
  *
  * A render that passes can still have been built on a guess: where the spec is silent, the agent
  * decides, and says so in the working notes' assumptions. Those, the pitfalls, a failed job's
@@ -138,71 +131,12 @@ function describeStruggle(job: Job, struggle: Struggle): string {
     .join("\n");
 }
 
-/**
- * Whether a module's spec is fully rendered - the goal of a maturing run: its code built from the
- * spec as it stands, nothing queued or running for it, and the last build of each kind on its
- * codebase passing.
- */
-export function specStatusOf(plainFile: string, cwd: string, jobs: Job[]): { done: boolean; text: string } {
-  const spec = snapshotSpec(plainFile, { cwd });
-  const name = basename(plainFile);
-  const missing: string[] = [];
-  const frids = [...getFrids(spec.tree)];
-  // Where the module's code lives - its own codebase, or the built ones above it - each against the spec of its chain.
-  const tips = builtTips(plainFile);
-  for (const chain of tips.length > 0 ? tips : [spec.chain]) {
-    const tip = chain.at(-1)!;
-    const record = readRecord(tip.buildDir);
-    if (record === null) {
-      missing.push(tips.length > 0 ? `${tip.moduleName} has nothing built yet` : "nothing is built yet");
-      continue;
-    }
-    const work = codeWork(record, chainSpec(chain).tree);
-    if (work.length > 0) {
-      const left = work.map((change) => describeChange(change).split("\n")[0]!.replace(/^[^:]+: /, ""));
-      missing.push(`${tip.moduleName}'s code is not built from the spec as it stands: ${left.join("; ")}`);
-    }
-  }
-  // The builds of this codebase: by the module each is for - its summary starts with its .plain file.
-  const mineOf = jobs.filter((job) => spec.chain.some((entry) => job.summary.startsWith(basename(entry.plainFile))));
-  const busy = mineOf.filter((job) => job.status === "running" || job.status === "queued");
-  if (busy.length > 0) missing.push(`${busy.length} build${busy.length === 1 ? " is" : "s are"} still running or queued: ${busy.map((job) => job.id).join(", ")}`);
-  const last = new Map<string, Job>();
-  for (const job of [...mineOf].sort((a, b) => a.sequence - b.sequence)) if (job.status !== "running" && job.status !== "queued") last.set(job.kind, job);
-  const failing = [...last.values()].filter((job) => job.status === "failed" || (job.details as { passed?: boolean } | undefined)?.passed === false);
-  if (failing.length > 0) missing.push(`the last ${failing.map((job) => `${job.kind} (job ${job.id})`).join(" and ")} did not pass`);
-  const done = missing.length === 0 && frids.length > 0;
-  return {
-    done,
-    text: done
-      ? `${name} is fully rendered: all ${frids.length} functionalities built from the spec as it stands, nothing queued, and its last builds passing.`
-      : `${name} is not fully rendered yet:\n${missing.map((item) => `- ${item}`).join("\n")}`,
-  };
-}
-
-export function createMatureTools(options: { loop: WorkLoop; jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
+export function createMatureTools(options: { jobs: JobRegistry; cwd: string; startedAt?: Date }): AnyTool[] {
   const startedAt = options.startedAt ?? new Date();
   const mine = () => options.jobs.list().filter((job) => job.queuedAt >= startedAt.getTime());
   /** Findings already handed out, by what they say: each is reported once. */
   const reported = new Set<string>();
   let counter = 0;
-
-  const renderSpec = defineTool({
-    name: "render_spec",
-    label: "Render the spec",
-    description:
-      "Build everything a module's spec holds that its code is not built from, and every module it requires, bottom " +
-      "first: the work is planned into jobs and the first starts. Returns what runs and what is planned; watch the " +
-      "jobs with watch_jobs.",
-    promptSnippet: "queue the build of what a module's spec holds that is not built",
-    parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
-    async execute(_id, params) {
-      const plainFile = resolve(options.cwd, params.plain_file);
-      const statuses = await options.loop.bringUp(plainFile);
-      const jobIds = statuses.flatMap((status) => (status.running !== undefined ? [status.running.jobId] : []));
-      return { content: [{ type: "text" as const, text: describeModules(statuses) }], details: { jobIds } };
-    },
-  });
 
   /** The struggles already handed out, by job and what they were - each reported once, again only when it grows. */
   const flagged = new Set<string>();
@@ -246,49 +180,9 @@ export function createMatureTools(options: { loop: WorkLoop; jobs: JobRegistry; 
         "Every build:",
         ...all.map(jobLine),
         "",
-        "Read what the builds had to decide themselves with spec_findings; see how far the spec is built with spec_status.",
+        "Read what the builds had to decide themselves with spec_findings; see how far the spec is grown with drift.",
       ].join("\n");
       return { content: [{ type: "text" as const, text }], details: { pending: left.length, struggling: found.map((item) => item.job.id) } };
-    },
-  });
-
-  const stopJob = defineTool({
-    name: "stop_job",
-    label: "Stop a build",
-    description:
-      "Stop a build - one struggling on something the spec did not settle, once the spec says it: a queued one never starts, " +
-      "a running one has its agent stopped, and what it wrote and did not commit is put back by the next build of its module. " +
-      "Its functionality counts as not built; render_spec builds it again, from the spec as it now is.",
-    promptSnippet: "stop a struggling build, to render it again from the clarified spec",
-    parameters: Type.Object({ job_id: Type.String(), reason: Type.String({ description: "What the spec now says that it did not" }) }),
-    async execute(_id, params) {
-      const job = mine().find((candidate) => candidate.id.startsWith(params.job_id.trim()));
-      const say = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
-      if (job === undefined) return say(`No build ${params.job_id} queued by this run.`);
-      if (job.status !== "running" && job.status !== "queued") return say(`Job ${job.id} is already ${job.status}.`);
-      options.jobs.stop(job.id);
-      job.note = `Stopped by the mature skill: ${params.reason}. It is rendered again from the spec as it now says it.`;
-      try {
-        await options.jobs.wait(job.id);
-      } catch {
-        // Stopped is what it was asked to be.
-      }
-      return say(`Stopped job ${job.id} (${job.summary}). Render it again with render_spec once the spec says what it needed.`);
-    },
-  });
-
-  const specStatus = defineTool({
-    name: "spec_status",
-    label: "How far the spec is built",
-    description:
-      "Whether a module's spec is fully rendered: every functionality built from the spec as it stands, the code's record the " +
-      "spec itself, nothing queued or running for it, and its last builds - conformance included - passing. Says what is not, " +
-      "when it is not.",
-    promptSnippet: "is the spec fully rendered, and if not, what is missing",
-    parameters: Type.Object({ plain_file: Type.String({ description: "The module's .plain file" }) }),
-    async execute(_id, params) {
-      const status = specStatusOf(resolve(options.cwd, params.plain_file), options.cwd, options.jobs.list());
-      return { content: [{ type: "text" as const, text: status.text }], details: { done: status.done } };
     },
   });
 
@@ -326,9 +220,9 @@ export function createMatureTools(options: { loop: WorkLoop; jobs: JobRegistry; 
     },
   });
 
-  return [renderSpec, watchJobs, stopJob, specStatus, specFindings];
+  return [watchJobs, specFindings];
 }
 
-/** The names of the maturing tools, as a skill's allowed-tools names them. */
-export const MATURE_TOOLS = ["render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"];
+/** The names of the maturing tools, as a skill's allowed-tools names them: its own - it grows, halts and reads drift with the conversation's (loop-tools.ts). */
+export const MATURE_TOOLS = ["watch_jobs", "spec_findings"];
 

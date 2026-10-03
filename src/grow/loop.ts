@@ -13,6 +13,7 @@ import {
   chainTree,
   codeTree,
   conformanceTarget,
+  GROW_AGAIN,
   inheritedRecord,
   notBuilt,
   readRecord,
@@ -186,6 +187,13 @@ export interface DriftReport {
 export function describeDrift(reports: DriftReport[]): string {
   if (reports.length === 0) return "Nothing to look at: no module of that spec.";
   const cases = (work: JobCases) => casesText(work);
+  // Fully grown: in every codebase the code - and its conformance tests, where there are any - grown from the spec as it
+  // is, nothing growing or waiting, and nothing holding the codebase back. A pulse that did not land leaves its work
+  // undone, so it shows as drift.
+  // conformance: null is no drift, undefined none written here - either is grown; a case list is work left.
+  const grown = reports.every((report) => report.code === null && (report.conformance === null || report.conformance === undefined));
+  const settled = reports.every((report) => report.running === undefined && report.why === undefined && report.startOver === undefined && report.scheduled.length === 0);
+  const verdict = grown && settled ? "\nFully grown: every codebase is grown from the spec as it is, and nothing is growing." : "";
   return reports
     .map((report) => {
       const lines = [`${report.module} (${basename(report.plainFile)}):`];
@@ -200,7 +208,7 @@ export function describeDrift(reports: DriftReport[]): string {
       if (report.startOver !== undefined) lines.push(`  it has to be rejuvenated on ${report.startOver.requires.join(", ")} before anything more grows there`);
       return lines.join("\n");
     })
-    .join("\n");
+    .join("\n") + verdict;
 }
 
 export interface WorkLoop {
@@ -212,11 +220,11 @@ export interface WorkLoop {
    */
   bringUp(plainFile: string, options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
   /**
-   * Build a functional spec of a module again, changed or not: it is taken out of the record of every
-   * codebase it is built in - committed, so the record says it is not built - and they are brought up to
-   * their spec.
+   * Grow functional specs of a module again, their spec changed or not: each is marked to grow again in the record
+   * of every codebase it is built in - committed - and they are brought up to their spec, the marked ones planned as
+   * any change is. Their code is there: the jobs that grow them are told to grow it again, not to build it anew.
    */
-  regenerate(plainFile: string, frids: string | string[], options?: { model?: string }): Promise<ModuleStatus[]>;
+  growAgain(plainFile: string, frids: string | string[], options?: { model?: string }): Promise<ModuleStatus[]>;
   /**
    * What is left to grow, for a spec's module, in each codebase where its code lives: the code's work from its record to
    * the spec now, and the conformance tests' - planning nothing, starting nothing.
@@ -499,7 +507,7 @@ export function createWorkLoop(options: {
       ...state.guidance.map((text) => ({ source: "the request that asked for the work", text })),
     ];
     const together = track === "conformance" ? (state.together ?? []).map((specs) => specs.map((touched) => touched.frid)) : [];
-    const input: PlanInput = { base: from, current, specFile, specText, steering, track, ...(together.length > 0 ? { together } : {}) };
+    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, ...(together.length > 0 ? { together } : {}) };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into pulses`);
@@ -507,7 +515,7 @@ export function createWorkLoop(options: {
     const fresh = tip.requires === null && (track === "code" ? !started(tip) : readRecord(testsDirOf(state)) === null);
     return stepsOf(input, draft).map((job, index) => {
       // Its cases from its own change: the spec before it to the spec after it - the plan's changes are numbered from where the plan starts.
-      const cases = casesOf(parseTree(job.step.before), changesBetween(job.step.before, job.step.after), { fresh: fresh && index === 0 });
+      const cases = casesOf(parseTree(job.step.before), changesBetween(job.step.before, job.step.after), { fresh: fresh && index === 0, module: tip.moduleName });
       return { title: job.title, reason: job.reason, cases, step: job.step, track };
     });
   };
@@ -534,7 +542,7 @@ export function createWorkLoop(options: {
     }
     const conformance = planned.track === "conformance";
     // A code job can be steered while it grows: its target moves with the spec, inside what it grows.
-    const steering = conformance ? undefined : createSteering(planned.step.tree);
+    const steering = conformance ? undefined : createSteering(planned.step.tree, tip.moduleName);
     // Shown as its agent is given it: the job's own items, from whichever file they are written in - its imports too.
     const shown = changeDiffInFiles(
       agentChanges(planned.step.changes, planned.track),
@@ -847,7 +855,7 @@ export function createWorkLoop(options: {
       (state.scheduled ?? []).flatMap((group, at) =>
         after[at] !== index
           ? []
-          : [{ title: group.specs.map((touched) => `fs ${touched.frid}`).join(", "), cases: { fresh: false, add: group.specs, patch: [], delete: [], mechanical: false }, track: "conformance" as const, waitsFor: group.unbuilt }],
+          : [{ title: group.specs.map((touched) => `fs ${touched.frid}`).join(", "), cases: { fresh: false, add: group.specs, patch: [], again: [], delete: [], mechanical: false }, track: "conformance" as const, waitsFor: group.unbuilt }],
       );
     // Being planned, nothing running: what is next - for the conformance tests, the groups chosen that it plans - not nothing.
     const together = (state.together ?? []).flat().map((touched) => `fs ${touched.frid}`);
@@ -856,7 +864,7 @@ export function createWorkLoop(options: {
         ? [
             {
               title: state.planning === "conformance" ? (together.length > 0 ? together.join(", ") : "the conformance tests") : "the work",
-              cases: { fresh: false, add: [], patch: [], delete: [], mechanical: false },
+              cases: { fresh: false, add: [], patch: [], again: [], delete: [], mechanical: false },
               track: state.planning,
               planning: true,
             },
@@ -921,7 +929,7 @@ export function createWorkLoop(options: {
       await tick();
       return [...new Set(states)].map(statusOf);
     },
-    async regenerate(plainFile, given, request = {}) {
+    async growAgain(plainFile, given, request = {}) {
       const frids = [...new Set(Array.isArray(given) ? given : [given])];
       const asked = resolve(options.cwd, plainFile);
       const own = resolveRequiresChain(asked, [], undefined, { allowNoFunctionalities: true });
@@ -943,13 +951,14 @@ export function createWorkLoop(options: {
         const taken = items.flatMap((item, index) => (frids.includes(named(item, index)) ? [named(item, index)] : []));
         if (taken.length === 0) continue;
         for (const frid of taken) found.add(frid);
-        writeCodeRecord(tip.buildDir, { ...record, [section]: items.filter((item, index) => !frids.includes(named(item, index))) } as MarshalledPlainSource);
-        recordHistory(tip.buildDir, `${module} functional spec${taken.length === 1 ? "" : "s"} ${taken.join(", ")} to be built again`);
+        const marked = items.map((item, index) => (frids.includes(named(item, index)) ? { ...item, [GROW_AGAIN]: true } : item));
+        writeCodeRecord(tip.buildDir, { ...record, [section]: marked } as MarshalledPlainSource);
+        recordHistory(tip.buildDir, `${module} functional spec${taken.length === 1 ? "" : "s"} ${taken.join(", ")} to grow again`);
       }
       const missing = frids.filter((frid) => !found.has(frid));
-      if (found.size === 0) throw new Error(`${module} has no functional spec ${missing.join(", ")} built anywhere, so there is nothing to build again.`);
+      if (found.size === 0) throw new Error(`${module} has no functional spec ${missing.join(", ")} built anywhere, so there is nothing to grow again: regrow grows what is not built.`);
       const statuses = await loop.bringUp(plainFile, request);
-      if (missing.length > 0) reportActivity(`  ${module}: functional spec ${missing.join(", ")} is not built anywhere - nothing to build again there`);
+      if (missing.length > 0) reportActivity(`  ${module}: functional spec ${missing.join(", ")} is not built anywhere - nothing to grow again there`);
       return statuses;
     },
     drift(plainFile) {
@@ -971,11 +980,11 @@ export function createWorkLoop(options: {
             const from = builtOf(state);
             const fresh = tip.requires === null && !started(tip);
             const code = codeWork(from, spec.tree);
-            report.code = code.length === 0 ? null : casesOf(from, code, { fresh });
+            report.code = code.length === 0 ? null : casesOf(from, code, { fresh, module: tip.moduleName });
             if (conformanceWanted(state, spec)) {
               const tested = testedOf(state);
               const tests = workOf("conformance", tested, state, spec);
-              report.conformance = tests.length === 0 ? null : casesOf(tested, tests);
+              report.conformance = tests.length === 0 ? null : casesOf(tested, tests, { module: tip.moduleName });
             }
             report.scheduled = (state.scheduled ?? []).map((group) => ({ frids: group.specs.map((touched) => touched.frid), unbuilt: group.unbuilt }));
             if (state.running !== undefined) report.running = { jobId: state.running.jobId, title: state.running.planned.title };
@@ -1142,6 +1151,7 @@ function casesText(cases: JobCases): string {
     ...(cases.fresh ? ["sets the project up"] : []),
     ...(cases.add.length > 0 ? [`adds ${cases.add.map((spec) => `fs ${spec.frid}`).join(", ")}`] : []),
     ...(cases.patch.length > 0 ? [`changes ${cases.patch.map((spec) => `fs ${spec.frid}`).join(", ")}`] : []),
+    ...(cases.again.length > 0 ? [`grows ${cases.again.map((spec) => `fs ${spec.frid}`).join(", ")} again`] : []),
     ...(cases.delete.length > 0 ? [`takes out ${cases.delete.map((spec) => `fs ${spec.frid}`).join(", ")}`] : []),
   ];
   return parts.length > 0 ? parts.join(", ") : "no functional spec - reqs or definitions only";
@@ -1286,7 +1296,7 @@ const defaultConformanceRunner: JobRunner = async (job, onDelta) => {
   const result = await renderSpecDiffConformance({
     plainFile: job.plainFile,
     diff: job.planned.step.textDiff,
-    change: describeSpecChange(job.planned.step.changes),
+    change: describeSpecChange(job.planned.step.changes, job.moduleName),
     cwd: job.cwd,
     applied: "already applied",
     spec: job.spec,

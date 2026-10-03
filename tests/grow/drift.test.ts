@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
 import { codeTree, conformanceTarget, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "../../src/grow/records.ts";
 import { casesOf, codeWork, conceptsUsed, conformanceWork, stillWanted } from "../../src/grow/drift.ts";
+import { GROW_AGAIN } from "../../src/grow/records.ts";
 
 const spec = (markdown: string, tests: string[] = []) => ({ markdown, ...(tests.length > 0 ? { acceptance_tests: tests.map((test) => ({ markdown: test })) } : {}) });
 const item = (markdown: string) => ({ markdown });
@@ -153,6 +154,17 @@ describe("a job's cases", () => {
     // 2 names :Order:; 3 names only :Price:, whose definition names :Order:. 1 names only :Customer:.
     expect(cases.patch.map((entry) => entry.frid)).toEqual(["2", "3"]);
     expect(cases.mechanical).toBe(false);
+  });
+
+  it("grows again a functional spec marked to - not a change to it, whatever else changed in its text - and nothing else", () => {
+    const built = codeTree(shop());
+    const marked = { ...built, "functional specs": fs(built).map((entry, index) => (index === 1 ? { ...entry, [GROW_AGAIN]: true } : entry)) } as MarshalledPlainSource;
+    const cases = casesOf(marked, codeWork(marked, shop()));
+    expect(cases).toMatchObject({ add: [], patch: [], delete: [], mechanical: false });
+    expect(cases.again.map((entry) => entry.frid)).toEqual(["2"]);
+    // Grown again as it reads now: its text changed as well, it is still grown again, not patched.
+    const reworded = { ...shop(), "functional specs": fs(shop()).map((entry, index) => (index === 1 ? { ...entry, markdown: `${entry.markdown} Twice.` } : entry)) } as MarshalledPlainSource;
+    expect(casesOf(marked, codeWork(marked, reworded)).again.map((entry) => entry.frid)).toEqual(["2"]);
   });
 
   it("is mechanical when only an implementation req changed", () => {

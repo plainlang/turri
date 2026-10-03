@@ -16,6 +16,8 @@ import {
   type Deployment,
 } from "./grow/release.ts";
 import { projectDirOf } from "./grow/paths.ts";
+import type { JobRegistry } from "./grow/jobs.ts";
+import { haltTool } from "./loop-tools.ts";
 
 /**
  * The tools that put a module out for the person to try, and start it: the conversation's, and the
@@ -149,6 +151,8 @@ export function createDeployTools(options: {
   approve: Approve;
   /** The spec deploy takes when it is given none: the project's module. */
   defaultPlainFile: () => string | undefined;
+  /** The pulses halt stops as well - the conversation's. */
+  jobs?: JobRegistry;
 }) {
   const { state } = options;
   const needsDeploy = () => {
@@ -293,19 +297,8 @@ export function createDeployTools(options: {
     },
   });
 
-  const stopTool = defineTool({
-    name: "halt",
-    label: "Halt",
-    description: "Stop what activate started: the one named, or every one.",
-    promptSnippet: "stop a deployed server, or all of them",
-    parameters: Type.Object({
-      name: Type.Optional(Type.String({ description: "The name it was started under. Omit to stop everything deploy started." })),
-    }),
-    async execute(_id, params) {
-      const stopped = await stopDeployed(params.name !== undefined ? { name: params.name } : {});
-      return text(stopped.length === 0 ? (params.name !== undefined ? `Nothing named ${params.name} is running.` : "Nothing deploy started is running.") : `Stopped ${stopped.join(", ")}.`, { stopped });
-    },
-  });
+  // The one halt: with the pulses in the conversation, and without them for the release agent.
+  const stopTool = haltTool(options.jobs !== undefined ? { jobs: options.jobs } : {});
 
   return [deploy, proposeSetup, startTool, stopTool];
 }

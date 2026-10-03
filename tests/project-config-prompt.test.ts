@@ -62,8 +62,8 @@ describe("what the chat's agent is told about the sandbox VM", () => {
       expect(block).toContain("then this project's vm-image: in config.yaml");
       expect(block).toMatch(/game: its implementation reqs need Zig \(zig\)/);
       expect(block).toContain("system-packages: in config.yaml - sqlite");
-      // Its own image is not built here: it takes a build.
-      expect(block).toContain("build_vm_image");
+      // Its own image is not built here: it takes a build, which the person runs.
+      expect(block).toContain("the person runs turri vm-image in the project");
     } finally {
       delete process.env.TURRI_VM_IMAGE_CONFIG;
     }
@@ -73,7 +73,7 @@ describe("what the chat's agent is told about the sandbox VM", () => {
     const { loadRules } = await import("../src/rules.ts");
     const rule = loadRules("forge/rules").find((item) => item.name === "managing-vms");
     expect(rule?.content).toContain("Against the implementation reqs");
-    expect(rule?.content).toContain("build_vm_image");
+    expect(rule?.content).toContain("turri vm-image --default");
   });
 });
 

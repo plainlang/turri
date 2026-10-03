@@ -68,7 +68,7 @@ import { ARBITER_AFTER, arbitrateReview, dismissedNote, REVIEW_LIMIT } from "./a
 import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, vmScratchDir, projectDirOf } from "./paths.ts";
-import { buildConformancePrompt, functionalitiesByModule, section, specChangeBlock } from "./prompt.ts";
+import { buildConformancePrompt, functionalitiesByModule, moduleSection, section, sectionModules, specChangeBlock, type SectionModules } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources, resourceImages } from "./resources.ts";
 import { resolveTemplateDirs } from "./paths.ts";
@@ -259,6 +259,7 @@ export async function renderConformanceTests(
     moduleName,
     frid,
     specifications,
+    modules: sectionModules(tree, moduleName),
     linkedResources,
     manifest,
     codeDir: buildDir,
@@ -300,7 +301,7 @@ export async function renderConformanceTests(
   // may read the code but writes only tests. An explorer reads the code first and writes down how the
   // software is invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
-  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.change ?? options.diff) };
+  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.change ?? options.diff, sectionModules(tree, moduleName)) };
   // For a spec change: the functionalities it touches, whose acceptance tests are labelled, checked and reviewed.
   const touched = forChange ? touchedFunctionalities(tree, frids, options.diff!) : [];
   // Any functionality of the codebase - this module's, and those of the modules it requires. A
@@ -383,6 +384,7 @@ export async function renderConformanceTests(
       moduleName,
       frid,
       specifications,
+      modules: sectionModules(tree, moduleName),
       linkedResources,
       manifest,
       existingTests: listFiles(conformanceDir),
@@ -1069,7 +1071,7 @@ export function failureLine(run: ScriptRun): string {
  * The spec as the explorer, the judge and the coding agent are shown it - its functional specs
  * numbered with their ids, so a spec conflict can name them.
  */
-function specText(specifications: Specifications, moduleName: string, frids: string[], required: RequiredSpec[], diff?: string): string {
+function specText(specifications: Specifications, moduleName: string, frids: string[], required: RequiredSpec[], diff?: string, modules?: SectionModules): string {
   // Every functionality in the codebase, each with its module: the required modules' first, then this one's.
   const numbered = (key: string, items: string[]) =>
     key === FUNCTIONAL_REQUIREMENTS
@@ -1084,7 +1086,7 @@ function specText(specifications: Specifications, moduleName: string, frids: str
   const sections = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, FUNCTIONAL_REQUIREMENTS, ACCEPTANCE_TESTS]
     .map((key) => [key, (specifications as unknown as Record<string, string[] | undefined>)[key] ?? []] as const)
     .filter(([, items]) => items.length > 0)
-    .map(([key, items]) => section(key, numbered(key, items))!);
+    .map(([key, items]) => (key === FUNCTIONAL_REQUIREMENTS || key === ACCEPTANCE_TESTS ? section(key, numbered(key, items)) : moduleSection(key, items, moduleName, modules))!);
   if (diff !== undefined) sections.push(specChangeBlock(diff));
   return sections.join("\n\n");
 }

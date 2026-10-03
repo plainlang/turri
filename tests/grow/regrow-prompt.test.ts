@@ -9,6 +9,17 @@ const tree = (definitions: string[], reqs: string[], specs: string[]) => ({
   "functional specs": specs.map((markdown) => ({ markdown })),
 });
 
+describe("a functional spec grown again, as the coding agent reads it", () => {
+  it("is told apart from a change - to grow again, with its text as it is now", () => {
+    const marked = tree([], [], ["- Log in with a token.", "- Show the feed."]) as Record<string, unknown>;
+    const specs = (marked["functional specs"] as Array<{ markdown: string }>).map((entry, index) => (index === 1 ? { ...entry, grow_again: true } : entry));
+    const text = describeSpecChange(changesBetween(serializeTree({ ...marked, "functional specs": specs } as never), serializeTree(marked as never)));
+    expect(text).toContain('<functional specs change="1 to grow again">');
+    expect(text).toContain("To grow again - built already, and grown again:\n  functionality 2:\n    - Show the feed.");
+    expect(text).not.toContain("before:");
+  });
+});
+
 describe("a spec change, as the coding agent reads it", () => {
   const before = tree(["- :Api: is the API, described in `api.md`.", "- :Token: is a token."], ["- :Implementation: builds photo URLs from `photo_url`."], ["- Log in with :Token:."]);
   const after = tree(

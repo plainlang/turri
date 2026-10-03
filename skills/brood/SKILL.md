@@ -186,7 +186,7 @@ One answer, one spec change, one render spec diff job. Correct something already
 a diff and `fixes_earlier`, before the next question. Never change a `.plain` file in this
 phase by any other means than `write_spec_diff`.
 
-Report each build result between questions, in one sentence. Use `render_status` when the
+Report each build result between questions, in one sentence. Use `drift` when the
 user asks how the builds are going.
 
 Finish by summarizing the full concept list and feature list in build order, saying what is

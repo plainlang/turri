@@ -101,6 +101,42 @@ describe("cutting the queue's work into jobs", () => {
     expect(comments!.diff).toContain("+- :Comment: is a text");
   });
 
+  it("groups functional specs grown again as it groups new ones - those next to each other in one job - apart from the changes to what is built", async () => {
+    const built = tree({ definitions: DEFS, specs: SPECS });
+    const marked = { ...built, "functional specs": SPECS.map((markdown, index) => (index === 1 || index === 2 ? { markdown, grow_again: true } : { markdown })) } as never;
+    const from = input(marked, built);
+    const chosen = agents({ groups: [{ specs: [1, 2], title: "Signing in and comments, again" }] });
+    const plan = await planChunks({ ...from, moduleName: "app" }, chosen);
+    expect(checkDraft(from, plan)).toEqual([]);
+    expect(plan).toEqual([expect.objectContaining({ title: "Signing in and comments, again", reason: "functional specs grown again" })]);
+    // Each by a number to answer with, and which it is: its module, and its id there.
+    expect(chosen.shown.specs).toEqual([
+      { number: 1, text: SPECS[1], id: "2", module: "app", again: true },
+      { number: 2, text: SPECS[2], id: "3", module: "app", again: true },
+    ]);
+  });
+
+  it("groups the functional specs of a module below grown again here too - next to each other only within their module", async () => {
+    const below = (frid: string, markdown: string) => ({ markdown, module: "base", frid });
+    const built = { "required functional specs": [below("1", "- Base one."), below("2", "- Base two.")], "functional specs": [{ markdown: "- App one." }] } as never;
+    const marked = {
+      "required functional specs": [{ ...below("1", "- Base one."), grow_again: true }, { ...below("2", "- Base two."), grow_again: true }],
+      "functional specs": [{ markdown: "- App one.", grow_again: true }],
+    } as never;
+    const from = { ...input(marked, built), moduleName: "app" };
+    const chosen = agents({ groups: [{ specs: [1, 2], title: "Base, again" }, { specs: [3], title: "App, again" }] });
+    const plan = await planChunks(from, chosen);
+    expect(checkDraft(from, plan)).toEqual([]);
+    expect(plan.map((job) => job.title)).toEqual(["Base, again", "App, again"]);
+    expect(chosen.shown.specs).toEqual([
+      { number: 1, text: "- Base one.", id: "1", module: "base", again: true },
+      { number: 2, text: "- Base two.", id: "2", module: "base", again: true },
+      { number: 3, text: "- App one.", id: "1", module: "app", again: true },
+    ]);
+    // Base 2 and app 1 are numbered one after the other, but are of two modules: never together.
+    expect(groupProblems(chosen.shown.specs as never, { groups: [{ specs: [1], title: "a" }, { specs: [2, 3], title: "b" }] }).join("\n")).toContain("in the same module");
+  });
+
   it("splits a group too big to render well, a functional spec a job", async () => {
     const long = (n: number) => `- A :User: does thing ${n}.\n${Array.from({ length: 70 }, (_, line) => `  - detail ${line}`).join("\n")}`;
     const from = input({}, tree({ definitions: DEFS.slice(0, 2), specs: [long(1), long(2)] }));

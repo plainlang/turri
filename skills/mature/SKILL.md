@@ -11,7 +11,7 @@ description: >-
   is stuck on something the spec cannot settle. Use when the user has a rough or hand-written spec
   and wants it made to build without steering it. Not for starting from nothing (`brood`,
   `spawn`) or adding a feature (`bud`).
-allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff, render_spec, watch_jobs, stop_job, spec_status, spec_findings]
+allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff, regrow, drift, halt, watch_jobs, spec_findings]
 metadata:
   # It writes its fixes one after another, from what the builds show: no answer between them.
   paced: false
@@ -27,8 +27,8 @@ closely.
 
 Act as a `***plain` spec writer who hardens a spec by building it, on your own, until it builds.
 
-**The goal:** the spec fully rendered - `spec_status` says so for every module: every functionality
-built from the spec as it stands, nothing queued, and the last builds, conformance included, passing.
+**The goal:** the spec fully grown - `drift` says "Fully grown" for every module: every functionality
+grown from the spec as it stands, its conformance tests too, and nothing growing or held back.
 
 **The loop:** render what is not built; watch the agents building it; when one struggles on something
 the spec leaves open or unclear, settle it in the spec, stop that build, and render again.
@@ -67,9 +67,8 @@ Say in two lines what will be rendered, and go on.
 
 Run cycles until the goal is met - or you are stuck - and at most twenty. Each cycle:
 
-1. **Check the goal**: `spec_status` for every module. All fully rendered: the goal is met - go to
-   the report.
-2. **Render what is not built**: `render_spec` for each module that is not - one that requires
+1. **Check the goal**: `drift` for every module. All fully grown: the goal is met - go to the report.
+2. **Grow what is not grown**: `regrow` for each module that is not - one that requires
    another after the one it requires, modules that share nothing together. A module with builds still
    running or queued is left to them.
 3. **Watch**: `watch_jobs`. It comes back when a build struggles, when all have finished, or when its
@@ -79,8 +78,9 @@ Run cycles until the goal is met - or you are stuck - and at most twenty. Each c
    - **The spec's to settle** - the spec is silent where the build needs a decision (a format, a
      default, an error and its message, a limit, an order, an edge case); it reads two ways; two of
      its specs conflict; a test and the code disagree over something the spec never said. Write what
-     the spec should say as a spec diff (below), then `stop_job` the struggling build, so it is
-     rendered again from the clarified spec, and go to the next cycle.
+     the spec should say as a spec diff (below), then `halt` the struggling build - its `job_id`, and
+     as `reason` what the spec now says - and `regrow`, so it grows again from the clarified spec, and go
+     to the next cycle.
    - **Not the spec's** - a bug the agent is working through, a missing tool or package, a flaky
      service, turri itself. Leave the build to it, note it for the report, and keep watching.
      Stopping it would throw its work away for nothing.
@@ -108,7 +108,7 @@ stop, and report.
 
 A short account:
 
-- whether the goal was met - `spec_status` for every module, as it is now;
+- whether the goal was met - `drift` for every module, as it is now;
 - every cycle in a line: what was rendered, what struggled, what you did about it;
 - every decision you wrote into the spec - what it settles, what the spec now says, and the spec diff
   job that renders it - with the ones where you chose between readings marked, for the user to check;

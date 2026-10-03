@@ -1,10 +1,11 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { DEFAULT_CONCEPTS, extractConceptsFromDefinition, extractConceptsFromSpecText } from "../plain/concepts.ts";
-import { ACCEPTANCE_TESTS, DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
+import { ACCEPTANCE_TESTS, DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { steeringBlock, type Steering } from "./steer.ts";
+import { marksGrowAgain } from "./records.ts";
 import { validateConcepts } from "../plain/concepts.ts";
 import { applyChanges, changesBetween, inconsistencies, layoutOf, makeStep, parseTree, serializeTree, type SpecChange, type SpecStep } from "./spec-steps.ts";
 
@@ -39,6 +40,8 @@ export interface PlanInput {
   current: MarshalledPlainSource;
   /** How the person wants the work cut and ordered. */
   steering?: Steering[];
+  /** The module whose codebase it is: its own functional specs are given with it. */
+  moduleName?: string;
   /** The module's .plain file, as the diffs name it, and its text - for the diffs' layout. */
   specFile: string;
   specText: string;
@@ -125,10 +128,17 @@ export const MAX_LINES_PER_JOB = 120;
 /** How often an answer that does not hold goes back to its agent before the plan falls back. */
 const RETRIES = 2;
 
-/** A new functional spec, for the grouping: its number in the spec, and its text. */
+/**
+ * A functional spec to build, for the grouping: the number the agent answers with, its text, and whether it is built
+ * already and grown again. `id` and `module` say which it is: each module numbers its own from 1, and a codebase grows
+ * again the functional specs of the modules it is built on too. No module: the codebase's own. No id: the number.
+ */
 export interface NewSpec {
   number: number;
   text: string;
+  again?: boolean;
+  id?: string;
+  module?: string;
 }
 
 export interface GroupAnswer {
@@ -191,11 +201,19 @@ export function groupProblems(specs: NewSpec[], answer: GroupAnswer): string[] {
   const numbers = specs.map((spec) => spec.number);
   const given = answer.groups.flatMap((group) => group.specs);
   if (given.join(",") !== numbers.join(",")) problems.push(`The groups must hold every new functional spec once, in the order the spec has them: ${numbers.join(", ")}. They hold ${given.join(", ") || "none"}.`);
+  // Next to each other: in the same module, one numbered after the other there.
+  const byNumber = new Map(specs.map((spec) => [spec.number, spec]));
+  const nextTo = (a: number, b: number) => {
+    const first = byNumber.get(a);
+    const second = byNumber.get(b);
+    if (first === undefined || second === undefined) return b === a + 1;
+    return first.module === second.module && Number(second.id ?? second.number) === Number(first.id ?? first.number) + 1;
+  };
   for (const group of answer.groups) {
     if (group.specs.length === 0) problems.push(`"${group.title}" has no functional spec.`);
     if (group.specs.length > MAX_SPECS_PER_JOB) problems.push(`"${group.title}" has ${group.specs.length} functional specs - at most ${MAX_SPECS_PER_JOB}.`);
     for (let i = 1; i < group.specs.length; i += 1) {
-      if (group.specs[i] !== group.specs[i - 1]! + 1) problems.push(`"${group.title}" groups ${group.specs.join(", ")}: only functional specs next to each other go together.`);
+      if (!nextTo(group.specs[i - 1]!, group.specs[i]!)) problems.push(`"${group.title}" groups ${group.specs.join(", ")}: only functional specs next to each other in the same module go together.`);
     }
     if (group.title.trim() === "") problems.push("Every group needs a title.");
   }
@@ -224,6 +242,16 @@ export function placeProblems(input: PlaceInput, answer: PlaceAnswer): string[] 
     }
   }
   return problems;
+}
+
+/** Whether a change is to a functional spec marked to grow again: built, and grown again - cut into jobs as new work is. */
+function growsAgain(change: SpecChange): boolean {
+  if ((change.section !== FUNCTIONAL_REQUIREMENTS && change.section !== REQUIRED_FUNCTIONAL_SPECS) || change.kind !== "change" || change.before === undefined) return false;
+  try {
+    return marksGrowAgain(JSON.parse(change.before));
+  } catch {
+    return false;
+  }
 }
 
 /** The functional specs added at the end: new work. One added anywhere else changes what is built on. */
@@ -289,7 +317,12 @@ function draftOf(chunks: Chunk[], net: SpecChange[]): DraftJob[] {
     .filter((entry) => entry.changes.length > 0)
     .map((entry) => ({
       title: entry.chunk.title,
-      reason: entry.chunk.built !== undefined ? "what is built already, changed" : "new work, cut from its functional specs",
+      reason:
+        entry.chunk.built !== undefined
+          ? "what is built already, changed"
+          : entry.chunk.specs.length > 0 && entry.chunk.specs.every(growsAgain)
+            ? "functional specs grown again"
+            : "new work, cut from its functional specs",
       changes: entry.changes,
     }));
 }
@@ -378,7 +411,11 @@ function anchored(draft: DraftJob[], net: SpecChange[]): DraftJob[] {
 async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
   const net = netChanges(input.base, input.current);
   if (net.length === 0) return [];
-  const specs = newSpecsOf(net, input.current);
+  // What is grouped into jobs: the functional specs grown again - the modules' below first, as the codebase is built on
+  // them - and the codebase's own, grown again or new at the end, in the spec's order.
+  const below = net.filter((change) => growsAgain(change) && change.section === REQUIRED_FUNCTIONAL_SPECS).sort((a, b) => a.position - b.position);
+  const own = [...net.filter((change) => growsAgain(change) && change.section === FUNCTIONAL_REQUIREMENTS), ...newSpecsOf(net, input.current)].sort((a, b) => a.position - b.position);
+  const specs = [...below, ...own];
   const inSpecs = new Set(specs);
   const isNew = (change: SpecChange, section: string) => change.section === section && change.kind === "add";
   const definitions = net.filter((change) => isNew(change, DEFINITIONS));
@@ -394,15 +431,24 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
   if (specs.length === 0) return checkDraft(input, whole).length === 0 ? whole : [];
 
   // 1. Which functional specs go together.
-  reportStage(`planning the queue: which of the ${specs.length} new functional spec${specs.length === 1 ? "" : "s"} go together`);
-  const numbered: NewSpec[] = specs.map((change) => ({ number: change.position, text: textOf(change) }));
+  reportStage(`planning the queue: which of the ${specs.length} functional spec${specs.length === 1 ? "" : "s"} to build go together`);
+  const numbered: NewSpec[] = specs.map((change, index) => {
+    const required = change.section === REQUIRED_FUNCTIONAL_SPECS ? (JSON.parse(change.after!) as { module?: string; frid?: string }) : undefined;
+    return {
+      number: index + 1,
+      text: textOf(change),
+      id: required?.frid ?? String(change.position),
+      ...(required?.module !== undefined ? { module: required.module } : input.moduleName !== undefined ? { module: input.moduleName } : {}),
+      ...(growsAgain(change) ? { again: true } : {}),
+    };
+  });
   const grouped = (await agents?.group(numbered, (answer) => groupProblems(numbered, answer), input.steering).catch(() => undefined)) ?? undefined;
   const groups =
     grouped !== undefined && groupProblems(numbered, grouped).length === 0
       ? grouped.groups
       : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));
   if (grouped === undefined || groupProblems(numbered, grouped).length > 0) reportActivity("  the grouping did not hold - a functional spec a pulse");
-  const bySpec = new Map(specs.map((change) => [change.position, change]));
+  const bySpec = new Map(specs.map((change, index) => [index + 1, change]));
   const chunksFor = (list: Array<{ specs: number[]; title: string }>): Chunk[] => [
     ...(hasBuilt ? [{ title: "Changes to what is built", specs: [], definitions: [], reqs: [], built: builtChanges }] : []),
     ...list.map((group) => ({ title: group.title, specs: group.specs.map((number) => bySpec.get(number)!), definitions: [], reqs: [] })),
@@ -444,7 +490,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
   // A group too big to render well goes a functional spec a job; its reqs with the first of them.
   if (newChunks().some((chunk) => chunk.specs.length > 1 && sizeOf(chunk) > MAX_LINES_PER_JOB)) {
     const split = groups.flatMap((group) => {
-      const chunk = newChunks().find((candidate) => candidate.specs[0]?.position === group.specs[0]);
+      const chunk = newChunks().find((candidate) => candidate.specs[0] === bySpec.get(group.specs[0]!));
       return chunk !== undefined && chunk.specs.length > 1 && sizeOf(chunk) > MAX_LINES_PER_JOB ? group.specs.map((number) => ({ specs: [number], title: titleOf(bySpec.get(number)!) })) : [group];
     });
     const before = placement;
@@ -494,13 +540,26 @@ export function groupPrompt(specs: NewSpec[], steering?: Steering[]): string {
     "it stands on its own - the next ones do not build on it as parts of the same thing - or when it is big: a job is",
     "better small than wide. Never group specs only because they are of the same kind, or next to each other.",
     "",
-    "Only functional specs next to each other go together, and they stay in the order the spec has them: the order is",
-    "what each is built on. Give each group a short title that says what it builds.",
+    "Only functional specs next to each other in the same module go together, and they stay in the order given: the",
+    "order is what each is built on. Give each group a short title that says what it builds.",
+    "",
+    "The specification is split into modules - a ***plain matter, not how the code is laid out. Each numbers its",
+    "functional specs from 1: each below is given with its module and its id there, and a number of its own to answer with.",
     "",
     ...steeringBlock(steering),
-    "The new functional specs, by their number in the spec:",
+    ...(specs.some((spec) => spec.again === true)
+      ? [
+          "Those marked again=\"true\" are built already, and are grown again - rewritten, doing what they say. Group them as",
+          "you would new ones, by what they build.",
+          "",
+        ]
+      : []),
+    "The functional specs to build:",
     "",
-    ...specs.map((spec) => `<functional spec number="${spec.number}">\n${spec.text.trim()}\n</functional spec>`),
+    ...specs.map(
+      (spec) =>
+        `<functional spec number="${spec.number}"${spec.module !== undefined ? ` module="${spec.module}"` : ""} id="${spec.id ?? spec.number}"${spec.again === true ? ' again="true"' : ""}>\n${spec.text.trim()}\n</functional spec>`,
+    ),
     "",
     "Call submit_groups once, with every one of them in a group.",
   ].join("\n");

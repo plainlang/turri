@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
 /**
@@ -79,7 +79,6 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 
 
 import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
-import { describeModules, type WorkLoop } from "./grow/loop.ts";
 import { describeFindings, describeQuestions, type LiveReviewer } from "./review/live.ts";
 
 export type { AskUser, AskUserRequest };
@@ -163,30 +162,11 @@ export function reviewNote(liveReview: LiveReviewer | undefined): string {
 export type { LiveReviewer };
 
 /**
- * What a skill run is told about its builds: the render queue behind it, and - with a live
- * reviewer - a way to answer the reviewer's questions.
- *
- * The builds themselves are started by the tool that writes the spec change (`write_spec_diff`):
- * the interview never waits for one, and never starts one on its own.
+ * With a live reviewer, a way to answer the reviewer's questions. How the builds stand, a skill reads with the
+ * conversation's own drift (loop-tools.ts), the reviewer's findings riding along on it (`withReviewNote`).
  */
-export function createRenderTools(loop: WorkLoop, liveReview?: LiveReviewer) {
-  const status = defineTool({
-    name: "render_status",
-    label: "Render status",
-    description: "What is being built, module by module: the pulse running, the pulses planned after it, and why nothing runs where nothing does.",
-    promptSnippet: "how the background builds are doing",
-    parameters: Type.Object({}),
-    async execute() {
-      const statuses = loop.status();
-      const text = statuses.length === 0 ? "Nothing has been asked to build yet." : describeModules(statuses);
-      return {
-        content: [{ type: "text" as const, text: text + reviewNote(liveReview) }],
-        details: { modules: statuses.length },
-      };
-    },
-  });
-
-  if (liveReview === undefined) return [status];
+export function createReviewTools(liveReview?: LiveReviewer) {
+  if (liveReview === undefined) return [];
 
   const reply = defineTool({
     name: "reply_to_review",
@@ -215,5 +195,19 @@ export function createRenderTools(loop: WorkLoop, liveReview?: LiveReviewer) {
     },
   });
 
-  return [status, reply];
+  return [reply];
+}
+
+/** A tool whose every result carries what the reviewer has said since the last one. */
+export function withReviewNote(tool: ToolDefinition<any, any, any>, liveReview: LiveReviewer | undefined): ToolDefinition<any, any, any> {
+  if (liveReview === undefined) return tool;
+  return {
+    ...tool,
+    async execute(id, params, signal, onUpdate, ctx) {
+      const result = await tool.execute(id, params, signal, onUpdate, ctx);
+      const note = reviewNote(liveReview);
+      if (note === "") return result;
+      return { ...result, content: [...result.content, { type: "text" as const, text: note.trimStart() }] };
+    },
+  };
 }

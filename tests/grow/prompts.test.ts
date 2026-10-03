@@ -25,7 +25,7 @@ function codingPrompt(overrides: Partial<SpecDiffPromptInput> = {}): string {
     required: [],
     linkedResources: [],
     empty: false,
-    cases: { fresh: false, add: [{ frid: "2", text: "Mine two." }], patch: [], delete: [], mechanical: false },
+    cases: { fresh: false, add: [{ frid: "2", text: "Mine two." }], patch: [], again: [], delete: [], mechanical: false },
     ...overrides,
   });
 }
@@ -139,6 +139,31 @@ describe("how to read the specification", () => {
     // The coding agent is told the test reqs exist, and that they are not its.
     expect(specPrimer({ testReqs: false })).toContain("They are not given to you");
     expect(specPrimer({ testReqs: true })).not.toContain("They are not given");
+  });
+});
+
+describe("the spec, by the module each part belongs to", () => {
+  it("groups every section under the module each item is of - a module below by its name, the current one marked", async () => {
+    const { sectionModules } = await import("../../src/grow/prompt.ts");
+    const tree = {
+      [DEFINITIONS]: [{ markdown: "- :User: is a person.", module: "base" }, { markdown: "- :Comment: is a text." }],
+      [NON_FUNCTIONAL_REQUIREMENTS]: [{ markdown: "- :Implementation: is Python.", module: "base" }],
+    } as never;
+    const prompt = codingPrompt({
+      moduleName: "app",
+      specifications: { [DEFINITIONS]: ["- :User: is a person.", "- :Comment: is a text."], [NON_FUNCTIONAL_REQUIREMENTS]: ["- :Implementation: is Python."], [TEST_REQUIREMENTS]: [], [FUNCTIONAL_REQUIREMENTS]: [] },
+      modules: sectionModules(tree, "app"),
+    });
+    expect(prompt).toContain('<definitions>\n<module name="base">\n- :User: is a person.\n</module>\n\n<module name="app" role="current">\n- :Comment: is a text.\n</module>\n</definitions>');
+    expect(prompt).toContain('<implementation reqs>\n<module name="base">\n- :Implementation: is Python.\n</module>\n</implementation reqs>');
+  });
+
+  it("says modules are how the spec is written, not how the code is laid out - one codebase, organised as the implementation reqs say", async () => {
+    const { specPrimer } = await import("../../src/grow/prompt.ts");
+    const primer = specPrimer({ testReqs: false });
+    expect(primer).toContain("Modules are how the");
+    expect(primer).toContain("You work only in the codebase of the current module");
+    expect(primer).toContain("Organise and write the code as the <implementation reqs> say");
   });
 });
 

@@ -30,6 +30,18 @@ import { LEGACY_NAME } from "../legacy.ts";
 
 export const RECORD_FILE = ".turri.json";
 
+/**
+ * A functional spec in the code record marked to grow again: its code is built, and is to be grown again all the
+ * same - `rejuvenate` with functional specs named. The mark makes the record differ from the spec at that item, so
+ * the work loop plans it as it plans any change, and the job that grows it writes the item back without it.
+ */
+export const GROW_AGAIN = "grow_again";
+
+/** Whether a record's item is marked to grow again. */
+export function marksGrowAgain(item: unknown): boolean {
+  return typeof item === "object" && item !== null && (item as Record<string, unknown>)[GROW_AGAIN] === true;
+}
+
 type Item = SpecificationItem & { module?: string; frid?: string };
 
 const itemsOf = (tree: MarshalledPlainSource | null | undefined, heading: string): Item[] => ((tree?.[heading] as Item[] | undefined) ?? []).slice();

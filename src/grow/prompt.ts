@@ -4,12 +4,15 @@ import {
   DEFINITIONS,
   FUNCTIONAL_REQUIREMENTS,
   NON_FUNCTIONAL_REQUIREMENTS,
+  REQUIRED_FUNCTIONAL_SPECS,
   TEST_REQUIREMENTS,
+  type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
 import type { LoadedResource } from "./resources.ts";
 import { acceptanceLabel, acceptanceText, conformanceLabel } from "./test-kinds.ts";
 import { codeCasesBlock, conformanceCasesBlock } from "./cases.ts";
+import { marksGrowAgain } from "./records.ts";
 import type { JobCases } from "./drift.ts";
 import type { RequiredSpec } from "./state.ts";
 import { resourcesChanged, type SpecChange } from "./spec-steps.ts";
@@ -87,11 +90,19 @@ export function specPrimer(options: { testReqs: boolean }): string {
     "- <functional specs>: what the system does, one functionality at a time, numbered in order, each built on the ones",
     '  before it. Each functional spec is a <functionality module="..." id="...">; those in <already implemented> are',
     "  in the code.",
-    "- Modules: a module can require others, and is built on their code - so its codebase holds their",
-    "  functionalities too. Each module numbers its own from 1, so a functionality is always given with its module",
-    "  and its id there, grouped under the module it belongs to, the modules in the order they are built on one",
-    "  another and the current one marked: functionality 1 of `base` and functionality 1 of `app` are two",
-    "  different functionalities.",
+    "- Modules: a ***plain specification is split into modules, each a .plain file of its own. Modules are how the",
+    "  specification is written, in ***plain's own syntax - not how the code is laid out. A module can require others:",
+    "  it is built on their code, in one codebase with them, so the codebase holds their definitions, implementation",
+    "  reqs and functionalities as well as its own. A module can also import others: those hold only definitions and",
+    "  reqs - shared ones, never functional specs or code of their own - and what a module imports is its own. Every",
+    "  section reaches you grouped under the module each item belongs to - <module name=\"...\">, the modules in the",
+    "  order they are built on one another, the current one marked role=\"current\". Each module numbers its",
+    "  functional specs from 1, so a functionality is always given with its module and its id there: functionality 1",
+    "  of `base` and functionality 1 of `app` are two different functionalities.",
+    "- You work only in the codebase of the current module: it is all you can reach, and it already holds the code of",
+    "  every module it requires. Organise and write the code as the <implementation reqs> say - its layout, its",
+    "  structure, its conventions - never by the ***plain modules: they say where the specification puts an item,",
+    "  not where its code goes.",
     "- <acceptance tests>: under a functional spec, specific checks that functionality's implementation must pass.",
     "  They carry the same authority as the functional spec itself.",
     "- <linked resources>: files the specification refers to as `[resource]name`. They are part of the specification.",
@@ -182,6 +193,35 @@ export function section(key: string, items: string[]): string | null {
   return `<${tag}>\n${items.join("\n\n")}\n</${tag}>`;
 }
 
+/**
+ * The module each item of a spec's sections belongs to, in order, by section. A codebase is built from the spec of its
+ * whole requires chain: an item of a module below carries that module's name (records.ts `chainTree`); the module's
+ * own - and what it imports, which is its own - carry none, and are `moduleName`'s.
+ */
+export type SectionModules = Partial<Record<string, string[]>>;
+
+export function sectionModules(tree: MarshalledPlainSource, moduleName: string): SectionModules {
+  const of = (key: string) => ((tree[key] as Array<{ module?: string }> | undefined) ?? []).map((item) => item.module ?? moduleName);
+  return { [DEFINITIONS]: of(DEFINITIONS), [NON_FUNCTIONAL_REQUIREMENTS]: of(NON_FUNCTIONAL_REQUIREMENTS), [TEST_REQUIREMENTS]: of(TEST_REQUIREMENTS) };
+}
+
+/**
+ * A section of the spec, its items grouped under the module each belongs to - the modules in the order they are built on
+ * one another, the current one marked - as the functional specs are (`functionalitiesByModule`). Without `modules`, or
+ * when they do not match the items one for one, every item is the current module's.
+ */
+export function moduleSection(key: string, items: string[], moduleName: string, modules?: SectionModules): string | null {
+  if (items.length === 0) return null;
+  const given = modules?.[key];
+  const owners = given !== undefined && given.length === items.length ? given : items.map(() => moduleName);
+  const groups = [...new Set(owners)].map(
+    (module) =>
+      `<module name="${module}"${module === moduleName ? ' role="current"' : ""}>\n${items.filter((_, index) => owners[index] === module).join("\n\n")}\n</module>`,
+  );
+  const tag = sectionTag(key);
+  return `<${tag}>\n${groups.join("\n\n")}\n</${tag}>`;
+}
+
 function linkedResourcesSection(resources: LoadedResource[]): string | null {
   if (resources.length === 0) return null;
   // An image is not text: the prompt says where it is - attached to the first message, by number - and what type.
@@ -230,6 +270,8 @@ export interface SpecDiffPromptInput {
   empty: boolean;
   /** What the job does to each functional spec (work.ts): the agent is told case by case. Not given: in general. */
   cases?: JobCases;
+  /** The module each definition and req belongs to: see `sectionModules`. */
+  modules?: SectionModules;
 }
 
 /**
@@ -245,6 +287,8 @@ export function reviewedSpec(input: {
   required?: RequiredSpec[];
   /** The change, section by section. */
   change?: string;
+  /** The module each definition and req belongs to: see `sectionModules`. */
+  modules?: SectionModules;
 }): string {
   const { specifications } = input;
   const functionalities = specifications[FUNCTIONAL_REQUIREMENTS] ?? [];
@@ -252,8 +296,8 @@ export function reviewedSpec(input: {
   return [
     specPrimer({ testReqs: false }),
     "",
-    section(DEFINITIONS, specifications[DEFINITIONS] ?? []),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? []),
+    moduleSection(DEFINITIONS, specifications[DEFINITIONS] ?? [], input.moduleName, input.modules),
+    moduleSection(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS] ?? [], input.moduleName, input.modules),
     alreadyImplemented(input.moduleName, functionalities, required),
     "<new in this work>",
     specChangeBlock(input.change ?? "(the change is not known)"),
@@ -305,11 +349,22 @@ function itemText(serialized: string | undefined): string {
 
 const indent = (text: string, by: string) => text.split("\n").map((line) => `${by}${line}`).join("\n");
 
+/** A changed item, read back: undefined when its line is not one. */
+const parsed = (serialized: string | undefined): unknown => {
+  try {
+    return serialized === undefined ? undefined : JSON.parse(serialized);
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * A spec change as an agent reads it: section by section, what was added, what changed - before and now - and what
- * was removed. A definition taken out and put back reworded, or moved, is one change to it, not two.
+ * was removed. A definition taken out and put back reworded, or moved, is one change to it, not two. Every item is
+ * named so no other module's can be meant: a functional spec by its module and number, and a definition or req of a
+ * module below by its module; `moduleName` is the module whose codebase it is - whose own items carry no module.
  */
-export function describeSpecChange(changes: SpecChange[]): string {
+export function describeSpecChange(changes: SpecChange[], moduleName?: string): string {
   const conceptOf = (text: string) => /^-\s+(:[^:\s]+:)/.exec(text)?.[1];
   const blocks: string[] = [];
   const known = new Set(CHANGE_SECTIONS.map((section) => section.key));
@@ -317,6 +372,21 @@ export function describeSpecChange(changes: SpecChange[]): string {
   for (const { key, title } of sections) {
     const here = changes.filter((change) => change.section === key);
     if (here.length === 0) continue;
+    /** Which item it is: a functional spec by its module and number, a definition by its concept, and one of a module below with that module. */
+    const labelOf = (change: SpecChange, line: string | undefined): string => {
+      const item = parsed(line) as { module?: string; frid?: string } | undefined;
+      const below = item?.module !== undefined && item.module !== moduleName ? ` of module \`${item.module}\`` : "";
+      if (key === FUNCTIONAL_REQUIREMENTS) return moduleName !== undefined ? functionalityOf(String(change.position), moduleName) : `functionality ${change.position}`;
+      if (key === REQUIRED_FUNCTIONAL_SPECS) return item?.module !== undefined && item.frid !== undefined ? functionalityOf(item.frid, item.module) : `functionality ${change.position}${below}`;
+      if (key === DEFINITIONS) return `${conceptOf(itemText(line)) ?? `item ${change.position}`}${below}`;
+      return `item ${change.position}${below}`;
+    };
+    /** Whether an added or removed item is named above its text: a functional spec always, anything else of a module below. */
+    const named = (line: string | undefined) =>
+      key === FUNCTIONAL_REQUIREMENTS || key === REQUIRED_FUNCTIONAL_SPECS || (() => {
+        const item = parsed(line) as { module?: string } | undefined;
+        return item?.module !== undefined && item.module !== moduleName;
+      })();
     const changed: Array<{ label: string; before: string; after: string; resources?: string[] }> = [];
     // A definition "changed" into another concept is one removed and another added: a definition is itself by its concept.
     const split = here.flatMap((change): SpecChange[] =>
@@ -326,8 +396,10 @@ export function describeSpecChange(changes: SpecChange[]): string {
     );
     let added = split.filter((change) => change.kind === "add");
     let removed = split.filter((change) => change.kind === "remove");
-    for (const change of split.filter((item) => item.kind === "change")) {
-      const label = key === FUNCTIONAL_REQUIREMENTS ? `functionality ${change.position}` : key === DEFINITIONS ? (conceptOf(itemText(change.after)) ?? `item ${change.position}`) : `item ${change.position}`;
+    // Marked to grow again: built, and grown again - what it says now, and what it said, where that changed too.
+    const again = split.filter((change) => change.kind === "change" && marksGrowAgain(parsed(change.before)));
+    for (const change of split.filter((item) => item.kind === "change" && !again.includes(item))) {
+      const label = labelOf(change, change.after);
       const resources = resourcesChanged(change.before, change.after).map((resource) => resource.target);
       changed.push({ label, before: itemText(change.before), after: itemText(change.after), ...(resources.length > 0 ? { resources } : {}) });
     }
@@ -339,10 +411,15 @@ export function describeSpecChange(changes: SpecChange[]): string {
         if (back === undefined) continue;
         removed = removed.filter((change) => change !== out);
         added = added.filter((change) => change !== back);
-        if (itemText(out.before) !== itemText(back.after)) changed.push({ label: concept!, before: itemText(out.before), after: itemText(back.after) });
+        if (itemText(out.before) !== itemText(back.after)) changed.push({ label: labelOf(back, back.after), before: itemText(out.before), after: itemText(back.after) });
       }
     }
-    const counts = [added.length > 0 ? `${added.length} added` : "", changed.length > 0 ? `${changed.length} changed` : "", removed.length > 0 ? `${removed.length} removed` : ""].filter(Boolean);
+    const counts = [
+      added.length > 0 ? `${added.length} added` : "",
+      changed.length > 0 ? `${changed.length} changed` : "",
+      again.length > 0 ? `${again.length} to grow again` : "",
+      removed.length > 0 ? `${removed.length} removed` : "",
+    ].filter(Boolean);
     if (counts.length === 0) continue;
     const lines = [`<${title} change="${counts.join(", ")}">`];
     if (changed.length > 0) {
@@ -354,16 +431,27 @@ export function describeSpecChange(changes: SpecChange[]): string {
         else lines.push(`  ${change.label}`, "    before:", indent(change.before, "      "), "    now:", indent(change.after, "      "), ...held);
       }
     }
+    if (again.length > 0) {
+      lines.push("To grow again - built already, and grown again:");
+      for (const change of again) {
+        const label = labelOf(change, change.after);
+        if (itemText(change.before) === itemText(change.after)) lines.push(`  ${label}:`, indent(itemText(change.after), "    "));
+        else lines.push(`  ${label}`, "    before:", indent(itemText(change.before), "      "), "    now:", indent(itemText(change.after), "      "));
+      }
+    }
     if (added.length > 0) {
       lines.push("Added:");
       for (const change of added) {
-        if (key === FUNCTIONAL_REQUIREMENTS) lines.push(`  functionality ${change.position}:`);
+        if (named(change.after)) lines.push(`  ${labelOf(change, change.after)}:`);
         lines.push(indent(itemText(change.after), "  "));
       }
     }
     if (removed.length > 0) {
       lines.push("Removed:");
-      for (const change of removed) lines.push(indent(itemText(change.before), "  "));
+      for (const change of removed) {
+        if (named(change.before)) lines.push(`  ${labelOf(change, change.before)}:`);
+        lines.push(indent(itemText(change.before), "  "));
+      }
     }
     lines.push(`</${title}>`);
     blocks.push(lines.join("\n"));
@@ -400,13 +488,13 @@ export function buildSpecDiffPrompt(input: SpecDiffPromptInput): string {
     "code has to do once you are done. Your task is to apply the change to the code - everything it adds, changes and",
     "removes - and nothing else.",
     "",
-    section(DEFINITIONS, specifications[DEFINITIONS]),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
+    moduleSection(DEFINITIONS, specifications[DEFINITIONS], input.moduleName, input.modules),
+    moduleSection(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS], input.moduleName, input.modules),
     all.length === 0 ? null : `<already implemented>\n${functionalitiesByModule(all, input.moduleName, "implemented")}\n</already implemented>`,
     input.codebase ? `<codebase>\n${input.codebase}\n</codebase>` : null,
     linkedResourcesSection(input.linkedResources),
     input.changes !== undefined && input.changes.length > 0
-      ? specChangeBlock(describeSpecChange(input.changes))
+      ? specChangeBlock(describeSpecChange(input.changes, input.moduleName))
       : `<spec change>\n${RAW_CHANGE_NOTE}\n\n${input.diff.trim()}\n</spec change>`,
     "",
     ...(input.cases !== undefined
@@ -455,6 +543,8 @@ export interface ConformancePromptInput {
    * line with the specs as they stand after it.
    */
   diff?: string;
+  /** The module each definition and req belongs to: see `sectionModules`. */
+  modules?: SectionModules;
 }
 
 /**
@@ -526,9 +616,9 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           "specification and fails.",
         ]),
     "",
-    section(DEFINITIONS, specifications[DEFINITIONS]),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
-    section(TEST_REQUIREMENTS, specifications[TEST_REQUIREMENTS]),
+    moduleSection(DEFINITIONS, specifications[DEFINITIONS], input.moduleName, input.modules),
+    moduleSection(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS], input.moduleName, input.modules),
+    moduleSection(TEST_REQUIREMENTS, specifications[TEST_REQUIREMENTS], input.moduleName, input.modules),
     // Context, not the subject: what this functionality can rely on already existing - a
     // user registered before one logs in - so its tests can set that up through the same
     // public entry points. Only the functionality below is under test. For a diff, every
@@ -710,6 +800,8 @@ export interface RegressionFixPromptInput {
   failure: string;
   /** Functional specs of the modules this one requires, transitively. */
   required?: RequiredSpec[];
+  /** The module each definition and req belongs to: see `sectionModules`. */
+  modules?: SectionModules;
 }
 
 /**
@@ -728,8 +820,8 @@ export function buildRegressionFixPrompt(input: RegressionFixPromptInput): strin
     `It covers functionalities ${input.frids.join(", ")} of module \`${input.moduleName}\` together. A functionality that passed`,
     "on its own can still be broken by a later one, which is what this run is for.",
     "",
-    section(DEFINITIONS, specifications[DEFINITIONS]),
-    section(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS]),
+    moduleSection(DEFINITIONS, specifications[DEFINITIONS], input.moduleName, input.modules),
+    moduleSection(NON_FUNCTIONAL_REQUIREMENTS, specifications[NON_FUNCTIONAL_REQUIREMENTS], input.moduleName, input.modules),
     // All of it is in the code, the required modules' functionalities included, and any of it
     // may be what the latest change broke.
     alreadyImplemented(input.moduleName, specifications[FUNCTIONAL_REQUIREMENTS], input.required ?? []),

@@ -5,7 +5,7 @@ import { unitReviewTask } from "../../src/grow/unit-review.ts";
 import { testReviewTask } from "../../src/grow/conformance-agents.ts";
 import type { JobCases } from "../../src/grow/drift.ts";
 
-const none: JobCases = { fresh: false, add: [], patch: [], delete: [], mechanical: false };
+const none: JobCases = { fresh: false, add: [], patch: [], again: [], delete: [], mechanical: false };
 const text = (lines: string[]) => lines.join("\n");
 
 describe("what a job's agents are told, by its cases", () => {
@@ -16,6 +16,15 @@ describe("what a job's agents are told, by its cases", () => {
     expect(mixed).toContain("Do not build it again from scratch.");
     expect(mixed).toContain("Taken out - remove its code, and the unit tests only it had");
     expect(mixed).not.toContain("No functional spec is touched");
+  });
+
+  it("tells the coding agent to grow again what is built - its implementation replaced, not a second one beside it - and its reviewer to hold it to that", () => {
+    const again = text(codeCasesBlock({ ...none, again: [{ frid: "2", text: "Users sign in." }] }));
+    expect(again).toContain("Grown again - its code and unit tests are built, and are to be grown again: fs 2 (Users sign in.)");
+    expect(again).toContain("no second implementation beside the old one");
+    expect(again).not.toContain("New - build each");
+    const review = text(codeReviewCasesBlock({ ...none, again: [{ frid: "2", text: "Users sign in." }] }));
+    expect(review).toContain("Grown again: fs 2 (Users sign in.) - its implementation replaced, not patched beside the old one");
   });
 
   it("sets a fresh project up first, with its unit tests where the unit testing script runs them - no word of conformance", () => {

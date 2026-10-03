@@ -22,6 +22,8 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/forge.ts` | `runSkill()` - the one entry point the CLI and the extension share |
 | `src/pi.ts` | pi session factories for executors, sub-agents and judges |
 | `src/spec-tools.ts` | `write_spec_diff` |
+| `src/loop-tools.ts` | `regrow`, `drift` and `halt` - one definition each, for the conversation and the skills alike |
+| `src/mature-tools.ts` | `mature`'s own two: `watch_jobs` and `spec_findings` |
 | `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) - and `highlight.ts`, which highlights \*\*\*plain with plyn's grammar, `plain.tmLanguage.json` (`npm run grammar:sync` refreshes it from [plyn](https://github.com/plainlang/plyn)) |
 | `src/grow/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
 | `src/grow/regrow.ts`, `src/grow/bind.ts` | a code job - a spec diff rendered in the code - and a conformance job |

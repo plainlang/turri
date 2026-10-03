@@ -85,8 +85,8 @@ is reported as pending, not dropped.
 
 - A job is a spec diff: `regrow.ts` `renderSpecDiff` grows one in the code, landing on its unit
   tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
-  what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, delete,
-  mechanical). The agent works, then the harness runs the project's unit testing script
+  what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, again, delete,
+  mechanical; again is `rejuvenate`'s functional specs, marked `grow_again` in the code record). The agent works, then the harness runs the project's unit testing script
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
   Once they pass, `unit-review.ts` has a read-only reviewer - one session for the loop, shown the
   whole work diff first, then the diff since its last review (`workSnapshot`) and the coder's

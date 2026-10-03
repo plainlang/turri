@@ -5,7 +5,7 @@ import { conformanceDirFor } from "./conformance.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { projectRootOf } from "./paths.ts";
-import { buildRegressionFixPrompt } from "./prompt.ts";
+import { buildRegressionFixPrompt, sectionModules } from "./prompt.ts";
 import { abandonWork, markWork, recordHistory, type WorkStart } from "./lineage.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
@@ -97,6 +97,7 @@ async function repairRegression(input: {
           moduleName: input.moduleName,
           frids: input.frids,
           specifications,
+          modules: sectionModules(input.tree, input.moduleName),
           required: input.required,
           failure: input.failure,
         }),

@@ -1,6 +1,6 @@
 import { DEFAULT_CONCEPTS, extractConceptsFromDefinition, extractConceptsFromSpecText } from "../plain/concepts.ts";
-import { DEFINITIONS, FUNCTIONAL_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
-import { codeTree, conformanceTarget, type Chosen } from "./records.ts";
+import { DEFINITIONS, FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, type MarshalledPlainSource } from "../plain/spec.ts";
+import { codeTree, conformanceTarget, marksGrowAgain, type Chosen } from "./records.ts";
 import { applyChanges, changesBetween, parseTree, resourcesChanged, serializeTree, type SpecChange } from "./spec-steps.ts";
 
 /**
@@ -26,10 +26,14 @@ export function conformanceWork(tests: MarshalledPlainSource | null, code: Marsh
   return changesBetween(serializeTree(tests ?? {}), serializeTree(conformanceTarget(code, tests, spec, chosen)));
 }
 
-/** A functional spec a job touches: its number - in the spec after the job, or, taken out, before it - and its first line. */
+/**
+ * A functional spec a job touches: its number - in the spec after the job, or, taken out, before it - its first line,
+ * and the module it belongs to: each module numbers its own from 1, so a number alone can mean two.
+ */
 export interface TouchedSpec {
   frid: string;
   text: string;
+  module?: string;
 }
 
 /**
@@ -39,6 +43,9 @@ export interface TouchedSpec {
  * - add: functional specs that are new.
  * - patch: functional specs changed - their text, their acceptance tests, or a concept they use: a
  *   change to what is built, never built again from scratch.
+ * - again: functional specs marked to grow again (`rejuvenate`): their code is built, and is grown again - rewritten
+ *   or started over, doing what the spec says now - with what it replaces taken out. A functional spec of a module
+ *   this one requires, grown again here, is one too.
  * - delete: functional specs taken out.
  * - mechanical: none of those - only reqs, or definitions no functional spec uses. Existing tests may
  *   change only mechanically, and no new ones are written.
@@ -49,6 +56,7 @@ export interface JobCases {
   fresh: boolean;
   add: TouchedSpec[];
   patch: TouchedSpec[];
+  again: TouchedSpec[];
   delete: TouchedSpec[];
   mechanical: boolean;
 }
@@ -105,8 +113,9 @@ export function conceptsUsed(markdown: string, definitions: Array<{ markdown: st
  *
  * A functional spec is patched when its item changed, or when a concept it uses - as the spec after
  * the job defines it, or as it was defined before - is defined anew, changed or taken out by the job.
+ * `module`: the module whose codebase it is - its own functional specs are that module's.
  */
-export function casesOf(before: MarshalledPlainSource, changes: SpecChange[], options: { fresh?: boolean } = {}): JobCases {
+export function casesOf(before: MarshalledPlainSource, changes: SpecChange[], options: { fresh?: boolean; module?: string } = {}): JobCases {
   const beforeText = serializeTree(before);
   const after = parseTree(applyChanges(beforeText, changes));
   const numberIn = (tree: MarshalledPlainSource, item: FunctionalItem | undefined, position: number): string => {
@@ -115,16 +124,25 @@ export function casesOf(before: MarshalledPlainSource, changes: SpecChange[], op
     const at = item === undefined ? -1 : specs.findIndex((spec) => spec.markdown === item.markdown);
     return String(at === -1 ? position : at + 1);
   };
+  const own = options.module !== undefined ? { module: options.module } : {};
   const add: TouchedSpec[] = [];
   const patch: TouchedSpec[] = [];
+  const again: TouchedSpec[] = [];
   const removed: TouchedSpec[] = [];
   for (const change of changes) {
-    if (change.section !== FUNCTIONAL_REQUIREMENTS) continue;
     const was = itemOfLine(change.before);
     const is = itemOfLine(change.after);
-    if (change.kind === "add" && is !== undefined) add.push({ frid: numberIn(after, is, change.position), text: firstLine(is.markdown) });
-    else if (change.kind === "remove" && was !== undefined) removed.push({ frid: numberIn(before, was, change.position), text: firstLine(was.markdown) });
-    else if (change.kind === "change" && is !== undefined) patch.push({ frid: numberIn(after, is, change.position), text: firstLine(is.markdown) });
+    // Marked to grow again: grown again, whatever else changed in its text - its own or, required, another module's.
+    if (change.kind === "change" && is !== undefined && marksGrowAgain(was)) {
+      const required = change.section === REQUIRED_FUNCTIONAL_SPECS ? (is as FunctionalItem & { module?: string }) : undefined;
+      if (change.section === FUNCTIONAL_REQUIREMENTS) again.push({ frid: numberIn(after, is, change.position), text: firstLine(is.markdown), ...own });
+      else if (required !== undefined) again.push({ frid: `${required.frid ?? change.position}`, text: firstLine(is.markdown), ...(required.module !== undefined ? { module: required.module } : {}) });
+      continue;
+    }
+    if (change.section !== FUNCTIONAL_REQUIREMENTS) continue;
+    if (change.kind === "add" && is !== undefined) add.push({ frid: numberIn(after, is, change.position), text: firstLine(is.markdown), ...own });
+    else if (change.kind === "remove" && was !== undefined) removed.push({ frid: numberIn(before, was, change.position), text: firstLine(was.markdown), ...own });
+    else if (change.kind === "change" && is !== undefined) patch.push({ frid: numberIn(after, is, change.position), text: firstLine(is.markdown), ...own });
   }
 
   // The concepts the job defines anew, changes or takes out.
@@ -137,14 +155,14 @@ export function casesOf(before: MarshalledPlainSource, changes: SpecChange[], op
     }
   }
   if (redefined.size > 0) {
-    const touched = new Set([...add, ...patch].map((spec) => spec.frid));
+    const touched = new Set([...add, ...patch, ...again].filter((spec) => spec.module === options.module).map((spec) => spec.frid));
     const definitionsAfter = (after[DEFINITIONS] as Array<{ markdown: string }> | undefined) ?? [];
     const definitionsBefore = (before[DEFINITIONS] as Array<{ markdown: string }> | undefined) ?? [];
     functionalSpecs(after).forEach((item, index) => {
       const frid = item.frid ?? String(index + 1);
       if (touched.has(frid)) return;
       const uses = new Set([...conceptsUsed(item.markdown, definitionsAfter), ...conceptsUsed(item.markdown, definitionsBefore)]);
-      if ([...redefined].some((concept) => uses.has(concept))) patch.push({ frid, text: firstLine(item.markdown) });
+      if ([...redefined].some((concept) => uses.has(concept))) patch.push({ frid, text: firstLine(item.markdown), ...own });
     });
     patch.sort((a, b) => Number(a.frid) - Number(b.frid));
   }
@@ -153,8 +171,9 @@ export function casesOf(before: MarshalledPlainSource, changes: SpecChange[], op
     fresh: options.fresh === true,
     add,
     patch,
+    again,
     delete: removed,
-    mechanical: add.length === 0 && patch.length === 0 && removed.length === 0,
+    mechanical: add.length === 0 && patch.length === 0 && again.length === 0 && removed.length === 0,
   };
 }
 

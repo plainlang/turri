@@ -35,12 +35,12 @@ where it stopped.
 
 | tool | |
 | --- | --- |
-| `regrow` | regrow a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped. With functional specs named, those grow again though their spec did not change |
+| `regrow` | regrow a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped |
 | `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
 | `bind` | bind functional specs to conformance tests - now, or ahead of their code: a conformance pulse is scheduled and starts once every one named is grown; whatever the config says |
-| `rejuvenate` | grow a codebase again from the bottom of its chain, when it was grown without a module it now requires - only once you agree |
+| `rejuvenate` | grow again what is grown: functional specs named grow again though their spec did not change - rewritten or started over, planned into pulses as any change is, those next to each other together; with none named, a codebase grown without a module it now requires starts over from the bottom of its chain - only once you agree |
 | `validate` | validate a spec, growing nothing |
 | `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |
 | `growth` | the pulses - running, planned and finished - or one of them |
@@ -67,6 +67,10 @@ command line ("run it headless", "use the CLI", or the command itself). pi confi
 `pi install`, `update`, `list`, `config`, `auth`, its settings - is not affected.
 
 ## Pulses
+
+A pulse is one unit of work growing the code. It was called a job, and still is where a name is kept -
+`job_id`, `parallel-jobs`, `allow-to-stop-jobs`, `.turri/jobs/` - and in a project's own files written before:
+the chat is told the two are the same, so an `AGENTS.md` or a skill that says "job" needs no change.
 
 A render takes minutes, so in the TUI every render tool starts the work as a pulse and
 returns straight away. The conversation carries on; pulses on the same module - or on modules of one

@@ -129,7 +129,7 @@ That is what regenerative software asks of software, and what **turri** does:
 | It can do it again and again, for as long as it lives. | The code can be grown again whenever the spec changes or a model gets better, for as long as the spec is kept. |
 
 So the tools speak its language: **`regrow`** grows the code again from the spec as it is now, **`drift`** says how far
-the code has moved from it, **`rejuvenate`** takes a codebase back to the start and grows it again, and **`lineage`**
+the code has moved from it, **`rejuvenate`** grows again what is grown - functional specs, or a codebase back from the start - and **`lineage`**
 shows every generation of a module and what each grew from.
 
 ## Install

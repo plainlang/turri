@@ -28,16 +28,18 @@ export interface JobSteering {
   notes: string[];
   /** Set by the running job while its coding agent can be reached: tells it now, in its turn, and says whether it could. */
   deliver?: (text: string) => boolean;
+  /** The module whose codebase it grows: the change is told with each item's module (`describeSpecChange`). */
+  module?: string;
 }
 
-export function createSteering(tree: MarshalledPlainSource): JobSteering {
-  return { target: tree, agent: tree, told: tree, steers: 0, notes: [] };
+export function createSteering(tree: MarshalledPlainSource, module?: string): JobSteering {
+  return { target: tree, agent: tree, told: tree, steers: 0, notes: [], ...(module !== undefined ? { module } : {}) };
 }
 
 /** What the agent is to be told and has not been: the steer waiting, or undefined when there is none. */
 export function waitingSteer(steering: JobSteering): string | undefined {
   const changes = changesBetween(serializeTree(steering.told), serializeTree(steering.agent));
-  return changes.length === 0 ? undefined : steerText(changes);
+  return changes.length === 0 ? undefined : steerText(changes, steering.module);
 }
 
 /** The agent has it now. */
@@ -46,11 +48,11 @@ export function markTold(steering: JobSteering): void {
 }
 
 /** The message a steer is: the change since it was last told, as its first one was - and to make the code match. */
-export function steerText(changes: SpecChange[]): string {
+export function steerText(changes: SpecChange[], moduleName?: string): string {
   return [
     "The spec changed while you work, in what you are building. The change, from the spec as you were given it to the spec as it is now:",
     "",
-    describeSpecChange(changes),
+    describeSpecChange(changes, moduleName),
     "",
     "Make the code and its unit tests match the spec as it is now - this change, and nothing else changes. Carry on from where you are: the harness runs the unit tests again once you have.",
   ].join("\n");

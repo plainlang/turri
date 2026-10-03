@@ -18,11 +18,11 @@ import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelS
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
 import { defaultParallelJobs, installedPackages, STOCK_IMAGE, stopOrphanedVms, vmImageFor, vmMemoryFor } from "./grow/vm.ts";
 import { stackAgainstImage } from "./vm-stack.ts";
-import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, projectImageTag, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
-import { buildVmImage } from "./setup.ts";
-import { describeContents, imageSources, resolveImageContents } from "./vm-image-contents.ts";
+import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
+import { imageSources } from "./vm-image-contents.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
+import { driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regrowTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
 import { createWebTools } from "./grow/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./forge.ts";
 import type { Reporter } from "./graph.ts";
@@ -37,9 +37,9 @@ import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeri
 import { vmSummary } from "./grow/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
-import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
+import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { whyFailed } from "./grow/diagnose-job.ts";
-import { createWorkLoop, describeDrift, describeModules, previewJobs, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
+import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { plainPaint } from "./grow/plain-palette.ts";
 import { createJobPanel, PANEL_KEY } from "./grow/job-panel.ts";
 import { createSidePanel, type PanelView } from "./grow/side-panel.ts";
@@ -325,9 +325,8 @@ export default function (pi: ExtensionAPI) {
   registerRejuvenate(pi, cwd, jobs);
   registerGlimpse(pi, cwd, jobs);
   registerBind(pi, cwd, jobs);
-  registerBuildVmImage(pi, cwd, jobs);
   registerRenderModels(pi);
-  registerDeploy(pi, cwd);
+  registerDeploy(pi, cwd, jobs);
   registerSteering(pi, cwd);
 
   const { skills, pending } = discoveredSkills;
@@ -492,6 +491,12 @@ export default function (pi: ExtensionAPI) {
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // validate too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
+        // The conversation's own regrow, drift and halt, on its loop: a skill waits for nothing, and grows on the model chosen.
+        loopTools: [
+          regrowTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
+          driftTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx) }),
+          haltTool({ jobs }),
+        ],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
         escalate: async ({ question, critique }) => {
@@ -540,103 +545,21 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-/** What the loop is doing for a spec's modules, for the conversation - and, waiting, how each module ended. */
-async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: boolean) {
-  if (wait) await loop.drain();
-  const now = wait ? loop.status().filter((status) => statuses.some((asked) => asked.plainFile === status.plainFile)) : statuses;
-  const jobIds = now.flatMap((status) => (status.running !== undefined ? [status.running.jobId] : []));
-  const text = [
-    describeModules(now),
-    "",
-    wait
-      ? "Tell the user how it went."
-      : "It grows in the background: tell the user what runs and what is planned, and carry on. Use growth with a pulse's id if they ask how it is going.",
-  ].join("\n");
-  return { content: [{ type: "text" as const, text }], details: { jobIds } };
-}
-
 function registerRegrow(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "regrow",
-    label: "Regrow",
-    description:
-      "Regrow a .plain module's code from its spec as the files have it now - and every module it requires, bottom of the " +
-      "requires chain first. Call it after any change to the spec, by any means: the file tools, a skill, the user in an " +
-      "editor. It takes no diff: what is left to grow - from what each module's code was grown from to its spec now - is " +
-      "worked out and planned into pulses, and a pulse running that grows something the spec no longer wants is stopped and " +
-      "rolled back. Nothing to do where the code is grown from the spec as it is. With functional specs named, those are " +
-      "grown again even though their spec did not change.",
-    promptSnippet: "regrow a module's code from its spec as it is now - after any change to the spec",
-    promptGuidelines: [
-      "Call regrow after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
-      "regrow returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the pulses report when they finish.",
-      "Name functional specs in `functionalities` only when the user wants ones whose spec did not change grown again. When they want one to come out differently, change its spec first - the spec is what persists - then regrow.",
-      "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regrow sees it by itself, and grows again every functional spec that uses what links it. Never name functional specs in `functionalities` for it.",
-      "Never stop pulses and start them again yourself to follow a spec change: regrow does it.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.Optional(
-        Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" }),
-      ),
-      working_dir: WORKING_DIR_PARAM,
-      functionalities: Type.Optional(
-        Type.Array(Type.String(), { description: "Functional specs, by id, to grow again though their spec did not change. Omitted: only what changed" }),
-      ),
-      guidance: GUIDANCE_PARAM,
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
+  pi.registerTool(
+    regrowTool({
+      cwd,
+      jobs,
+      loop: (ctx) => workLoopFor(jobs, cwd, ctx),
+      model: (ctx, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile),
+      wait: (ctx, asked) => shouldWait(ctx.mode, asked),
     }),
-    async execute(_id, given, _signal, _onUpdate, ctx) {
-      // No file named: the project's config.yaml says which module.
-      const located = fromWorkingDir(cwd, given);
-      const named = located.plain_file ?? readProjectConfig(located.base).module;
-      if (named === undefined) {
-        const stacks = modulesWithConfig(located.base);
-        throw new Error(
-          stacks.length > 0
-            ? `Name the .plain file to regrow: this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}.`
-            : `Name the .plain file to regrow, or set module: in ${CONFIG_FILE}.`,
-        );
-      }
-      const plainFile = resolve(located.base, named);
-      const check = checkPlainFile(plainFile);
-      if (!check.ok) throw new Error(`${named} does not parse, so nothing can grow from it yet: ${check.error}`);
-      const again = located.functionalities ?? [];
-      const model = jobModel(ctx, again.length > 0 ? "functionalities" : "spec_changes", located.model, plainFile);
-      const loop = workLoopFor(jobs, cwd, ctx);
-      const request = { ...(model !== undefined ? { model } : {}), ...(located.guidance !== undefined ? { guidance: located.guidance } : {}) };
-      const statuses = again.length > 0 ? await loop.regenerate(plainFile, again, request) : await loop.bringUp(plainFile, request);
-      return loopReply(loop, statuses, shouldWait(ctx.mode, located.wait));
-    },
-  });
+  );
 }
 
 /** What is left to grow: the drift between a module's code and its spec - planning nothing, starting nothing. */
 function registerDrift(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "drift",
-    label: "Drift",
-    description:
-      "How far a module's code has drifted from its spec: in each codebase where it lives, what is left to grow - the " +
-      "functional specs to add, change or take out, and reqs or definitions alone - and the conformance tests left to " +
-      "write, those bound ahead of their code, what is growing now, and why nothing grows where nothing does. It plans " +
-      "nothing and starts nothing, and calls no model.",
-    promptSnippet: "drift: what is left to grow in a module, code and conformance tests - starting nothing",
-    promptGuidelines: [
-      "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last grown. To see the next pulse's prompt as well, use glimpse.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" })),
-      working_dir: WORKING_DIR_PARAM,
-    }),
-    async execute(_id, given, _signal, _onUpdate, ctx) {
-      const located = fromWorkingDir(cwd, given);
-      const named = located.plain_file ?? readProjectConfig(located.base).module;
-      if (named === undefined) throw new Error(`Name the .plain file, or set module: in ${CONFIG_FILE}.`);
-      const reports = workLoopFor(jobs, cwd, ctx).drift(resolve(located.base, named));
-      return { content: [{ type: "text" as const, text: describeDrift(reports) }], details: { modules: reports.length } };
-    },
-  });
+  pi.registerTool(driftTool({ cwd, jobs, loop: (ctx) => workLoopFor(jobs, cwd, ctx) }));
 }
 
 function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
@@ -654,7 +577,7 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
     promptGuidelines: [
-      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.yaml for it, and never regenerate a functionality to get them.",
+      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.yaml for it, and never rejuvenate a functionality to get them.",
       "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. Name together the ones to test in one pulse. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
       "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
     ],
@@ -671,37 +594,6 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       const model = jobModel(ctx, "spec_changes", params.model, plainFile);
       const loop = workLoopFor(jobs, cwd, ctx);
       const statuses = await loop.conformance(plainFile, { ...(params.frids !== undefined ? { frids: params.frids } : {}), ...(model !== undefined ? { model } : {}) });
-      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
-    },
-  });
-}
-
-function registerRegenerateFunctionality(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "regrow",
-    label: "Regenerate functionality",
-    description:
-      "Build one functionality of a module again - its spec changed, or the user wants it redone as it is. It is " +
-      "taken out of what the module's code is recorded as built from, and the module is brought up to its spec: the " +
-      "functionality is built again, in the module's own codebase.",
-    promptSnippet: "build a functionality again",
-    promptGuidelines: [
-      "A functionality whose spec changed is built again by itself once regrow is called: use regrow when the user wants one redone whose spec did not change. Never to get conformance tests: that is bind.",
-      "When the user wants it to come out differently, change its spec first - the spec is what persists - then call regrow.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file" }),
-      working_dir: WORKING_DIR_PARAM,
-      frid: Type.String({ description: "The functionality's id" }),
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, _onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given);
-      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
-      const plainFile = resolve(params.base, params.plain_file);
-      const loop = workLoopFor(jobs, cwd, ctx);
-      const statuses = await loop.regenerate(plainFile, params.frid, model !== undefined ? { model } : {});
       return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
@@ -759,18 +651,25 @@ function registerGlimpse(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
 function registerRejuvenate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool({
     name: "rejuvenate",
-    label: "Rejuvenate a codebase",
+    label: "Rejuvenate",
     description:
-      "Start over the codebase of a module that now requires a module its code was not built on - a module the specs were " +
-      "split into, say: its code and conformance tests are taken out, committed so its history keeps them, and the module " +
-      "is built again from the bottom of its chain. Destructive: only once the user agreed.",
-    promptSnippet: "rejuvenate a codebase: grow it again from the bottom of its chain, on a module it now requires",
+      "Grow again what is grown already. With functional specs named: their code is built, and is grown again as their " +
+      "spec says now - rewritten or started over, better made, what it replaces taken out - planned into pulses as any " +
+      "change is, the ones next to each other together, each with the definitions and reqs it uses; the conformance tests " +
+      "stay as they are. With none named: the codebase of a module that now requires a module its code was not built on - " +
+      "a module the specs were split into, say - starts over: its code and conformance tests are taken out, committed so " +
+      "its history keeps them, and the module is built again from the bottom of its chain.",
+    promptSnippet: "rejuvenate: grow functional specs again as their spec stands, or start a codebase over on a module it now requires",
     promptGuidelines: [
-      "Only when a module's status says it has to be started over, and only after asking the user and telling them why: its code was built without the module it now requires, so no change to the code brings that module in. If they do not agree, leave it: nothing else is built there until it is.",
+      "Name functional specs in `functionalities` when the user wants ones already grown grown again though their spec did not change - made better, on another model, after many patches - all in one call. When they want one to come out differently, change its spec instead, then regrow.",
+      "With no functional specs: only when a module's status says it has to be started over, and only after asking the user and telling them why: its code was built without the module it now requires, so no change to the code brings that module in. If they do not agree, leave it: nothing else is built there until it is.",
     ],
     parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file of the module whose status says to start it over" }),
+      plain_file: Type.String({ description: "Path to the .plain file of the module" }),
       working_dir: WORKING_DIR_PARAM,
+      functionalities: Type.Optional(
+        Type.Array(Type.String(), { description: "Functional specs, by id, to grow again. Omitted: start over the codebase whose status says to" }),
+      ),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -779,7 +678,9 @@ function registerRejuvenate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
       const plainFile = resolve(params.base, params.plain_file);
       const loop = workLoopFor(jobs, cwd, ctx);
-      const statuses = await loop.startOver(plainFile, model !== undefined ? { model } : {});
+      const request = model !== undefined ? { model } : {};
+      const again = params.functionalities ?? [];
+      const statuses = again.length > 0 ? await loop.growAgain(plainFile, again, request) : await loop.startOver(plainFile, request);
       return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
@@ -901,7 +802,7 @@ export function sandboxBlock(cwd: string): string {
     `- Its recipe: ${describePlan(plan)}. turri's recipe (${join(PACKAGE_ROOT, "vm", "image.json")}), then the person's file ` +
       `${userImageFile()}${plan.file !== undefined ? "" : " (none yet)"}${own ? `, then this project's vm-image: in config.yaml` : ""}.`,
     ...(plan.refused.length > 0 ? [`- Not applied: ${plan.refused.join("; ")}.`] : []),
-    ...(planDiffersFromBuilt(plan, built) || (own && image?.own !== true) ? ["- The recipe asks for something the image was not built with: it takes a build - build_vm_image."] : []),
+    ...(planDiffersFromBuilt(plan, built) || (own && image?.own !== true) ? [`- The recipe asks for something the image was not built with: it takes a build - the person runs ${own ? "turri vm-image in the project" : "turri vm-image --default"}.`] : []),
     ...stack.map(({ module, needs, missing }) =>
       needs.length === 0
         ? `- ${module}: its implementation reqs name no toolchain this knows.`
@@ -1016,63 +917,6 @@ export function projectConfigBlock(root: string): string {
   ].join("\n");
 }
 
-/** How the queue is to be planned, for the work this call queues - see render/steering.ts. */
-const GUIDANCE_PARAM = Type.Optional(
-  Type.String({
-    description:
-      "How to plan the queue for this work, in a sentence or two - which functional specs go together, what first - as " +
-      "the user said it, or as you understood it. A strong preference for the planner, within its limits. Omit when there is none.",
-  }),
-);
-
-const WORKING_DIR_PARAM = Type.Optional(
-  Type.String({
-    description:
-      "The folder to render from, relative to where turri was started - as if it had been started there " +
-      "(e.g. \"plain\"). plain_file, build_dir and a spec diff's paths are then relative to it - hubspot.plain, not " +
-      "plain/hubspot.plain. Default: where " +
-      "turri was started.",
-  }),
-);
-
-/**
- * A render tool's arguments as if turri had been started in `working_dir`: the .plain file
- * and the build folder made absolute from there, and that folder as `base`.
- */
-export function fromWorkingDir<T extends { working_dir?: string; plain_file?: string; build_dir?: string }>(
-  cwd: string,
-  params: T,
-): T & { base: string } {
-  const base = params.working_dir !== undefined && params.working_dir.trim() !== "" ? resolve(cwd, params.working_dir) : cwd;
-  let plainFile = params.plain_file !== undefined ? resolve(base, params.plain_file) : undefined;
-  if (params.plain_file !== undefined && plainFile !== undefined && !existsSync(plainFile)) {
-    // plain/hubspot.plain with working_dir plain: the folder named twice. Taken from where it is.
-    const fromSession = resolve(cwd, params.plain_file);
-    if (existsSync(fromSession)) plainFile = fromSession;
-    else {
-      throw new Error(
-        `There is no .plain file at ${plainFile}` +
-          (base !== cwd ? ` - plain_file is relative to working_dir (${relative(cwd, base) || "."}), so do not repeat the folder in it.` : "."),
-      );
-    }
-  }
-  return {
-    ...params,
-    base,
-    ...(plainFile !== undefined ? { plain_file: plainFile } : {}),
-    ...(params.build_dir !== undefined ? { build_dir: resolve(base, params.build_dir) } : {}),
-  };
-}
-
-const MODEL_PARAM = Type.Optional(
-  Type.String({
-    description:
-      "The model for the agents of this one call: a provider/model-id, or its name as the user said it. " +
-      "Omitted: the model chosen for this kind of work with engine, else the conversation's. " +
-      "To change it for every later render, use engine instead.",
-  }),
-);
-
 /**
  * The model the spawned agents should use.
  *
@@ -1178,7 +1022,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
       "The engine: which model the agents that grow the code run on. With no model, say which it is. With one, choose it " +
       "for the rest of this session: for spec changes " +
       "(render spec diff pulses, and the ones write_spec_diff queues), for functionalities (render, module, " +
-      "regenerate, conformance), or for everything. By default " +
+      "rejuvenate, conformance), or for everything. By default " +
       "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Pulses already queued keep their model.",
@@ -1247,14 +1091,6 @@ function registerRenderModels(pi: ExtensionAPI) {
     },
   });
 }
-
-const WAIT_PARAM = Type.Optional(
-  Type.Boolean({
-    description:
-      "Block until the work finishes instead of returning a pulse id. Defaults to false in the " +
-      "interactive TUI and true elsewhere, where a pulse would not outlive the turn.",
-  }),
-);
 
 /**
  * Run the work now, or start it as a background job and hand back an id.
@@ -1425,32 +1261,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 
   // The panel is compact and ctrl+o only lasts as long as the work does. This is the whole
   // list, finished jobs included, put in the transcript where it stays.
-  pi.registerTool({
-    name: "halt",
-    label: "Halt",
-    description:
-      "Halt a pulse, or what activate started. A pulse: a queued one never starts, a running one has its agent stopped at once, " +
-      "and the pulses queued behind it move up - what a running pulse already changed is rolled back, and what it was growing " +
-      "counts as not grown. What activate started: the one named, or every one.",
-    promptSnippet: "halt a pulse, or what activate started",
-    promptGuidelines: [
-      "Halt a pulse only when the user asks. Name which one, and say which pulses were queued behind it - they will now run.",
-    ],
-    parameters: Type.Object({
-      job_id: Type.Optional(Type.String({ description: "The pulse's id, or the start of it" })),
-      activated: Type.Optional(Type.String({ description: 'What activate started, by name - or "all" for every one' })),
-    }),
-    async execute(_id, params) {
-      if (params.job_id === undefined && params.activated === undefined) throw new Error("Say what to halt: a job_id, or what activate started (activated).");
-      const lines: string[] = [];
-      if (params.job_id !== undefined) lines.push(stopJob(jobs, params.job_id));
-      if (params.activated !== undefined) {
-        const stopped = await stopDeployed(params.activated === "all" ? {} : { name: params.activated });
-        lines.push(stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running${params.activated === "all" ? "" : ` as ${params.activated}`}.`);
-      }
-      return { content: [{ type: "text" as const, text: lines.join("\n") }], details: {} };
-    },
-  });
 
   pi.registerCommand("halt", {
     description: "Halt a queued or running pulse, or what activate started: /halt [pulse id | activated <name>]",
@@ -1624,6 +1434,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 }
 
+export { fromWorkingDir };
+
 const WATCH_REDRAW_MS = 500;
 /**
  * What the agent is to do with a job that just ended, unasked: what the project's guidance says to do then, or else say
@@ -1649,27 +1461,6 @@ function modulesWithHistory(cwd: string): string[] {
 }
 
 /** Stop a job by id or id prefix, and say what that means for the queue. */
-function stopJob(jobs: JobRegistry, named: string): string {
-  const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
-  if (matches.length === 0) return `No pulse ${named}. /regeneration shows them.`;
-  if (matches.length > 1) return `'${named}' matches ${matches.map((job) => job.id).join(", ")}. Give more of the id.`;
-  const target = matches[0]!;
-  const behind = jobs.list().filter((job) => job.status === "queued" && job.waitingOn.includes(target.id));
-  const stopped = jobs.stop(target.id);
-  if (stopped === undefined) return `Pulse ${target.id} (${target.summary}) is already ${target.status}.`;
-  const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
-  // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
-  const inSpec =
-    target.kind === "regrow"
-      ? " Its change is still in the .plain files: nothing more grows in that codebase until the spec changes or it is asked " +
-        "for again with regrow - then it grows with the rest. To drop the change, take it out of the spec and regrow; to change " +
-        "how the work is cut or ordered, use steer."
-      : "";
-  return stopped.status === "stopped"
-    ? `Stopped ${target.summary} (${target.id}) before it started.${queued}${inSpec}`
-    : `Stopping ${target.summary} (${target.id}): its agent is being stopped now.${queued}${inSpec}`;
-}
-
 /**
  * The job to watch: the one named, or the only one running, or the one picked from a list.
  */
@@ -1729,71 +1520,6 @@ function jobLines(all: Job[]): string {
 }
 
 
-/** Building the sandbox VM image - the default one, or a project's own - from the chat, as a background job. */
-function registerBuildVmImage(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "build_vm_image",
-    label: "Build VM image",
-    description:
-      "Build a sandbox VM image from its recipe, in the background: the default one - turri's recipe with the " +
-      `person's changes from ${userImageFile()} - or, with scope "project", the project's own, from its config.yaml's ` +
-      "vm-image: over that, under a tag of its own. Every VM started after it runs the new image; one already running " +
-      "keeps the one it started with. About 7 minutes and 2 GB with every toolchain, less with fewer.",
-    promptSnippet: "build the sandbox VM image - the default one, or the project's own",
-    promptGuidelines: [
-      "Write the recipe first - the person's image file, or the project's vm-image: in config.yaml - with the file tools, then build it with build_vm_image. Say what it will hold, and that it takes minutes, before you start it.",
-    ],
-    parameters: Type.Object({
-      scope: Type.Union([Type.Literal("default"), Type.Literal("project")], {
-        description: '"default": the image every project without one of its own runs. "project": this project\'s own, from vm-image: in its config.yaml',
-      }),
-      plan: Type.Optional(
-        Type.Boolean({
-          description:
-            "Build nothing: say what a build would download and from where - Alpine Linux's own repositories - each package the " +
-            "recipe names with its version, repository, project and licence, what each toolchain costs, and any name the " +
-            "repositories do not have. Use it to show the person what they would get, before building.",
-        }),
-      ),
-      working_dir: WORKING_DIR_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given as { working_dir?: string } & typeof given);
-      const project = (params as { base?: string }).base ?? cwd;
-      if (params.scope === "project" && !hasProjectImage(project)) {
-        throw new Error(`${join(project, "config.yaml")} has no vm-image: - write the project's image there first (packages, or add and remove).`);
-      }
-      if (params.plan === true) {
-        const plan = imagePlan(params.scope === "project" ? { project } : {});
-        const contents = await resolveImageContents(plan);
-        const text = [`${params.scope === "project" ? projectImageTag(project) : "The default image"}: ${describePlan(plan)}.`, ...plan.refused.map((refused) => `Not applied: ${refused}`), "", ...describeContents(contents)].join("\n");
-        return { content: [{ type: "text" as const, text }], details: { missing: contents.missing } };
-      }
-      return deliver(jobs, {
-        kind: "build_vm_image",
-        summary: params.scope === "project" ? `VM image for ${basename(project)}` : "default VM image",
-        model: undefined,
-        wait: params.wait,
-        mode: ctx.mode,
-        // One image build at a time: they share the builder and the image store.
-        lanes: ["vm-image-build"],
-        onUpdate,
-        run: async (onDelta) => {
-          const status = await buildVmImage({ ...(params.scope === "project" ? { project } : {}), write: onDelta });
-          const plan = imagePlan(params.scope === "project" ? { project } : {});
-          return {
-            report:
-              status === 0
-                ? `Built ${params.scope === "project" ? projectImageTag(project) : "the default image"}: ${describePlan(plan)}. VMs started from now on run it.`
-                : `The image did not build (exit ${status}); VMs keep the image they had. The output above says why.`,
-            details: { passed: status === 0 },
-          };
-        },
-      });
-    },
-  });
-}
 
 /**
  * Static validation of a ***plain specification.
@@ -1871,11 +1597,12 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
  * that would is refused, and goes to the person through propose_setup instead. What it started is
  * stopped when the session ends.
  */
-function registerDeploy(pi: ExtensionAPI, cwd: string) {
+function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   const state = createDeployState();
   const tools = createDeployTools({
     cwd,
     state,
+    jobs,
     // Once, for the session, always, or not: what the commands are, then the four answers.
     approve: async (title, body, ctx) => {
       const ui = ctx as { hasUI?: boolean; ui?: { select(title: string, options: string[]): Promise<string | undefined> } } | undefined;
@@ -1885,8 +1612,7 @@ function registerDeploy(pi: ExtensionAPI, cwd: string) {
     },
     defaultPlainFile: () => readProjectConfig(cwd).module,
   });
-  // The conversation's halt stops jobs too: it is registered with the job tools, and stops what activate started as well.
-  for (const tool of tools) if (tool.name !== "halt") pi.registerTool(tool);
+  for (const tool of tools) pi.registerTool(tool);
   pi.on("tool_call", (event) => {
     if (state.current === undefined || event.toolName !== "bash") return undefined;
     const command = (event.input as { command?: unknown }).command;
@@ -2173,6 +1899,15 @@ export const TURRI_IDENTITY = [
   "records what each piece grew from, and proves it against conformance tests written from the spec alone. When the",
   "code goes bad, it is grown again from the spec. Named after Turritopsis dohrnii, the immortal jellyfish, which",
   "turns back into its young self and grows again. Speak of yourself as turri.",
+  "",
+  "Its words, and the older ones for the same things - a project's AGENTS.md, a skill, notes or the person may use",
+  "either, and they mean the same:",
+  "- A pulse is one unit of work growing the code - a spec diff grown in a codebase, or its conformance tests. It was",
+  "  called a job, and still is in places: the job_id a tool takes is a pulse's id, and parallel-jobs and",
+  "  allow-to-stop-jobs in config.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
+  "- The regeneration is the side panel that shows every pulse - growing, planned and finished (/regeneration, or",
+  "  ctrl+h). It was the job queue, or the job panel.",
+  "- mutate, in a skill's activity, is write_spec_diff: a spec change written and grown in one step.",
   "</turri>",
 ].join("\n");
 

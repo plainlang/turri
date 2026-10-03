@@ -127,8 +127,8 @@ says what it holds, and when its recipe asks for something it was not built with
 In the chat, turri knows all of this: it is told every turn what the project's image holds
 and what each module's implementation reqs need of it that it lacks - Zig named in the reqs, no Zig
 in the image - and it follows the managing-vms rule. It can write your file or the project's
-`vm-image:` and build either with `build_vm_image`, as a background job; VMs started afterwards run
-the new image.
+`vm-image:`, and asks you to build it - `turri vm-image` in the project, or `--default` for yours; VMs
+started afterwards run the new image.
 
 A small library or tool one project needs - `sqlite`, `jq`, `libpq-dev` - takes no image of its own:
 `system-packages:` in its `config.yaml` names Alpine packages every VM of the project installs when

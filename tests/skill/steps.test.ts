@@ -157,10 +157,10 @@ describe("a skill's tools", () => {
 });
 
 describe("mature", () => {
-  it("renders a rough spec until it is fully rendered, on its own - with the tools to watch, stop, check the goal and read what the builds decided", () => {
+  it("grows a rough spec until it is fully grown, on its own - with the conversation's regrow, drift and halt, and its own tools to watch the pulses and read what they decided", () => {
     const skill = loadSkill("skills/mature");
     expect(skill.steps.map((step) => step.name)).toEqual(["intake", "grow", "report"]);
-    expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "render_spec", "watch_jobs", "stop_job", "spec_status", "spec_findings"]));
+    expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "regrow", "drift", "halt", "watch_jobs", "spec_findings"]));
     expect(skill.paced).toBe(false);
   });
 });

@@ -61,15 +61,15 @@ so a run that wrote nothing is never reported as done. A skill without gates say
 reviewed. A `.plain` file a skill edited with the file tools is not rendered by it: the result says
 so, for the conversation to render the change.
 
-A skill that lists `render_spec`, `watch_jobs`, `stop_job`, `spec_status` and `spec_findings` in
-`allowed-tools` - as `mature` does - can build what a module's spec holds (functionality by
-functionality, or the difference as one spec diff); watch its builds, coming back as soon as one
-struggles - sent back four times or more, five setbacks, a spec conflict, a failure run again, over
-half an hour - with what it went through; stop one, to render it again from a clarified spec; check
-whether a module is fully rendered - built from the spec as it stands, nothing running, its last
-builds passing; and read back, numbered and each once, what the builds recorded since the run
-started: the assumptions and pitfalls in every codebase's working notes, a failed job's diagnosis, a
-spec that contradicts itself.
+A skill acts on the work loop with the conversation's own tools, on the conversation's loop - never
+copies of them (`src/loop-tools.ts`). Every skill with the loop has `drift`: what is left to grow, what
+is growing, and "Fully grown" once nothing is. One that lists `regrow` and `halt` in `allowed-tools` -
+as `mature` does - can grow what a module's spec holds and halt a pulse, with why. `mature` lists two
+tools of its own as well: `watch_jobs` waits for its pulses, coming back as soon as one struggles -
+sent back four times or more, five setbacks, a spec conflict, a failure run again, over half an hour -
+with what it went through; `spec_findings` reads back, numbered and each once, what the pulses recorded
+since the run started: the assumptions and pitfalls in every codebase's working notes, a failed pulse's
+diagnosis, a spec that contradicts itself.
 
 Each step is told where its skill's files are, so a path it names - `references/intent.md` - and a
 skill it says to follow - `implement-unit-testing-script` - are found without searching.
@@ -110,7 +110,7 @@ change the step makes and puts its findings on the executor's next tool result.
   and kept in the run's trace with the answer.
 - **Build while it interviews.** `write_spec_diff` (`brood`, `spawn`) writes a change to the
   spec and queues its render in one call; the interview carries on while the builds run in the
-  background, one after another. `render_status` shows the queue. The person sees its calls as
+  background, one after another. `drift` shows how they stand. The person sees its calls as
   `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `grow/activity.ts`), while its
   agent calls it by the one that says what it takes.
 - **Choose the render model**, when the user says so - `engine`, the same tool the

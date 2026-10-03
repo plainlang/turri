@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJobRegistry } from "../../src/grow/jobs.ts";
 import { moduleLanes } from "../../src/grow/lanes.ts";
-import { createWorkLoop, describeModules, type JobRunner } from "../../src/grow/loop.ts";
+import { createWorkLoop, describeDrift, describeModules, type JobRunner } from "../../src/grow/loop.ts";
 import { codeTree, readRecord, writeCodeRecord, writeTestsRecord } from "../../src/grow/records.ts";
 import { recordHistory } from "../../src/grow/lineage.ts";
 import { snapshotSpec } from "../../src/grow/regrow.ts";
@@ -62,6 +62,28 @@ describe("the work loop", () => {
     expect(ran.map((job) => job.fresh)).toEqual([true, false, false]);
     expect(readRecord(codeDir())).toEqual(codeTree(snapshotSpec(join(dir, "app.plain"), { cwd: dir }).tree));
     expect(loop.status()[0]).toMatchObject({ module: "app", planned: [], why: "built from the spec as it is" });
+  });
+
+  it("is not fully grown while a pulse that ended without passing has its work undone - and is, once it lands", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { gate, run } = runner();
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false, run });
+    // It ends - succeeded, not failed - without passing: nothing of it lands, and the codebase is halted.
+    gate.land = false;
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(registry.list()[0]).toMatchObject({ status: "succeeded", details: { passed: false, landed: false } });
+    expect(readRecord(codeDir())).toBeNull();
+    const drift = describeDrift(loop.drift("app.plain"));
+    expect(drift).toContain("code: drifted from the spec - to grow: sets the project up, adds fs 1");
+    expect(drift).toMatch(/pulse \w+ \("Say hello\."\) did not land - it runs again once the spec changes, or the module is asked for again/);
+    expect(drift).not.toContain("Fully grown");
+    // Asked again, it lands: then, and only then, the module is fully grown.
+    gate.land = true;
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(describeDrift(loop.drift("app.plain"))).toContain("Fully grown: every codebase is grown from the spec as it is");
   });
 
   it("has nothing to do when only the test reqs changed", async () => {
@@ -573,17 +595,19 @@ describe("the work loop", () => {
         cwd: dir,
         planner: false,
         conformanceOn: () => true,
-        run: async (job, onDelta) => (order.push(`code ${job.planned.cases.patch.concat(job.planned.cases.add).map((spec) => spec.frid).join(",")}`), code.run(job, onDelta)),
+        run: async (job, onDelta) => (order.push(`code ${job.planned.cases.again.map((spec) => spec.frid).join(",")}`), code.run(job, onDelta)),
         runConformance: async (job, onDelta) => (order.push(`tests -${job.planned.cases.delete.map((spec) => spec.frid).join(",")}`), tests.runConformance(job, onDelta)),
       });
       await loop.bringUp("app.plain");
       await loop.drain();
       order.length = 0;
       // Its spec did not change: named, it grows again - its tests untouched while it does, and none taken out.
-      await loop.regenerate("app.plain", ["1"]);
+      await loop.growAgain("app.plain", ["1"]);
       await loop.drain();
       expect(order).toEqual(["code 1"]);
       expect(JSON.stringify(readRecord(testsDir()))).toContain("Say hello.");
+      // Grown again, it is built as the spec says it: the mark is gone from the record.
+      expect(JSON.stringify(readRecord(codeDir()))).not.toContain("grow_again");
     });
 
     it("refuse functional specs the spec does not have - no code job builds them - and schedule nothing", async () => {
