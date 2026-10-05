@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { vmScratchDir } from "./paths.ts";
@@ -25,24 +27,25 @@ const MAX_LOGS = 100;
 /**
  * Output as an agent is shown it: whole when it fits, otherwise its last MAX_OUTPUT_CHARS - where a
  * test run says what failed and why. With `log` the whole output is kept in that file too, and the
- * cut says where.
+ * cut says how to read it: through read_output, by the file's name - never by a path, which would
+ * point the agent outside its walls.
  */
 export function truncateOutput(text: string, log?: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;
   const cut = text.length - MAX_OUTPUT_CHARS;
-  const where = log !== undefined ? ` - the whole output is in ${log}; read it with read or grep` : "";
+  const where = log !== undefined ? ` - the whole output is kept as \`${basename(log)}\`: read it with read_output` : "";
   return `... [${cut} characters cut from the start${where}] ...\n\n${text.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
-/**
- * Keep a run's whole output where an agent can read it, when it is too long to be shown whole:
- * in the project's scratch area, inside plain_modules. Returns the file, or nothing when the
- * output fits.
- */
-export function keepFullOutput(dir: string, label: string, output: string): string | undefined {
-  if (output.length <= MAX_OUTPUT_CHARS) return undefined;
+/** Where the whole outputs are kept: the project's scratch area, read only through read_output. */
+function outputsDir(dir: string): string {
+  return join(vmScratchDir(dir), "logs");
+}
+
+/** Keep `output` whole, whatever its length, in the outputs folder. Returns the file, or nothing when it could not be written. */
+function keepOutput(dir: string, label: string, output: string | Buffer): string | undefined {
   try {
-    const logs = join(vmScratchDir(dir), "logs");
+    const logs = outputsDir(dir);
     mkdirSync(logs, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const name = label.replace(/[^\w.-]+/g, "_").slice(0, 60);
@@ -54,6 +57,85 @@ export function keepFullOutput(dir: string, label: string, output: string): stri
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Keep a run's whole output where an agent can read it, when it is too long to be shown whole:
+ * in the project's scratch area, inside plain_modules. Returns the file, or nothing when the
+ * output fits.
+ */
+export function keepFullOutput(dir: string, label: string, output: string): string | undefined {
+  if (output.length <= MAX_OUTPUT_CHARS) return undefined;
+  return keepOutput(dir, label, output);
+}
+
+/** pi's bash, cut short, names the temporary file the whole output is in - on the host, outside the agent's walls. */
+const SHELL_FULL_OUTPUT = /Full output: (\S+)\]$/;
+
+/**
+ * A shell's output as the agent is shown it: when pi cut it and kept the whole in a temporary file of its own, the file
+ * is taken into the outputs folder, and the agent pointed at read_output instead of at the file.
+ */
+export function keptShellOutput(dir: string, text: string): string {
+  const found = SHELL_FULL_OUTPUT.exec(text);
+  if (found === null) return text;
+  let kept: string | undefined;
+  try {
+    kept = keepOutput(dir, "bash", readFileSync(found[1]!));
+  } catch {
+    kept = undefined;
+  }
+  const pointer = kept !== undefined ? `The whole output is kept as \`${basename(kept)}\`: read it with read_output]` : "The rest of the output was not kept]";
+  return text.slice(0, found.index) + pointer;
+}
+
+/** Lines read_output shows at most at once, and characters. */
+const READ_OUTPUT_LINES = 2000;
+
+/**
+ * `read_output`: the whole of an output that was cut - a test run's, a command's - read by the id the cut gave, a range
+ * of lines or the lines matching a pattern. It reads the kept outputs and nothing else.
+ */
+export function readOutputTool(dir: string) {
+  return defineTool({
+    name: "read_output",
+    label: "Read output",
+    description:
+      "Read the whole of an output that was cut short - a test run's or a command's - by the id the cut named: a range of " +
+      "lines (offset, from 1, and limit), or only the lines matching a pattern (a regular expression). Each line comes " +
+      "with its number.",
+    promptSnippet: "read_output: the whole of a cut output, by the id the cut named",
+    parameters: Type.Object({
+      id: Type.String({ description: "The id the cut output named, e.g. 2026-10-05T10-00-00-000Z-run_unittests.sh.log" }),
+      offset: Type.Optional(Type.Number({ description: "The first line to show, from 1" })),
+      limit: Type.Optional(Type.Number({ description: `How many lines to show (at most ${READ_OUTPUT_LINES})` })),
+      pattern: Type.Optional(Type.String({ description: "Show only the lines matching this regular expression" })),
+    }),
+    async execute(_id, params: { id: string; offset?: number; limit?: number; pattern?: string }) {
+      const logs = outputsDir(dir);
+      const file = join(logs, params.id);
+      if (basename(params.id) !== params.id || !existsSync(file)) {
+        throw new Error(`${params.id} is not an output turri kept. Use the id a cut output named, as it named it.`);
+      }
+      const lines = readFileSync(file, "utf8").split("\n");
+      const numbered = lines.map((line, index) => ({ line, number: index + 1 }));
+      let text: string;
+      if (params.pattern !== undefined) {
+        const pattern = new RegExp(params.pattern);
+        const matching = numbered.filter(({ line }) => pattern.test(line));
+        const shown = matching.slice(0, READ_OUTPUT_LINES);
+        const more = matching.length > shown.length ? `, the first ${shown.length} shown` : "";
+        text = [...shown.map(({ line, number }) => `${number}: ${line}`), `[${matching.length} line${matching.length === 1 ? "" : "s"} of ${lines.length} match${matching.length === 1 ? "es" : ""} ${params.pattern}${more}]`].join("\n");
+      } else {
+        const from = Math.max(1, Math.floor(params.offset ?? 1));
+        const count = Math.min(READ_OUTPUT_LINES, Math.max(1, Math.floor(params.limit ?? READ_OUTPUT_LINES)));
+        const shown = numbered.slice(from - 1, from - 1 + count);
+        const last = from + shown.length - 1;
+        text = [...shown.map(({ line, number }) => `${number}: ${line}`), `[lines ${from}-${last} of ${lines.length}]`].join("\n");
+      }
+      return { content: [{ type: "text" as const, text: truncateOutput(text) }], details: { id: params.id } };
+    },
+  });
 }
 
 /** Output as an agent is shown it, with the whole of it kept in a file when it had to be cut. */

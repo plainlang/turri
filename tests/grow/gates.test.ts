@@ -65,8 +65,8 @@ describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeo
     if (verdict.ok) return;
     expect(verdict.prompt).toContain("test_broken");
     expect(verdict.prompt).toContain("AssertionError");
-    const log = /the whole output is in (\S+?);/.exec(verdict.prompt)![1]!;
-    expect(readFileSync(log, "utf8")).toContain("Downloading dependency 1 of 3000");
+    const id = /the whole output is kept as `([^`]+)`: read it with read_output/.exec(verdict.prompt)![1]!;
+    expect(readFileSync(join(root, "plain_modules", ".turri", "logs", id), "utf8")).toContain("Downloading dependency 1 of 3000");
   });
 
   it("counts a run past the time limit as failed, stops it in the VM, and says what most often keeps tests from ending", async () => {
