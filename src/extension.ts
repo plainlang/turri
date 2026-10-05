@@ -17,9 +17,8 @@ import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
 import { sweepOrphanedGroups } from "./grow/shell.ts";
-import { defaultParallelJobs, stopOrphanedVms, vmMemoryFor } from "./grow/vm.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine } from "./stack.ts";
-import { sandboxAvailable } from "./grow/os-sandbox.ts";
+import { sandboxAvailable, sandboxSummary } from "./grow/os-sandbox.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regrowTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
@@ -34,7 +33,6 @@ import { sectionsOf } from "./grow/state.ts";
 import { runningDeployed, stopDeployed } from "./grow/release.ts";
 import { APPROVALS, createDeployState, createDeployTools, refuseInstall } from "./release-tools.ts";
 import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./grow/steer.ts";
-import { vmSummary } from "./grow/vm.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
@@ -56,6 +54,7 @@ import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { runAsk, type AskUser } from "./ask.ts";
 import {
   createJobRegistry,
+  defaultParallelJobs,
   describeJob,
   formatDuration,
   shouldWait,
@@ -282,14 +281,13 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect pulses · ctrl+o expand`);
   });
-  // What a turri that was killed left running - commands' process groups, sandbox VMs - stopped as this one starts.
-  sweepOrphanedGroups();
-  const orphans = stopOrphanedVms();
+  // What a turri that was killed left running - its commands' process groups - stopped as this one starts.
+  const orphans = sweepOrphanedGroups();
   let orphansSaid = orphans === 0;
   pi.on("session_start", (_event, ctx) => {
     if (orphansSaid || !ctx.hasUI) return;
     orphansSaid = true;
-    ctx.ui.notify(`Stopped ${orphans} sandbox VM${orphans === 1 ? "" : "s"} a turri that was killed left running - ${orphans === 1 ? "it was" : "they were"} holding memory.`, "info");
+    ctx.ui.notify(`Stopped ${orphans} process group${orphans === 1 ? "" : "s"} a turri that was killed left running.`, "info");
   });
   pi.on("agent_start", (_event, ctx) => showConformance(ctx));
   pi.on("agent_end", (_event, ctx) => showConformance(ctx));
@@ -737,12 +735,12 @@ export function conformanceStatus(root: string): string | undefined {
 
 /**
  * How many jobs the chat runs at once: TURRI_PARALLEL_JOBS, else `parallel-jobs:` in the session
- * folder's config.yaml, else what this machine's memory holds VMs for.
+ * folder's config.yaml, else half this machine's cores, between one and four.
  */
 export function parallelJobs(cwd: string): number {
   const fromEnv = Number(process.env.TURRI_PARALLEL_JOBS);
   if (Number.isInteger(fromEnv) && fromEnv >= 1) return fromEnv;
-  return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs(vmMemoryFor(cwd));
+  return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs();
 }
 
 /** The project's own files and a digest of each - not plain_modules, dependencies, or turri's and git's folders. */
@@ -1927,7 +1925,7 @@ function registerBranding(
           pending: number;
           stdlib?: number;
           cwd: string;
-          sandbox?: ReturnType<typeof vmSummary>;
+          sandbox?: ReturnType<typeof sandboxSummary>;
         }
       | undefined;
     if (data === undefined) return undefined;
@@ -1962,7 +1960,7 @@ function registerBranding(
         pending: skills.pending.length,
         stdlib: stdlibStackCount(),
         cwd: ctx.cwd,
-        sandbox: vmSummary(),
+        sandbox: sandboxSummary(),
       });
     } catch {
       // Branding is the least important thing here; never let it stop a session starting.

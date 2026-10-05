@@ -178,23 +178,10 @@ export interface ProjectConfig {
   /** How many jobs run at once in the chat - modules that share nothing build side by side up to it. Unset: from the machine's memory. */
   parallelJobs?: number;
   /**
-   * Alpine packages every VM of the project has - installed when it starts, from the project's package
-   * cache after the first time: a toolchain the image does not hold (zig), a library a build needs.
-   */
-  systemPackages?: string[];
-  /**
    * The ***plain authoring rules (genome/rules/<name>.md) left out of the conversation's prompt and every spec-writing
    * agent's, by name: a rule a project's own skills or AGENTS.md replace. The project's alone.
    */
   rulesOff?: string[];
-  /** The memory each of the project's sandbox VMs is given: "1G", "2G", "512M". TURRI_VM_MEMORY wins. Unset: 2G. */
-  vmMemory?: string;
-  /**
-   * The project's own VM image: toolchains and packages removed from and added to what the default image
-   * holds - `{ remove: ["java"], add: ["zig"] }`. Given, turri vm-image in the project builds it, and
-   * every VM of the project runs it. The project's alone.
-   */
-  vmImage?: { packages?: string[]; add: string[]; remove: string[]; mirror?: string; repositories?: string[] };
   /**
    * Tokens of conversation - what an agent has done, past its instructions - after which an agent that keeps its
    * session through a job is compacted between turns. The project's alone. Unset: 100k.
@@ -227,10 +214,7 @@ export const CONFIG_KEYS = {
   staticChecksScript: "static-checks-script",
   testingScriptsRunOn: "testing-scripts-run-on",
   parallelJobs: "parallel-jobs",
-  systemPackages: "system-packages",
   rulesOff: "rules-off",
-  vmMemory: "vm-memory",
-  vmImage: "vm-image",
   compactAt: "compact-at",
   agentEnv: "agent-env",
   toolchains: "toolchains",
@@ -262,7 +246,7 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
   // The project's alone: one conversation, one module built when none is named.
   const merged: ProjectConfig = { ...project };
   for (const key of Object.keys(CONFIG_KEYS) as Array<keyof ProjectConfig>) {
-    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "rulesOff" || key === "vmMemory" || key === "vmImage" || key === "compactAt" || own[key] === undefined) continue;
+    if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "rulesOff" || key === "compactAt" || key === "toolchains" || key === "agentEnv" || own[key] === undefined) continue;
     (merged as Record<string, unknown>)[key] = own[key];
   }
   merged.agentEnv = joinAgentEnv(project.agentEnv, own.agentEnv);
@@ -344,23 +328,6 @@ export function configModuleOfBuild(root: string, module: string): string | unde
   return modulesWithConfig(root).includes(module) ? module : undefined;
 }
 
-/** A `vm-image:` as the config gives it: lists of names to add and to remove, or nothing when it names neither. */
-function imageChanges(value: unknown): { packages?: string[]; add: string[]; remove: string[]; mirror?: string; repositories?: string[] } | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const list = (items: unknown) => (Array.isArray(items) ? items.filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim()) : []);
-  const raw = value as { packages?: unknown; add?: unknown; remove?: unknown; mirror?: unknown; repositories?: unknown };
-  // `packages:` defines the image in full; `add:` and `remove:` change the default one; `mirror:` and
-  // `repositories:` say where it is downloaded from.
-  const changes = {
-    ...(Array.isArray(raw.packages) ? { packages: list(raw.packages) } : {}),
-    ...(typeof raw.mirror === "string" && raw.mirror.trim() !== "" ? { mirror: raw.mirror.trim() } : {}),
-    ...(Array.isArray(raw.repositories) ? { repositories: list(raw.repositories) } : {}),
-    add: list(raw.add),
-    remove: list(raw.remove),
-  };
-  return changes.packages !== undefined || changes.mirror !== undefined || changes.repositories !== undefined || changes.add.length > 0 || changes.remove.length > 0 ? changes : undefined;
-}
-
 /** One config file, read, or nothing of it when it is not there or does not parse. */
 function readConfigFile(path: string): ProjectConfig {
   let parsed: unknown;
@@ -385,15 +352,10 @@ function readConfigFile(path: string): ProjectConfig {
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),
     testingScriptsRunOn: whatScriptsRunOn(raw[CONFIG_KEYS.testingScriptsRunOn]),
-    vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),
     agentEnv: agentEnvSetting(raw[CONFIG_KEYS.agentEnv]),
     toolchains: Array.isArray(raw[CONFIG_KEYS.toolchains])
       ? (raw[CONFIG_KEYS.toolchains] as unknown[]).filter((path): path is string => typeof path === "string" && path.trim() !== "").map((path) => path.trim())
       : undefined,
-    systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
-      ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())
-      : undefined,
-    vmMemory: typeof raw[CONFIG_KEYS.vmMemory] === "string" ? (raw[CONFIG_KEYS.vmMemory] as string) : typeof raw[CONFIG_KEYS.vmMemory] === "number" ? `${raw[CONFIG_KEYS.vmMemory] as number}G` : undefined,
     rulesOff: Array.isArray(raw[CONFIG_KEYS.rulesOff]) ? (raw[CONFIG_KEYS.rulesOff] as unknown[]).filter((name): name is string => typeof name === "string") : undefined,
     compactAt:
       typeof raw[CONFIG_KEYS.compactAt] === "number" && Number.isInteger(raw[CONFIG_KEYS.compactAt]) && (raw[CONFIG_KEYS.compactAt] as number) >= 1000

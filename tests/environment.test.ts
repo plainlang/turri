@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { nodeVersionOk, qemuBinary, qemuInstallHint } from "../src/environment.ts";
-import { vmSummary, vmSupported } from "../src/grow/vm.ts";
+import { describe, expect, it } from "vitest";
+import { nodeVersionOk } from "../src/environment.ts";
+import { defaultParallelJobs } from "../src/grow/jobs.ts";
+import { sandboxSummary } from "../src/grow/os-sandbox.ts";
 
 describe("the Node turri runs on", () => {
   it("is 22.19 or newer - it runs .ts files itself, and pi needs 22.19", () => {
@@ -13,24 +14,21 @@ describe("the Node turri runs on", () => {
   });
 });
 
-describe("QEMU", () => {
-  it("is the binary for this machine's architecture, with a way to install it", () => {
-    expect(qemuBinary()).toBe(process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64");
-    expect(qemuInstallHint()).toMatch(/brew install qemu|apt install qemu-system/);
+describe("where the agents' commands run, as the banner says it", () => {
+  it("names the walls that are up, and where no OS sandbox starts, why - and turri doctor", () => {
+    expect(sandboxSummary({ kind: "seatbelt" })).toEqual({ level: "ok", text: "agents' commands run on this machine behind the command check, Seatbelt and the audit" });
+    expect(sandboxSummary({ kind: "none", why: "bubblewrap is not installed" })).toEqual({
+      level: "limited",
+      text: "agents' commands run on this machine behind the command check and the audit - no OS sandbox: bubblewrap is not installed (turri doctor)",
+    });
   });
 });
 
-describe.runIf(vmSupported())("where commands run, as the banner says it", () => {
-  const before = process.env.TURRI_VM_IMAGE;
-  afterEach(() => {
-    if (before === undefined) delete process.env.TURRI_VM_IMAGE;
-    else process.env.TURRI_VM_IMAGE = before;
-  });
-
-  it("names the stock image as a limit, and how to get the full one", () => {
-    process.env.TURRI_VM_IMAGE = "no-such-image:latest";
-    const summary = vmSummary();
-    if (summary.level === "missing") return; // no QEMU on this machine: that is what it says instead
-    expect(summary).toEqual({ level: "limited", text: expect.stringContaining("turri vm-image") });
+describe("how many pulses run at once when nothing says", () => {
+  it("is half this machine's cores, at least one and at most four", () => {
+    expect(defaultParallelJobs(1)).toBe(1);
+    expect(defaultParallelJobs(2)).toBe(1);
+    expect(defaultParallelJobs(6)).toBe(3);
+    expect(defaultParallelJobs(16)).toBe(4);
   });
 });

@@ -6,7 +6,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { agentShell, type AgentShell } from "./agent-shell.ts";
 import { maskSecrets } from "./masking.ts";
-import { vmScratchDir } from "./paths.ts";
+import { modulesScratchDir } from "./paths.ts";
 import { isRunning, startInBackground, stopGroup } from "./shell.ts";
 
 /**
@@ -68,7 +68,7 @@ export function createServiceTools(options: { dir: string; read?: string[]; writ
     (shell ??= agentShell({ workdir: options.dir, ...(options.read !== undefined ? { read: options.read } : {}), ...(options.write !== undefined ? { write: options.write } : {}) }));
   const running = new Map<string, Service>();
   const say = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
-  const logsDir = join(vmScratchDir(options.dir), "services");
+  const logsDir = join(modulesScratchDir(options.dir), "services");
   const stop = async (service: Service) => {
     running.delete(service.name);
     await stopGroup(service.pid);

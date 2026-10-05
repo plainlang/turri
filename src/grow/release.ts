@@ -18,7 +18,7 @@ import { RECORD_FILE } from "./records.ts";
  * back, without a list of what each stack leaves lying around (`node_modules`, `.venv`, `target`). The
  * working tree itself is never read or touched.
  *
- * What starts it runs here, on the person's machine, not in the sandbox VM: a server the person opens
+ * What starts it runs here, on the person's machine, unfenced: a server the person opens
  * in their browser, with their toolchains. So nothing is installed without them saying so - the
  * commands that would are told apart from the rest (`installsSoftware`) and put to them first - and
  * everything started is the harness's to stop: on a redeploy, on /halt, and when turri exits.

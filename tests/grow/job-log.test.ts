@@ -15,17 +15,17 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("a job's log", () => {
-  it("keeps the harness's notes - the sandbox VM starting and how long it took - and not every activity line", async () => {
+  it("keeps the harness's notes - which walls are up, what was put back - and not every activity line", async () => {
     const jobs = createJobRegistry();
     const job = jobs.start({
       kind: "regrow",
       summary: "app.plain render spec diff",
       lanes: [lane],
       run: async () => {
-        reportNote("  starting the sandbox VM for plain_modules/app/code (turri:latest) - the first command waits for it");
+        reportNote("  commands on this machine behind the command check, Seatbelt and the audit");
         reportActivity("$ mkdir -p src");
         reportTranscript({ kind: "thinking", text: "First the folders." });
-        reportNote("  sandbox VM ready after 2.2s - created in 0.4s, booted in 1.6s, localhost reachable in 0.2s");
+        reportNote("  an agent's command changed app.plain - put back");
         reportTranscript({ kind: "thinking", text: "Now the code." });
         return { report: "Rendered the spec change." };
       },
@@ -34,11 +34,11 @@ describe("a job's log", () => {
     expect(jobs.get(job.id)!.activity).toContain("$ mkdir -p src");
     const dir = join(root, ".turri", "jobs");
     const text = readFileSync(join(dir, readdirSync(dir)[0]!), "utf8");
-    expect(text).toMatch(/\[[\d:.]+\] · starting the sandbox VM for plain_modules\/app\/code/);
-    expect(text).toMatch(/\[[\d:.]+\] · sandbox VM ready after 2\.2s - created in 0\.4s/);
+    expect(text).toMatch(/\[[\d:.]+\] · commands on this machine behind the command check, Seatbelt and the audit/);
+    expect(text).toMatch(/\[[\d:.]+\] · an agent's command changed app\.plain - put back/);
     expect(text).not.toContain("mkdir");
     // A note between two thoughts parts them: the second is not run on into the note.
-    expect(text).toMatch(/· sandbox VM ready[^\n]*\n+\[[\d:.]+\] thinking ▸\nNow the code\./);
+    expect(text).toMatch(/· an agent's command changed app\.plain - put back\n+\[[\d:.]+\] thinking ▸\nNow the code\./);
   });
 
   it("ends with each of its agents - turns, compactions and what it cost - and growth says the same", async () => {

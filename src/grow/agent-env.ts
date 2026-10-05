@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { configModuleOfBuild, readProjectConfig } from "../config.ts";
 import { registerSecrets } from "./masking.ts";
-import { projectRootOf, vmScratchDir } from "./paths.ts";
+import { projectRootOf, modulesScratchDir } from "./paths.ts";
 
 /**
  * The environment every agent command gets, on this machine.
@@ -51,7 +51,7 @@ export const TOOLCHAIN_VARIABLES: string[] = Object.keys(TOOLCHAIN_LOCATORS);
 
 /** Where package managers keep their caches: in the project's scratch area, so a dependency downloads once. */
 export function packageCacheDir(dir: string): string {
-  return join(vmScratchDir(dir), "cache");
+  return join(modulesScratchDir(dir), "cache");
 }
 
 /** Every package manager's cache, pointed into `cache`. */
@@ -122,7 +122,7 @@ export function agentEnvironment(moduleDir: string, options: { hostEnv?: NodeJS.
 
 /** HOME, TMPDIR, the caches and git's ceiling: what no setting of the project's replaces. */
 function turrisOwn(module: string, name: string): Record<string, string> {
-  const scratch = vmScratchDir(module);
+  const scratch = modulesScratchDir(module);
   const fakeHome = join(scratch, "home", name);
   mkdirSync(fakeHome, { recursive: true });
   const gitconfig = join(fakeHome, ".gitconfig");

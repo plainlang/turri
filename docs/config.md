@@ -55,11 +55,8 @@ testing-scripts-run-on: in-place     # what the testing scripts run on: in-place
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
 | `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](growing.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
-| `vm-image` | the project's own VM image: `packages: [...]` to define it in full, or `add: [...]` and `remove: [...]` over the default, and `mirror:` or `repositories: [...]` for where it is downloaded from (see [where it is downloaded from](installation.md#where-it-is-downloaded-from)) - built by `turri vm-image` in the project, and run by every VM of the project; the basics are always in (see [what goes into the image](installation.md#what-goes-into-the-image)) | the default image |
-| `system-packages` | Alpine packages every VM of the project installs when it starts - a library or tool a build needs, `sqlite`, `jq` | none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
-| `vm-memory` | the memory each of the project's sandbox VMs is given - `1G`, `2G`, `512M`: more for a project that compiles Java, Rust or C++, less on a machine short of memory - `TURRI_VM_MEMORY` wins. The project's alone | `2G` |
-| `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the memory free then holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
+| `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | half this machine's cores, between one and four - see [how many jobs at once](#how-many-jobs-at-once) |
 | `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A module's `config.<module>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
 | `toolchains` | folders of this machine an agent's commands may read beside the system's, the `PATH`'s and those the toolchain variables point at - a toolchain installed somewhere unusual (`[/srv/zig]`). A module's own add to the project's. See [the OS sandbox](sandbox.md#the-os-sandbox) | none |
 | `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`. `in-place`: the real build and tests folders, the script at its own path, from the project - for an integration embedded in a host codebase (see [the testing scripts](growing.md#the-testing-scripts)) | `copy` |
@@ -72,14 +69,10 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 ## How many jobs at once
 
 Jobs on the same module, or on modules of one `requires` chain, always run one after another.
-Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, and
-each module's jobs start VMs of their own: its code's and its tests', `vm-memory` each (2 GB unless
-`config.yaml` or `TURRI_VM_MEMORY` says). So the chat runs at most `parallel-jobs` jobs at once; a
-job whose turn has come waits for a free slot past that, and its line says so. Unset, it is three
-quarters of the memory free when the chat starts - free and what the system takes back at once, as
-`vm_stat` or `/proc/meminfo` count it - over two VMs' worth. Not the machine's whole memory: a machine
-already swapping starts every VM out of swap, minutes instead of seconds. A VM starting with less free
-than it is given says so. `TURRI_PARALLEL_JOBS` wins over the config. It is the project's alone,
+Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, each
+pulse's builds and tests running on this machine beside your own work. So the chat runs at most `parallel-jobs` jobs
+at once; a job whose turn has come waits for a free slot past that, and its line says so. Unset, it is half this
+machine's cores, at least one and at most four. `TURRI_PARALLEL_JOBS` wins over the config. It is the project's alone,
 never read from a module's file.
 
 The testing scripts all run on this machine, each on a copy of its module's code, so they never
@@ -142,9 +135,6 @@ scripts are never linked from the specs. What they are and how they run is in
 
 ## Credentials for the agents
 
-This is the environment of agents' commands run on this machine, which is being built: today they still run in the
-VM, which gets none of it, and `agent-env:` is read but passed to no command yet.
-
 An agent's commands do not get the environment turri was started in: it holds your providers' API keys, cloud
 credentials and tokens. They get only the path, the locale, the terminal and the user, the variables that locate your
 toolchains (`JAVA_HOME`, `NVM_DIR`, `RUSTUP_HOME`, ... - the ones in your home found even when your shell sets none),
@@ -206,10 +196,9 @@ How a module's config is made:
 - **By the codebase it runs in.** What runs in a codebase follows that codebase's module - a
   required module's spec rebuilt up the chain is tested with the scripts of the module it is rebuilt
   in.
-- **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:`, `compact-at:`, `vm-image:` and
-  `system-packages:` are read only from `config.yaml` - there is one conversation, one module built
-  when none is named, one machine, and one image for the project's VMs. An import module is never built and has
-  no config.
+- **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:` and `compact-at:` are read only from
+  `config.yaml` - there is one conversation, one module built when none is named, one machine. `agent-env:` and
+  `toolchains:` in a module's file add to the project's. An import module is never built and has no config.
 
 With module files and no `module:`, building without naming a file lists the modules and asks for
 one: `turri regrow backend.plain`. The chat is told each module's config as it holds, and the

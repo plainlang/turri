@@ -13,19 +13,19 @@ before changing the harness.
 ```bash
 npm install && npm link                        # `turri` on PATH, pointing at this clone (edits apply at once)
 npm run typecheck                              # tsc --noEmit - covers src/ only, not tests/
-npm test                                       # the whole vitest suite
+npm test                                       # the whole vitest suite, about a minute
 npx vitest run tests/grow/records.test.ts    # one file
 npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
 npm run chat                                   # pi with the extension loaded straight from src/
 turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
 turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
-turri doctor                             # what the machine lacks (QEMU, VM image, model provider)
+turri doctor                             # what the machine lacks (bash, the OS sandbox, a model provider; in a project, its toolchains)
 ```
 
-Tests that boot the sandbox VM are wrapped in `describe.runIf(vmSupported())`. They need QEMU and
-the VM image (`turri setup` / `npm run vm:image`), take up to a few minutes each, and are
-skipped silently on a machine without them. `tests/setup.ts` closes every VM and kills every process group left when
-a file finishes. The testing scripts run on this machine, as in turri. The suite takes about two minutes.
+Tests that run real commands behind the OS sandbox are wrapped in `runIf(sandboxAvailable().kind !== "none")` and
+skipped silently on a machine without one; the rest run everywhere (the process-group ones skip on Windows).
+`tests/setup.ts` kills every process group a file left when it finishes. The testing scripts run on this machine, as
+in turri. The suite takes about a minute.
 
 ## TypeScript runs unbuilt
 
@@ -41,8 +41,7 @@ stripping runs the sources and nothing compiles them. So:
 ## Architecture
 
 **The name.** turri was called plainwright. `src/legacy.ts` (imported first by `cli.ts` and `extension.ts`) reads
-`PLAINWRIGHT_*` env vars as `TURRI_*`, moves `~/.plainwright` to `~/.turri`, and lets VMs boot images built under
-the old tags; `grow/migrate.ts` brings a project's files over the first time it is found (`.plainwright.json` →
+`PLAINWRIGHT_*` env vars as `TURRI_*`; `grow/migrate.ts` brings a project's files over the first time it is found (`.plainwright.json` →
 `.turri.json`, `.plainwright-notes.md` → `.turri-notes.md`, both `.plainwright/` scratch folders → `.turri/`),
 committing the renames alone. `plain_modules` and `.plaingit` are the ***plain language's and keep their names.
 
@@ -51,7 +50,7 @@ committing the renames alone. `plain_modules` and `.plaingit` are the ***plain l
 `drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
 which drives the work loop as the chat does. The old names (`module`, `regenerate`, `conformance`, `check`,
-`deploy`, `skill`) are aliases. `setup`, `doctor` and `vm-image` go to `setup.ts`. `chat` spawns pi through
+`deploy`, `skill`) are aliases. `setup` and `doctor` go to `setup.ts`. `chat` spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
 `cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/lineage`, `/engine`, ...).
@@ -130,8 +129,7 @@ and gives it a `bash` on this machine behind `agent-shell.ts`: `command-check.ts
 environment (`agent-env.ts`), the OS sandbox (`os-sandbox.ts`: Seatbelt, bubblewrap) where one is up, `audit.ts`
 after, all run through the host runner `shell.ts` (a process group per command; `withPulse` kills what a pulse left
 running; a watcher and a start-up sweep for a turri killed outright). The testing scripts run on this machine unfenced
-(`testing-scripts-run-on: copy | in-place`), as does what `deploy` starts. The Gondolin VM (`vm.ts`) is still in the
-tree, used by nothing but setup and doctor, and goes. turri turns off `AGENTS.md`/`CLAUDE.md`
+(`testing-scripts-run-on: copy | in-place`), as does what `deploy` starts. turri turns off `AGENTS.md`/`CLAUDE.md`
 loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` in `src/pi.ts`).
 
 **Agent sessions.** An agent's whole initial prompt is its system prompt (`createExecutor`'s `task`,

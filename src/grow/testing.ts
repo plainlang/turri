@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
 import { maskSecrets } from "./masking.ts";
 import { NOTES_FILE } from "./notes.ts";
-import { vmScratchDir } from "./paths.ts";
+import { modulesScratchDir } from "./paths.ts";
 import { RECORD_FILE } from "./records.ts";
 import { missingToolchain, runUnitScript, scriptFailure } from "./test-scripts.ts";
 import { COMMAND_TIMEOUT_MS } from "./shell.ts";
@@ -40,7 +40,7 @@ export function truncateOutput(text: string, log?: string): string {
 
 /** Where the whole outputs are kept: the project's scratch area, read only through read_output. */
 function outputsDir(dir: string): string {
-  return join(vmScratchDir(dir), "logs");
+  return join(modulesScratchDir(dir), "logs");
 }
 
 /** Keep `output` whole, whatever its length, in the outputs folder. Returns the file, or nothing when it could not be written. */

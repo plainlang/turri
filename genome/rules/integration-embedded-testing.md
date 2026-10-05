@@ -11,7 +11,7 @@ testing workflow.
 
 ## Staging model (read this first)
 
-A module's code and unit tests live in `plain_modules/<module>/code`; its conformance tests live in one folder, `plain_modules/<module>/tests` — the module's whole conformance suite. turri runs both scripts in a Linux VM, once per check: `bash run_unittests_<lang>.sh <build_folder>` decides whether the unit tests pass, and `bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>` (absolute paths) runs the whole conformance suite at once and decides whether the conformance tests pass. There is no prepare-environment script, so each script is self-contained.
+A module's code and unit tests live in `plain_modules/<module>/code`; its conformance tests live in one folder, `plain_modules/<module>/tests` — the module's whole conformance suite. turri runs both scripts on the person's machine, once per check: `bash run_unittests_<lang>.sh <build_folder>` decides whether the unit tests pass, and `bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>` (absolute paths) runs the whole conformance suite at once and decides whether the conformance tests pass. There is no prepare-environment script, so each script is self-contained.
 
 Embedded integrations need a runnable host project, so both scripts stage the generated code **inside the host codebase itself**. The conformance script additionally builds / installs the host and then runs the conformance suite from a scratch folder in the system temp directory (`/tmp/<lang>_conformance/`), because the conformance suite lives in a separate project.
 
@@ -125,7 +125,7 @@ output=$(mvn test --no-transfer-progress 2>&1)
 
 ## Common contract (both scripts)
 
-Both scripts are invoked by turri with positional arguments, in a Linux VM. They MUST:
+Both scripts are invoked by turri with positional arguments, on the person's machine. They MUST:
 
 1. **Be POSIX-bash (`.sh`) on macOS / Linux, PowerShell (`.ps1`) on Windows.** Executable, idempotent — re-running with the same inputs produces the same result
 2. **Validate every positional argument up front.** Exit with a clear `Usage:` line on bad args. Conventional exit codes (consistent with the shared testing-script rules):

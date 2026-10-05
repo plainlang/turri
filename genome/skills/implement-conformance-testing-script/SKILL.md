@@ -2,7 +2,7 @@
 name: implement-conformance-testing-script
 description: >-
   Implement a self-contained conformance-test runner script (Bash, run by the
-  harness in a Linux VM; an optional PowerShell copy for running it by hand on
+  harness on the person's machine; an optional PowerShell copy for running it by hand on
   Windows) for an arbitrary programming language. The script stages the build,
   installs its dependencies in isolation, and runs a module's whole conformance
   suite against it. Use when the user wants to add a conformance-test runner for
@@ -33,7 +33,7 @@ The harness (not the rendering agent) runs the script once per check, against th
 bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>
 ```
 
-Both arguments are absolute paths: `<build_folder>` is the module's generated code (`plain_modules/<module>/code`), and `<conformance_tests_folder>` is the folder holding the whole suite. The harness runs the script in a Linux VM (Alpine), and its exit code alone decides whether the conformance tests pass.
+Both arguments are absolute paths: `<build_folder>` is the module's generated code (`plain_modules/<module>/code`), and `<conformance_tests_folder>` is the folder holding the whole suite. The harness runs the script on the person's machine - macOS, Linux or WSL, with its toolchains, in the person's own environment - and its exit code alone decides whether the conformance tests pass.
 
 Every conformance script is self-contained: toolchain check, argument validation, stage the build into `<temp>/<lang>_<basename of $1>`, install dependencies there in isolation, run the suite in `$2` against it, clean up on exit. Nothing is prepared ahead of time by another script.
 
@@ -48,7 +48,7 @@ Everything else — toolchain check, build staging, dependency isolation, exit c
 
 ## Pick the Shell
 
-The harness runs only Bash (`.sh`) scripts, because it runs them in a Linux VM. Always write `run_conformance_tests_<lang>.sh`, and make it work on Alpine Linux as well as on macOS / Linux for people running it by hand.
+The harness runs only Bash (`.sh`) scripts, on macOS, Linux and WSL alike. Always write `run_conformance_tests_<lang>.sh`, and make it work on all of them.
 
 A PowerShell (`.ps1`) copy is optional and only for people who run the script by hand on native Windows; the harness never runs it. Write one only if the user asks for it. The same pattern applies to both — only the syntax changes.
 
@@ -128,7 +128,7 @@ Shared across both shell flavors:
   - **Echo every non-trivial command before executing it.** In Bash, use `set -x` for the body of the script (or `echo "+ <cmd>"` immediately before each call); in PowerShell, set `$VerbosePreference = 'Continue'` and use `Write-Verbose` / `Write-Host` to print each command line with its arguments.
   - **Print clear section banners.** Each pattern step gets a banner like `===== [7/8] Install dependencies =====` so a long log can be navigated by eye.
   - **Print resolved absolute paths**, not just the relative names. Operators reading the log on a different machine need to know where the venv / `.m2` / `node_modules` / `.gocache` / `.cargo` actually landed, and what `$2` resolved to.
-  - **Print the toolchain's own `--version` output** (and the path it resolved from) during step 1, even on success. This is the single most useful piece of forensic data when conformance passes locally but fails in the harness's VM.
+  - **Print the toolchain's own `--version` output** (and the path it resolved from) during step 1, even on success. This is the single most useful piece of forensic data when conformance passes on one machine but fails on another.
   - **Surface the install output verbatim** — do not pipe it to `/dev/null`, do not redirect to a log file inside the working folder. The operator must see every dependency-resolver line in the script's own output stream. Drop the `VERBOSE`-gated wrapping from the Python reference — conformance output is where forensic data is most valuable.
   - **On failure, print what was about to run before exiting** — the exact test command, the working directory, the resolved `$CONFORMANCE_TESTS_FOLDER`, and the relevant environment variables (`PYTHONPATH`, `NODE_PATH`, `GOMODCACHE`, `CARGO_HOME`, `MAVEN_OPTS`, `PATH`, plus `VIRTUAL_ENV` for Python).
   - **Print a final summary line** that names the test command, the exit code, the resolved conformance-tests folder, and the working folder so the operator knows exactly what to re-run by hand if needed.
@@ -162,7 +162,7 @@ Notes:
 - **Arguments:** `$1` = build folder, `$2` = conformance tests folder.
 - **Make it executable:** `chmod +x` the produced script.
 - **`cd` failure check:** the reference scripts use the `cd ... 2>/dev/null` + `[ $? -ne 0 ]` pattern. Keep it.
-- **Alpine-friendly:** the harness runs the script in an Alpine Linux VM. Stick to POSIX tools and flags that BusyBox supports (e.g. `cp -R`, `mktemp`, plain `grep`), and let the toolchain check report clearly when the runtime is missing there.
+- **Portable:** the harness runs the script on macOS and Linux alike. Stick to POSIX tools and flags both have (e.g. `cp -R`, `mktemp`, plain `grep` - not GNU-only or BSD-only flags, not a macOS-only `/usr/libexec/java_home`), and let the toolchain check report clearly when the runtime is missing.
 
 ### PowerShell specifics (by-hand Windows copy only)
 
@@ -201,7 +201,7 @@ The harness never runs `.ps1` scripts. These notes apply only to an optional cop
 - **Don't skip cleanup.** Register the `trap` / `finally` removal of the working folder right after creating it, so it is removed on success and failure alike.
 - **Don't change the exit-code contract.** Other parts of the system branch on `69` and `1` specifically — and these codes must be identical between the Bash script and any PowerShell copy.
 - **Don't write a cross-shell hybrid** (e.g. a `.sh` that detects PowerShell, or vice versa). Ship one script per shell, named with the appropriate extension.
-- **Don't ship only a `.ps1`.** The harness runs `.sh` scripts only, in a Linux VM; a project with just a PowerShell runner has no conformance testing script as far as turri is concerned.
+- **Don't ship only a `.ps1`.** The harness runs `.sh` scripts only; a project with just a PowerShell runner has no conformance testing script as far as turri is concerned.
 - **Don't install dependencies into the user's global location** (`~/.m2`, system-wide `pip`, `~/.cargo`, etc.). Always isolate inside `$WORKING_FOLDER` so concurrent runs and other projects can't interfere.
 - **Don't run the test command without first verifying the install succeeded.** A failed install followed by a "test" run produces misleading errors that look like test failures.
 - **Don't link the script from the specs, and don't leave turri guessing.** turri finds the script in `config.yaml`, the project root, or `test_scripts/`, shows it to the agents that write the conformance tests itself, and stops before the build starts without it; a link to it from a spec is ignored. Put it where it is found, and when there are two conformance testing scripts in one folder, name the one to use as `conformance-tests-script:` - in each module's `config.<module>.yaml` when they are for modules on different stacks (see Workflow step 7).

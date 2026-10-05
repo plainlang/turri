@@ -87,7 +87,7 @@ export function testsDirUnder(root: string, moduleName: string): string {
 }
 
 /**
- * The `plain_modules` a directory sits in: all an agent sees and all its VM holds. A
+ * The `plain_modules` a directory sits in: what holds every module's code and tests. A
  * directory outside one - a sandbox, an explicit `--build-dir` - is its own root, so this
  * never silently widens to a whole disk.
  */
@@ -98,17 +98,17 @@ export function modulesRootOf(dir: string): string {
 }
 
 /**
- * `.turri` inside the modules root: what the VM needs beside the code - the package
- * caches, the copies test runs happen in, the system packages installed.
- * Inside the root because the VM holds nothing else; ignored by the project's history.
+ * `.turri` inside the modules root: what turri keeps beside the code - the package
+ * caches, the modules' homes and temporary folders, the copies test runs happen in, the
+ * outputs kept for read_output. Ignored by the project's history.
  */
-export function vmScratchDir(dir: string): string {
+export function modulesScratchDir(dir: string): string {
   return join(modulesRootOf(dir), ".turri");
 }
 
-/** Make `path` inside the VM's scratch, which ignores itself. Returns `path`. */
-export function ensureInVmScratch(dir: string, path: string): string {
-  return ensureInScratch(vmScratchDir(dir), path);
+/** Make `path` inside the modules' scratch, which ignores itself. Returns `path`. */
+export function ensureInModulesScratch(dir: string, path: string): string {
+  return ensureInScratch(modulesScratchDir(dir), path);
 }
 
 /** Where the project keeps what `deploy` puts out: `dist/`, beside `plain_modules`. */

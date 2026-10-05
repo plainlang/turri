@@ -233,7 +233,7 @@ export async function createUnitReviewer(options: {
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
-  /** The unit testing script, where it runs in the VM: the reviewer checks with can_it_fail that a test it doubts can fail. */
+  /** The unit testing script, where it runs on a copy: the reviewer checks with can_it_fail that a test it doubts can fail. */
   unitScript?: string;
 }): Promise<UnitReviewer> {
   let verdict: { pass: boolean; problems: UnitReviewProblem[] } | undefined;
@@ -352,7 +352,7 @@ export async function untilUnitTestsReviewed(options: {
   work?: WorkLedger;
   /** Send the coding agent back once for problems its account left unanswered. Default true when `work` is given. */
   askForAnswers?: boolean;
-  /** The unit testing script, where it runs in the VM: the reviewer checks with can_it_fail that a test it doubts can fail. */
+  /** The unit testing script, where it runs on a copy: the reviewer checks with can_it_fail that a test it doubts can fail. */
   unitScript?: string;
 }): Promise<{ passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[]; reviews: number }> {
   const reviewer = await createUnitReviewer(options);

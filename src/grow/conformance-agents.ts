@@ -18,11 +18,11 @@ import { SUBMIT_AFTER_REVIEW } from "./submit-work.ts";
 /**
  * The agents a conformance run needs beside the one that writes the tests.
  *
- * The conformance tests are rendered apart from the code, in their own folder and VM, by an agent
+ * The conformance tests are rendered apart from the code, in their own folder, by an agent
  * that may read the code but writes only tests. Before it starts, an explorer reads the code and
  * writes down how the built software is invoked from outside. When the harness's run of the suite
  * fails, a judge reads both, against the spec, and says which is wrong: the code goes to a coding
- * agent, which works in the code folder and its VM and may read the tests, the tests go back to
+ * agent, which works in the code folder and may read the tests, the tests go back to
  * their author.
  */
 
@@ -309,7 +309,7 @@ const ANSWER_CALLS = 20;
 const MAX_ANSWER_CHARS = 4_000;
 
 /**
- * The test author's question to the explorer, answered: a fresh explorer, in the code's folder and VM - it reads the
+ * The test author's question to the explorer, answered: a fresh explorer, in the code's folder - it reads the
  * code and runs it, and changes nothing - given what was handed over so far and the question, answering in words.
  */
 export async function answerAsExplorer(options: {
@@ -1035,7 +1035,7 @@ export function judgePrompt(options: {
 
 /**
  * The coding agent a conformance run sends the code to, when the judge says the code is wrong: it
- * works in the code folder and its VM, may read the tests but never changes them, and keeps the unit
+ * works in the code folder, may read the tests but never changes them, and keeps the unit
  * tests passing.
  * Made the first time it is needed, and kept for the rest of the run: each fix after the first starts from what the
  * ones before it tried. Its task is its instructions; its work is compacted as it grows.

@@ -296,7 +296,7 @@ export async function renderConformanceTests(
     return diff.added.length + diff.changed.length + diff.removed.length > 0;
   };
 
-  // The code and its tests are rendered apart: the tests in their own folder and VM, by an agent that
+  // The code and its tests are rendered apart: the tests in their own folder, by an agent that
   // may read the code but writes only tests. An explorer reads the code first and writes down how the
   // software is invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
@@ -373,7 +373,6 @@ export async function renderConformanceTests(
   const toCarryOut = (forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }])
     .map((item) => ({ module: moduleName, frid: item.frid, count: item.acceptanceTests.length }))
     .filter((item) => item.count > 0);
-  // The tests' VM, where the conformance agent's shell runs, boots while the explorer works.
   let invocation = await exploreInvocation({ buildDir, spec: specContext, scope, testingScripts, acceptance: toCarryOut, label, model: options.model, onDelta: options.onDelta });
   reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
   const agentPrompt = withTestingScripts(
@@ -562,7 +561,7 @@ export async function renderConformanceTests(
       }
 
       // Whether it is done is the harness's run of the project's conformance testing script, on
-      // every functionality's tests, in the tests VM - and the code's unit testing script.
+      // every functionality's tests - and the code's unit testing script.
       stage(`running the conformance testing script on the whole suite (attempt ${rounds + 1} of ${maxRounds})`);
       rounds += 1;
       let recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);

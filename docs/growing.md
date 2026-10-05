@@ -44,12 +44,11 @@ The harness's scratch - each ignores itself, and is never part of a module's his
 
 | | |
 | --- | --- |
-| `plain_modules/.turri/` | what the VM needs beside the code, the one folder outside a module it holds - see [sandbox](sandbox.md) |
+| `plain_modules/.turri/` | what turri keeps beside the code - see [sandbox](sandbox.md#what-turri-keeps-beside-the-code) |
 | `plain_modules/.turri/cache/` | the package caches, so a dependency is fetched once |
 | `plain_modules/.turri/scripts/` | the copies each testing script run happens in, one folder a run |
 | `plain_modules/.turri/logs/` | the whole output of each run or command an agent was shown cut short, by time and what ran - read by agents only through `read_output` |
-| `plain_modules/.turri/system-packages.json` | the system packages the agents installed, installed again by every VM of the project |
-| `.turri/jobs/` | each job's log: its diff, its stages, its agents and what they cost, and its sandbox VM starting - how long, and where the time went |
+| `.turri/jobs/` | each job's log: its diff, its stages, its agents and what they cost, and which walls were up under its agents' commands |
 | `.turri/debug/` | each agent's log: its prompt, every tool call and every answer |
 | `.turri/sessions/` | the agents' saved sessions |
 | `.turri/runs/<skill>/` | a gated skill's run: what an interrupted one resumes from, and its gates' evidence |
@@ -123,7 +122,7 @@ The agents with one thing to decide have a budget of tool calls: the judge 30, t
 explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
 with what it knows; past twice the budget its turn is stopped. Handing the decision over starts the
 count again - a reviewer kept for the next review gets its whole budget for it. And every turn of an agent a render
-starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none) - not counting a command's wait for its sandbox VM to start, which stops the clock. It is told so, and when they
+starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none). It is told so, and when they
 are up its turn ends where it is and the harness takes it from there - it runs the tests, and judges.
 A code fix has to build and pass the code's unit tests before the conformance suite runs again: one
 that does not goes straight back to the coding agent, with the output, rather than to a judge. So is an agent whose calls to one tool fail ten times in a row with nothing going through
@@ -669,13 +668,13 @@ which is which, and which acceptance test a test implements.
 
 ### Rendered apart from the code
 
-The code and its conformance tests are rendered apart, each in its own folder and its own VM (see
-[the sandbox](sandbox.md#commands-run-in-a-vm)). The test author writes only the tests folder; its file
+The code and its conformance tests are rendered apart, each in its own folder (see
+[the sandbox](sandbox.md#what-an-agent-can-reach)). The test author writes only the tests folder; its file
 tools can read the code too, and it is told so - read access, never write access - and to take how the
 software is reached from the code, never what it should do. Its shell holds the tests folder only. The
 coding agent that fixes the code is told the same of the tests: it can read them, never change them.
 Before the test author starts, an explorer - an agent in
-the code's folder and VM, which reads the code and runs it but changes nothing - hands over everything
+the code's folder, which reads the code and runs it but changes nothing - hands over everything
 the author needs, in parts: how to build and run it; how the conformance tests reach it as the project's
 conformance testing script runs them - the explorer is given the script, and says what it builds or
 installs and what the tests depend on or start (a package, a module, an entry point, by its exact name);
@@ -691,12 +690,12 @@ words rather than code, under 12,000 characters. Each hand-over ends its turn, a
 times at most. If it never completes it, what it wrote as it worked goes along with it, so nothing it
 found is lost. The tests are written from that account and the spec, and every assertion comes from the
 spec. `run_conformance_tests` puts
-the whole suite together with a copy of the build in a throwaway directory, in the tests' VM, so
+the whole suite together with a copy of the build in a throwaway directory, so
 tests cannot accumulate state between attempts and nothing they write reaches the code.
 
 While it writes the tests, the conformance agent can put a question to the explorer - `ask_explorer`, three
-times a run: how a functionality is reached, what a field is called. A fresh explorer, in the code's folder and
-VM, given the account it handed over and the question, reads and runs the code and answers in words; it changes
+times a run: how a functionality is reached, what a field is called. A fresh explorer, in the code's folder,
+given the account it handed over and the question, reads and runs the code and answers in words; it changes
 nothing. And `my_diff` shows it the tests folder's diff from where the run started, as its reviewer is shown it.
 
 ### When a conformance test fails
@@ -750,11 +749,11 @@ fix - three times a turn: the third ends the turn, and the harness runs it and j
 agent is told that a failure of the software itself - it does not build or start, or does what the
 spec says it must not - is not the tests' to work around. When it fails, a judge - an agent that reads
 the code and the tests, changes neither, and holds both to the spec - decides which is wrong. Like the
-explorer it has a shell in a VM and the web (`web_search`, `web_fetch`), to try the software or ask a
+explorer it has a shell and the web (`web_search`, `web_fetch`), to try the software or ask a
 service it calls what it answers; its file tools write nothing, and a file its shell changes anyway is
 reported:
 
-- **the code:** the coding agent - in the code's folder and VM, reading the tests but never changing them - fixes it,
+- **the code:** the coding agent - in the code's folder, reading the tests but never changing them - fixes it,
   and keeps its unit tests passing;
 - **the tests:** the conformance agent corrects them to what the spec says;
 - **the spec:** two functional specs cannot both hold, whatever the code does;

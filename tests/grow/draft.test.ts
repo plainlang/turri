@@ -6,7 +6,7 @@ import { writeTestScripts } from "../test-scripts.ts";
 
 /**
  * The coding agent is stubbed: its first turn ends having written nothing - a turn spent planning - and it writes
- * only when asked for a draft, or never when `silent`. The testing scripts run on this machine, so no VM is needed.
+ * only when asked for a draft, or never when `silent`. The testing scripts run on this machine.
  */
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> };
 const prompts: string[] = [];

@@ -386,7 +386,6 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   }
   // The spec's images need a model that reads them: refused before the agent starts.
   await refuseIfModelIsBlind(options.model, resourceImages(linkedResources).length);
-  // Its shell's VM boots while it reads and writes: ready by its first command.
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
   // One session for the whole change: its task is its instructions, its work compacted as it grows.
   const executor = await createExecutor({

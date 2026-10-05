@@ -27,7 +27,6 @@
     "grammar:sync": "node scripts/sync-plyn-grammar.mjs"
   },
   "dependencies": {
-    "@earendil-works/gondolin": "^0.12.0",
     "@earendil-works/pi-coding-agent": "^1.0.0",
     "@earendil-works/pi-tui": "^1.0.0",
     "@langchain/langgraph": "1.4.15",
@@ -55,7 +54,6 @@
     ".pi",
     "genome",
     "stdlib",
-    "vm",
     "docs",
     "README.md",
     "LICENSE"

@@ -128,7 +128,7 @@ describe("the project's config.yaml", () => {
 describe("parallel-jobs", () => {
   it("is how many jobs the chat runs at once - the environment first, then config.yaml, then what the machine holds", async () => {
     const { parallelJobs } = await import("../src/extension.ts");
-    const { defaultParallelJobs } = await import("../src/grow/vm.ts");
+    const { defaultParallelJobs } = await import("../src/grow/jobs.ts");
     expect(parallelJobs(root)).toBe(defaultParallelJobs());
     writeFileSync(join(root, "config.yaml"), "parallel-jobs: 6\n");
     expect(readProjectConfig(root).parallelJobs).toBe(6);

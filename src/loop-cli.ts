@@ -1,5 +1,4 @@
 import { sweepOrphanedGroups } from "./grow/shell.ts";
-import { stopOrphanedVms } from "./grow/vm.ts";
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
@@ -29,10 +28,9 @@ export async function runLoop(options: {
   ask: (loop: WorkLoop) => Promise<ModuleStatus[]>;
 }): Promise<never> {
   const plainFile = resolve(options.plainFile);
-  // Sandbox VMs a turri that was killed left running hold memory nothing frees: stopped before any starts.
-  sweepOrphanedGroups();
-  const orphans = stopOrphanedVms();
-  if (orphans > 0) console.log(`Stopped ${orphans} sandbox VM${orphans === 1 ? "" : "s"} a turri that was killed left running.`);
+  // What a turri that was killed left running - commands' process groups - stopped before anything starts.
+  const orphans = sweepOrphanedGroups();
+  if (orphans > 0) console.log(`Stopped ${orphans} process group${orphans === 1 ? "" : "s"} a turri that was killed left running.`);
   const project = { ...readProjectConfig(process.cwd()), ...Object.fromEntries(Object.entries(configForSpec(plainFile)).filter(([, value]) => value !== undefined)) };
   const model = options.model ?? modelSpec(projectModels(project).coding);
   const projectDir = projectDirOf(plainFile);

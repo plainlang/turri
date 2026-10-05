@@ -148,20 +148,14 @@ process.argv = [
   ...(entry.args ?? []),
 ];
 
-// A headless run is stopped by a signal - SIGTERM, SIGHUP, Ctrl-C - whatever else listens for it:
-// its VMs shut, and it exits. Left to the libraries' own handlers, one ran on for minutes after it
-// was told to stop, building in the same codebase as the run that came after it.
+// A headless run is stopped by a signal - SIGTERM, SIGHUP, Ctrl-C - whatever else listens for it: it exits, and what
+// its agents left running goes with it (shell.ts kills every process group on exit). Left to the libraries' own
+// handlers, one ran on for minutes after it was told to stop, building in the same codebase as the run after it.
 if (!["validate", "check", "drift", "lineage"].includes(command)) {
-  const { closeAllVms } = await import("./grow/vm.ts");
-  let stopping = false;
   for (const [signal, code] of [["SIGTERM", 143], ["SIGHUP", 129], ["SIGINT", 130]] as const) {
     process.on(signal, () => {
-      if (stopping) process.exit(code);
-      stopping = true;
-      console.error(`\nstopped (${signal}) - shutting the VMs down`);
-      const done = () => process.exit(code);
-      setTimeout(done, 5000).unref();
-      void closeAllVms().then(done, done);
+      console.error(`\nstopped (${signal})`);
+      process.exit(code);
     });
   }
 }
