@@ -185,3 +185,27 @@ when turri exits, ended by a signal too. A turri killed outright cannot do that 
 does, within two seconds, from the groups it recorded in the temporary folder (`turri-groups/`); and groups a turri left
 that nothing killed are swept when turri next starts. On Windows there are no process groups: a command's process
 tree is killed with `taskkill /T /F`, best effort.
+
+### The command check
+
+Before such a command runs, its text is checked (`src/grow/command-check.ts`, `checkCommand`), on every platform, and
+refused - not run - with the rule it broke and what to do instead, when it:
+
+- names a path outside the role's roots - absolute, a `..` that climbs out of the agent's folder (after the `cd`s
+  before it), or inside a quoted string (`python3 -c "..."`). `~`, `$HOME` and `$TMPDIR` are the module's own and
+  allowed, as are the package caches, the machine's system folders and the toolchains, and the devices
+  (`/dev/null`). A path is checked when it names something on disk - under a top folder such as `/Users`, `/home`,
+  `/etc` or `/tmp`, one of the fence's, or one that exists - so an API route in a curl or a JSON body is not one;
+- names the code record, `.turri.json`;
+- writes a credential file (`.env` and its variants; a template is fine) - by redirect, `tee`, `cp`, `mv` or an edit
+  in place;
+- installs software outside the project: `sudo`, the system's package managers installing (`brew`, `apt`, `dnf`,
+  `apk`, `pacman`, `choco`, `winget`, ...), toolchain managers installing (`nvm`, `sdk`, `rustup`, `pyenv`, `asdf`,
+  ...), global installs (`npm -g`, `yarn global`, `pip --user`, `pipx`, `gem install`), a script downloaded and run
+  (`curl ... | sh`), an installer (`.pkg`, `.msi`, `.dmg`, `.run`). The project's own dependencies - `npm install`,
+  pip into its venv, `mvn`, `cargo`, `go mod` - are building the code, and pass;
+- kills what its pulse did not start: `pkill`, `killall`, `taskkill`, `fuser -k`, or `kill` aimed at a port or name
+  lookup. `kill $!` and `kill %1` pass.
+
+On Windows, drive letters, backslashes and any case are read as Windows has them. It knowingly misses a path built at
+run time (`$(...)`, a variable, a script that reads one from a file): the OS sandbox and the audit are for those.
