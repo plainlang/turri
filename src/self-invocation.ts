@@ -52,7 +52,7 @@ const AT_COMMAND = String.raw`(?:^|[\s;&|()\x60$])`;
 /**
  * What a shell command would run of turri or pi itself, if anything: the subcommand,
  * or "pi" for another pi. `turri validate`, `drift` and `lineage` are not in it - they start no
- * agent - and neither are setup, doctor and vm-image.
+ * agent - and neither are setup and doctor.
  */
 export function selfInvocation(command: string): string | undefined {
   const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?turri\\s+(regrow|glimpse|bind|cultivate|release|spec-diff|render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);

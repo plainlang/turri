@@ -10,9 +10,8 @@ turri doctor
 
 Everything marked `✗` stops the run, so fix those first. Two more things matter for a long run:
 
-- **The VM image.** Without the full image only Python and Node projects build - see
-  [installation](installation.md#without-the-full-vm-image). `turri vm-image` builds it in
-  about 7 minutes.
+- **The toolchains.** The agents use this machine's: run `turri doctor` in the project, and it says which toolchain
+  a module's implementation reqs name that this machine lacks.
 - **Credentials that do not expire mid-run.** An API key in the environment
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) or pi's saved login - whatever
   `doctor` shows as the model provider.

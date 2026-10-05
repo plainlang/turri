@@ -92,9 +92,8 @@ const ALIASES: Record<string, string> = {
 
 /** Getting the machine ready, and checking it is. */
 const SETUP_COMMANDS: Record<string, string> = {
-  setup: "get this machine ready: check everything, and fix what can be fixed here",
-  doctor: "check what turri needs, without changing anything",
-  "vm-image": "build the sandbox VM image with every toolchain (with e2fsprogs, or in Docker)",
+  setup: "get this machine ready: check everything, and offer to load turri into every pi",
+  doctor: "check what turri needs - in a project, what it needs of this machine - without changing anything",
 };
 
 const USAGE = [
@@ -125,7 +124,7 @@ if (command === "chat") chat(rest);
 
 if (command in SETUP_COMMANDS) {
   const { main } = await import("./setup.ts");
-  process.exit(await main(command as "setup" | "doctor" | "vm-image", rest));
+  process.exit(await main(command as "setup" | "doctor", rest));
 }
 
 if (command === "render") {

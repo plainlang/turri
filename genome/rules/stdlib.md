@@ -67,5 +67,5 @@ import:
 - It holds no testing scripts. The module still needs its unit testing script, and its conformance
   testing script when it has conformance tests - written with the `implement-unit-testing-script`
   and `implement-conformance-testing-script` skills for the stack's language and test framework.
-- It names the toolchains of the default VM image - Python 3.12, Node.js 24, Java 21, Go 1.25,
-  Rust - so its builds find them there (see `managing-vms.md`).
+- It names its stack's toolchain - Python 3.12, Node.js 24, Java 21, Go 1.25, Rust - which the agents use from the
+  machine turri runs on; they install none, so `turri doctor` says when the machine lacks it.

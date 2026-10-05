@@ -11,16 +11,15 @@ form, again and again - as **turri** regrows the code from the spec - see [the n
 
 ## Quick start
 
-You need git and [Node](https://nodejs.org/en/download) 22.19 or newer - a Linux distribution's own
-`nodejs` package is often older - on Apple Silicon macOS or Linux. Windows is not supported
-natively: agents run in micro-VMs ([Gondolin](https://github.com/earendil-works/gondolin) on QEMU),
-which need macOS's or Linux's hypervisor. On Windows, run **turri** in a Linux container (Docker or
-similar) or WSL 2, with KVM passed in - see [installation](docs/installation.md#installation).
+You need git, bash and [Node](https://nodejs.org/en/download) 22.19 or newer - a Linux distribution's own
+`nodejs` package is often older - wherever pi runs: macOS, Linux, WSL; native Windows best effort, with Git Bash. The
+agents use this machine's toolchains, fenced by a command check and an audit everywhere, and an OS sandbox where the
+OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) - see [installation](docs/installation.md#installation).
 
 ```bash
 git clone git@github.com:plainlang/turri.git && cd turri
 npm install && npm link   # puts `turri` on your PATH
-turri setup               # checks the machine, offers to build the VM image (about 7 minutes)
+turri setup               # checks the machine
 ```
 
 Then start it, signed in to your model providers, choosing the model you talk to and the one that
@@ -66,7 +65,7 @@ durable part. The code is a disposable artefact, rebuilt from them whenever they
 | **Who drives** | the agent picks what to do next | the harness, in a fixed order: one functionality or one spec diff at a time, or a whole module functionality by functionality, in the spec's order, each on top of the ones before it |
 | **What counts as done** | the agent writes the code, runs the tests, and decides for itself that it is done | ye old coding agent writes the code; **turri** runs the whole test suite itself, with the project's own testing scripts, and decides deterministically when it is done - every test passes in its own run, or the work goes back |
 | **Tests** | written and changed by whoever writes the code | conformance tests written from the spec, black box, and kept apart from your acceptance tests; an agent fixing the code cannot change them |
-| **What the agent sees** | your whole machine | only the prompt the harness writes, `plain_modules`, and the public web through its search and fetch tools; every command runs in a small Linux VM that holds nothing else |
+| **What the agent sees** | your whole machine | only the prompt the harness writes, its module's folders, and the public web through its search and fetch tools; every command it runs is checked, fenced and audited |
 | **Memory** | one conversation that fills up | a fresh agent for every step, starting from working notes the agents before it left - dated, attributed, and never allowed to override the spec |
 | **When it gets stuck** | it keeps trying, or quietly works around the problem | after 20 attempts it stops and tells you what to change in the spec - never in the code |
 | **A change** | another patch on top | a change to the spec: what it touches is rebuilt, everything built before is tested again, and code that disagrees with the spec is healed to match |
@@ -134,21 +133,20 @@ shows every generation of a module and what each grew from.
 
 ## Install
 
-It needs git and [Node](https://nodejs.org/en/download) 22.19 or newer, on Apple Silicon macOS or
-Linux - on Windows, in a Linux container or WSL 2 with `/dev/kvm` passed in, since the sandbox VMs
-need macOS's or Linux's hypervisor. Ubuntu's and
-Debian's own `nodejs` packages are older: take Node from nodejs.org, nvm or NodeSource.
+It needs git, bash and [Node](https://nodejs.org/en/download) 22.19 or newer, wherever pi runs - macOS, Linux, WSL,
+native Windows best effort with Git Bash - and bubblewrap on Linux for the OS sandbox. Ubuntu's and Debian's own
+`nodejs` packages are older: take Node from nodejs.org, nvm or NodeSource.
 
 ```bash
 git clone git@github.com:plainlang/turri.git && cd turri
 npm install
 npm link              # puts `turri` on your PATH
-turri setup     # checks the machine and fixes what it can, asking first
+turri setup     # checks the machine, and offers to load turri into every pi
 ```
 
-`setup` checks for Node 22.19+, QEMU (which the sandbox VM runs on) and on Linux KVM, a model
-provider for pi, and the VM image - and offers to build the image, which takes about 7 minutes. It ends by starting a
-VM for real. `turri doctor` runs the same checks later without changing anything.
+`setup` checks for Node 22.19+, bash, the OS sandbox - and why none starts, with the fix - and a model provider for pi;
+in a project, it checks the toolchains its modules need and what its testing scripts run against this machine.
+`turri doctor` runs the same checks later without changing anything.
 
 Details, and what each check means: [installation](docs/installation.md).
 
@@ -227,14 +225,14 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 
 | | |
 | --- | --- |
-| [Installation](docs/installation.md) | setup and doctor, the VM image, **turri** in every `pi`, environment variables |
+| [Installation](docs/installation.md) | setup and doctor, what turri needs of this machine, **turri** in every `pi`, environment variables |
 | [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and the regeneration, choosing models, the command line |
 | [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |
 | [Growing](docs/growing.md) | what each build does and in which order: functionalities, modules, regeneration, spec diffs, conformance and acceptance tests, working notes, what the code is built from |
-| [The sandbox](docs/sandbox.md) | what agents can reach, the VM every command runs in, time limits, the web tools |
+| [The sandbox](docs/sandbox.md) | what agents can reach, the walls every command passes, time limits, the web tools |
 | [Skills and gates](docs/skills-and-gates.md) | the gate syntax, what the harness enforces, judges, rules |
 | [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `turri validate`, fidelity to the reference parser |
 | [Theming](docs/theming.md) | the two brand themes |
