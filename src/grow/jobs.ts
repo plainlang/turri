@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { withPulse } from "./shell.ts";
+import { describeEnvironmentError, EnvironmentError, missingCredentials } from "./environment-error.ts";
 import { addAgentReport, describeAgents, JobStoppedError, withActivity, type AgentReport, type AgentTally, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
 import { startJobLog, type JobLog } from "./job-log.ts";
 
@@ -65,6 +66,8 @@ export interface Job {
   logFile?: string;
   /** Why it failed for good, and what to do, as the diagnosis found. */
   diagnosis?: string;
+  /** It stopped because the environment lacks something: what the person is told. */
+  environment?: string;
   /** What to tell the agent when it asks how the job went. */
   report?: string;
   /** The spec contradicts itself, as its conformance run found: for the person to decide. */
@@ -304,8 +307,12 @@ export function createJobRegistry(options?: {
         return details?.passed === false && details.skipped !== true;
       };
       // A pulse: what its agents leave running is killed when it ends, and the modules it works in are its own.
-      const runOnce = () =>
-        withPulse(
+      const runOnce = () => {
+        // A credential agent-env names that is not there stops the pulse before any agent starts.
+        const own = input.lanes?.[0];
+        const missing = own !== undefined ? missingCredentials(own) : undefined;
+        if (missing !== undefined) return Promise.reject(missing);
+        return withPulse(
           () =>
             withActivity(sink, () =>
               input.run((delta) => {
@@ -314,6 +321,7 @@ export function createJobRegistry(options?: {
             ),
           { modules: input.lanes ?? [] },
         );
+      };
       const runGuarded = async (): Promise<JobOutcome> => {
         const failures: string[] = [];
         for (let attempt = 0; ; attempt += 1) {
@@ -330,6 +338,17 @@ export function createJobRegistry(options?: {
             return outcome!;
           }
           if (error === undefined && !didNotPass(outcome!)) return outcome!;
+          // The environment lacks something: no retry would find it - the pulse stops, the module's later pulses wait,
+          // and the person is told. What the harness found itself is worked out at once; what an agent said goes as it is.
+          if (error instanceof EnvironmentError) {
+            job.failedForGood = true;
+            if (error.source === "harness" && options?.diagnose !== undefined) {
+              sink.stage("the environment lacks something - working out what to do about it");
+              job.diagnosis = await withActivity(sink, () => options.diagnose!(job, [error.message, describeEnvironmentError(error)], log?.file)).catch(() => undefined);
+            }
+            job.environment = describeEnvironmentError(error);
+            throw new Error([job.environment, ...(job.diagnosis !== undefined ? ["", job.diagnosis] : [])].join("\n"));
+          }
           failures.push(error !== undefined ? (error instanceof Error ? error.message : String(error)) : outcome!.report);
           if (attempt < retries) {
             sink.stage(`the pulse failed - trying it once more (${attempt + 1} of ${retries})`);
@@ -362,6 +381,9 @@ export function createJobRegistry(options?: {
           const failedAhead = guarded ? blockers.map((other) => jobs.get(other)).find((other) => other?.failedForGood === true) : undefined;
           if (failedAhead !== undefined) {
             job.failedForGood = true;
+            if (failedAhead.environment !== undefined) {
+              throw new Error(`Not run: pulse ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) stopped, and this waits for it.\n\n${failedAhead.environment}`);
+            }
             throw new Error(
               `Not run: pulse ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) failed twice, so nothing queued behind it runs.` +
                 (failedAhead.diagnosis !== undefined ? `\n\n${failedAhead.diagnosis}` : ""),

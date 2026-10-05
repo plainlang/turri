@@ -19,6 +19,7 @@ import { RECORD_FILE } from "./records.ts";
 import { keptShellOutput, readOutputTool } from "./testing.ts";
 import { reportNote } from "./activity.ts";
 import { agentShell, type AgentShell } from "./agent-shell.ts";
+import { ENVIRONMENT_ERROR_TOOL } from "./environment-error.ts";
 import { anotherPulseIn, COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./shell.ts";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
@@ -346,7 +347,13 @@ export function confinedTools(c: Confinement): ConfinedTools {
     tools.push(readOutputTool(workdir));
   }
 
-  return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell: c.noBash !== true }) };
+  // An agent with a shell is given report_environment_error with it (pi.ts), and its walls name it.
+  return {
+    tools,
+    names: tools.map((t) => t.name),
+    description,
+    note: sandboxNote({ read, write, shell: c.noBash !== true, ...(c.noBash !== true ? { environmentTool: ENVIRONMENT_ERROR_TOOL } : {}) }),
+  };
 }
 
 /** What the agent is told, with its bash, about where its commands run. */

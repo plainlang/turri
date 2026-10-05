@@ -35,6 +35,7 @@ import {
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createCanItFailTool, createMyDiffTool, createStaticChecksTool, selfCheckNote } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
+import { EnvironmentError } from "./environment-error.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
@@ -561,7 +562,19 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   if (!unitPassed) {
     stage(unitReviewStopped ? "the unit tests pass but still leave the change untested - undoing the change" : "unit tests NOT passing - undoing the change");
     abandonWork(unit, moduleName, missing !== undefined ? "the unit testing script could not run" : "the spec change did not pass its unit tests");
-    return { ...base, passed: false, stoppedAt: "unit tests", ...(missing !== undefined ? { missingToolchain: missing } : {}) };
+    // The environment lacks what the testing script needs: the pulse stops, rolled back, and the person is told.
+    if (missing !== undefined) {
+      const needs = missing.command !== undefined ? `\`${missing.command}\`` : "a toolchain the unit testing script needs";
+      throw new EnvironmentError({
+        moduleName,
+        missing: needs,
+        neededBy: `the unit testing script, \`${basename(scripts.unit)}\``,
+        shownBy: missing.command !== undefined ? `it could not find \`${missing.command}\`` : "it exited saying a toolchain is missing",
+        fix: `install ${missing.command ?? "it"} on this machine, so the testing script finds it on its PATH.`,
+        source: "harness",
+      });
+    }
+    return { ...base, passed: false, stoppedAt: "unit tests" };
   }
 
   stage("unit tests pass - landing the change on them");
