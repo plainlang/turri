@@ -165,6 +165,12 @@ it is, outside every agent's reach - and never replaces turri's own home, `TMPDI
 to the project's. A file that is not there, or a variable unset or empty, is reported as missing. The testing scripts
 are not affected: they run in your own environment.
 
+Their values never appear in what an agent is shown or what turri writes: each is replaced by its name -
+`[D365_CLIENT_SECRET]` - whole, URL-encoded, or split over a command's output as it streams: in every tool result and
+refusal an agent is given (and so in the session transcripts, which hold only those), in the whole outputs kept for
+`read_output`, and in the job and debug logs. A value shorter than four characters is not masked - `1` or `eu` is
+everywhere in ordinary output.
+
 ## Modules on different stacks
 
 One project can hold modules that share nothing but a common module - a Python backend and a React

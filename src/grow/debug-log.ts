@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync } from "node:fs";
+import { maskSecrets } from "./masking.ts";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { currentJob, reportActivity, reportTranscript } from "./activity.ts";
@@ -78,7 +79,7 @@ export function startDebugLog(
     const name = options.label.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "agent";
     file = join(dir, `${stamp}-${name}.log`);
     for (let n = 2; existsSync(file); n += 1) file = join(dir, `${stamp}-${name}-${n}.log`);
-    appendFileSync(file, header(session, options), { flag: "wx" });
+    appendFileSync(file, maskSecrets(header(session, options)), { flag: "wx" });
   } catch (error) {
     reportActivity(`debug log not started: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
@@ -88,7 +89,7 @@ export function startDebugLog(
   const write = (text: string) => {
     if (broken) return;
     try {
-      appendFileSync(file, text);
+      appendFileSync(file, maskSecrets(text));
     } catch (error) {
       // Given up on, not retried: a disk that is full or a folder that went is not going to
       // come back mid-turn, and the render matters more than its log.
