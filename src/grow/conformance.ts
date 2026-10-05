@@ -67,7 +67,7 @@ import { ATTEMPTS } from "./stop-report.ts";
 import { ARBITER_AFTER, arbitrateReview, dismissedNote, REVIEW_LIMIT } from "./arbiter.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
 import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
-import { defaultBuildDir, modulesRoot, testsDirUnder, vmScratchDir, projectDirOf } from "./paths.ts";
+import { defaultBuildDir, modulesRoot, testsDirUnder, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule, moduleSection, section, sectionModules, specChangeBlock, type SectionModules } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { loadLinkedResources, resourceImages } from "./resources.ts";
@@ -400,12 +400,9 @@ export async function renderConformanceTests(
     root,
   );
 
-  // The conformance agent: its file tools write the tests folder and read the code too; its shell holds only the tests.
-  // The full outputs of the test runs, too long to be shown whole: readable by the agents that fix what they show.
-  const logsDir = join(vmScratchDir(buildDir), "logs");
-  mkdirSync(logsDir, { recursive: true });
-  // It reads the code too - how it is reached, what it is called - and writes only tests.
-  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, buildDir, logsDir], write: [conformanceDir] });
+  // The conformance agent: its file tools write the tests folder and read the code too - how it is reached, what it is
+  // called - and its shell holds only the tests. The full outputs of test runs come through read_output, not by path.
+  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, buildDir], write: [conformanceDir] });
   const notes = notesForSession(buildDir, `${label} conformance`);
   // Each agent runs the suite three times a turn at most: the third ends its turn, and the harness runs it and judges.
   const conformanceRuns = turnLimited(
@@ -466,7 +463,6 @@ export async function renderConformanceTests(
     fixer ??= await createCodeFixer({
       buildDir,
       conformanceDir,
-      logsDir,
       label,
       model: options.model,
       spec: specContext,

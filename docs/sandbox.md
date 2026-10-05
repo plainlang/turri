@@ -8,9 +8,19 @@ a VM that holds nothing else.
 
 ## What an agent can reach
 
-Every agent - render, conformance author, code fixer, regression repair - reads and writes the
-whole of `plain_modules` with its file tools, every module's code and tests, and nothing above it.
-Its commands reach less: only its own module's folder (see below). The specs it is
+Each agent's file tools reach its own module and only the parts its role needs:
+
+| Role | Reads | Writes |
+| --- | --- | --- |
+| Coding agent, regression repair | its module's `code/` | its module's `code/` |
+| Conformance agent | its module's `tests/` and `code/` | its module's `tests/` |
+| Code fixer | its module's `code/` and `tests/` | its module's `code/` |
+| Explorers | its module's `code/` | nothing |
+| Test review | its module's `tests/` and `code/` | nothing |
+
+Nothing else exists for them: not another module, not turri's scratch area `plain_modules/.turri` (a test run's
+whole output reaches them through `read_output`, not by path), not the module's lineage `.plaingit`, and nothing
+above `plain_modules`. The specs it is
 building from reach it only through the prompt the harness writes. Nor does any context file: pi puts
 every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt, and turri
 turns that off for every agent it starts - so the project's own `AGENTS.md`, or yours in

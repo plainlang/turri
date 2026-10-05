@@ -221,9 +221,11 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     await expect(tool("read").execute("id", { path: join(codeDir, "app.py") })).resolves.toBeDefined();
     await expect(tool("write").execute("id", { path: join(codeDir, "app.py"), content: "x" })).rejects.toThrow(/outside/);
     expect(readFileSync(join(codeDir, "app.py"), "utf8")).not.toBe("x");
-    // Its system prompt says so: it reads the tests, the code and the full logs of the runs, and writes only the tests.
+    // Its system prompt says so: it reads the tests and the code, and writes only the tests - the full logs of the runs
+    // come through read_output, not by a path into turri's scratch area.
     const system = (conformanceCall[0] as { system?: string }).system!;
-    expect(system).toContain(join(root, "plain_modules", ".turri", "logs"));
+    expect(system).not.toContain(".turri");
+    expect(tools.map((candidate) => candidate.name)).toContain("read_output");
     expect(system).toContain("You work inside a sandbox, and only there.");
     expect(system).toContain(codeDir);
 

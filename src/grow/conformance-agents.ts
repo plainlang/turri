@@ -1044,8 +1044,6 @@ export async function createCodeFixer(options: {
   buildDir: string;
   /** The conformance tests: it reads them, and never changes them. */
   conformanceDir?: string;
-  /** Where the full outputs of the test runs are: it reads them, and writes nothing there. */
-  logsDir?: string;
   label: string;
   model?: string;
   /** The specification it fixes the code to: in its task. */
@@ -1056,7 +1054,7 @@ export async function createCodeFixer(options: {
 }): Promise<AgentSession> {
   const fence = confinedTools({
     workdir: options.buildDir,
-    read: [options.buildDir, ...(options.conformanceDir !== undefined ? [options.conformanceDir] : []), ...(options.logsDir !== undefined ? [options.logsDir] : [])],
+    read: [options.buildDir, ...(options.conformanceDir !== undefined ? [options.conformanceDir] : [])],
     write: [options.buildDir],
   });
   return createExecutor({

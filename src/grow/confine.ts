@@ -16,7 +16,6 @@ import {
 import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
 import { RECORD_FILE } from "./records.ts";
-import { modulesRootOf } from "./paths.ts";
 import { keptShellOutput, readOutputTool } from "./testing.ts";
 import {
   COMMAND_TIMEOUT_MS,
@@ -37,16 +36,17 @@ import {
  * business reading the rest of the project, let alone writing to it.
  *
  * So the tools are rebuilt from pi's own factories with a check in front of every path, and
- * `bash` runs in the project's VM (see `vm.ts`). Both reach the whole of `plain_modules` - every
- * module's code and tests - and nothing above it: not the specs, not the rest of the project.
+ * `bash` runs in the project's VM (see `vm.ts`). The file tools reach the agent's own folder - its
+ * module's `code/`, unless the role is given others - and nothing else: not another module, not
+ * turri's scratch area or the module's lineage, not the specs, not the rest of the project.
  */
 
 export interface Confinement {
-  /** Where the agent starts and where relative paths resolve. It sees the plain_modules this is in. */
+  /** Where the agent starts and where relative paths resolve - and, unless `read` and `write` say otherwise, all its file tools reach. */
   workdir: string;
-  /** Narrower than that: the only folders its file tools may read. */
+  /** The only folders its file tools may read: its workdir when not given. */
   read?: string[];
-  /** The only folders they may write; none, and it has no write or edit tool at all. */
+  /** The only folders they may write - its workdir when not given; none, and it has no write or edit tool at all. */
   write?: string[];
   /** No shell either - for an agent that only reads. */
   noBash?: boolean;
@@ -57,15 +57,6 @@ export class ConfinementError extends Error {
     super(message);
     this.name = "ConfinementError";
   }
-}
-
-/**
- * The highest directory an agent working in `dir` may see: the `plain_modules` it lives
- * under. A build directory somewhere else entirely - a sandbox, a test fixture, an explicit
- * `--build-dir` - is its own ceiling, so confinement never silently widens to a whole disk.
- */
-export function ceilingFor(dir: string): string {
-  return modulesRootOf(dir);
 }
 
 /** Resolve symlinks as far as the path exists, so a link cannot walk out of a root. */
@@ -232,10 +223,9 @@ export function sandboxNote(fence: { read: string[]; write: string[]; shell?: st
 
 export function confinedTools(c: Confinement): ConfinedTools {
   const workdir = resolve(c.workdir);
-  // Every agent's file tools see the whole of plain_modules and nothing above it; its VM, only its module.
-  const root = ceilingFor(workdir);
-  const read = (c.read ?? [root]).map((dir) => resolve(dir));
-  const write = (c.write ?? [root]).map((dir) => resolve(dir));
+  // An agent's file tools reach its own folder and what its role is given beside it, and nothing else.
+  const read = (c.read ?? [workdir]).map((dir) => resolve(dir));
+  const write = (c.write ?? [workdir]).map((dir) => resolve(dir));
 
   const readOps = guardedOps(read, "read");
   const writeOps = guardedOps(write, "write");
