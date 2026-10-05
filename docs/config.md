@@ -60,6 +60,7 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
 | `vm-memory` | the memory each of the project's sandbox VMs is given - `1G`, `2G`, `512M`: more for a project that compiles Java, Rust or C++, less on a machine short of memory - `TURRI_VM_MEMORY` wins. The project's alone | `2G` |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the memory free then holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
+| `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A module's `config.<module>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
 | `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](growing.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
@@ -137,6 +138,31 @@ A folder holding two of a kind is not guessed between: name the one to use. A sc
 `plain_modules/` is refused - agents write there, so it could be changed by the work it judges. The
 scripts are never linked from the specs. What they are and how they run is in
 [growing the code](growing.md#the-testing-scripts).
+
+## Credentials for the agents
+
+This is the environment of agents' commands run on this machine, which is being built: today they still run in the
+VM, which gets none of it, and `agent-env:` is read but passed to no command yet.
+
+An agent's commands do not get the environment turri was started in: it holds your providers' API keys, cloud
+credentials and tokens. They get only the path, the locale, the terminal and the user, the variables that locate your
+toolchains (`JAVA_HOME`, `NVM_DIR`, `RUSTUP_HOME`, ... - the ones in your home found even when your shell sets none),
+and turri's own: a home folder of the module's own (`plain_modules/.turri/home/<module>`, kept between pulses, with a
+git identity of its own), a `TMPDIR`, the package caches in `plain_modules/.turri/cache`, and git stopped at the module
+folder, so a project that is itself a repository is never found from the code.
+
+A project whose agents need a credential while they work names it:
+
+```yaml
+agent-env:
+  files: [.env]              # every variable of these dotenv files, by path from the project root
+  vars: [D365_TENANT_ID]     # these variables, from the environment turri was started in
+```
+
+What it names reaches every agent with a shell, as environment variables of its commands only - the file stays where
+it is, outside every agent's reach - and never replaces turri's own home, `TMPDIR` or caches. A module's own file adds
+to the project's. A file that is not there, or a variable unset or empty, is reported as missing. The testing scripts
+are not affected: they run in your own environment.
 
 ## Modules on different stacks
 

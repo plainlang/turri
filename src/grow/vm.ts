@@ -46,25 +46,9 @@ export interface VmRunResult {
   timedOut?: boolean;
 }
 
-/** Where package managers keep their caches, inside the VM's own root. */
-export function packageCacheDir(dir: string): string {
-  return join(vmScratchDir(dir), "cache");
-}
-
-function cacheEnv(cache: string): Record<string, string> {
-  return {
-    XDG_CACHE_HOME: cache,
-    MAVEN_OPTS: `-Dmaven.repo.local=${join(cache, "m2")}`,
-    GRADLE_USER_HOME: join(cache, "gradle"),
-    CARGO_HOME: join(cache, "cargo"),
-    npm_config_cache: join(cache, "npm"),
-    YARN_CACHE_FOLDER: join(cache, "yarn"),
-    PIP_CACHE_DIR: join(cache, "pip"),
-    UV_CACHE_DIR: join(cache, "uv"),
-    GOCACHE: join(cache, "go-build"),
-    GOMODCACHE: join(cache, "go-mod"),
-  };
-}
+// The package caches are the agents' environment's (agent-env.ts), wherever their commands run.
+export { packageCacheDir } from "./agent-env.ts";
+import { cacheEnv, packageCacheDir } from "./agent-env.ts";
 
 /**
  * The network is open: a command reaches any host on the web, internal addresses included, and
