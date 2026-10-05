@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AgentSession,
@@ -13,7 +13,8 @@ import {
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { readProjectConfig, splitModelSpec } from "./config.ts";
 import { maskToolResults } from "./grow/masking.ts";
-import { projectRootOf, sessionsDir } from "./grow/paths.ts";
+import { ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool } from "./grow/environment-error.ts";
+import { MODULES_DIR, projectRootOf, sessionsDir } from "./grow/paths.ts";
 import {
   currentStopSignal,
   describeToolCall,
@@ -178,6 +179,21 @@ export class ProviderError extends Error {
  * that chose to say nothing, and any retry loop above will keep going as if the work were
  * merely unfinished. It is raised instead.
  */
+/** For each agent with a shell: where it works, and what it reported the environment lacks, if it did. */
+const environmentReports = new WeakMap<AgentSession, { cwd: string; reported: { report?: { missing: string; neededBy: string; shownBy?: string } } }>();
+
+/** The agent's turn ended on report_environment_error: the pulse stops with what it said, as it said it. */
+function throwIfEnvironmentReported(session: AgentSession): void {
+  const entry = environmentReports.get(session);
+  const report = entry?.reported.report;
+  if (entry === undefined || report === undefined) return;
+  entry.reported.report = undefined;
+  const parts = resolve(entry.cwd).split(sep);
+  const index = parts.lastIndexOf(MODULES_DIR);
+  const moduleName = index >= 0 && parts.length > index + 1 ? parts[index + 1]! : basename(resolve(entry.cwd));
+  throw new EnvironmentError({ moduleName, missing: report.missing, neededBy: report.neededBy, ...(report.shownBy !== undefined ? { shownBy: report.shownBy } : {}), source: "agent" });
+}
+
 export async function ask(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
   // Between turns, not during one: the work so far, summed up, once it has grown past the threshold.
   // The summary keeps no images: they go with the next message again.
@@ -190,7 +206,9 @@ export async function ask(session: AgentSession, text: string, onDelta?: (delta:
   let prompt = text;
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await askOnce(session, prompt, onDelta);
+      const reply = await askOnce(session, prompt, onDelta);
+      throwIfEnvironmentReported(session);
+      return reply;
     } catch (error) {
       if (!(error instanceof ProviderError) || !TRANSIENT_PROVIDER_ERROR.test(error.message) || attempt >= PROVIDER_RETRIES) throw error;
       const wait = PROVIDER_RETRY_DELAY_MS * 2 ** attempt;
@@ -700,16 +718,21 @@ export async function createExecutor(opts: {
     opts.resumeFrom !== undefined
       ? SessionManager.open(opts.resumeFrom)
       : SessionManager.create(opts.cwd, sessionsDir(projectRootOf(opts.cwd)));
+  // An agent with a shell can say the machine lacks what the work needs: its turn ends, and the pulse stops with it.
+  const hasShell = opts.customTools.some((tool) => tool.name === "bash");
+  const reported: { report?: { missing: string; neededBy: string; shownBy?: string } } = {};
+  const withEnvironmentErrors = hasShell ? [...opts.customTools, environmentErrorTool((report) => (reported.report = report))] : opts.customTools;
   const { session } = await createAgentSession({
     cwd: opts.cwd,
     modelRuntime: await subAgentModelRuntime(),
-    tools: opts.tools,
+    tools: hasShell ? [...opts.tools, ENVIRONMENT_ERROR_TOOL] : opts.tools,
     // What an agent is shown never holds a credential the project passed: each value is its name (masking.ts).
-    customTools: guardRepeats(maskToolResults(opts.customTools), () => session, opts.budget),
+    customTools: guardRepeats(maskToolResults(withEnvironmentErrors), () => session, opts.budget),
     sessionManager,
     resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, [opts.system, opts.task].filter((part) => part !== undefined && part !== "").join("\n\n") || undefined),
   });
   if (opts.task !== undefined) pendingTask.set(session, opts.task);
+  if (hasShell) environmentReports.set(session, { cwd: opts.cwd, reported });
   if (opts.compaction !== undefined) keepCompacted(session, { instructions: opts.compaction.instructions, atTokens: opts.compaction.atTokens ?? compactAtFor(opts.cwd) });
 
   const chosen = splitModelSpec(opts.model);

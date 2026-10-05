@@ -44,7 +44,8 @@ enforced and are the same on every platform:
 - what happens on a reach outside, matter-of-fact: a command that names a path outside is refused before it runs,
   and anything a command changes outside is put back, and it is told;
 - that the project's dependencies are its own, through the build manifest, and installing anything else is not: what
-  the machine lacks it says plainly, naming what is missing, and goes no further with what depends on it;
+  the machine lacks it reports with `report_environment_error`, naming what is missing, and goes no further with what
+  depends on it (see [when the environment lacks something](growing.md#when-the-environment-lacks-something));
 - that it may stop only what it started, and that a port something else holds means another port.
 
 No other path is named - nothing into `plain_modules/.turri`. A test run or a command whose output was cut names the
@@ -202,5 +203,5 @@ It lives in `plain_modules/.turri`, which ignores itself in git:
 
 The agents use this machine's toolchains, and install nothing on it: not a toolchain, a system package, a driver or a
 global package. The project's own dependencies are theirs, through its package manager, into the project and its
-caches. What the machine lacks is yours to install; an agent that finds something missing says so, names it, and goes
-no further with what depends on it.
+caches. What the machine lacks is yours to install: an agent that finds something missing reports it, the pulse stops,
+and you are told what to install - see [when the environment lacks something](growing.md#when-the-environment-lacks-something).

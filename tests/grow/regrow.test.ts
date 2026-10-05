@@ -180,12 +180,16 @@ describe("rendering a spec diff", () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
 
-    const result = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+    const stopped = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
 
-    expect(result.passed).toBe(false);
-    expect(result.attempts).toBe(1);
-    expect(result.missingToolchain).toEqual({ command: "flutter" });
-    expect(describeSpecDiff(result)).toContain("`flutter` is not installed on this machine");
+    const { EnvironmentError, describeEnvironmentError } = await import("../../src/grow/environment-error.ts");
+    expect(stopped).toBeInstanceOf(EnvironmentError);
+    const said = describeEnvironmentError(stopped as InstanceType<typeof EnvironmentError>);
+    expect(said).toContain("**app stopped: the environment lacks `flutter`.**");
+    expect(said).toContain("install flutter on this machine");
   });
 
   it("gives a steer that came between turns as the agent's next turn, runs the tests again, and lands the spec as it was steered to", async () => {

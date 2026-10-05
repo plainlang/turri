@@ -460,6 +460,29 @@ testing-scripts-run-on: in-place
 What the script does to the host - copying the package into it - it does, as it is written to. `can_it_fail` needs a
 copy to change, so an agent has it only where the scripts run on one.
 
+### When the environment lacks something
+
+No agent installs anything on the machine, and none makes up a credential. When the machine lacks what the work needs,
+the pulse stops instead - rolled back, as any failed pulse is - its module's later pulses wait, unrelated modules go on,
+and you are told:
+
+> **d365_version_api stopped: the environment lacks JDK 21.**
+> Needed by: `run_unittests.sh` (it could not find `java`).
+> To fix: install java on this machine, so the testing script finds it on its PATH.
+> Then re-run: `turri regrow d365_version_api.plain`, or say "resume" in the chat.
+
+It is raised two ways:
+
+- **by an agent**, which calls `report_environment_error` - every agent with a shell has it, and its walls name it -
+  with what is missing, what needs it and the command that showed it. Its turn ends, the pulse stops, and what it said
+  goes to you as it is, not investigated further;
+- **by the harness itself**: a testing script that cannot find its toolchain (exit 69 or 127, `command not found`), or
+  a credential `agent-env:` names that is not there when the pulse starts - before any agent does. What the harness
+  found it works out at once - the diagnosis, not after a second failure - to say how to fix it on this machine.
+
+Either way the pulse is not tried again: no second run would find what is missing. The message is in the chat, at the
+end of `turri regrow`, and in the job's log; after the fix the pulse runs again from the start.
+
 ### What a job is given, and what it records
 
 Every job is a spec diff: the agent that renders it is given the spec the code is built from - its
