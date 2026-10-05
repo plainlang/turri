@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync } from "node:fs";
+import { maskSecrets } from "./masking.ts";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import type { TranscriptEntry } from "./activity.ts";
 import { ensureInScratch, MODULES_DIR, projectRootOf, scratchDir } from "./paths.ts";
@@ -41,13 +42,13 @@ export function startJobLog(job: { id: string; kind: string; summary: string; mo
     for (let n = 2; existsSync(file); n += 1) file = join(dir, `${stamp}-${job.id}-${job.kind}-${n}.log`);
     appendFileSync(
       file,
-      [
+      maskSecrets([
         `turri job ${job.id} · ${job.kind} · ${job.summary}`,
         `started   ${new Date().toISOString()}`,
         ...(job.model !== undefined ? [`model     ${job.model}`] : []),
         ...(job.diff !== undefined ? ["", "── the spec change", job.diff.trimEnd()] : []),
         "",
-      ].join("\n"),
+      ].join("\n")),
       { flag: "wx" },
     );
   } catch {
@@ -58,7 +59,7 @@ export function startJobLog(job: { id: string; kind: string; summary: string; mo
   const write = (text: string) => {
     if (broken) return;
     try {
-      appendFileSync(file, text);
+      appendFileSync(file, maskSecrets(text));
     } catch {
       broken = true;
     }

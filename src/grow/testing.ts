@@ -3,6 +3,7 @@ import { basename, dirname, join, relative } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
+import { maskSecrets } from "./masking.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { vmScratchDir } from "./paths.ts";
 import { RECORD_FILE } from "./records.ts";
@@ -50,7 +51,7 @@ function keepOutput(dir: string, label: string, output: string | Buffer): string
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const name = label.replace(/[^\w.-]+/g, "_").slice(0, 60);
     const file = join(logs, `${stamp}-${name}.log`);
-    writeFileSync(file, output);
+    writeFileSync(file, typeof output === "string" ? maskSecrets(output) : maskSecrets(output.toString("utf8")));
     const all = readdirSync(logs).sort();
     for (const old of all.slice(0, Math.max(0, all.length - MAX_LOGS))) rmSync(join(logs, old), { force: true });
     return file;
@@ -117,7 +118,7 @@ export function readOutputTool(dir: string) {
       if (basename(params.id) !== params.id || !existsSync(file)) {
         throw new Error(`${params.id} is not an output turri kept. Use the id a cut output named, as it named it.`);
       }
-      const lines = readFileSync(file, "utf8").split("\n");
+      const lines = maskSecrets(readFileSync(file, "utf8")).split("\n");
       const numbered = lines.map((line, index) => ({ line, number: index + 1 }));
       let text: string;
       if (params.pattern !== undefined) {

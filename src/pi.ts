@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { readProjectConfig, splitModelSpec } from "./config.ts";
+import { maskToolResults } from "./grow/masking.ts";
 import { projectRootOf, sessionsDir } from "./grow/paths.ts";
 import {
   currentStopSignal,
@@ -703,7 +704,8 @@ export async function createExecutor(opts: {
     cwd: opts.cwd,
     modelRuntime: await subAgentModelRuntime(),
     tools: opts.tools,
-    customTools: guardRepeats(opts.customTools, () => session, opts.budget),
+    // What an agent is shown never holds a credential the project passed: each value is its name (masking.ts).
+    customTools: guardRepeats(maskToolResults(opts.customTools), () => session, opts.budget),
     sessionManager,
     resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, [opts.system, opts.task].filter((part) => part !== undefined && part !== "").join("\n\n") || undefined),
   });

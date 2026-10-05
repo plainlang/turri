@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { currentStopSignal } from "./activity.ts";
+import { maskingStream } from "./masking.ts";
 
 /**
  * The one way a command runs on this machine - an agent's, a testing script, a service.
@@ -235,11 +236,13 @@ export async function runCommand(command: string, options: RunOptions): Promise<
   const group = child.pid;
   if (group !== undefined) track(group);
 
+  // The credentials passed to agents are masked as the output streams, before anything sees it.
   let output = "";
-  const take = (data: Buffer) => {
+  const masked = maskingStream((data) => {
     output += data.toString("utf8");
     options.onData?.(data);
-  };
+  });
+  const take = (data: Buffer) => masked.write(data);
   child.stdout.on("data", take);
   child.stderr.on("data", take);
 
@@ -278,6 +281,7 @@ export async function runCommand(command: string, options: RunOptions): Promise<
     });
   });
 
+  masked.end();
   clearTimeout(timer);
   for (const signal of signals) signal.removeEventListener("abort", onAbort);
   if (group !== undefined && !groupAlive(group)) forget(group);

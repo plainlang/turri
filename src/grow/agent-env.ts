@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { configModuleOfBuild, readProjectConfig } from "../config.ts";
+import { registerSecrets } from "./masking.ts";
 import { projectRootOf, vmScratchDir } from "./paths.ts";
 
 /**
@@ -112,6 +113,8 @@ export function agentEnvironment(moduleDir: string, options: { hostEnv?: NodeJS.
   }
 
   const { values, missing } = passedCredentials(module, hostEnv);
+  // From now on their values are masked in everything an agent is shown and turri writes.
+  registerSecrets(values);
   Object.assign(env, values);
   Object.assign(env, turrisOwn(module, name));
   return { env, passed: Object.keys(values).sort(), values, missing };
