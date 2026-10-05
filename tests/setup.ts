@@ -9,10 +9,13 @@ process.env.TURRI_VM_WARM ??= "0";
 // The tests about running them in the VM ask for it: TURRI_TESTING_SCRIPTS_IN=vm, or run-testing-scripts-in: vm.
 process.env.TURRI_TESTING_SCRIPTS_IN ??= "host";
 import { afterAll } from "vitest";
+import { killAllGroups } from "../src/grow/shell.ts";
 import { closeAllVms } from "../src/grow/vm.ts";
 
 // Every test file's VMs are closed when it finishes: a worker is ended by a signal, and the
 // VMs it started would otherwise outlive it.
+// And whatever a test's commands left running on this machine is killed with it.
 afterAll(async () => {
   await closeAllVms();
+  killAllGroups();
 });
