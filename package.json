@@ -2,6 +2,7 @@
   "name": "turri",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "description": "An agent that builds code from ***plain specifications, with harness-enforced review and conformance gates.",
   "engines": {
@@ -18,6 +19,7 @@
     "test": "vitest run",
     "vm:image": "node bin/turri.mjs vm-image",
     "test:watch": "vitest",
+    "mutation": "node scripts/mutation.mjs",
     "bind": "tsx src/bind-cli.ts",
     "regrow": "tsx src/regrow-cli.ts",
     "validate": "tsx src/validate-cli.ts",
@@ -39,6 +41,8 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.0.0",
     "tsx": "^4.19.0",
@@ -50,11 +54,11 @@
     "bin",
     "src",
     ".pi",
-    "skills",
-    "forge",
+    "genome",
     "stdlib",
     "vm",
     "docs",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ]
 }

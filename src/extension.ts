@@ -24,7 +24,7 @@ import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regrowTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
 import { createWebTools } from "./grow/web.ts";
-import { describeGates, interruptedRun, runSkill } from "./forge.ts";
+import { describeGates, interruptedRun, runSkill } from "./genome.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
 import { resolveTemplateDirs } from "./grow/paths.ts";
@@ -84,7 +84,7 @@ const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  * it is reported rather than silently dropped.
  */
 function discoverSkills(): { skills: Skill[]; pending: string[] } {
-  const root = join(PACKAGE_ROOT, "skills");
+  const root = join(PACKAGE_ROOT, "genome", "skills");
   let entries: string[];
   try {
     entries = readdirSync(root, { withFileTypes: true })
@@ -229,7 +229,7 @@ export default function (pi: ExtensionAPI) {
   // identical each time, so it sits inside the cached prefix rather than invalidating it.
   // With them, the instruction to do turri's work with its tools rather than its command
   // line - enforced below, not only asked for.
-  const rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"), readProjectConfig(cwd).rulesOff ?? []);
+  const rules = loadRules(join(PACKAGE_ROOT, "genome", "rules"), readProjectConfig(cwd).rulesOff ?? []);
   const rulesBlock = chatRulesBlock(rules);
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
@@ -432,7 +432,7 @@ export default function (pi: ExtensionAPI) {
 
       const report: Reporter = {
         step: (name, attempt) => {
-          if (ctx.hasUI) ctx.ui.setStatus("forge-skill", skillStatus(skill, name, attempt));
+          if (ctx.hasUI) ctx.ui.setStatus("turri-skill", skillStatus(skill, name, attempt));
           live.step = skillStatus(skill, name, attempt).slice(skill.name.length + 2);
           live.stepStarted = Date.now();
           push(`step ${name} (attempt ${attempt})`);
@@ -539,7 +539,7 @@ export default function (pi: ExtensionAPI) {
           ].join("\n")
         : [`${skill.name}: stopped at a gate. No approved artifact.`, changed, "", "<trace>", ...trace, "</trace>"].join("\n");
 
-      if (ctx.hasUI) ctx.ui.setStatus("forge-skill", undefined);
+      if (ctx.hasUI) ctx.ui.setStatus("turri-skill", undefined);
       return { content: [{ type: "text" as const, text }], details: { ok: result.ok, artifacts: result.artifacts } };
     },
   });
@@ -1893,7 +1893,7 @@ const BANNER_ENTRY = "turri_banner";
  * The ***plain rules as the conversation has them in its system prompt, every turn - the standard library's
  * inventory among them, in its rule, so the conversation knows what a spec can import from the start.
  */
-export function chatRulesBlock(rules = loadRules(join(PACKAGE_ROOT, "forge", "rules"))): string {
+export function chatRulesBlock(rules = loadRules(join(PACKAGE_ROOT, "genome", "rules"))): string {
   return renderRulesBlock(rules);
 }
 

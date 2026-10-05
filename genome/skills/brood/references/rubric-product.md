@@ -17,7 +17,7 @@ Verify each box by its tag:
 - **[both]** — the record claims it and the disk must corroborate. Flag any mismatch, for
   example a change the record says was written that is not on disk.
 
-A box is met only when its own source confirms it. Read `forge/rules/` as needed so boxes
+A box is met only when its own source confirms it. Read `genome/rules/` as needed so boxes
 about ≤200 LOC, define-before-use and language-agnostic wording can actually be assessed.
 
 ## Every loop iteration

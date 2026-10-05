@@ -9,7 +9,7 @@ import { readRubric, type Skill, type StepSpec } from "./skill.ts";
 
 export type Decision = "advance" | "retry" | "escalate" | "abort";
 
-export const ForgeState = Annotation.Root({
+export const GenomeState = Annotation.Root({
   artifacts: Annotation<Record<string, string>>({
     reducer: (a, b) => ({ ...a, ...b }),
     default: () => ({}),
@@ -23,7 +23,7 @@ export const ForgeState = Annotation.Root({
   decision: Annotation<Decision>({ reducer: (_a, b) => b, default: () => "advance" }),
 });
 
-export type ForgeStateType = typeof ForgeState.State;
+export type GenomeStateType = typeof GenomeState.State;
 
 export interface Reporter {
   step(name: string, attempt: number): void;
@@ -120,10 +120,10 @@ export function compileSkill(opts: {
   /** Start at this step instead of the first: a resumed run, picking up where it stopped. */
   startAt?: string;
   /** Called as each step starts, with the state it starts from - what a resumed run restores. */
-  onStepStart?: (step: string, state: ForgeStateType) => void;
+  onStepStart?: (step: string, state: GenomeStateType) => void;
 }) {
   const { skill, report } = opts;
-  const graph = new StateGraph(ForgeState) as any;
+  const graph = new StateGraph(GenomeState) as any;
   // The step being resumed is told it was interrupted - once. A retry after its gate is an
   // ordinary retry.
   let resuming = opts.startAt;
@@ -131,7 +131,7 @@ export function compileSkill(opts: {
   skill.steps.forEach((step, index) => {
     const nextNode = index + 1 < skill.steps.length ? stepNode(skill.steps[index + 1]!.name) : END;
 
-    graph.addNode(stepNode(step.name), async (state: ForgeStateType) => {
+    graph.addNode(stepNode(step.name), async (state: GenomeStateType) => {
       opts.onStepStart?.(step.name, state);
       const attempt = (state.attempts[step.name] ?? 0) + 1;
       report.step(step.name, attempt);
@@ -166,7 +166,7 @@ export function compileSkill(opts: {
     const review = step.gate.review;
     const rubric = readRubric(skill, review);
 
-    graph.addNode(gateNode(step.name), async (state: ForgeStateType) => {
+    graph.addNode(gateNode(step.name), async (state: GenomeStateType) => {
       const artifact = state.artifacts[step.name] ?? "";
 
       // A reviewer that has been reading along all phase gets the last word before the
@@ -230,7 +230,7 @@ export function compileSkill(opts: {
       return { decision, critique: decision === "advance" ? "" : outcome.critique };
     });
 
-    graph.addNode(escalateNode(step.name), async (state: ForgeStateType) => {
+    graph.addNode(escalateNode(step.name), async (state: GenomeStateType) => {
       const answer = interrupt({
         step: step.name,
         artifact: state.artifacts[step.name] ?? "",
@@ -245,7 +245,7 @@ export function compileSkill(opts: {
 
     graph.addEdge(stepNode(step.name), gateNode(step.name));
 
-    const route = (state: ForgeStateType) => {
+    const route = (state: GenomeStateType) => {
       if (state.decision === "advance") return nextNode;
       if (state.decision === "retry") return stepNode(step.name);
       if (state.decision === "escalate") return escalateNode(step.name);
@@ -260,7 +260,7 @@ export function compileSkill(opts: {
     ]);
     graph.addConditionalEdges(
       escalateNode(step.name),
-      (state: ForgeStateType) => (state.decision === "advance" ? nextNode : END),
+      (state: GenomeStateType) => (state.decision === "advance" ? nextNode : END),
       [nextNode, END],
     );
   });

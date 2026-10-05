@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, MemorySaver } from "@langchain/langgraph";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { interruptedRun } from "../../src/forge.ts";
+import { interruptedRun } from "../../src/genome.ts";
 import { compileSkill } from "../../src/graph.ts";
 import { createJobRegistry } from "../../src/grow/jobs.ts";
 import { createWorkLoop } from "../../src/grow/loop.ts";

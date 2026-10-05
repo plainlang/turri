@@ -184,7 +184,7 @@ export interface ProjectConfig {
    */
   systemPackages?: string[];
   /**
-   * The ***plain authoring rules (forge/rules/<name>.md) left out of the conversation's prompt and every spec-writing
+   * The ***plain authoring rules (genome/rules/<name>.md) left out of the conversation's prompt and every spec-writing
    * agent's, by name: a rule a project's own skills or AGENTS.md replace. The project's alone.
    */
   rulesOff?: string[];

@@ -94,12 +94,12 @@ describe("an empty skill", () => {
 
 describe("continuous review", () => {
   it("is off unless the gate asks for it", () => {
-    const skill = loadSkill("skills/check-plain-env");
+    const skill = loadSkill("genome/skills/check-plain-env");
     expect(skill.steps.every((s) => s.gate?.continuous === undefined)).toBe(true);
   });
 
   it("is parsed alongside the phase gate", () => {
-    const skill = loadSkill("skills/brood");
+    const skill = loadSkill("genome/skills/brood");
     const step = skill.steps.find((s) => s.name === "product")!;
     expect(step.gate?.continuous).toEqual({
       rubric: "./references/rubric-product-live.md",
@@ -114,7 +114,7 @@ describe("continuous review", () => {
 
 describe("brood's phases", () => {
   it("are intent, stack, testing and product - testing before the product phase, so its changes are conformance tested as they are built", () => {
-    const skill = loadSkill("skills/brood");
+    const skill = loadSkill("genome/skills/brood");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "stack", "testing", "product"]);
     expect(skill.steps.find((step) => step.name === "product")!.gate).toBeDefined();
     expect(skill.steps.find((step) => step.name === "testing")!.gate).toBeUndefined();
@@ -123,13 +123,13 @@ describe("brood's phases", () => {
 
 describe("spawn, brood's quick twin", () => {
   it("asks only about intent, then sets up and writes the product on its own - unpaced, and ungated", () => {
-    const skill = loadSkill("skills/spawn");
+    const skill = loadSkill("genome/skills/spawn");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "groundwork", "product"]);
     expect(skill.steps.every((step) => step.gate === undefined)).toBe(true);
     expect(skill.paced).toBe(false);
     expect(skill.allowedTools).toContain("write_spec_diff");
     // brood's interview stays paced: one answer, one change.
-    expect(loadSkill("skills/brood").paced).toBe(true);
+    expect(loadSkill("genome/skills/brood").paced).toBe(true);
   });
 });
 
@@ -138,7 +138,7 @@ describe("a skill's tools", () => {
     const { mkdtempSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    expect(loadSkill("skills/add-implementation-requirement").allowedTools).toEqual(["read", "write", "edit", "bash", "ls", "grep", "find"]);
+    expect(loadSkill("genome/skills/add-implementation-requirement").allowedTools).toEqual(["read", "write", "edit", "bash", "ls", "grep", "find"]);
     const dir = mkdtempSync(join(tmpdir(), "turri-skill-"));
     writeFileSync(join(dir, "SKILL.md"), "---\nname: none\ndescription: nothing\n---\n\nDo nothing.\n");
     expect(loadSkill(dir).allowedTools).toEqual([]);
@@ -146,9 +146,9 @@ describe("a skill's tools", () => {
 
   it("every skill here names its tools - the ones that only read and report can only read", async () => {
     const { readdirSync, readFileSync } = await import("node:fs");
-    for (const name of readdirSync("skills")) {
-      expect(readFileSync(`skills/${name}/SKILL.md`, "utf8"), name).toMatch(/^allowed-tools: \[/m);
-      const tools = loadSkill(`skills/${name}`).allowedTools;
+    for (const name of readdirSync("genome/skills")) {
+      expect(readFileSync(`genome/skills/${name}/SKILL.md`, "utf8"), name).toMatch(/^allowed-tools: \[/m);
+      const tools = loadSkill(`genome/skills/${name}`).allowedTools;
       expect(tools, name).toContain("read");
       if (name.startsWith("analyze-")) expect(tools, name).not.toContain("write");
       else if (name !== "check-plain-env") expect(tools, name).toEqual(expect.arrayContaining(["write", "edit"]));
@@ -158,7 +158,7 @@ describe("a skill's tools", () => {
 
 describe("mature", () => {
   it("grows a rough spec until it is fully grown, on its own - with the conversation's regrow, drift and halt, and its own tools to watch the pulses and read what they decided", () => {
-    const skill = loadSkill("skills/mature");
+    const skill = loadSkill("genome/skills/mature");
     expect(skill.steps.map((step) => step.name)).toEqual(["intake", "grow", "report"]);
     expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "regrow", "drift", "halt", "watch_jobs", "spec_findings"]));
     expect(skill.paced).toBe(false);
@@ -167,7 +167,7 @@ describe("mature", () => {
 
 describe("bud", () => {
   it("builds a feature as brood builds a product: product questions, one spec diff per answer, paced", () => {
-    const skill = loadSkill("skills/bud");
+    const skill = loadSkill("genome/skills/bud");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "scope", "product", "review"]);
     expect(skill.allowedTools).toContain("write_spec_diff");
     expect(skill.paced).toBe(true);

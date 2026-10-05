@@ -100,7 +100,7 @@ describe("the standard library", () => {
   });
 
   it("is in the spec-writing agents' rules - every stack with its conformance template, every template they import, and the folder to read them in", () => {
-    const rule = loadRules(join(cwd, "forge", "rules")).find((entry) => entry.name === "stdlib")!;
+    const rule = loadRules(join(cwd, "genome", "rules")).find((entry) => entry.name === "stdlib")!;
     for (const template of stacks) expect(rule.content).toContain(`| \`${template.name}\` | \`${conformanceOf(template.name)}\` | ${template.description} |`);
     for (const template of templates.filter((entry) => !isStack(entry) && !entry.name.includes("/conformance/"))) expect(rule.content).toContain(`| \`${template.name}\` | ${template.description} |`);
     expect(rule.content).toContain(`Every template is a file in ${join(cwd, "stdlib")}`);

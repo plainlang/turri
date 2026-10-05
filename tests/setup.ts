@@ -5,6 +5,9 @@ process.env.TURRI_PROVIDER_RETRY_DELAY ??= "0";
 process.env.TURRI_VM_CPUS ??= "2";
 // A job warms its agent's VM as it begins; the scripted agents of the tests run no command that needs one there.
 process.env.TURRI_VM_WARM ??= "0";
+// The testing scripts run on this machine, not in a VM booted for every temp project - which was most of the suite's time.
+// The tests about running them in the VM ask for it: TURRI_TESTING_SCRIPTS_IN=vm, or run-testing-scripts-in: vm.
+process.env.TURRI_TESTING_SCRIPTS_IN ??= "host";
 import { afterAll } from "vitest";
 import { closeAllVms } from "../src/grow/vm.ts";
 

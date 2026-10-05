@@ -19,7 +19,7 @@ metadata:
 # Spawn
 
 Load the `***plain` syntax rules before writing anything - they are in the system prompt under
-`<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need to follow
+`<plain-rules>`; read `genome/rules/<name>.md` for the full text of any rule you need to follow
 closely.
 
 ## Role
@@ -75,7 +75,7 @@ nothing built, and `write_spec_diff` not used.
    its frontmatter, and write the stack into `***implementation reqs***`: the language, the
    framework, storage, the architecture and layout - one requirement per fact, at the right scope,
    the shared ones on the template. Choose what fits the intent: a mainstream stack, with the
-   fewest moving parts. Follow `forge/rules/impl-reqs.md`. When the standard library has a template
+   fewest moving parts. Follow `genome/rules/impl-reqs.md`. When the standard library has a template
    for it - a backend, a frontend, a command-line tool or a library (the stdlib rule, in `<plain-rules>`) -
    import that template and write only what the module needs beyond it.
 2. **Unit tests.** A `:UnitTests:` requirement - the framework, and how they are run - unless the
@@ -90,7 +90,7 @@ nothing built, and `write_spec_diff` not used.
    Only when the user asked for conformance tests, turn them on instead: `conformance-tests: true`,
    the `***test reqs***` - `:ConformanceTests:` requirements for the framework, how the tests reach
    the software (a subprocess, HTTP against a server they start, the public entry point), setup and
-   outside services, and the command that runs the suite, following `forge/rules/test-reqs.md`, or
+   outside services, and the command that runs the suite, following `genome/rules/test-reqs.md`, or
    the stack's standard library conformance template imported when the stack is from it -
    and `test_scripts/run_conformance_tests_<language>.sh`, by following the
    `implement-conformance-testing-script` skill, unless turri already finds one.

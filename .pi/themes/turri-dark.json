@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
-  "name": "forge",
+  "name": "turri-dark",
   "vars": {
     "yellow": "#e0ff6e",
     "yellowMuted": "#b9cb69",

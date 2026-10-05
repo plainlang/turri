@@ -45,7 +45,7 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("a skill's agent at work", () => {
   it("is reported as it works - each tool call, and its words from the start of each reply", async () => {
-    const { runSkill } = await import("../src/forge.ts");
+    const { runSkill } = await import("../src/genome.ts");
     const activity: string[] = [];
     let saying = "";
     await runSkill({
@@ -71,7 +71,7 @@ describe("a skill's agent at work", () => {
 
 describe("a skill's question", () => {
   it("comes with what its agent said since its last question - the brief it asks about - and only that", async () => {
-    const { runSkill } = await import("../src/forge.ts");
+    const { runSkill } = await import("../src/genome.ts");
     const asked: AskUserRequest[] = [];
     await runSkill({
       skillDir: join(root, "skill"),

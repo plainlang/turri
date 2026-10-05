@@ -54,5 +54,5 @@ pages go into each part.
 | [The sandbox](sandbox.md) | what an agent can reach, the file-tool fence, the VM, installing what the image lacks |
 | [Skills and gates](skills-and-gates.md) | the gate syntax, what the harness enforces, what a step can do, the rules, trying the gates |
 | [The \*\*\*plain parser](parser.md) | the TypeScript port, `turri validate`, inheritance, the iterator, fidelity |
-| [Theming](theming.md) | the forge themes, contrast, backgrounds, the font |
+| [Theming](theming.md) | the turri themes, contrast, backgrounds, the font |
 | [Development](development.md) | tests, the source layout, known edges |

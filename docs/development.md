@@ -2,8 +2,23 @@
 
 ```bash
 npm run typecheck   # types
-npm test            # the whole suite; tests that run commands boot the sandbox VM
+npm test            # the whole suite, about two minutes; tests that run commands boot the sandbox VM
 ```
+
+The suite runs the projects' testing scripts on this machine (`TURRI_TESTING_SCRIPTS_IN=host`, set in
+`tests/setup.ts`): a VM booted for every temp project was most of its time. A test about running them in the VM
+asks for it with `scriptsInForThisTest("vm")` from `tests/test-scripts.ts`. The fixture scripts stage each run in a
+folder of their own, as test files running side by side would otherwise share one.
+
+## Mutation testing
+
+`npm run mutation` runs [Stryker](https://stryker-mutator.io) over the core of growing - the parts in
+`stryker.config.mjs` - one part at a time, each part's report in `reports/mutation/<part>/`. A part with a report is
+skipped, so a run that is stopped goes on from the part it was in; `npm run mutation -- <part>` runs one again, and
+`npm run mutation -- --summary` sums up the reports there are. It takes hours: each part runs the suite once to find
+which tests reach which mutant (`vitest.stryker.config.ts`, the suite without the files that boot VMs), then each
+mutant against those tests. `scripts/mutation.mjs` sets two things in Stryker's vitest runner the suite needs - forked
+workers, and a test-name filter that matches vitest 5's names - again after every `npm install`.
 
 Working on turri itself, `npm link` points the global `turri` at this clone, so edits
 take effect immediately. `npm run chat` starts pi with the extension loaded from `src/`.
@@ -19,7 +34,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/skill.ts` | parses `SKILL.md` into steps and gates |
 | `src/graph.ts` | compiles a skill into a LangGraph `StateGraph`: step -> gate -> route |
 | `src/judge.ts` | runs independent judges, applies the quorum, builds the critique |
-| `src/forge.ts` | `runSkill()` - the one entry point the CLI and the extension share |
+| `src/genome.ts` | `runSkill()` - the one entry point the CLI and the extension share |
 | `src/pi.ts` | pi session factories for executors, sub-agents and judges |
 | `src/spec-tools.ts` | `write_spec_diff` |
 | `src/loop-tools.ts` | `regrow`, `drift` and `halt` - one definition each, for the conversation and the skills alike |
@@ -37,7 +52,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/grow/job-panel.ts`, `src/grow/transcript-view.ts`, `src/grow/diff-view.ts` | the job panel, `/watch`, and a spec diff as they show it - highlighted and banded |
 | `src/grow/debug-log.ts` | each render agent's whole conversation, always streamed to `.turri/debug/` |
 | `vm/image.json` | what goes into the VM image |
-| `skills/`, `forge/rules/` | the skill library and the \*\*\*plain authoring rules |
+| `genome/` | what turri knows and can do: `genome/skills/`, the skill library, and `genome/rules/`, the \*\*\*plain authoring rules |
 
 ## Known edges
 

@@ -15,7 +15,7 @@ allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 # Bud
 
 Load the `***plain` syntax rules before writing anything - they are in the system prompt under
-`<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need to follow
+`<plain-rules>`; read `genome/rules/<name>.md` for the full text of any rule you need to follow
 closely.
 
 ## Role

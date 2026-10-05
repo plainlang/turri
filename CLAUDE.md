@@ -24,7 +24,9 @@ turri doctor                             # what the machine lacks (QEMU, VM imag
 
 Tests that boot the sandbox VM are wrapped in `describe.runIf(vmSupported())`. They need QEMU and
 the VM image (`turri setup` / `npm run vm:image`), take up to a few minutes each, and are
-skipped silently on a machine without them. `tests/setup.ts` closes every VM when a file finishes.
+skipped silently on a machine without them. `tests/setup.ts` closes every VM when a file finishes, and runs the
+projects' testing scripts on the host (`TURRI_TESTING_SCRIPTS_IN=host`) - a test about running them in the VM calls
+`scriptsInForThisTest("vm")`. The suite takes about two minutes.
 
 ## TypeScript runs unbuilt
 
@@ -72,11 +74,11 @@ and a `::` in them would be read as one. `src/stdlib.ts` appends the catalogue -
 it is, and the folder - to the `stdlib` rule when the rules load, so the rule never drifts from the
 files.
 
-**Gated skills** (spec authoring): `skills/*/SKILL.md` is parsed by `src/skill.ts` into steps (the
+**Gated skills** (spec authoring): `genome/skills/*/SKILL.md` is parsed by `src/skill.ts` into steps (the
 `###` headings under `## Steps`) and gates (`metadata.gates` in the frontmatter). `src/graph.ts`
 compiles those into a LangGraph `StateGraph` (step -> gate -> route), and `src/judge.ts` runs
-independent judge sessions with a quorum. `src/forge.ts` `runSkill()` is the single entry point that
-both the CLI and the `cultivate` tool use. `src/rules.ts` appends every file in `forge/rules/` (the
+independent judge sessions with a quorum. `src/genome.ts` `runSkill()` is the single entry point that
+both the CLI and the `cultivate` tool use. `src/rules.ts` appends every file in `genome/rules/` (the
 authoring rules, ~40k tokens, byte-identical so it stays cached) to spec-writing agents, never to
 coding agents. Skills are found relative to the package, not the cwd. A skill that fails to parse
 is reported as pending, not dropped.

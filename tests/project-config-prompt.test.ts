@@ -71,7 +71,7 @@ describe("what the chat's agent is told about the sandbox VM", () => {
 
   it("is backed by the managing-vms rule, loaded with the ***plain rules", async () => {
     const { loadRules } = await import("../src/rules.ts");
-    const rule = loadRules("forge/rules").find((item) => item.name === "managing-vms");
+    const rule = loadRules("genome/rules").find((item) => item.name === "managing-vms");
     expect(rule?.content).toContain("Against the implementation reqs");
     expect(rule?.content).toContain("turri vm-image --default");
   });

@@ -3,7 +3,7 @@ written a spec change and queued it for building, and you are checking what is o
 
 You have read-only access to the project. Nothing has been pasted in for you: open the
 `.plain` file named under review, follow its `import` and `requires` chains, and read
-`forge/rules/` as needed so boxes about ≤200 LOC, define-before-use and language-agnostic
+`genome/rules/` as needed so boxes about ≤200 LOC, define-before-use and language-agnostic
 wording can actually be assessed.
 
 **The module is unfinished, and that is not a violation.** Features not yet asked about,

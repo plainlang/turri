@@ -37,6 +37,16 @@ import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
 
 export type ScriptKind = "unit" | "conformance";
 
+/**
+ * Where the testing scripts run when the project's config does not say: `TURRI_TESTING_SCRIPTS_IN` (vm or host), else
+ * the VM. The test suite has them on the host, but for the tests about the VM: a VM booted for every temp project
+ * was most of its time.
+ */
+export function scriptsInByDefault(): "vm" | "host" | undefined {
+  const where = process.env.TURRI_TESTING_SCRIPTS_IN;
+  return where === "vm" || where === "host" ? where : undefined;
+}
+
 export interface TestScripts {
   /** `run_unittests_<lang>.sh <build>` */
   unit?: string;
@@ -129,7 +139,8 @@ export function findTestScripts(root: string, plainFile?: string, buildDir?: str
   const file = module !== undefined ? `${moduleConfigFile(module)} (over ${CONFIG_FILE})` : CONFIG_FILE;
   // Where a module's script is named: its own file, once the project has several stacks.
   const nameIn = module !== undefined ? moduleConfigFile(module) : plainFile !== undefined ? `${CONFIG_FILE} - or, for one module of several stacks, config.${basename(plainFile, ".plain")}.yaml` : CONFIG_FILE;
-  if (config.runTestingScriptsIn !== undefined) found.runTestingScriptsIn = config.runTestingScriptsIn;
+  const where = config.runTestingScriptsIn ?? scriptsInByDefault();
+  if (where !== undefined) found.runTestingScriptsIn = where;
   for (const kind of Object.keys(SCRIPT_KEYS) as ScriptKind[]) {
     const named = kind === "unit" ? config.unittestsScript : config.conformanceTestsScript;
     if (named !== undefined) {
@@ -245,7 +256,7 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
   });
 
   const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
-  const onHost = (scripts.runTestingScriptsIn ?? readProjectConfig(root).runTestingScriptsIn) === "host";
+  const onHost = (scripts.runTestingScriptsIn ?? readProjectConfig(root).runTestingScriptsIn ?? scriptsInByDefault()) === "host";
   return [
     "<testing scripts>",
     rendered.join("\n\n"),
@@ -363,7 +374,7 @@ function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const root = index > 0 ? parts.slice(0, index).join(sep) : dirname(resolve(buildDir));
   // The module's own config file decides, when it has one: plain_modules/<module>/code.
   const module = configModuleOfBuild(root, basename(dirname(resolve(buildDir))));
-  return { root, inPlace: readProjectConfig(root, module).runTestingScriptsIn === "host" };
+  return { root, inPlace: (readProjectConfig(root, module).runTestingScriptsIn ?? scriptsInByDefault()) === "host" };
 }
 
 /** The model providers' keys, kept out of what runs on this machine: the tests are agents' code. */

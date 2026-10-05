@@ -1,17 +1,17 @@
 # Theming
 
 Two brand themes ship in `.pi/themes/`, built from the brand tokens. `turri chat` starts in
-`forge`, the dark one; `--use-theme` picks another for that run:
+`turri-dark`, the dark one; `--use-theme` picks another for that run:
 
 ```bash
-turri chat                                  # forge
-turri chat --use-theme forge-light/forge    # follows terminal appearance
+turri chat                                       # turri-dark
+turri chat --use-theme turri-light/turri-dark    # follows terminal appearance
 turri chat --use-theme dark                 # pi's own
 ```
 
 The second form follows your terminal's light/dark appearance. The default is for
 `turri chat` only: pi's settings are left alone, so a plain `pi` keeps its theme. With the
-themes installed globally (`turri setup` offers to), `{"theme": "forge"}` in
+themes installed globally (`turri setup` offers to), `{"theme": "turri-dark"}` in
 `~/.pi/agent/settings.json` gives a plain `pi` the same one.
 
 Bad input fails quietly - an unknown `--use-theme` name and a malformed theme file both run without
@@ -31,7 +31,7 @@ white:
 | brand-green-dark | 1.56 | 12.31 |
 | brand-red | 3.38 | 5.67 |
 
-So `forge` (dark) carries yellow, green and green-light, and `forge-light` carries blue and
+So `turri-dark` carries yellow, green and green-light, and `turri-light` carries blue and
 green-dark. **Brand blue never appears as text in the dark theme** - at 1.97:1 on brand black it is
 illegible - so the dark theme's accent is brand yellow, and blue appears only in the light theme
 and in both themes' HTML-export backgrounds.
@@ -59,7 +59,7 @@ brand look, set it to brand black, `#0f0f0f`, in your terminal profile.
 ## Spec diffs
 
 A spec diff in the panels is not painted with the theme's colours for code: those are made for code,
-and the forge themes' backgrounds are all the surface colour, so a diff drawn with them would have no
+and the turri themes' backgrounds are all the surface colour, so a diff drawn with them would have no
 fills and hardly any highlighting. It has a palette of its own (`src/grow/plain-palette.ts`), one for
 a dark theme and one for a light, picked by the theme's appearance: a hue for each piece of \*\*\*plain -
 a section's header, a concept, a link, text in quotes or backticks, a front matter key, a module,

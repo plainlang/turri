@@ -3,7 +3,7 @@ import type { DiffPaint } from "./diff-view.ts";
 
 /**
  * The colours a spec diff is painted in: ***plain's own, and the diff's fills - turri's, not a theme's
- * slots. A theme's colours for code are made for code, and the forge themes paint every background their
+ * slots. A theme's colours for code are made for code, and the turri themes paint every background their
  * surface colour, so a diff drawn with them has no fills and hardly any highlighting. So each piece of
  * ***plain gets a hue of its own, legible on the theme's surface, and an added or removed line a fill
  * that shows - a highlighter's, with the text on top.
@@ -27,7 +27,7 @@ interface Palette {
   muted: string;
 }
 
-/** On a dark surface - the forge theme's #0f0f0f, pi's dark ones. Every colour at least 7:1 on it, and 4.5:1 on the fills. */
+/** On a dark surface - turri-dark's #0f0f0f, pi's dark ones. Every colour at least 7:1 on it, and 4.5:1 on the fills. */
 const DARK: Palette = {
   roles: {
     section: { colour: "#fcd34d", bold: true },
@@ -46,7 +46,7 @@ const DARK: Palette = {
   muted: "#808080",
 };
 
-/** On a light surface - forge-light's white, pi's light ones. Every colour at least 7:1 on it, and 5:1 on the fills. */
+/** On a light surface - turri-light's white, pi's light ones. Every colour at least 7:1 on it, and 5:1 on the fills. */
 const LIGHT: Palette = {
   roles: {
     section: { colour: "#0a1fd4", bold: true },

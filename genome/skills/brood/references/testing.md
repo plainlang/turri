@@ -17,7 +17,7 @@ and tokens on every build.
 ## Author target for this phase
 
 - `***test reqs***` - one `:ConformanceTests:` requirement per fact, on the template if one exists
-  (shared by every module), otherwise on the module. Follow `forge/rules/test-reqs.md`.
+  (shared by every module), otherwise on the module. Follow `genome/rules/test-reqs.md`.
 - `config.yaml` at the project root - the `conformance-tests:` decision. Change only that key, and
   create the file if there is none; everything else in it stays as it is.
 - `test_scripts/` - the conformance testing script.

@@ -6,7 +6,7 @@ import { describeStop } from "../../src/grow/stop-report.ts";
 import { keepingTestsUnchanged, type TestRun, verifyUnitSuite } from "../../src/grow/testing.ts";
 import { closeAllVms, runInVm, vmSupported } from "../../src/grow/vm.ts";
 import { setScriptTimeoutForTests } from "../../src/grow/test-scripts.ts";
-import { UNIT_SCRIPT, writeTestScripts } from "../test-scripts.ts";
+import { UNIT_SCRIPT, writeTestScripts, scriptsInForThisTest } from "../test-scripts.ts";
 
 let root: string;
 let code: string;
@@ -90,6 +90,7 @@ describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeo
   });
 
   it("stages every run somewhere new, so the VM never sees a copy an earlier run removed", async () => {
+    scriptsInForThisTest("vm");
     writeFileSync(join(code, "test_app.py"), passingTest);
     writeTestScripts(root, { unit: "#!/bin/bash\necho \"staged in $1\"\nls \"$1\"\n" });
     const places = new Set<string>();

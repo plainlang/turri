@@ -26,7 +26,7 @@ The skills that build from scratch:
 | `spawn` | its quick twin: asks only what you want to build and confirms a five-line brief, then chooses the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
 | `mature` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
 
-`skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
+`genome/skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
 [authoring \*\*\*plain](authoring-plain.md#the-skills). A skill run that is interrupted can be resumed
 where it stopped.
@@ -320,7 +320,7 @@ turri regrow <file.plain> 2            # grow functionality 2 again, changed or 
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regrow it
 turri bind <file.plain> 1              # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when
-turri cultivate skills/brood     # run a gated skill directly
+turri cultivate genome/skills/brood     # run a gated skill directly
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
 

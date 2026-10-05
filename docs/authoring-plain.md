@@ -131,7 +131,7 @@ its own instead: an import cannot be taken back in part.
 
 ## The rules
 
-`forge/rules/` holds the authoring rules. They are in the system prompt of every agent that
+`genome/rules/` holds the authoring rules. They are in the system prompt of every agent that
 writes specs - the conversation, the interview skills, the reviewers - so they are not something
 an agent has to decide to go and read.
 
@@ -204,7 +204,7 @@ What keeps the interview honest is the harness, not the interviewer:
 
 ## The skills
 
-Every skill in `skills/` can be run from a conversation; most are also used by the bigger ones.
+Every skill in `genome/skills/` can be run from a conversation; most are also used by the bigger ones.
 
 | to… | skills |
 | --- | --- |

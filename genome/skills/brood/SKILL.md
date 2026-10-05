@@ -31,7 +31,7 @@ metadata:
 # Brood
 
 Load the `***plain` syntax rules before writing anything — they are in the system prompt
-under `<plain-rules>`; read `forge/rules/<name>.md` for the full text of any rule you need
+under `<plain-rules>`; read `genome/rules/<name>.md` for the full text of any rule you need
 to quote or follow closely.
 
 ## Role

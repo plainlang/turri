@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderConformanceTests } from "../../src/grow/conformance.ts";
 import { runConformanceScript } from "../../src/grow/test-scripts.ts";
+import { scriptsInForThisTest } from "../test-scripts.ts";
 
 const SIMPLE = "tests/data/simple.plain";
 
@@ -26,7 +27,7 @@ let buildDir: string;
 let conformanceDir: string;
 
 beforeEach(() => {
-  project = mkdtempSync(join(tmpdir(), "forge-conformance-"));
+  project = mkdtempSync(join(tmpdir(), "turri-conformance-"));
   buildDir = join(project, "plain_modules", "app", "code");
   conformanceDir = join(project, "plain_modules", "app", "tests");
   mkdirSync(buildDir, { recursive: true });
@@ -63,6 +64,7 @@ describe("the harness's run of the conformance testing script", () => {
   });
 
   it("leaves the build and test directories untouched, and starts each run afresh", async () => {
+    scriptsInForThisTest("vm");
     writeFileSync(join(buildDir, "app.txt"), "hello");
     await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && echo first > state.txt\n'));
     expect(readdirSync(buildDir)).toEqual(["app.txt"]);
@@ -143,7 +145,7 @@ describe("the functionalities a spec change touches", () => {
   it("are those whose functional spec or acceptance tests have a line the diff adds or removes", async () => {
     const { touchedFunctionalities } = await import("../../src/grow/conformance.ts");
     const { plainFileParser } = await import("../../src/plain/parser.ts");
-    const dir = mkdtempSync(join(tmpdir(), "forge-touched-"));
+    const dir = mkdtempSync(join(tmpdir(), "turri-touched-"));
     writeFileSync(
       join(dir, "app.plain"),
       "***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n" +

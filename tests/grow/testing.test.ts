@@ -13,7 +13,7 @@ import {
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "forge-testing-"));
+  dir = mkdtempSync(join(tmpdir(), "turri-testing-"));
 });
 
 afterEach(() => {

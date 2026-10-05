@@ -6,6 +6,7 @@ import { renderConformanceTests } from "../../src/grow/conformance.ts";
 import { renderSpecDiff } from "../../src/grow/regrow.ts";
 import { findTestScripts, projectRootFor, requireTestScripts, withTestingScripts } from "../../src/grow/test-scripts.ts";
 import { vmSupported } from "../../src/grow/vm.ts";
+import { scriptsInForThisTest } from "../test-scripts.ts";
 
 let root: string;
 beforeEach(() => {
@@ -20,6 +21,7 @@ const put = (path: string, content = "#!/bin/bash\n") => {
 
 describe("finding the testing scripts", () => {
   it("looks in config.yaml first, then the project root, then test_scripts/", () => {
+    scriptsInForThisTest(undefined);
     put("test_scripts/run_unittests_python.sh");
     put("test_scripts/run_conformance_tests_python.sh");
     expect(findTestScripts(root)).toEqual({
@@ -163,6 +165,7 @@ describe("the testing scripts, run", () => {
 
 describe.runIf(vmSupported())("the testing scripts, run in the VM", () => {
   it("run by default in the module's VM, on a fresh copy of the code named for its module and the run, with the script copied beside it", async () => {
+    scriptsInForThisTest("vm");
     const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");

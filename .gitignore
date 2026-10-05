@@ -3,3 +3,5 @@ node_modules/
 .scratch/
 build/
 conformance/
+.stryker-tmp/
+reports/mutation/

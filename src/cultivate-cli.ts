@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { relative } from "node:path";
-import { describeGates, runSkill } from "./forge.ts";
+import { describeGates, runSkill } from "./genome.ts";
 import type { Decision, Reporter } from "./graph.ts";
 import { runAsk } from "./ask.ts";
 import { skillRunDir } from "./grow/paths.ts";

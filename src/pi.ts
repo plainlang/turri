@@ -98,7 +98,7 @@ async function subAgentModelRuntime(): Promise<ModelRuntime> {
   return runtime;
 }
 
-const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "forge", "rules");
+const RULES_DIR = join(dirname(dirname(fileURLToPath(import.meta.url))), "genome", "rules");
 
 /**
  * What a sub-agent session is made of: pi's resources without any extensions.

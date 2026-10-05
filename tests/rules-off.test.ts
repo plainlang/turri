@@ -17,8 +17,8 @@ describe("rules a project leaves out", () => {
   });
 
   it("are left out of the rules, by name with or without .md, and the rest stay", () => {
-    const all = loadRules(join(process.cwd(), "forge", "rules")).map((rule) => rule.name);
-    const kept = loadRules(join(process.cwd(), "forge", "rules"), ["integrations", "integration-standalone.md"]).map((rule) => rule.name);
+    const all = loadRules(join(process.cwd(), "genome", "rules")).map((rule) => rule.name);
+    const kept = loadRules(join(process.cwd(), "genome", "rules"), ["integrations", "integration-standalone.md"]).map((rule) => rule.name);
     expect(all).toContain("integrations");
     expect(kept).not.toContain("integrations");
     expect(kept).not.toContain("integration-standalone");

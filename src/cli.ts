@@ -26,7 +26,12 @@ import { dropNoise } from "./quiet.ts";
  * extension otherwise needs before the project is trusted.
  */
 /** The theme `turri chat` starts in. */
-const DEFAULT_THEME = "forge";
+const DEFAULT_THEME = "turri-dark";
+
+/** A --use-theme value with the themes' old names - forge, forge-light - as they are called now. */
+function renamedThemes(value: string): string {
+  return value.replace(/\bforge-light\b/g, "turri-light").replace(/\bforge\b(?!-)/g, "turri-dark");
+}
 
 function chat(args: string[]): never {
   if (!existsSync(join(PACKAGE_ROOT, "node_modules", "@earendil-works", "pi-coding-agent"))) {
@@ -45,6 +50,8 @@ function chat(args: string[]): never {
   // turri's own theme, unless this run names another. For this run only: pi's settings
   // are left as they are, so a plain `pi` keeps its theme.
   const useTheme = args.some((arg) => arg === "--use-theme" || arg.startsWith("--use-theme=")) ? [] : ["--use-theme", DEFAULT_THEME];
+  // The themes were called forge and forge-light: a --use-theme naming them gets the ones they are now.
+  args = args.map((arg, index) => (index > 0 && args[index - 1] === "--use-theme") || arg.startsWith("--use-theme=") ? renamedThemes(arg) : arg);
 
   // The model the person talks to, and the one every render runs on - see chat-models.ts.
   const { piArgs, codingModel } = chatModels(args, readProjectConfig(process.cwd()));
@@ -94,7 +101,7 @@ const USAGE = [
   "usage: turri <command> [args]",
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
-  `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded (theme forge; --use-theme picks another)`,
+  `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded (theme turri-dark; --use-theme picks another)`,
   `  ${"".padEnd(12)} --harness-model <m>  the model you chat with   --coding-model <m>  the model renders run on`,
   "",
   ...Object.entries(SETUP_COMMANDS).map(([name, blurb]) => `  ${name.padEnd(12)} ${blurb}`),

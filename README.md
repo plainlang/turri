@@ -239,3 +239,10 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `turri validate`, fidelity to the reference parser |
 | [Theming](docs/theming.md) | the two brand themes |
 | [Development](docs/development.md) | tests, layout, known edges |
+
+## License
+
+turri is proprietary software of Codeplain Inc., licensed - not sold - to the people Codeplain gives
+access to: clone it and use it as a user, for your own projects. The specs you write and the code it
+generates for you are yours, to use and sell as you like - but not to replicate turri with. turri itself
+may not be shared, sold, modified, distributed or leaked. See [LICENSE](LICENSE).

@@ -1,0 +1,131 @@
+turri - Proprietary Software License
+
+Copyright (c) 2026 Codeplain Inc. All rights reserved.
+
+This is a commercial, proprietary license. It is not an open-source license. By cloning,
+installing, copying, running or otherwise using the Software, you ("Licensee") agree to these
+terms. If you do not agree, do not clone, install or use the Software.
+
+1. Definitions
+
+   "Codeplain" means Codeplain Inc.
+
+   "Software" means turri - its source code and repository, any compiled or bundled forms, its
+   documentation, skills, authoring rules, prompts, standard library templates, themes and assets,
+   and any updates Codeplain provides - in whatever form Licensee received it.
+
+   "Output" means the specifications Licensee writes with the Software, and the code, tests and
+   other material the Software generates for Licensee.
+
+   "Access" means the access to the Software's private repository that Codeplain grants Licensee
+   personally, and any credentials or invitations that come with it.
+
+   "Feedback" means suggestions, bug reports, ideas or other comments about the Software that
+   Licensee gives Codeplain.
+
+2. License grant
+
+   Subject to these terms, Codeplain grants Licensee a limited, personal, non-exclusive,
+   non-transferable, non-sublicensable, revocable license, for the term of this license, to clone
+   the Software from the repository it was granted Access to, install it on devices Licensee owns
+   or controls, and use it as a user: to write specifications and to have the Software generate
+   software from them, for Licensee's own projects.
+
+3. Licensee's Output
+
+   As between Licensee and Codeplain, Licensee owns its Output, and Codeplain claims no rights in
+   it. Licensee may use, modify, distribute, license and sell its Output as it wishes, commercially
+   or not, except as Section 4.b says. Licensee is responsible for its Output and how it is used,
+   including reviewing it before relying on it.
+
+4. Restrictions
+
+   Except as expressly permitted in writing by Codeplain, Licensee shall not, and shall not allow
+   anyone else to:
+
+   a. sell, resell, rent, lease, lend, sublicense, distribute, publish or otherwise make the
+      Software - or any part, copy or modified version of it - available to anyone else;
+   b. use the Software to reproduce, replicate or re-create the Software, or to build a product or
+      service that is substantially similar to it or competes with it - such as a harness that
+      generates code from specifications. Output made that way is not covered by Section 3, and
+      Licensee shall not use, distribute or sell it;
+   c. modify, translate or create derivative works of the Software, other than configuration files
+      and Licensee's own specifications and project files;
+   d. share its Access, credentials or invitations with anyone, or make the Software available
+      beyond its own devices - including through a public or shared fork, mirror, copy or
+      repository;
+   e. offer the Software, or any of its functionality, to others as a hosted, managed or online
+      service;
+   f. disclose, publish or leak the Software or any part of it - including its source code,
+      prompts, skills and authoring rules - or Codeplain's confidential information;
+   g. reverse engineer, decompile or disassemble the Software, or attempt to derive any part of it
+      not provided in source form, except to the extent applicable law expressly permits this
+      despite this restriction;
+   h. use Codeplain's or turri's names, logos or trademarks, or state or imply that Codeplain
+      endorses, sponsors or is affiliated with Licensee, its Output or anything else;
+   i. publish benchmarks or comparisons of the Software without Codeplain's prior written consent;
+   j. remove, alter or obscure any copyright, proprietary or license notice in the Software;
+   k. use the Software in violation of any applicable law.
+
+   Licensee may keep only the copies of the Software reasonably necessary for the use Section 2
+   permits, and every copy remains subject to these terms.
+
+5. Confidentiality
+
+   The Software, and any non-public information about it that Codeplain shares, is Codeplain's
+   confidential information. Licensee shall keep it confidential, use it only as this license
+   permits, and protect it with at least reasonable care. This does not apply to Licensee's
+   Output. This obligation survives the end of this license.
+
+6. Ownership
+
+   The Software is licensed, not sold. Codeplain and its licensors retain all right, title and
+   interest in and to the Software, including all intellectual property rights in it. No rights
+   are granted except those expressly stated in this license.
+
+7. Feedback
+
+   Licensee is not required to give Feedback. If Licensee does, Codeplain may use it for any
+   purpose without restriction or obligation to Licensee.
+
+8. Third-party components
+
+   The Software includes or depends on third-party components that are licensed under their own
+   terms. Those terms govern the components, and nothing in this license limits Licensee's rights
+   under them.
+
+9. Term and termination
+
+   This license applies from Licensee's first use of the Software until it is terminated.
+   Codeplain may terminate it, and revoke Access, at any time, with or without cause, by notice to
+   Licensee. It ends automatically if Licensee breaches any of its terms. On termination, Licensee
+   shall stop using the Software and delete every copy of it in Licensee's possession or control.
+   Licensee keeps its Output, subject to Section 4.b. Sections 3 to 7, 10, 11 and 12 survive
+   termination.
+
+10. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+   PURPOSE, TITLE AND NON-INFRINGEMENT. THE SOFTWARE IS PRE-RELEASE SOFTWARE: IT MAY CONTAIN ERRORS,
+   AND IT RUNS AI AGENTS THAT WRITE AND EXECUTE CODE. LICENSEE USES IT AT ITS OWN RISK.
+
+11. Limitation of liability
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL CODEPLAIN OR ITS LICENSORS
+   BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE DAMAGES, OR FOR ANY
+   LOSS OF PROFITS, REVENUE, DATA OR GOODWILL, ARISING OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+   THIS LICENSE, HOWEVER CAUSED AND UNDER ANY THEORY OF LIABILITY, EVEN IF ADVISED OF THE
+   POSSIBILITY OF SUCH DAMAGES. CODEPLAIN'S TOTAL LIABILITY UNDER THIS LICENSE SHALL NOT EXCEED THE
+   AMOUNT LICENSEE PAID CODEPLAIN FOR THE SOFTWARE, IF ANY.
+
+12. General
+
+   This license is governed by the laws of the State of Delaware, United States, without regard to
+   its conflict-of-laws rules. Licensee may not assign or transfer this license or its Access
+   without Codeplain's prior written consent. If any provision is held unenforceable, the rest
+   remains in effect. Codeplain's failure to enforce a provision is not a waiver of it. This
+   license is the entire agreement between Licensee and Codeplain about the Software, unless a
+   separate written agreement signed by both says otherwise, in which case that agreement prevails.
+
+For licensing questions, or for permission beyond these terms, contact Codeplain Inc.

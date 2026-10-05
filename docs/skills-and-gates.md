@@ -128,7 +128,7 @@ alone.
 
 ## Rules
 
-`forge/rules/` holds the \*\*\*plain authoring rules. Every rule, in full, is appended to the system
+`genome/rules/` holds the \*\*\*plain authoring rules. Every rule, in full, is appended to the system
 prompt of the conversation and of the agents that write specs - never of the ones that write code.
 The block is byte-identical every time, so it sits inside the cached prefix - but it is ~40k
 tokens. The trade is deliberate: a rule the model has to decide to go and read is a rule it can
@@ -138,7 +138,7 @@ skip. `src/rules.ts` is where to change it.
 
 The gate machinery - the no-artifact rejection, the retry loop, escalation - is verified by live
 runs rather than automated tests. To poke at it, edit the frontmatter of
-`skills/brood/SKILL.md`:
+`genome/skills/brood/SKILL.md`:
 
 | change | expected |
 | --- | --- |

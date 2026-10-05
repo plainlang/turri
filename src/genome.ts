@@ -231,7 +231,7 @@ export async function runSkill(opts: {
     }).compile({
       checkpointer: new MemorySaver(),
     });
-    const config = { configurable: { thread_id: `forge-${Date.now()}` }, recursionLimit: 50 };
+    const config = { configurable: { thread_id: `genome-${Date.now()}` }, recursionLimit: 50 };
 
     let result = await app.invoke(
       resumed !== undefined ? { artifacts: resumed.artifacts, attempts: resumed.attempts } : {},
