@@ -201,6 +201,12 @@ export interface ProjectConfig {
    * session through a job is compacted between turns. The project's alone. Unset: 100k.
    */
   compactAt?: number;
+  /**
+   * What passes through to the agents' commands beside the scrubbed environment: every variable of the dotenv `files`
+   * (paths from the project root), and the `vars` named, from the environment turri was started in. A module's own are
+   * added to the project's.
+   */
+  agentEnv?: { files: string[]; vars: string[] };
 }
 
 /** The config keys, as written in the file. */
@@ -222,6 +228,7 @@ export const CONFIG_KEYS = {
   vmMemory: "vm-memory",
   vmImage: "vm-image",
   compactAt: "compact-at",
+  agentEnv: "agent-env",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function whereScriptsRun(value: unknown): "vm" | "host" | undefined {
@@ -253,9 +260,26 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
     if (key === "module" || key === "harnessModel" || key === "parallelJobs" || key === "systemPackages" || key === "rulesOff" || key === "vmMemory" || key === "vmImage" || key === "compactAt" || own[key] === undefined) continue;
     (merged as Record<string, unknown>)[key] = own[key];
   }
+  merged.agentEnv = joinAgentEnv(project.agentEnv, own.agentEnv);
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
   merged.judgeModel = inheritModel(own.judgeModel, project.judgeModel);
   return withoutUndefined(merged);
+}
+
+/** A module's `agent-env:` added to the project's. */
+function joinAgentEnv(project: ProjectConfig["agentEnv"], own: ProjectConfig["agentEnv"]): ProjectConfig["agentEnv"] {
+  if (project === undefined || own === undefined) return own ?? project;
+  return { files: [...new Set([...project.files, ...own.files])], vars: [...new Set([...project.vars, ...own.vars])] };
+}
+
+/** An `agent-env:` as the config gives it: dotenv files and variable names, or nothing when it names neither. */
+function agentEnvSetting(value: unknown): ProjectConfig["agentEnv"] {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const list = (items: unknown) =>
+    (Array.isArray(items) ? items : typeof items === "string" ? [items] : []).filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim());
+  const raw = value as { files?: unknown; vars?: unknown };
+  const setting = { files: list(raw.files), vars: list(raw.vars) };
+  return setting.files.length > 0 || setting.vars.length > 0 ? setting : undefined;
 }
 
 function withoutUndefined(config: ProjectConfig): ProjectConfig {
@@ -357,6 +381,7 @@ function readConfigFile(path: string): ProjectConfig {
     // `testing-scripts:`, its name before, is read the same.
     runTestingScriptsIn: whereScriptsRun(raw[CONFIG_KEYS.runTestingScriptsIn] ?? raw["testing-scripts"]),
     vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),
+    agentEnv: agentEnvSetting(raw[CONFIG_KEYS.agentEnv]),
     systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
       ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())
       : undefined,
