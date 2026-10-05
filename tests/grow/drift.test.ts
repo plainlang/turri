@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MarshalledPlainSource } from "../../src/plain/spec.ts";
-import { codeTree, conformanceTarget, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "../../src/grow/records.ts";
-import { casesOf, codeWork, conceptsUsed, conformanceWork, stillWanted } from "../../src/grow/drift.ts";
+import { codeTree, conformanceTarget, notBuilt, readRecord, RECORD_FILE, writeCodeRecord, writeTestsRecord } from "../../src/grow/records.ts";
+import { casesOf, codeWork, conceptsUsed, conformanceWork, stillWanted, whyNotWanted } from "../../src/grow/drift.ts";
 import { GROW_AGAIN } from "../../src/grow/records.ts";
 
 const spec = (markdown: string, tests: string[] = []) => ({ markdown, ...(tests.length > 0 ? { acceptance_tests: tests.map((test) => ({ markdown: test })) } : {}) });
@@ -52,10 +52,71 @@ describe("the code record", () => {
     expect(readRecord(join(dir, "code"))).toBeNull();
   });
 
+  it("reads a record of the layout before, taking its own functional specs up to the first whose unit tests did not pass", () => {
+    const entry = (frid: string, spec: string, unitTests: string, module = "shop") => ({ module, frid, spec, unitTests });
+    const stored = {
+      version: 2,
+      module: "shop",
+      definitions: ["- :Customer: is a person."],
+      "functional specs": [entry("2", "- A :Customer: signs in.", "passed"), entry("1", "- A :Customer: signs up.", "passed"), entry("3", "- A :Customer: pays.", "failed"), entry("4", "- A :Customer: leaves.", "passed"), entry("1", "- Accounts are kept.", "passed", "base")],
+    };
+    mkdirSync(join(dir, "code"), { recursive: true });
+    writeFileSync(join(dir, "code", RECORD_FILE), JSON.stringify(stored));
+    const tree = readRecord(join(dir, "code"))!;
+    expect(fs(tree).map((one) => one.markdown)).toEqual(["- A :Customer: signs up.", "- A :Customer: signs in."]);
+    expect(tree["required functional specs"]).toEqual([{ markdown: "- Accounts are kept.", module: "base", frid: "1" }]);
+    expect(tree.definitions).toEqual([item("- :Customer: is a person.")]);
+  });
+
+  it("reads the first layout of all, a snapshot a functionality, up to the first whose unit tests did not pass", () => {
+    const snapshot = (frid: string, specs: string[], unitTests: string) => ({ frid, unitTests, specifications: { "functional specs": specs, definitions: ["- :Customer: is a person."] } });
+    const stored = { module: "shop", functionalities: { b: snapshot("2", ["- A :Customer: signs up.", "- A :Customer: signs in."], "passed"), a: snapshot("1", ["- A :Customer: signs up."], "passed"), c: snapshot("3", ["- x", "- y", "- A :Customer: pays."], "") } };
+    mkdirSync(join(dir, "code"), { recursive: true });
+    writeFileSync(join(dir, "code", RECORD_FILE), JSON.stringify(stored));
+    const tree = readRecord(join(dir, "code"))!;
+    expect(fs(tree).map((one) => one.markdown)).toEqual(["- A :Customer: signs up.", "- A :Customer: signs in."]);
+    expect(tree.definitions).toEqual([item("- :Customer: is a person.")]);
+  });
+
+  it("reads a record that is no tree - not JSON, a list, nothing - as no record", () => {
+    for (const text of ["not json", "[1, 2]", "null"]) {
+      mkdirSync(join(dir, "code"), { recursive: true });
+      writeFileSync(join(dir, "code", RECORD_FILE), text);
+      expect(readRecord(join(dir, "code")), text).toBeNull();
+    }
+  });
+
   it("keeps the tests record in the tests folder as it is given", () => {
     const target = conformanceTarget(codeTree(shop()), null, shop());
     writeTestsRecord(join(dir, "tests"), target);
     expect(readRecord(join(dir, "tests"))).toEqual(target);
+  });
+});
+
+describe("what is not built yet, for the conformance tests", () => {
+  const built = codeTree(shop());
+
+  it("is nothing for functional specs the code record has as the spec has them", () => {
+    expect(notBuilt(built, shop(), ["1", "2", "3"])).toEqual([]);
+  });
+
+  it("is a functional spec the code record does not have, or has built from other text", () => {
+    const now = shop({ "functional specs": [...fs(shop()), spec("- A :Customer: cancels an :Order:.")] });
+    fs(now)[1]!.markdown = "- A :Customer: places an :Order: and pays for it.";
+    expect(notBuilt(built, now, ["1", "2", "3", "4"])).toEqual(["2", "4"]);
+    expect(notBuilt(null, shop(), ["1"])).toEqual(["1"]);
+  });
+
+  it("reads the functional specs of what conformance tests are written for by their number, not their place", () => {
+    const tested = { "functional specs": [{ markdown: "- The :Price: of an :Order: is shown.", frid: "3" }] } as MarshalledPlainSource;
+    expect(notBuilt(built, tested, ["3"])).toEqual([]);
+    expect(notBuilt(built, tested, ["1"])).toEqual(["1"]);
+  });
+
+  it("ignores space around a functional spec's text", () => {
+    const now = shop();
+    fs(now)[0]!.markdown = "  - A :Customer: signs up.  ";
+    expect(notBuilt(built, now, ["1"])).toEqual([]);
   });
 });
 
@@ -189,6 +250,61 @@ describe("a job's cases", () => {
     expect(cases.patch.map((entry) => entry.frid)).toEqual(["3"]);
   });
 
+  it("gives every functional spec it touches the module whose codebase it is", () => {
+    const built = codeTree(shop());
+    const now = shop({ "functional specs": [...fs(shop()), spec("- A :Customer: cancels an :Order:.")] });
+    expect(casesOf(built, codeWork(built, now), { module: "shop" }).add).toEqual([{ frid: "4", text: "A :Customer: cancels an :Order:.", module: "shop" }]);
+  });
+
+  it("numbers a functional spec by its own number when it has one", () => {
+    const now = { "functional specs": [{ markdown: "- Say hello.", frid: "7" }] } as MarshalledPlainSource;
+    expect(casesOf({}, codeWork(null, now)).add.map((entry) => entry.frid)).toEqual(["7"]);
+  });
+
+  it("grows again a functional spec of a module below marked to, by that module and its number", () => {
+    const required = (marked: boolean) =>
+      ({ "required functional specs": [{ module: "base", frid: "2", markdown: "- A :Customer: signs in.", ...(marked ? { [GROW_AGAIN]: true } : {}) }] }) as MarshalledPlainSource;
+    const cases = casesOf(required(true), codeWork(required(true), required(false)), { module: "shop" });
+    expect(cases.again).toEqual([{ frid: "2", text: "A :Customer: signs in.", module: "base" }]);
+  });
+
+  it("patches a functional spec once when it changed and a concept it uses did too, all of them in order", () => {
+    const built = codeTree(shop());
+    const now = shop({
+      definitions: [item("- :Price: is the net amount of an :Order:."), item("- :Order: is what a :Customer: buys."), item("- :Customer: is a person with a verified account.")],
+    });
+    fs(now)[2]!.markdown = "- The :Price: of an :Order: is shown, with tax.";
+    // 3 changed itself; 1, 2 and 3 use :Customer: - 3 through :Price: and :Order:.
+    expect(casesOf(built, codeWork(built, now)).patch.map((entry) => entry.frid)).toEqual(["1", "2", "3"]);
+  });
+
+  it("patches a functional spec that uses any one of the concepts redefined, not only one that uses them all", () => {
+    const built = codeTree(shop());
+    const now = shop({
+      definitions: [item("- :Price: is the gross amount of an :Order:."), item("- :Order: is what a :Customer: buys."), item("- :Customer: is a person with a verified account.")],
+    });
+    // 1 uses :Customer: alone, not :Price:.
+    expect(casesOf(built, codeWork(built, now)).patch.map((entry) => entry.frid)).toContain("1");
+  });
+
+  it("patches its own functional spec for a concept redefined, though one of a module below with that number is grown again", () => {
+    const tree = (marked: boolean, customer: string) =>
+      ({
+        definitions: [item(`- :Customer: is ${customer}.`)],
+        "functional specs": [item("- A :Customer: signs up."), item("- A :Customer: signs in.")],
+        "required functional specs": [{ module: "base", frid: "2", markdown: "- Accounts are kept.", ...(marked ? { [GROW_AGAIN]: true } : {}) }],
+      }) as MarshalledPlainSource;
+    const cases = casesOf(tree(true, "a person"), codeWork(tree(true, "a person"), tree(false, "a person with an account")), { module: "shop" });
+    expect(cases.again).toEqual([{ frid: "2", text: "Accounts are kept.", module: "base" }]);
+    expect(cases.patch.map((entry) => entry.frid)).toEqual(["1", "2"]);
+  });
+
+  it("is not mechanical when it only takes a functional spec out", () => {
+    const built = codeTree(shop());
+    const now = shop({ "functional specs": fs(shop()).slice(0, 2) });
+    expect(casesOf(built, codeWork(built, now)).mechanical).toBe(false);
+  });
+
   it("follows concepts through their definitions, and stops at a cycle", () => {
     const definitions = [item("- :A: is part of a :B:."), item("- :B: holds an :A:."), item("- :C: is on its own.")];
     expect([...conceptsUsed("- Every :A: is shown.", definitions)].sort()).toEqual([":A:", ":B:"]);
@@ -201,6 +317,38 @@ describe("the stop rule", () => {
     const running = codeWork(built, shop());
     const now = shop({ "functional specs": [...fs(shop()), spec("- A :Customer: cancels an :Order:.")] });
     expect(stillWanted(running, codeWork(built, now))).toBe(true);
+  });
+
+  /** A change, as the stop rule compares them. */
+  const made = (section: string, kind: "add" | "remove" | "change", before?: string, after?: string, position = 1) =>
+    ({ id: `${section}-${position}`, section, kind, position, ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) }) as never;
+  const line = (markdown: string, extra: object = {}) => JSON.stringify({ markdown, ...extra });
+
+  it("wants a change only once: a job that makes it twice, where the spec makes it once, is stopped", () => {
+    const add = made("functional specs", "add", undefined, line("- Say hello."));
+    expect(stillWanted([add, add], [add])).toBe(false);
+    expect(stillWanted([add], [add, add])).toBe(true);
+  });
+
+  it("tells changes apart by their section, their kind and their text before and after alike", () => {
+    const mine = made("definitions", "change", line("- :A: is a letter."), line("- :A: is a capital letter."));
+    expect(stillWanted([mine], [mine])).toBe(true);
+    expect(stillWanted([mine], [made("implementation reqs", "change", line("- :A: is a letter."), line("- :A: is a capital letter."))])).toBe(false);
+    expect(stillWanted([mine], [made("definitions", "add", line("- :A: is a letter."), line("- :A: is a capital letter."))])).toBe(false);
+    expect(stillWanted([mine], [made("definitions", "change", line("- :A: is a vowel."), line("- :A: is a capital letter."))])).toBe(false);
+    expect(stillWanted([mine], [made("definitions", "change", line("- :A: is a letter."), line("- :A: is a small letter."))])).toBe(false);
+  });
+
+  it("says why it is stopped: the items that read otherwise now, by section and place, or the files that hold something else", () => {
+    const mine = made("functional specs", "add", undefined, line("- Say hello."), 3);
+    const other = made("functional specs", "add", undefined, line("- Say hello loudly."), 3);
+    expect(whyNotWanted([mine], [other])).toBe("functional specs 3 reads otherwise now");
+    const two = [mine, made("definitions", "change", line("- :A: is a letter."), line("- :A: is a vowel."), 1)];
+    expect(whyNotWanted(two, [other])).toBe("functional specs 3, definitions 1 read otherwise now");
+    const linked = (digest: string) => line("- :Api: is the API.", { linked_resources: [{ target: "api.yaml", digest }] });
+    const resource = made("definitions", "change", line("- :Api: is the API."), linked("aaa"), 2);
+    expect(whyNotWanted([resource], [made("definitions", "change", line("- :Api: is the API."), linked("bbb"), 2)])).toBe("api.yaml holds something else now");
+    expect(whyNotWanted([mine], [mine])).toBe("the spec it was building from changed");
   });
 
   it("stops a running job once the spec no longer wants something it makes", () => {

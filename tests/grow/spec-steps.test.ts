@@ -346,3 +346,37 @@ describe("a spec diff of a spec in a folder of the project", () => {
     expect(diff).toContain("+- Two.");
   });
 });
+
+describe("a linked resource that changed", () => {
+  const linking = (markdown: string, digest: string | undefined, extra: object = {}) =>
+    JSON.stringify({ markdown, linked_resources: [{ target: "api.yaml", ...(digest !== undefined ? { digest } : {}) }], ...extra });
+
+  it("is one the item linked before and whose content is different now - with both its hashes", async () => {
+    const { resourcesChanged } = await import("../../src/grow/spec-steps.ts");
+    expect(resourcesChanged(linking("- :Api: is the API.", "aaa"), linking("- :Api: is the API.", "bbb"))).toEqual([{ target: "api.yaml", was: "aaa", now: "bbb" }]);
+    expect(resourcesChanged(linking("- :Api: is the API.", undefined), linking("- :Api: is the API.", "bbb"))).toEqual([{ target: "api.yaml", now: "bbb" }]);
+  });
+
+  it("is never one whose content is the same, nor one the item did not link before", async () => {
+    const { resourcesChanged } = await import("../../src/grow/spec-steps.ts");
+    expect(resourcesChanged(linking("- :Api: is the API.", "aaa"), linking("- :Api: is the API, v2.", "aaa"))).toEqual([]);
+    expect(resourcesChanged(JSON.stringify({ markdown: "- :Api: is the API." }), linking("- :Api: is the API.", "aaa"))).toEqual([]);
+    expect(resourcesChanged(undefined, "not json")).toEqual([]);
+  });
+
+  it("is shown once however many items link it, with every one of them, and not for an item added", async () => {
+    const { resourceDiff } = await import("../../src/grow/spec-steps.ts");
+    const diff = resourceDiff(
+      [
+        { id: "1", section: "definitions", kind: "change", before: linking("- :Api: is the API.", "aaa"), after: linking("- :Api: is the API.", "bbb"), position: 1 },
+        { id: "2", section: "functional specs", kind: "change", before: linking("- Call the API.", "aaa", { module: "base" }), after: linking("- Call the API.", "bbb", { module: "base" }), position: 2 },
+        { id: "3", section: "functional specs", kind: "add", after: linking("- Call it again.", "ccc"), position: 3 },
+      ],
+      "app.plain",
+    );
+    expect(diff.match(/^diff --git/gm)).toHaveLength(1);
+    expect(diff).toContain("-api.yaml, linked by :Api: in app.plain and functional spec 2 in base.plain: its content, sha256 aaa");
+    expect(diff).toContain("+api.yaml, linked by :Api: in app.plain and functional spec 2 in base.plain: its content changed, sha256 bbb");
+    expect(diff).not.toContain("ccc");
+  });
+});

@@ -216,6 +216,22 @@ describe("cutting the queue's work into jobs", () => {
     expect(cut).toEqual([2, 2, 1]);
   });
 
+  /** A functional spec of `lines` lines, using `concept`. */
+  const sized = (lines: number, concept: string) => [`- A :User: does ${concept}.`, ...Array.from({ length: lines - 1 }, (_, line) => `  - detail ${line}`)].join("\n");
+
+  it("counts the definitions a conformance job's functional specs bring against the guardrail", async () => {
+    // Two functional specs of 59 lines: 118 alone - but each brings a definition of two lines, and 122 is past it.
+    const definitions = ["- :A: is a letter.\n  - It is the first.", "- :B: is a letter.\n  - It is the second.", "- :User: is a person."];
+    const from = { ...input({}, tree({ definitions, specs: [sized(59, ":A:"), sized(59, ":B:")] })), track: "conformance" as const };
+    expect(await planChunks(from, counted().given)).toHaveLength(2);
+  });
+
+  it("keeps a conformance job of exactly as many lines as the guardrail allows in one", async () => {
+    // 59 + 59 lines of functional specs and two one-line definitions: 120.
+    const from = { ...input({}, tree({ definitions: ["- :A: is a letter.", "- :User: is a person."], specs: [sized(59, ":A:"), sized(59, ":A:")] })), track: "conformance" as const };
+    expect(await planChunks(from, counted().given)).toHaveLength(1);
+  });
+
   it("leaves conformance work that touches no functional spec as it is - the test reqs changed, say", async () => {
     const base = tree({ tests: ["- :ConformanceTests: use pytest."], specs: ["- A :User: signs in."] });
     const from = { ...input(base, tree({ tests: ["- :ConformanceTests: use pytest, one file each."], specs: ["- A :User: signs in."] })), track: "conformance" as const };
@@ -232,6 +248,27 @@ describe("the checks a plan is held to", () => {
     expect(groupProblems(specs, { groups: [{ specs: [1, 2, 3, 4], title: "all" }] }).join("\n")).toContain("at most 3");
     expect(groupProblems(specs, { groups: [{ specs: [2, 1], title: "a" }, { specs: [3, 4], title: "b" }] }).join("\n")).toContain("in the order");
     expect(groupProblems(specs, { groups: [{ specs: [1, 2], title: "a" }] }).join("\n")).toContain("every new functional spec once");
+    expect(groupProblems(specs, { groups: [] }).join("\n")).toContain("They hold none.");
+  });
+
+  it("take three functional specs in a job, and want every group to have one and a title", () => {
+    expect(groupProblems(specs, { groups: [{ specs: [1, 2, 3], title: "a" }, { specs: [4], title: "b" }] })).toEqual([]);
+    expect(groupProblems(specs, { groups: [{ specs: [1, 2, 3, 4], title: "a" }, { specs: [], title: "empty" }] }).join("\n")).toContain('"empty" has no functional spec.');
+    expect(groupProblems(specs, { groups: [{ specs: [1, 2], title: " " }, { specs: [3, 4], title: "b" }] }).join("\n")).toContain("Every group needs a title.");
+  });
+
+  it("never put functional specs of two modules in one job, numbered one after the other as they are", () => {
+    const across = [
+      { number: 1, text: "- base 1", id: "1", module: "base" },
+      { number: 2, text: "- app 2", id: "2", module: "app" },
+    ];
+    expect(groupProblems(across, { groups: [{ specs: [1, 2], title: "a" }] }).join("\n")).toContain("only functional specs next to each other in the same module");
+    // Next to each other in the spec, but not by number in their module.
+    const gap = [
+      { number: 1, text: "- app 1", id: "1", module: "app" },
+      { number: 2, text: "- app 3", id: "3", module: "app" },
+    ];
+    expect(groupProblems(gap, { groups: [{ specs: [1, 2], title: "a" }] })).toHaveLength(1);
   });
 
   it("place every req once, where there is such a job", () => {
@@ -239,6 +276,43 @@ describe("the checks a plan is held to", () => {
     expect(placeProblems(given, { implementationReqs: [{ req: 1, to: 1 }, { req: 2, to: "all" }], testReqs: [] })).toEqual([]);
     expect(placeProblems(given, { implementationReqs: [{ req: 1, to: 1 }], testReqs: [] }).join("\n")).toContain("implementation req 2 is not placed");
     expect(placeProblems(given, { implementationReqs: [{ req: 1, to: 2 }, { req: 2, to: "built" }], testReqs: [] })).toHaveLength(2);
+  });
+
+  it("refuse a req there is not, one placed twice, and a place that is no job", () => {
+    const given = { groups: [{ number: 1, title: "a", specs: [], definitions: [] }, { number: 2, title: "b", specs: [], definitions: [] }], built: true, implementationReqs: [{ number: 1, text: "x" }], testReqs: [{ number: 1, text: "t" }] };
+    const placed = (implementationReqs: PlaceAnswer["implementationReqs"]) => placeProblems(given, { implementationReqs, testReqs: [{ req: 1, to: 2 }] });
+    expect(placed([{ req: 1, to: "built" }])).toEqual([]);
+    expect(placed([{ req: 1, to: 1 }, { req: 3, to: 1 }]).join("\n")).toContain("There is no implementation req 3.");
+    expect(placed([{ req: 1, to: 1 }, { req: 1, to: 2 }]).join("\n")).toContain("implementation req 1 is placed 2 times: once.");
+    for (const to of [0, 3, 1.5]) expect(placed([{ req: 1, to }]).join("\n"), String(to)).toContain(`implementation req 1 goes to ${to}, which is no job`);
+  });
+});
+
+describe("the check on a plan", () => {
+  // Two concepts, the second used by the second functional spec only.
+  const from = input({}, tree({ definitions: ["- :User: is a person.", "- :Comment: is a text a :User: writes."], specs: ["- A :User: signs in.", "- A :User: writes a :Comment:."] }));
+  const ids = netChanges(from.base, from.current).map((change) => change.id);
+  const [user, comment, signIn, write] = ids;
+  const job = (title: string, changes: string[]) => ({ title, reason: "r", changes });
+
+  it("holds for every change in exactly one job, each leaving a spec that holds together", () => {
+    expect(ids).toHaveLength(4);
+    expect(checkDraft(from, [job("sign in", [user!, signIn!]), job("comments", [comment!, write!])])).toEqual([]);
+  });
+
+  it("refuses a job that makes no change, one that names no change there is, and a change in two jobs", () => {
+    expect(checkDraft(from, [job("all", ids), job("empty", [])]).join("\n")).toContain('"empty" makes no change');
+    expect(checkDraft(from, [job("all", [...ids, "nope"])]).join("\n")).toContain("names nope, which is not one of the changes");
+    expect(checkDraft(from, [job("all", ids), job("again", [write!])]).join("\n")).toContain(`${write} is in more than one job`);
+  });
+
+  it("refuses a plan that leaves a change out", () => {
+    expect(checkDraft(from, [job("most", [user!, comment!, signIn!])]).join("\n")).toContain(`No job makes ${write}`);
+  });
+
+  it("refuses a job that uses what only a later job defines", () => {
+    const problems = checkDraft(from, [job("sign in", [signIn!]), job("the rest", [user!, comment!, write!])]);
+    expect(problems.join("\n")).toContain('After "sign in" the spec does not hold together');
   });
 });
 
