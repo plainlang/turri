@@ -128,7 +128,9 @@ told mid-turn or at its next turn, its record moved, twice a job at most). `regr
 **Sandbox.** `confine.ts` rebuilds pi's file tools with a path check (argument and resolved path,
 symlinks resolved) that fences each agent to its own module's folders - `code/`, and `tests/` for the conformance roles. `vm.ts` runs every command (agent `bash`,
 test scripts) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
-and shut down when idle or when the project moves to another module. There is no host fallback,
+and shut down when idle or when the project moves to another module. `shell.ts` is the host runner taking its place
+(`runCommand`: a process group per command, `withPulse` killing what a pulse left running, a watcher and a start-up sweep
+for a turri killed outright) - built, not yet wired in. There is no host fallback,
 except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. turri turns off `AGENTS.md`/`CLAUDE.md`
 loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` in `src/pi.ts`).
 

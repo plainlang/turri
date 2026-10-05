@@ -352,25 +352,9 @@ class ExecutableFSProvider extends RealFSProvider {
   }
 }
 
-/**
- * How long a command may run before it is stopped - an agent's own, its tests, the harness's runs,
- * an install. Nothing an agent starts may hang a build: a server started in the foreground, a
- * watcher, a prompt waiting for input would otherwise hold the agent's turn, and the job, forever.
- * TURRI_COMMAND_TIMEOUT sets it, in seconds.
- */
-export const COMMAND_TIMEOUT_MS = Number(process.env.TURRI_COMMAND_TIMEOUT ?? 120) * 1000;
-
-/** The longest an agent may ask one of its own commands to run for. */
-export const MAX_COMMAND_TIMEOUT_MS = Math.max(COMMAND_TIMEOUT_MS, 30 * 60_000);
-
-/** What a command that ran out of time leaves in its output, for the agent to act on. */
-export function timedOutNote(timeoutMs: number): string {
-  return (
-    `\n[stopped after ${Math.round(timeoutMs / 1000)}s, the time limit. A command that never ends on its own - a ` +
-    "server, a watcher, a prompt waiting for input - has to be started in the background (`cmd > app.log 2>&1 &`) " +
-    "or given its input; a slow one can be given a longer timeout.]"
-  );
-}
+// The time limits are the host runner's (shell.ts): the same for a command wherever it runs.
+export { COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, timedOutNote } from "./shell.ts";
+import { COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, timedOutNote } from "./shell.ts";
 
 /**
  * One VM per module: it holds `plain_modules/<module>` and the project's VM scratch

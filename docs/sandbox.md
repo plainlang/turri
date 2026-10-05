@@ -173,3 +173,15 @@ Project dependencies go through the project's own package manager as usual.
 
 On the stock image there is too little room for that - see
 [Without the full VM image](installation.md#without-the-full-vm-image).
+
+## Commands on this machine
+
+The VM is being replaced by commands run on this machine, fenced. The one way such a command runs is
+`src/grow/shell.ts` (`runCommand`), built and not yet used by agents: `bash -c` from the agent's folder, in a process
+group of its own, with the same time limit and the same note as in the VM. The limit or a stopped job kills the whole
+group - what it put in the background too. A server a command leaves running when it ends is its pulse's: it runs on
+until the pulse ends, and is killed then; a pulse running beside it keeps its own. Everything still running is killed
+when turri exits, ended by a signal too. A turri killed outright cannot do that itself, so one small watcher beside it
+does, within two seconds, from the groups it recorded in the temporary folder (`turri-groups/`); and groups a turri left
+that nothing killed are swept when turri next starts. On Windows there are no process groups: a command's process
+tree is killed with `taskkill /T /F`, best effort.
