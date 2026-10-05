@@ -1,0 +1,250 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the Seatbelt profile, per role > is generated from the coding agent's fence 1`] = `
+"(version 1)
+(allow default)
+;; Reading: the machine's allow-list and the fence, nothing else.
+(deny file-read-data file-read-xattr)
+(allow file-read-data file-read-xattr
+  (literal "/")
+  (literal "/etc") (literal "/var") (literal "/tmp") (literal "/private/var/run/resolv.conf")
+  (subpath "/usr")
+  (subpath "/bin")
+  (subpath "/opt/jdk-21")
+  (subpath "/work/shop/plain_modules/app/code")
+  (subpath "/work/shop/plain_modules/.turri/home/app")
+  (subpath "/work/shop/plain_modules/.turri/tmp/app")
+  (subpath "/work/shop/plain_modules/.turri/cache")
+)
+;; Writing: its own folders, the module's home, TMPDIR and caches, the devices.
+(deny file-write*)
+(allow file-write*
+  (subpath "/work/shop/plain_modules/app/code")
+  (subpath "/work/shop/plain_modules/.turri/home/app")
+  (subpath "/work/shop/plain_modules/.turri/tmp/app")
+  (subpath "/work/shop/plain_modules/.turri/cache")
+  (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (literal "/dev/dtracehelper")
+  (regex #"^/dev/fd/")
+)
+;; The developer tools' own scratch files.
+(allow file-read-data file-write* (regex #"^/private/var/folders/xy/T/xcrun_db"))
+(allow file-read-data file-write* (subpath "/private/var/folders/xy/C/clang") (subpath "/private/var/folders/xy/C/com.apple.dt.xcrun"))
+;; The code record is the harness's. (A wildcard deny does not override an allow of one operation: each is named.)
+(deny file-read-data file-read-xattr file-write* (literal "/work/shop/plain_modules/app/code/.turri.json"))
+;; No Unix socket outside its folders: the Docker daemon, an SSH agent, the person's services.
+(deny network-outbound (remote unix-socket))
+(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")) (remote unix-socket (subpath "/work/shop/plain_modules/app/code")) (remote unix-socket (subpath "/work/shop/plain_modules/app/code")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/home/app")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/tmp/app")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/cache")))
+;; Signals and process information: only within this sandbox.
+(deny signal)
+(allow signal (target same-sandbox))
+(deny process-info*)
+(allow process-info* (target same-sandbox))
+(allow process-info-pidinfo process-info-setcontrol (target self))
+"
+`;
+
+exports[`the Seatbelt profile, per role > is generated from the conformance agent's fence 1`] = `
+"(version 1)
+(allow default)
+;; Reading: the machine's allow-list and the fence, nothing else.
+(deny file-read-data file-read-xattr)
+(allow file-read-data file-read-xattr
+  (literal "/")
+  (literal "/etc") (literal "/var") (literal "/tmp") (literal "/private/var/run/resolv.conf")
+  (subpath "/usr")
+  (subpath "/bin")
+  (subpath "/opt/jdk-21")
+  (subpath "/work/shop/plain_modules/app/code")
+  (subpath "/work/shop/plain_modules/app/tests")
+  (subpath "/work/shop/plain_modules/.turri/home/app")
+  (subpath "/work/shop/plain_modules/.turri/tmp/app")
+  (subpath "/work/shop/plain_modules/.turri/cache")
+)
+;; Writing: its own folders, the module's home, TMPDIR and caches, the devices.
+(deny file-write*)
+(allow file-write*
+  (subpath "/work/shop/plain_modules/app/tests")
+  (subpath "/work/shop/plain_modules/.turri/home/app")
+  (subpath "/work/shop/plain_modules/.turri/tmp/app")
+  (subpath "/work/shop/plain_modules/.turri/cache")
+  (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (literal "/dev/dtracehelper")
+  (regex #"^/dev/fd/")
+)
+;; The developer tools' own scratch files.
+(allow file-read-data file-write* (regex #"^/private/var/folders/xy/T/xcrun_db"))
+(allow file-read-data file-write* (subpath "/private/var/folders/xy/C/clang") (subpath "/private/var/folders/xy/C/com.apple.dt.xcrun"))
+;; The code record is the harness's. (A wildcard deny does not override an allow of one operation: each is named.)
+(deny file-read-data file-read-xattr file-write* (literal "/work/shop/plain_modules/app/code/.turri.json"))
+;; No Unix socket outside its folders: the Docker daemon, an SSH agent, the person's services.
+(deny network-outbound (remote unix-socket))
+(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")) (remote unix-socket (subpath "/work/shop/plain_modules/app/tests")) (remote unix-socket (subpath "/work/shop/plain_modules/app/tests")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/home/app")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/tmp/app")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/cache")))
+;; Signals and process information: only within this sandbox.
+(deny signal)
+(allow signal (target same-sandbox))
+(deny process-info*)
+(allow process-info* (target same-sandbox))
+(allow process-info-pidinfo process-info-setcontrol (target self))
+"
+`;
+
+exports[`the Seatbelt profile, per role > is generated from the explorer agent's fence 1`] = `
+"(version 1)
+(allow default)
+;; Reading: the machine's allow-list and the fence, nothing else.
+(deny file-read-data file-read-xattr)
+(allow file-read-data file-read-xattr
+  (literal "/")
+  (literal "/etc") (literal "/var") (literal "/tmp") (literal "/private/var/run/resolv.conf")
+  (subpath "/usr")
+  (subpath "/bin")
+  (subpath "/opt/jdk-21")
+  (subpath "/work/shop/plain_modules/app/code")
+  (subpath "/work/shop/plain_modules/.turri/home/app")
+  (subpath "/work/shop/plain_modules/.turri/tmp/app")
+  (subpath "/work/shop/plain_modules/.turri/cache")
+)
+;; Writing: its own folders, the module's home, TMPDIR and caches, the devices.
+(deny file-write*)
+(allow file-write*
+  (subpath "/work/shop/plain_modules/.turri/home/app")
+  (subpath "/work/shop/plain_modules/.turri/tmp/app")
+  (subpath "/work/shop/plain_modules/.turri/cache")
+  (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (literal "/dev/dtracehelper")
+  (regex #"^/dev/fd/")
+)
+;; The developer tools' own scratch files.
+(allow file-read-data file-write* (regex #"^/private/var/folders/xy/T/xcrun_db"))
+(allow file-read-data file-write* (subpath "/private/var/folders/xy/C/clang") (subpath "/private/var/folders/xy/C/com.apple.dt.xcrun"))
+;; The code record is the harness's. (A wildcard deny does not override an allow of one operation: each is named.)
+(deny file-read-data file-read-xattr file-write* (literal "/work/shop/plain_modules/app/code/.turri.json"))
+;; No Unix socket outside its folders: the Docker daemon, an SSH agent, the person's services.
+(deny network-outbound (remote unix-socket))
+(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")) (remote unix-socket (subpath "/work/shop/plain_modules/app/code")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/home/app")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/tmp/app")) (remote unix-socket (subpath "/work/shop/plain_modules/.turri/cache")))
+;; Signals and process information: only within this sandbox.
+(deny signal)
+(allow signal (target same-sandbox))
+(deny process-info*)
+(allow process-info* (target same-sandbox))
+(allow process-info-pidinfo process-info-setcontrol (target self))
+"
+`;
+
+exports[`the bubblewrap arguments, per role > are generated from the coding agent's fence 1`] = `
+[
+  "--die-with-parent",
+  "--unshare-pid",
+  "--unshare-ipc",
+  "--unshare-uts",
+  "--unshare-cgroup-try",
+  "--ro-bind-try",
+  "/usr",
+  "/usr",
+  "--ro-bind-try",
+  "/bin",
+  "/bin",
+  "--ro-bind-try",
+  "/opt/jdk-21",
+  "/opt/jdk-21",
+  "--proc",
+  "/proc",
+  "--dev",
+  "/dev",
+  "--tmpfs",
+  "/tmp",
+  "--bind",
+  "/work/shop/plain_modules/app/code",
+  "/work/shop/plain_modules/app/code",
+  "--bind",
+  "/work/shop/plain_modules/.turri/home/app",
+  "/work/shop/plain_modules/.turri/home/app",
+  "--bind",
+  "/work/shop/plain_modules/.turri/tmp/app",
+  "/work/shop/plain_modules/.turri/tmp/app",
+  "--bind",
+  "/work/shop/plain_modules/.turri/cache",
+  "/work/shop/plain_modules/.turri/cache",
+  "--chdir",
+  "/work/shop/plain_modules/app/code",
+]
+`;
+
+exports[`the bubblewrap arguments, per role > are generated from the conformance agent's fence 1`] = `
+[
+  "--die-with-parent",
+  "--unshare-pid",
+  "--unshare-ipc",
+  "--unshare-uts",
+  "--unshare-cgroup-try",
+  "--ro-bind-try",
+  "/usr",
+  "/usr",
+  "--ro-bind-try",
+  "/bin",
+  "/bin",
+  "--ro-bind-try",
+  "/opt/jdk-21",
+  "/opt/jdk-21",
+  "--proc",
+  "/proc",
+  "--dev",
+  "/dev",
+  "--tmpfs",
+  "/tmp",
+  "--ro-bind",
+  "/work/shop/plain_modules/app/code",
+  "/work/shop/plain_modules/app/code",
+  "--bind",
+  "/work/shop/plain_modules/app/tests",
+  "/work/shop/plain_modules/app/tests",
+  "--bind",
+  "/work/shop/plain_modules/.turri/home/app",
+  "/work/shop/plain_modules/.turri/home/app",
+  "--bind",
+  "/work/shop/plain_modules/.turri/tmp/app",
+  "/work/shop/plain_modules/.turri/tmp/app",
+  "--bind",
+  "/work/shop/plain_modules/.turri/cache",
+  "/work/shop/plain_modules/.turri/cache",
+  "--chdir",
+  "/work/shop/plain_modules/app/tests",
+]
+`;
+
+exports[`the bubblewrap arguments, per role > are generated from the explorer agent's fence 1`] = `
+[
+  "--die-with-parent",
+  "--unshare-pid",
+  "--unshare-ipc",
+  "--unshare-uts",
+  "--unshare-cgroup-try",
+  "--ro-bind-try",
+  "/usr",
+  "/usr",
+  "--ro-bind-try",
+  "/bin",
+  "/bin",
+  "--ro-bind-try",
+  "/opt/jdk-21",
+  "/opt/jdk-21",
+  "--proc",
+  "/proc",
+  "--dev",
+  "/dev",
+  "--tmpfs",
+  "/tmp",
+  "--ro-bind",
+  "/work/shop/plain_modules/app/code",
+  "/work/shop/plain_modules/app/code",
+  "--bind",
+  "/work/shop/plain_modules/.turri/home/app",
+  "/work/shop/plain_modules/.turri/home/app",
+  "--bind",
+  "/work/shop/plain_modules/.turri/tmp/app",
+  "/work/shop/plain_modules/.turri/tmp/app",
+  "--bind",
+  "/work/shop/plain_modules/.turri/cache",
+  "/work/shop/plain_modules/.turri/cache",
+  "--chdir",
+  "/work/shop/plain_modules/app/code",
+]
+`;

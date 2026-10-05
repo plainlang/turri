@@ -207,6 +207,11 @@ export interface ProjectConfig {
    * added to the project's.
    */
   agentEnv?: { files: string[]; vars: string[] };
+  /**
+   * Folders of this machine an agent's commands may read beside the system's and the toolchains turri finds itself: a
+   * toolchain installed somewhere unusual. A module's own are added to the project's.
+   */
+  toolchains?: string[];
 }
 
 /** The config keys, as written in the file. */
@@ -229,6 +234,7 @@ export const CONFIG_KEYS = {
   vmImage: "vm-image",
   compactAt: "compact-at",
   agentEnv: "agent-env",
+  toolchains: "toolchains",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function whereScriptsRun(value: unknown): "vm" | "host" | undefined {
@@ -261,6 +267,7 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
     (merged as Record<string, unknown>)[key] = own[key];
   }
   merged.agentEnv = joinAgentEnv(project.agentEnv, own.agentEnv);
+  merged.toolchains = project.toolchains !== undefined && own.toolchains !== undefined ? [...new Set([...project.toolchains, ...own.toolchains])] : (own.toolchains ?? project.toolchains);
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
   merged.judgeModel = inheritModel(own.judgeModel, project.judgeModel);
   return withoutUndefined(merged);
@@ -382,6 +389,9 @@ function readConfigFile(path: string): ProjectConfig {
     runTestingScriptsIn: whereScriptsRun(raw[CONFIG_KEYS.runTestingScriptsIn] ?? raw["testing-scripts"]),
     vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),
     agentEnv: agentEnvSetting(raw[CONFIG_KEYS.agentEnv]),
+    toolchains: Array.isArray(raw[CONFIG_KEYS.toolchains])
+      ? (raw[CONFIG_KEYS.toolchains] as unknown[]).filter((path): path is string => typeof path === "string" && path.trim() !== "").map((path) => path.trim())
+      : undefined,
     systemPackages: Array.isArray(raw[CONFIG_KEYS.systemPackages])
       ? (raw[CONFIG_KEYS.systemPackages] as unknown[]).filter((name): name is string => typeof name === "string" && name.trim() !== "").map((name) => name.trim())
       : undefined,
