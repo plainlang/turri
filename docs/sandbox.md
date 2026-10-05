@@ -3,8 +3,10 @@
 A rendering agent is building one module. It has no business reading the `.plain` specs it was
 not given, the rest of the project, or anything else on the machine - and pi's `cwd` is only
 where relative paths start: an absolute path resolves to itself and `bash` can `cd` anywhere. So
-turri fences its agents twice: their file tools check every path, and every command runs in
-a VM that holds nothing else.
+turri fences its agents: their file tools check every path, and every command they run on this
+machine passes a command check, runs in an environment of the module's own behind an OS sandbox
+where the OS has one, and is audited afterwards. The rules live in code that runs the same on every
+platform; the OS sandbox is an extra wall under them.
 
 ## What an agent can reach
 
@@ -30,19 +32,24 @@ own gated skills itself. The conversation you talk to still loads both, as pi do
 
 ## Every agent knows its walls
 
-Each agent's system prompt says where its sandbox is: which folders its file tools can read and
-write, what the VM its shell runs in holds (its module's folder - turri's own scratch area is in the VM too, but
-nothing there is the agent's, so it is not named), that nothing else exists for it - not the rest of the
-machine, not the specs, not the project's other folders - that everything it needs is in its prompt,
-and not to look outside or try to get around it. The words come from its fence itself, so they say
-exactly what is enforced. In a conformance run, the conformance agent is told it has read access to
-the code but not write access - it writes only tests - and the coding agent that fixes the code is
-told it has read access to the conformance tests but not write access. Each one's shell holds only its
-own folder.
+Each agent's system prompt says where its walls are, in words generated from its fence, so they say exactly what is
+enforced and are the same on every platform:
 
-Nothing it is shown points outside its walls. A test run or a command whose output was cut names the whole of it by
-an id, and the agent reads it with `read_output` - not by a path into `plain_modules/.turri` or to a temporary file on
-this machine (see [long output](growing.md#the-tests-must-actually-pass)).
+- its own folder or folders, by absolute path, and what its file tools read and write there - a role that only reads
+  is told it writes nothing, "not with your file tools, not with your shell"; the conformance agent that it reads the
+  code under test but writes tests, not code; the code fixer that it reads the conformance tests but fixes the code;
+- that its shell runs on this machine, in its folder, with this machine's toolchains, a home folder and a temporary
+  folder of its own (`$HOME`, `$TMPDIR`), the package caches and an open network, and that nothing else exists for
+  it - not the specs, not the project's other folders or modules, not your home;
+- what happens on a reach outside, matter-of-fact: a command that names a path outside is refused before it runs,
+  and anything a command changes outside is put back, and it is told;
+- that the project's dependencies are its own, through the build manifest, and installing anything else is not: what
+  the machine lacks it says plainly, naming what is missing, and goes no further with what depends on it;
+- that it may stop only what it started, and that a port something else holds means another port.
+
+No other path is named - nothing into `plain_modules/.turri`. A test run or a command whose output was cut names the
+whole of it by an id, and the agent reads it with `read_output` - not by a path into `plain_modules/.turri` or to a
+temporary file on this machine (see [long output](growing.md#the-tests-must-actually-pass)).
 
 ## File tools
 
@@ -53,141 +60,47 @@ differ. Symlinks are resolved before comparing, so a link cannot walk out, and a
 `..` is refused outright.
 
 Credentials are the person's: no agent writes a `.env` or a variant of one (`.env.local`, `.env.test`) - a
-template, `.env.example`, is fine. The file tools refuse it, and what an agent's `bash` does to one in what
-its VM holds - the module and `plain_modules/.turri` - is put back as it was after the command, the agent
-told why. A made-up credential makes every later run fail without anyone seeing why; a missing one is the
+template, `.env.example`, is fine. The file tools refuse it, the command check refuses a command that would
+write one, and what a command does to one anyway is put back by the audit, the agent told why. A made-up credential makes every later run fail without anyone seeing why; a missing one is the
 judge's to report (see [growing the code](growing.md)), the person's to provide.
-
-## Commands run in a VM
-
-`bash` is the case no argument check can cover - one string, and no way to read where it will
-read or write. So it does not run on the host at all. Every command an agent runs with its `bash` runs in a
-[Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux). A module has two:
-
-- **Its code's**, holding `plain_modules/<module>/code`: where code is rendered - the coding agent's
-  and the explorer's commands.
-- **Its tests'**, holding `plain_modules/<module>/tests`, and the module's `code` read only: where
-  conformance tests are rendered - the conformance agent's and the judge's commands. They can read and
-  run the code, and build it from a copy in the scratch folder, but never change it.
-
-The project's testing scripts do not run in the VM: they are yours, and run on this machine as you would run them,
-unfenced, in your own environment - on a fresh copy of the code, or in place - and only through `run_unit_tests`,
-`run_conformance_tests` and the harness's own runs; see [the testing scripts](growing.md#the-testing-scripts). The
-agent gets their output, nothing more.
-
-Each also holds `plain_modules/.turri` - the package caches and the copies test runs happen
-in - mounted read-write at the paths they have on the host. Neither holds the other's folder; the
-other modules, the specs, the home directory and every other project do not exist in either.
-- The host environment is not passed in, so the provider's API keys stay out.
-- The network is open: any host on the web, internal addresses included, and this machine's
-  localhost on any port - a storage service or a mock API the tests talk to, running here. In the VM,
-  `localhost:<port>` reaches a server the VM runs on that port - the app under test - and this
-  machine's when it runs none; `host.turri.internal:<port>` is always this machine's. A small
-  proxy in the VM does that, started with it: every connection to the VM's loopback is redirected
-  through it (iptables), and it tries the VM's own server first. Only HTTP(S) goes out to the web -
-  Gondolin proxies it - so a raw TCP connection to a remote host, a database elsewhere, does not.
-- Files on the mount are executable inside the VM: Gondolin's mounts drop mode changes, and a
-  built binary, a `./gradlew` or a test script has to run. And they are owned by root, who runs
-  everything in there: a tool that checks who owns a file refuses one that is not its own - a
-  runtime attaching to itself, git calling a repository owned by someone else dubious.
-
-No command can hang a build. Every one has a time limit - 2 minutes, or
-`TURRI_COMMAND_TIMEOUT` seconds: the agent's own `bash` unless it gives a timeout (at most 30
-minutes), its unit and conformance test runs, the harness's own runs. A
-command that runs out is killed and reports exit 124 with a note on what to do instead: a server,
-a watcher or a prompt waiting for input never ends on its own, and has to be started in the
-background or given its input. A job that is stopped ends the command it is waiting on at once.
-Either way the command is killed in the VM too, with everything it started - Gondolin's abort only
-stops waiting for a command, so each one records its process ID and is killed by it.
-
-A project works through its modules one at a time, and so has one module's VMs at a time. Each starts
-as a job begins - in the background, so it boots while the agent reads its task and writes its first
-files, and is ready by its first command (`TURRI_VM_WARM=0`: on the first command instead) - and the module's jobs - functionalities, spec changes, conformance
-tests - reuse them one after another; a job holds both while it works in the module. The moment the
-project moves on to another module, the old module's VMs are shut down and the new one's started, which costs a second or two; the system packages the agents installed before, and the image lacks, come back from the cache -
-offline first, from the network only for one the cache does not hold, and for 90 seconds at most
-(`TURRI_VM_SETUP_TIMEOUT`), after which the VM goes on without them - and the dependencies are in the
-module's folder. A command waiting for its VM to start waits as long as a start can take - its boot and that
-setup - and not once it is stopped: it is not run, and says so, and the VM goes on starting for the next one. The wait
-is not the agent's: the clock on its turn stops while a command waits for its VM, and runs on from where it was once the
-VM is up. A start says how long it took and where the time went - created, booted, localhost made reachable - and that,
-with every other line about the VM, is kept in the job's log in `.turri/jobs/`, beside what the agents did. A VM nothing has used for a minute is shut down too, and every VM when turri exits. A VM does not die with
-the process that started it, so each has a watcher beside it - a small shell that stops it within
-two seconds of its turri ending, however it ends: killed outright, crashed, a test worker
-terminated. One left running all the same - its parent gone, the system holding it - is stopped
-when turri next starts, and you are told: nothing else would ever stop it, and it holds its memory. Two
-modules rendering at once each keep their own, and several projects never share one. VMs run on Apple Silicon macOS and
-on Linux, on QEMU. Anywhere else, or when the VM fails to start, there is no fallback: the agent
-gets no shell and commands are refused, because there is no honest way to fence one on the host.
-`turri doctor` says which of those it is.
-
-## The web
-
-Every rendering agent - render, spec change, conformance, regression repair - can also search the
-web and read a page, for a library's documentation or an error it has not seen:
-
-| Tool | What it does |
-| --- | --- |
-| `web_search` | asks DuckDuckGo (no key needed) and returns title, address and snippet per result |
-| `web_fetch` | reads one page and returns it as text - HTML without its markup, text, JSON or XML as it is; long pages come in parts |
-
-Both run on the host, not in the VM. `web_fetch` reads only the public web: localhost, the private
-ranges and the cloud metadata address are refused, and so is every redirect that leads to one - what
-the code talks to on this machine, the agent reaches with its commands in the VM.
-
-DuckDuckGo is used without a key through its Lite page, which is not an official API: it rate-limits,
-and a search that is turned away tells the agent to wait or fetch a page it knows instead.
-
-## Outside the sandbox: deploy
-
-What `deploy` starts is the one thing that runs on your machine, not in a VM: you asked to try the
-software, with your toolchains, in your browser. It runs from `dist/<module>`, a copy of the last
-commit outside `plain_modules`, so no rendering agent reaches it. Nothing is installed there without
-your say-so - every command that would install or download is put to you first, and the chat's shell
-refuses the rest. See [deploy](deploy.md).
-
-## What the VM needs beside the code
-
-It lives in `plain_modules/.turri`, which ignores itself in git:
-
-| | |
-| --- | --- |
-| `cache/` | package caches - pip, npm, cargo, Maven, Gradle, Go, apk - so a dependency downloads once per project |
-| `runs/` | the throwaway copies conformance runs happen in, emptied after each run |
-| `system-packages.json` | the system packages the agents installed |
-
-## Installing what the image lacks
-
-The default full image has Python, Node, Java 21 with Maven and Gradle, Go, Rust, C/C++ with make
-and cmake, and git. You can change it for every project, or give a project an image of its own -
-see [what goes into the image](installation.md#what-goes-into-the-image). A language, compiler or
-system library it lacks is not the agents' to install: they install nothing into the VM, and say what
-is missing - for you to add to the project's image (`vm-image:` in `config.yaml`, then `turri vm-image`).
-What `system-packages:` in `config.yaml` names, and what agents installed before they could no longer
-(`system-packages.json`), is added from the project's cache whenever the project's VM starts - only what
-the image does not have. They come from the repositories
-the image was built with - Alpine's own, or the mirror the recipe names (see
-[where it is downloaded from](installation.md#where-it-is-downloaded-from)).
-Project dependencies go through the project's own package manager as usual.
-
-On the stock image there is too little room for that - see
-[Without the full VM image](installation.md#without-the-full-vm-image).
 
 ## Commands on this machine
 
-The VM is being replaced by commands run on this machine, fenced. The one way such a command runs is
-`src/grow/shell.ts` (`runCommand`), built and not yet used by agents: `bash -c` from the agent's folder, in a process
-group of its own, with the same time limit and the same note as in the VM. The limit or a stopped job kills the whole
-group - what it put in the background too. A server a command leaves running when it ends is its pulse's: it runs on
-until the pulse ends, and is killed then; a pulse running beside it keeps its own. Everything still running is killed
-when turri exits, ended by a signal too. A turri killed outright cannot do that itself, so one small watcher beside it
-does, within two seconds, from the groups it recorded in the temporary folder (`turri-groups/`); and groups a turri left
-that nothing killed are swept when turri next starts. On Windows there are no process groups: a command's process
-tree is killed with `taskkill /T /F`, best effort.
+`bash` is the case no argument check can cover - one string, and no way to read for certain where it will read or
+write. So every command an agent runs - its `bash`, a service it starts - goes through every wall at once
+(`src/grow/agent-shell.ts`, `agentShell`), from its role's fence, the same as its file tools':
+
+1. **the command check**, before it runs - refused with exit 126 and the reason, a line in the job's log;
+2. **the module's own environment** - not yours: the path, the locale, the terminal, the user and the toolchains'
+   variables pass, nothing else - no provider key, no token, no SSH agent; a home folder of the module's own in
+   `plain_modules/.turri/home/<module>`, kept between pulses, a `TMPDIR`, the package caches in the project, git
+   stopped at the module folder, and what `agent-env:` passes (see [credentials for the agents](config.md#credentials-for-the-agents));
+3. **the OS sandbox**, where one is up - Seatbelt on macOS, bubblewrap on Linux and WSL2;
+4. **the audit**, after it, which puts back what it changed that its role may not, and tells the agent.
+
+The job's log says, for each agent with a shell, which walls are up - and where no OS sandbox starts, why.
+
+The command runs through the host runner (`src/grow/shell.ts`): `bash -c` from the agent's folder, in a process group of
+its own. No command can hang a build: every one has a time limit - 2 minutes, or `TURRI_COMMAND_TIMEOUT` seconds: the
+agent's own `bash` unless it gives a timeout (at most 30 minutes), its unit and conformance test runs, the harness's own
+runs. A command that runs out is killed, it and everything it started, and reports exit 124 with a note on what to do
+instead: a server, a watcher or a prompt waiting for input never ends on its own, and has to be started in the
+background or given its input. A job that is stopped ends the command it is waiting on at once, the same way.
+
+A server a command leaves running in the background is its pulse's: it runs on until the pulse ends, and is killed
+then - a pulse running beside it keeps its own. Everything still running is killed when turri exits, ended by a signal
+too. A turri killed outright cannot do that itself, so one small watcher beside it does, within two seconds, from the
+groups it recorded in the temporary folder (`turri-groups/`); and groups a turri left that nothing killed are swept when
+turri next starts. On Windows there are no process groups: a command's process tree is killed with `taskkill /T /F`,
+best effort.
+
+The project's testing scripts are not agents' commands: they are yours, and run on this machine as you would run them,
+unfenced, in your own environment - see [the testing scripts](growing.md#the-testing-scripts). The agent gets their
+output, nothing more.
 
 ### The command check
 
-Before such a command runs, its text is checked (`src/grow/command-check.ts`, `checkCommand`), on every platform, and
+Before an agent's command runs, its text is checked (`src/grow/command-check.ts`, `checkCommand`), on every platform, and
 refused - not run - with the rule it broke and what to do instead, when it:
 
 - names a path outside the role's roots - absolute, a `..` that climbs out of the agent's folder (after the `cd`s
@@ -236,7 +149,7 @@ which bubblewrap falls back to binding the host's `/proc` rather than mounting i
 
 ### The audit
 
-After every such command, on every platform - a sandbox up or not - turri puts back what the command's role may not
+After every agent command, on every platform - a sandbox up or not - turri puts back what the command's role may not
 change inside the project (`src/grow/audit.ts`): the specs, `config*.yaml`, the testing scripts, every credential file
 (the agent's own folder included), the code record, the module's lineage `.plaingit` (its refs and settings), the other
 modules, the folders the role only reads, and the part of its own module it does not write - the coding agent's
@@ -247,9 +160,47 @@ log gets a line; you are not told, and the pulse goes on. It compares sizes and 
 dependencies and build output, and contents only where those differ - about 35 ms on a project of 3000 files. Outside
 the project nothing can be put back: that is the OS sandbox's, and on Windows an accepted gap.
 
-### An agent's shell, every wall at once
+## The web
 
-`src/grow/agent-shell.ts` (`agentShell`) puts the walls together for one agent, from its role's fence: a command is
-checked, refused with exit 126 and its reason - a line in the job log - or run through the host runner from the
-agent's folder in the module's environment, behind the OS sandbox where one is up, under the audit, whose note is added
-to its output. The services an agent starts (`start_service`) already run behind it; its `bash` still runs in the VM.
+Every rendering agent - render, spec change, conformance, regression repair - can also search the
+web and read a page, for a library's documentation or an error it has not seen:
+
+| Tool | What it does |
+| --- | --- |
+| `web_search` | asks DuckDuckGo (no key needed) and returns title, address and snippet per result |
+| `web_fetch` | reads one page and returns it as text - HTML without its markup, text, JSON or XML as it is; long pages come in parts |
+
+`web_fetch` reads only the public web: localhost, the private ranges and the cloud metadata address are
+refused, and so is every redirect that leads to one - what the code talks to on this machine, the agent
+reaches with its own commands.
+
+DuckDuckGo is used without a key through its Lite page, which is not an official API: it rate-limits,
+and a search that is turned away tells the agent to wait or fetch a page it knows instead.
+
+## Outside the sandbox: deploy
+
+What `deploy` starts runs on your machine unfenced: you asked to try the software, with your toolchains,
+in your browser. It runs from `dist/<module>`, a copy of the last
+commit outside `plain_modules`, so no rendering agent reaches it. Nothing is installed there without
+your say-so - every command that would install or download is put to you first, and the chat's shell
+refuses the rest. See [deploy](deploy.md).
+
+## What turri keeps beside the code
+
+It lives in `plain_modules/.turri`, which ignores itself in git:
+
+| | |
+| --- | --- |
+| `cache/` | package caches - pip, npm, cargo, Maven, Gradle, Go - so a dependency downloads once per project |
+| `home/<module>` | each module's home folder for its agents' commands, kept between pulses |
+| `tmp/<module>` | each module's `TMPDIR` |
+| `scripts/` | the throwaway copies test runs happen in, emptied after each run |
+| `logs/` | whole outputs cut short for an agent, read through `read_output` |
+| `services/` | what the services agents started printed |
+
+## What the machine lacks
+
+The agents use this machine's toolchains, and install nothing on it: not a toolchain, a system package, a driver or a
+global package. The project's own dependencies are theirs, through its package manager, into the project and its
+caches. What the machine lacks is yours to install; an agent that finds something missing says so, names it, and goes
+no further with what depends on it.

@@ -16,6 +16,7 @@ import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
+import { sweepOrphanedGroups } from "./grow/shell.ts";
 import { defaultParallelJobs, installedPackages, STOCK_IMAGE, stopOrphanedVms, vmImageFor, vmMemoryFor } from "./grow/vm.ts";
 import { stackAgainstImage } from "./vm-stack.ts";
 import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
@@ -282,7 +283,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect pulses · ctrl+o expand`);
   });
-  // Sandbox VMs a turri that was killed left running: stopped as this one starts, and said once.
+  // What a turri that was killed left running - commands' process groups, sandbox VMs - stopped as this one starts.
+  sweepOrphanedGroups();
   const orphans = stopOrphanedVms();
   let orphansSaid = orphans === 0;
   pi.on("session_start", (_event, ctx) => {

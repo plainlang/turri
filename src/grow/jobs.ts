@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { withVmLease } from "./vm.ts";
+import { withPulse } from "./shell.ts";
 import { addAgentReport, describeAgents, JobStoppedError, withActivity, type AgentReport, type AgentTally, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
 import { startJobLog, type JobLog } from "./job-log.ts";
 
@@ -303,13 +303,16 @@ export function createJobRegistry(options?: {
         const details = outcome.details as { passed?: boolean; skipped?: boolean } | undefined;
         return details?.passed === false && details.skipped !== true;
       };
+      // A pulse: what its agents leave running is killed when it ends, and the modules it works in are its own.
       const runOnce = () =>
-        withVmLease(() =>
-          withActivity(sink, () =>
-            input.run((delta) => {
-              job.tail = (job.tail + delta).slice(-tailChars);
-            }),
-          ),
+        withPulse(
+          () =>
+            withActivity(sink, () =>
+              input.run((delta) => {
+                job.tail = (job.tail + delta).slice(-tailChars);
+              }),
+            ),
+          { modules: input.lanes ?? [] },
         );
       const runGuarded = async (): Promise<JobOutcome> => {
         const failures: string[] = [];

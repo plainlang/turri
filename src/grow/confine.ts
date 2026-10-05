@@ -17,15 +17,10 @@ import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
 import { RECORD_FILE } from "./records.ts";
 import { keptShellOutput, readOutputTool } from "./testing.ts";
-import {
-  COMMAND_TIMEOUT_MS,
-  MAX_COMMAND_TIMEOUT_MS,
-  vmBashOperations,
-  vmEnvironmentNote,
-  vmHolds,
-  vmReadOnly,
-  vmSupported,
-} from "./vm.ts";
+import { reportNote } from "./activity.ts";
+import { agentShell, type AgentShell } from "./agent-shell.ts";
+import { anotherPulseIn, COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./shell.ts";
+import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
 /**
  * Keeping a rendering agent inside its own directory.
@@ -36,9 +31,10 @@ import {
  * business reading the rest of the project, let alone writing to it.
  *
  * So the tools are rebuilt from pi's own factories with a check in front of every path, and
- * `bash` runs in the project's VM (see `vm.ts`). The file tools reach the agent's own folder - its
- * module's `code/`, unless the role is given others - and nothing else: not another module, not
- * turri's scratch area or the module's lineage, not the specs, not the rest of the project.
+ * `bash` runs on this machine behind every wall at once (see `agent-shell.ts`): the command check,
+ * the module's own environment, the OS sandbox where one is up, the audit. Both reach the agent's
+ * own folder - its module's `code/`, unless the role is given others - and nothing else: not another
+ * module, not turri's scratch area or the module's lineage, not the specs, not the rest of the project.
  */
 
 export interface Confinement {
@@ -67,7 +63,7 @@ function canonical(path: string): string {
     if (existsSync(head)) return join(realpathSync(head), ...tail.reverse());
     const parent = dirname(head);
     if (parent === head) return resolve(path);
-    tail.push(head.slice(parent.length + 1));
+    tail.push(basename(head));
     head = parent;
   }
 }
@@ -196,29 +192,82 @@ export interface ConfinedTools {
 }
 
 /**
- * An agent's sandbox, in words, for its system prompt - from the fence itself, so it says exactly
- * what is enforced. An agent that does not know where its walls are spends its turns walking into
- * them: searching parent folders, absolute paths and /tmp for what it was never given.
+ * An agent's walls, in words, for its system prompt - from its fence itself, so it says exactly what is enforced, the
+ * same on every platform. An agent that does not know where its walls are spends its turns walking into them. Its own
+ * folders by absolute path and no other; matter-of-fact about what happens on a reach outside - refused, or put back -
+ * and no warning. `environmentTool`: the tool an agent reports a missing piece of the machine with, when it has one.
  */
-export function sandboxNote(fence: { read: string[]; write: string[]; shell?: string[]; shellReadOnly?: string[] }): string {
-  const list = (dirs: string[]) => dirs.map((dir) => `\`${dir}\``).join(", ");
-  // turri's scratch area - the package caches, the copies test runs happen in - is in the VM, but nothing in it is the
-  // agent's: naming it only invites the looking the note forbids.
-  const shell = fence.shell?.filter((dir) => basename(dir) !== ".turri");
-  return [
-    "<sandbox>",
-    "You work inside a sandbox, and only there.",
-    `- Your file tools can read ${list(fence.read)}${fence.write.length === 0 ? ", and write nothing: you only read." : `, and write ${list(fence.write)}.`}`,
-    shell === undefined
-      ? "- You have no shell."
-      : `- Your shell runs in a Linux VM that holds only ${list(shell)}.` +
-        (fence.shellReadOnly !== undefined && fence.shellReadOnly.length > 0 ? ` In it, ${list(fence.shellReadOnly)} ${fence.shellReadOnly.length === 1 ? "is" : "are"} read only.` : ""),
-    "Nothing else exists for you: not the rest of the machine, not the specification files, not the other folders of the",
-    "project. Everything you need that is not in your sandbox is in your prompt. Do not look for anything outside it - no",
-    "searching parent folders, absolute paths, /tmp or the home folder - and never try to get around the sandbox. It is",
-    "enforced: every attempt fails, and only costs time.",
-    "</sandbox>",
-  ].join("\n");
+export function sandboxNote(fence: { read: string[]; write: string[]; shell: boolean; environmentTool?: string }): string {
+  const list = (dirs: string[]) => dirs.map((dir) => `\`${dir}\``).join(" and ");
+  const readOnly = fence.read.filter((dir) => !fence.write.includes(dir));
+  const isTests = (dir: string) => basename(dir) === "tests" || dir.split(sep).includes("tests");
+  const lines: string[] = ["<sandbox>"];
+
+  if (fence.write.length === 0) {
+    lines.push(`You read ${list(fence.read)}, and write nothing${fence.shell ? ": not with your file tools, not with your shell." : "."}`);
+  } else if (readOnly.length === 0) {
+    lines.push(
+      fence.write.length === 1
+        ? `You work in one folder: ${list(fence.write)}. Your file tools read and write it, and nothing else.`
+        : `You work in ${list(fence.write)}. Your file tools read and write them, and nothing else.`,
+    );
+  } else {
+    const writesTests = fence.write.every(isTests);
+    const readsTests = readOnly.every(isTests);
+    const what = writesTests ? " - the code under test -" : readsTests ? " - the conformance tests the code must pass -" : "";
+    const why = writesTests ? ": you write tests, not code" : readsTests ? ": you fix the code, not the tests" : "";
+    lines.push(
+      `You work in ${list(fence.write)}. Your file tools read and write it. They also read ${list(readOnly)}${what} but never write ` +
+        `${readOnly.length === 1 ? "it" : "them"}${why}.`,
+    );
+  }
+
+  if (fence.shell) {
+    const home = fence.write[0] ?? fence.read[0];
+    lines.push(
+      "",
+      `Your shell runs on this machine, in ${home !== undefined ? `\`${home}\`` : "your folder"}, with this machine's toolchains. It also has a home ` +
+        "folder and a temporary folder of its own (`$HOME`, `$TMPDIR`), and the package caches your build tools already " +
+        "use. The network is open. Nothing else on the machine exists for you: not the specification files, not the " +
+        `project's other folders or modules, not the person's home.${readOnly.length > 0 && fence.write.length > 0 ? ` ${list(readOnly)} ${readOnly.length === 1 ? "is" : "are"} read only in your shell too.` : ""}`,
+      "",
+      "- Everything you need is in this prompt. Do not look outside your folder: no parent folders, no absolute paths",
+      "  elsewhere. A command that names a path outside is refused before it runs. Anything a command changes outside is",
+      "  put back, and you are told.",
+    );
+    const report =
+      fence.environmentTool !== undefined
+        ? `report it as an environment error with ${fence.environmentTool}`
+        : "say so plainly - what is missing and what needs it - and end your turn";
+    lines.push(
+      fence.write.length > 0
+        ? "- The project's dependencies are yours: declare them in the build manifest, and let the build tools fetch them."
+        : "- You install nothing.",
+      `${fence.write.length > 0 ? "  Installing anything else is not" : "  Nor is installing anything on the machine yours"}: no toolchains, system packages, drivers, global packages or \`sudo\`. If the`,
+      `  machine lacks something the code needs, ${report}, name what is missing, and go no further with what depends on it.`,
+      "  The person decides.",
+      "- Ports and processes: you may stop only what you started. If a port is taken by something else, use another port.",
+    );
+  } else {
+    lines.push("You have no shell. Nothing else exists for you; everything you need is in this prompt.");
+  }
+  lines.push("</sandbox>");
+  return lines.join("\n");
+}
+
+/** pi's bash tool over an agent's shell: each command checked, run behind its walls, audited. */
+export function hostBashOperations(shell: AgentShell): BashOperations {
+  return {
+    exec: async (command, _cwd, { onData, signal, timeout }) => {
+      const result = await shell.run(command, {
+        onData,
+        ...(signal !== undefined ? { signal } : {}),
+        // The agent's own timeout, up to the longest allowed; the limit when it gave none.
+        timeoutMs: timeout && timeout > 0 ? Math.min(timeout * 1000, MAX_COMMAND_TIMEOUT_MS) : COMMAND_TIMEOUT_MS,
+      });
+      return { exitCode: result.exitCode };
+    },
+  };
 }
 
 export function confinedTools(c: Confinement): ConfinedTools {
@@ -281,31 +330,33 @@ export function confinedTools(c: Confinement): ConfinedTools {
 
   let description = `file tools fenced to ${read.join(", ")}${write.length === 0 ? ", read only" : ""}`;
 
-  // The shell runs in its module's VM, which holds that module's folder and the VM scratch and
-  // nothing else. Whatever it cds to or cats, nothing outside them exists.
+  // The shell runs on this machine behind every wall at once: the check, the module's environment, the OS sandbox
+  // where one is up, the audit - its role's fence the same as its file tools'.
   if (c.noBash === true) {
     description += ", no bash";
-  } else if (vmSupported()) {
-    const bash = createBashToolDefinition(workdir, {
-      operations: vmBashOperations(),
-      exposeSessionEnvironment: false,
-    });
-    bash.description = `${bash.description}\n\n${vmEnvironmentNote()}\n\n${timeLimitNote()}`;
-    // No installing into the VM: what it lacks is the person's to add to its image (vm-image in config.yaml).
-    tools.push(withKeptOutput(bash, workdir));
-    description += ", bash in a VM holding only its module";
   } else {
-    // Without a VM there is no honest way to fence a shell, so the agent does not get one.
-    // Everything it needs to do to files it can do with the tools above.
-    description += ", no bash (no sandbox VM on this platform)";
+    const shell = agentShell({ workdir, read, write }, { busy: anotherPulseIn });
+    const bash = createBashToolDefinition(workdir, { operations: hostBashOperations(shell), exposeSessionEnvironment: false });
+    bash.description = `${bash.description}\n\n${hostEnvironmentNote()}\n\n${timeLimitNote()}`;
+    tools.push(withKeptOutput(bash, workdir));
+    description += `, bash - ${shell.description}`;
+    // Which walls are up, in the job's log.
+    reportNote(`  ${shell.description}`);
+    // A cut output - a command's, a test run's - is read whole through read_output, never by a path.
+    tools.push(readOutputTool(workdir));
   }
 
-  // A cut output - a command's, a test run's - is read whole through read_output, never by a path.
-  if (c.noBash !== true) tools.push(readOutputTool(workdir));
+  return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell: c.noBash !== true }) };
+}
 
-  const shell = tools.some((tool) => tool.name === "bash") ? vmHolds(workdir) : undefined;
-  const shellReadOnly = shell !== undefined ? vmReadOnly(workdir) : undefined;
-  return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell, shellReadOnly }) };
+/** What the agent is told, with its bash, about where its commands run. */
+function hostEnvironmentNote(): string {
+  return (
+    "Commands run on this machine, from your folder, with this machine's toolchains, your own $HOME and $TMPDIR, and " +
+    "the open network. A command that names a path outside your folders is refused before it runs; what one changes " +
+    "outside them is put back, and you are told. You install nothing on the machine: the project's dependencies go " +
+    "into the project, through its manifest."
+  );
 }
 
 /** The shell, its cut output kept where read_output reads it rather than in a temporary file on the host. */
