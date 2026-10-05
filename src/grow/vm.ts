@@ -854,8 +854,8 @@ export async function installSystemPackages(
 /** What an agent is told about where its commands run. */
 export function vmEnvironmentNote(): string {
   const where =
-    "Commands run in an Alpine Linux VM that holds only this module's folder in plain_modules, and plain_modules/.turri; " +
-    "nothing else of the machine exists in it - not the other modules either.";
+    "Commands run in an Alpine Linux VM that holds only this module's folder in plain_modules; nothing else of the " +
+    "machine exists in it - not the other modules either.";
   const network =
     "The network is open: any host on the web, and this machine's localhost - `localhost:<port>` reaches a server the VM " +
     `runs on that port, and this machine's when it runs none (also at ${HOST_ALIAS}:<port>).`;

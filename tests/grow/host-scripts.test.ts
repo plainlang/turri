@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { readProjectConfig } from "../../src/config.ts";
+import { withActivity, type ActivitySink } from "../../src/grow/activity.ts";
 import { runConformanceScript, runUnitScript, setScriptTimeoutForTests } from "../../src/grow/test-scripts.ts";
 
 /**
@@ -80,5 +81,28 @@ describe("run-testing-scripts-in: host", () => {
     expect(run).toMatchObject({ exitCode: 124, timedOut: true });
     await new Promise((done) => setTimeout(done, 2500));
     expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("a testing script that does not fit where it runs", () => {
+  it("tells the agent a failing line of the script is the person's, not its code's, and tells the person once", async () => {
+    const script = join(project, "test_scripts", "run_unittests.sh");
+    writeFileSync(script, ["#!/bin/bash", "export JAVA_HOME=$(/nowhere/libexec/java_home -v 21)", "echo 'Ran 3 tests: OK'", ""].join("\n"));
+    const notes: string[] = [];
+    const sink: ActivitySink = { stage() {}, activity() {}, note: (line) => notes.push(line), now() {}, usage() {} } as unknown as ActivitySink;
+    const first = await withActivity(sink, () => runUnitScript(code, script));
+    expect(first.exitCode).toBe(0);
+    expect(first.output).toMatch(/^\[turri: line 2 of the project's testing script, run_unittests\.sh, fails where it runs - `\/nowhere\/libexec\/java_home: No such file or directory`\. That is the person's script, not your code: they have been told\. Do not go looking for what it names; judge the run by what the tests themselves report\.\]\n\n/);
+    expect(first.output).toContain("Ran 3 tests: OK");
+    await withActivity(sink, () => runUnitScript(code, script));
+    const told = notes.filter((line) => line.includes("line 2 of run_unittests.sh"));
+    expect(told).toEqual(["  ⚠ line 2 of run_unittests.sh fails where it runs - `/nowhere/libexec/java_home: No such file or directory`: the script is yours to fix; the agents are told it is not theirs"]);
+  });
+
+  it("leaves alone a failure of what the script runs, which may well be the code's", async () => {
+    const script = join(project, "test_scripts", "run_unittests.sh");
+    writeFileSync(script, ["#!/bin/bash", "cat \"$1/missing.txt\"", ""].join("\n"));
+    const run = await runUnitScript(code, script);
+    expect(run.output).not.toContain("[turri:");
   });
 });

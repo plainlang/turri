@@ -47,7 +47,7 @@ The harness's scratch - each ignores itself, and is never part of a module's his
 | `plain_modules/.turri/` | what the VM needs beside the code, the one folder outside a module it holds - see [sandbox](sandbox.md) |
 | `plain_modules/.turri/cache/` | the package caches, so a dependency is fetched once |
 | `plain_modules/.turri/scripts/` | the copies each testing script run happens in, one folder a run |
-| `plain_modules/.turri/logs/` | each testing script run's whole output, by time and script |
+| `plain_modules/.turri/logs/` | the whole output of each run or command an agent was shown cut short, by time and what ran - read by agents only through `read_output` |
 | `plain_modules/.turri/system-packages.json` | the system packages the agents installed, installed again by every VM of the project |
 | `.turri/jobs/` | each job's log: its diff, its stages, its agents and what they cost, and its sandbox VM starting - how long, and where the time went |
 | `.turri/debug/` | each agent's log: its prompt, every tool call and every answer |
@@ -154,6 +154,12 @@ runs the unit testing script itself**, and only that run counts (see
   comes back from the tests and the review; nothing written cannot. It is asked once, to write the
   change or say why it needs no code: one that only rewords a spec may need none. After that, the
   turn is taken as what it did.
+
+**Long output.** An agent is shown a run's output whole up to 60,000 characters, and past that its end, where a
+test run says what failed. The whole of it is kept in `plain_modules/.turri/logs/`, and the cut names it by an id:
+the agent reads it with `read_output` - a range of lines, or the lines matching a pattern, each with its number -
+which reads those kept outputs and nothing else. A command in its shell cut short by pi is kept the same way. No
+output points at a path: the file it is in is outside what the agent may reach.
 
 A test may go only when it asserts nothing meaningful - it cannot fail, exactly duplicates
 another, or tests something the spec does not require. Inconvenient, slow or failing are not
@@ -429,6 +435,12 @@ saying what is missing and what to do - the command put in the VM image (`vm-ima
 then `turri vm-image`), or, when this machine has it - an SDK such as Flutter, most often -
 `run-testing-scripts-in: host` in config.yaml to run the scripts here.
 
+**A script that does not fit where it runs.** When a line of the script itself fails - a command or file it names is
+not there, or not runnable, as bash reports it (`run_unittests.sh: line 6: /usr/libexec/java_home: No such file or
+directory`, a macOS-only line run in Linux) - the agent's output starts with a note that the line is the person's
+script, not its code, and not to go looking for what it names; the person is told once, in the job's log, that the
+script is theirs to fix. A failure of what the script runs is left alone: that may well be the code's.
+
 Each run is given a fresh copy of the code, and of the whole conformance suite, in
 `plain_modules/.turri/scripts/`, named for its module and the run, with the project's script
 copied in beside it: the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's
@@ -522,6 +534,12 @@ changed, with both hashes; the agent is told which file holds something else now
 unchanged text, and reads the file as it is now in `<linked resources>`. The records keep the hash, not the
 content, so what the file held before is not shown. A record written before resources were hashed is taken
 as built from the files as they are now: the loop hashes its links and commits it, building nothing again.
+
+**Where a linked resource goes in the code.** A linked resource is not in the agent's workspace; it reaches the agent
+only in `<linked resources>`. Each text resource is given a `code-copy` - its path, without steps up - and the
+agent is told that when the code needs what the resource holds while it runs, it keeps exactly one copy there (or
+where the implementation reqs put such files) and reads it from there, and otherwise copies none, so one file is
+not written to every place it might be read from.
 
 **Linked images.** A linked `.png`, `.jpg` or `.jpeg` is an image, not text (`resources.ts`). The coding agent
 and the conformance agent are sent it with their first message - and again after each compaction, which sums

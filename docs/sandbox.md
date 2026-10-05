@@ -21,13 +21,18 @@ own gated skills itself. The conversation you talk to still loads both, as pi do
 ## Every agent knows its walls
 
 Each agent's system prompt says where its sandbox is: which folders its file tools can read and
-write, what the VM its shell runs in holds, that nothing else exists for it - not the rest of the
+write, what the VM its shell runs in holds (its module's folder - turri's own scratch area is in the VM too, but
+nothing there is the agent's, so it is not named), that nothing else exists for it - not the rest of the
 machine, not the specs, not the project's other folders - that everything it needs is in its prompt,
 and not to look outside or try to get around it. The words come from its fence itself, so they say
 exactly what is enforced. In a conformance run, the conformance agent is told it has read access to
 the code but not write access - it writes only tests - and the coding agent that fixes the code is
 told it has read access to the conformance tests but not write access. Each one's shell holds only its
 own folder.
+
+Nothing it is shown points outside its walls. A test run or a command whose output was cut names the whole of it by
+an id, and the agent reads it with `read_output` - not by a path into `plain_modules/.turri` or to a temporary file on
+this machine (see [long output](growing.md#the-tests-must-actually-pass)).
 
 ## File tools
 

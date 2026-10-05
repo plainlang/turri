@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import { CONFIG_FILE, CONFIG_KEYS, configModuleOf, configModuleOfBuild, moduleConfigFile, readProjectConfig } from "../config.ts";
-import { currentStopSignal, reportActivity } from "./activity.ts";
+import { currentStopSignal, reportActivity, reportNote } from "./activity.ts";
 import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -424,8 +424,43 @@ async function runOnHost(root: string, script: string, args: string[], logDir: s
       ? `  ✗ ${shown(script)} did not finish in ${Math.round(timeoutMs / 1000)}s - stopped, counted as failed`
       : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
   );
-  const log = keepFullOutput(logDir, basename(script), output);
-  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: truncateOutput(output, log), timedOut, timeoutMs, where: "host", ...(log !== undefined ? { log } : {}) };
+  const noted = withScriptLineNote(output, script);
+  const log = keepFullOutput(logDir, basename(script), noted);
+  return { command: shown(script), exitCode: timedOut ? 124 : exitCode, output: truncateOutput(noted, log), timedOut, timeoutMs, where: "host", ...(log !== undefined ? { log } : {}) };
+}
+
+/** What bash says when a line of the script itself cannot run: a command or file that is not there, or not runnable. */
+const OWN_LINE_FAILURE = /: (No such file or directory|command not found|Permission denied)$/;
+
+/** The script lines already told to the person, by script, line and error - once each, in this process. */
+const toldScriptLines = new Set<string>();
+
+/**
+ * A run's output, with a note at its top when a line of the script itself fails where it runs - a macOS-only
+ * `/usr/libexec/java_home` in a Linux sandbox. The agent is told it is the person's script, not its code, so it does not
+ * go looking for what the line names; the person is told once, in the job's log.
+ */
+function withScriptLineNote(output: string, script: string): string {
+  const name = basename(script);
+  const prefix = new RegExp(`^(?:.*[/\\\\])?${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: line (\\d+): (.+)$`);
+  const failures = output
+    .split("\n")
+    .map((line) => prefix.exec(line))
+    .filter((found): found is RegExpExecArray => found !== null && OWN_LINE_FAILURE.test(found[2]!));
+  if (failures.length === 0) return output;
+  const notes = failures.map(([, line, error]) => {
+    const key = `${script}\n${line}\n${error}`;
+    if (!toldScriptLines.has(key)) {
+      toldScriptLines.add(key);
+      reportNote(`  ⚠ line ${line} of ${name} fails where it runs - \`${error}\`: the script is yours to fix; the agents are told it is not theirs`);
+    }
+    return (
+      `[turri: line ${line} of the project's testing script, ${name}, fails where it runs - \`${error}\`. That is the person's ` +
+      "script, not your code: they have been told. Do not go looking for what it names; judge the run by what the tests " +
+      "themselves report.]"
+    );
+  });
+  return `${[...new Set(notes)].join("\n")}\n\n${output}`;
 }
 
 /** A path, quoted for bash. */
@@ -457,7 +492,7 @@ async function runInModuleVm(stagingRoot: string, script: string, args: string[]
       : `  ${exitCode === 0 ? "✓" : "✗"} ${shown(script)} exited ${exitCode} after ${took}s`,
   );
   // The copy's path, where the script names itself, reads as the project's script.
-  const shownText = output.split(copy).join(shown(script));
+  const shownText = withScriptLineNote(output.split(copy).join(shown(script)), script);
   const log = keepFullOutput(logDir, basename(script), shownText);
   return { command: shown(script), exitCode: timedOut === true ? 124 : exitCode, output: truncateOutput(shownText, log), timedOut: timedOut === true, timeoutMs, where: "vm", ...(log !== undefined ? { log } : {}) };
 }

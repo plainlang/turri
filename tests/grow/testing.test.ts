@@ -110,14 +110,16 @@ describe("long output, as an agent is shown it", () => {
     expect(traces.length).toBeGreaterThan(20_000);
     expect(truncateOutput(traces, "/p/log")).toBe(traces);
     const output = `toolchain: python 3.12\n${"installing a dependency\n".repeat(4000)}FAILED test_login - AssertionError: 401 != 200\n`;
-    const shown = truncateOutput(output, "/p/plain_modules/.turri/logs/run.log");
-    expect(shown).toMatch(/^\.\.\. \[\d+ characters cut from the start - the whole output is in \/p\/plain_modules\/\.turri\/logs\/run\.log; read it with read or grep\] \.\.\.\n\n/);
+    const shown = truncateOutput(output, "/p/plain_modules/.turri/logs/2026-run.log");
+    // The whole output is reached through a tool, by its id - never by a path outside the agent's walls.
+    expect(shown).toMatch(/^\.\.\. \[\d+ characters cut from the start - the whole output is kept as `2026-run\.log`: read it with read_output\] \.\.\.\n\n/);
+    expect(shown).not.toContain("/p/plain_modules");
     expect(shown.endsWith(output.slice(-60_000))).toBe(true);
     expect(shown).not.toContain("toolchain: python 3.12");
     expect(truncateOutput("short")).toBe("short");
   });
 
-  it("is kept whole in plain_modules, where the agent can read it, when it had to be cut", async () => {
+  it("is kept whole in the project's scratch area when it had to be cut", async () => {
     const { keepFullOutput } = await import("../../src/grow/testing.ts");
     const root = mkdtempSync(join(tmpdir(), "turri-logs-"));
     const code = join(root, "plain_modules", "app", "code");
@@ -127,6 +129,49 @@ describe("long output, as an agent is shown it", () => {
     expect(file.startsWith(join(root, "plain_modules", ".turri", "logs"))).toBe(true);
     expect(readFileSync(file, "utf8")).toBe(long);
     expect(keepFullOutput(code, "short", "ok")).toBeUndefined();
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("read_output: the whole of an output that was cut", () => {
+  const execute = (tool: any, params: Record<string, unknown>) => tool.execute("id", params, undefined, undefined, undefined).then((r: any) => r.content[0].text as string);
+
+  it("reads a kept output by its id, a range of lines or the lines matching a pattern, each with its number", async () => {
+    const { keepFullOutput, readOutputTool } = await import("../../src/grow/testing.ts");
+    const root = mkdtempSync(join(tmpdir(), "turri-logs-"));
+    const code = join(root, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    const lines = Array.from({ length: 5000 }, (_, n) => (n === 41 ? "ERROR: the first failure" : `line ${n + 1} ${"x".repeat(20)}`));
+    const id = keepFullOutput(code, "run_unittests_python.sh", lines.join("\n"))!.split("/").pop()!;
+    const tool = readOutputTool(code);
+    expect(await execute(tool, { id, offset: 40, limit: 3 })).toBe(`40: ${lines[39]}\n41: ${lines[40]}\n42: ERROR: the first failure\n[lines 40-42 of 5000]`);
+    expect(await execute(tool, { id, pattern: "ERROR" })).toBe("42: ERROR: the first failure\n[1 line of 5000 matches ERROR]");
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reads nothing but the kept outputs: an id that is a path, or names none kept, is refused", async () => {
+    const { readOutputTool } = await import("../../src/grow/testing.ts");
+    const root = mkdtempSync(join(tmpdir(), "turri-logs-"));
+    const code = join(root, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    const tool = readOutputTool(code);
+    await expect(execute(tool, { id: "../app/code/x.py" })).rejects.toThrow(/not an output turri kept/);
+    await expect(execute(tool, { id: "nothing.log" })).rejects.toThrow(/not an output turri kept/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("takes in a shell's cut output too, so the agent is pointed at the tool and not at a file outside its walls", async () => {
+    const { keptShellOutput } = await import("../../src/grow/testing.ts");
+    const root = mkdtempSync(join(tmpdir(), "turri-logs-"));
+    const code = join(root, "plain_modules", "app", "code");
+    mkdirSync(code, { recursive: true });
+    const temp = join(root, "pi-bash-abc.log");
+    writeFileSync(temp, "all of it\n");
+    const text = keptShellOutput(code, `tail\n\n[Showing lines 10-12 of 12. Full output: ${temp}]`);
+    expect(text).toMatch(/^tail\n\n\[Showing lines 10-12 of 12\. The whole output is kept as `[^`]+-bash\.log`: read it with read_output\]$/);
+    const id = /`([^`]+)`/.exec(text)![1]!;
+    expect(readFileSync(join(root, "plain_modules", ".turri", "logs", id), "utf8")).toBe("all of it\n");
+    expect(keptShellOutput(code, "nothing cut")).toBe("nothing cut");
     rmSync(root, { recursive: true, force: true });
   });
 });

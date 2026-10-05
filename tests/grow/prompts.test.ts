@@ -75,9 +75,19 @@ describe("the coding agent's prompt", () => {
     expect(prompt).not.toContain("<acceptance tests>\n");
   });
 
-  it("embeds linked resource contents", () => {
+  it("embeds linked resource contents, each with the one place in the codebase a copy of it goes", () => {
     const prompt = codingPrompt({ linkedResources: [{ text: "schema.yaml", target: "a/schema.yaml", content: "kind: Example" }] });
-    expect(prompt).toContain('<resource name="schema.yaml" path="a/schema.yaml">\nkind: Example\n</resource>');
+    expect(prompt).toContain('<resource name="schema.yaml" path="a/schema.yaml" code-copy="a/schema.yaml">\nkind: Example\n</resource>');
+  });
+
+  it("says a linked resource is not in the workspace, and that the code keeps at most one copy, where code-copy says", () => {
+    const prompt = codingPrompt({ linkedResources: [{ text: "version.json", target: "../resources/version/version.json", content: "{}" }] });
+    expect(prompt).toContain('code-copy="resources/version/version.json"');
+    expect(prompt).toContain("A linked resource is not in your workspace.");
+    expect(prompt).toContain("exactly one copy");
+    // An image is looked at, never copied.
+    const image = codingPrompt({ linkedResources: [{ text: "mockup.png", target: "mockup.png", content: "[an image]", image: { mimeType: "image/png", data: "" } as never }] });
+    expect(image).toContain('<resource name="mockup.png" path="mockup.png" type="image/png">');
   });
 });
 

@@ -106,6 +106,9 @@ export function specPrimer(options: { testReqs: boolean }): string {
     "- <acceptance tests>: under a functional spec, specific checks that functionality's implementation must pass.",
     "  They carry the same authority as the functional spec itself.",
     "- <linked resources>: files the specification refers to as `[resource]name`. They are part of the specification.",
+    "  A linked resource is not in your workspace. When the code needs what one holds while it runs - a schema it",
+    "  validates against, a version it reports - it keeps exactly one copy, at the path its code-copy names in the",
+    "  codebase (or where the <implementation reqs> put such files), and reads it from there; otherwise it copies none.",
     "  An image among them is attached to your first message, numbered in the order they are listed: look at it.",
     "- <spec change>: a change to the specification, section by section, each section in its own tag - what it adds,",
     "  what it changes (before and now), and what it removes.",
@@ -222,12 +225,21 @@ export function moduleSection(key: string, items: string[], moduleName: string, 
   return `<${tag}>\n${groups.join("\n\n")}\n</${tag}>`;
 }
 
+/** Where in the codebase a linked resource's one copy goes: its path, without the steps up and the leading `./`. */
+function codeCopyOf(target: string): string {
+  return target
+    .split(/[\\/]/)
+    .filter((part) => part !== "" && part !== "." && part !== "..")
+    .join("/");
+}
+
 function linkedResourcesSection(resources: LoadedResource[]): string | null {
   if (resources.length === 0) return null;
   // An image is not text: the prompt says where it is - attached to the first message, by number - and what type.
+  // A text resource has one home in the codebase, should the code need it: its path, made relative to the codebase.
   const rendered = resources.map(
     (resource) =>
-      `<resource name="${resource.text}" path="${resource.target}"${resource.image !== undefined ? ` type="${resource.image.mimeType}"` : ""}>\n${resource.content}\n</resource>`,
+      `<resource name="${resource.text}" path="${resource.target}"${resource.image !== undefined ? ` type="${resource.image.mimeType}"` : ` code-copy="${codeCopyOf(resource.target)}"`}>\n${resource.content}\n</resource>`,
   );
   return `<linked resources>\n${rendered.join("\n\n")}\n</linked resources>`;
 }
@@ -698,8 +710,8 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
           "  mocking, no skipping, no changing what they expect, no pointing them elsewhere. Stop, and say in your",
           "  report what the software does; the harness has the code fixed.",
           "- You can run the suite three times a turn with run_conformance_tests. The third ends your turn: the harness",
-          "  then runs it itself, and works out what is wrong. When a run's output is cut, the cut names the file the",
-          "  whole of it is in - read it with read or grep before you change anything.",
+          "  then runs it itself, and works out what is wrong. When a run's output is cut, the cut names the id the",
+          "  whole of it is kept as - read it with read_output before you change anything.",
         ]
       : [
           "- Run them however you like while you work - one file, one case, any configuration - with bash.",

@@ -17,7 +17,7 @@ import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
 import { RECORD_FILE } from "./records.ts";
 import { modulesRootOf } from "./paths.ts";
-import { truncateOutput } from "./testing.ts";
+import { keptShellOutput, readOutputTool } from "./testing.ts";
 import {
   COMMAND_TIMEOUT_MS,
   MAX_COMMAND_TIMEOUT_MS,
@@ -211,13 +211,16 @@ export interface ConfinedTools {
  */
 export function sandboxNote(fence: { read: string[]; write: string[]; shell?: string[]; shellReadOnly?: string[] }): string {
   const list = (dirs: string[]) => dirs.map((dir) => `\`${dir}\``).join(", ");
+  // turri's scratch area - the package caches, the copies test runs happen in - is in the VM, but nothing in it is the
+  // agent's: naming it only invites the looking the note forbids.
+  const shell = fence.shell?.filter((dir) => basename(dir) !== ".turri");
   return [
     "<sandbox>",
     "You work inside a sandbox, and only there.",
     `- Your file tools can read ${list(fence.read)}${fence.write.length === 0 ? ", and write nothing: you only read." : `, and write ${list(fence.write)}.`}`,
-    fence.shell === undefined
+    shell === undefined
       ? "- You have no shell."
-      : `- Your shell runs in a Linux VM that holds only ${list(fence.shell)}${fence.shell.length > 1 ? " - the last is the package caches and the copies test runs use" : ""}.` +
+      : `- Your shell runs in a Linux VM that holds only ${list(shell)}.` +
         (fence.shellReadOnly !== undefined && fence.shellReadOnly.length > 0 ? ` In it, ${list(fence.shellReadOnly)} ${fence.shellReadOnly.length === 1 ? "is" : "are"} read only.` : ""),
     "Nothing else exists for you: not the rest of the machine, not the specification files, not the other folders of the",
     "project. Everything you need that is not in your sandbox is in your prompt. Do not look for anything outside it - no",
@@ -299,7 +302,7 @@ export function confinedTools(c: Confinement): ConfinedTools {
     });
     bash.description = `${bash.description}\n\n${vmEnvironmentNote()}\n\n${timeLimitNote()}`;
     // No installing into the VM: what it lacks is the person's to add to its image (vm-image in config.yaml).
-    tools.push(bash);
+    tools.push(withKeptOutput(bash, workdir));
     description += ", bash in a VM holding only its module";
   } else {
     // Without a VM there is no honest way to fence a shell, so the agent does not get one.
@@ -307,9 +310,24 @@ export function confinedTools(c: Confinement): ConfinedTools {
     description += ", no bash (no sandbox VM on this platform)";
   }
 
+  // A cut output - a command's, a test run's - is read whole through read_output, never by a path.
+  if (c.noBash !== true) tools.push(readOutputTool(workdir));
+
   const shell = tools.some((tool) => tool.name === "bash") ? vmHolds(workdir) : undefined;
   const shellReadOnly = shell !== undefined ? vmReadOnly(workdir) : undefined;
   return { tools, names: tools.map((t) => t.name), description, note: sandboxNote({ read, write, shell, shellReadOnly }) };
+}
+
+/** The shell, its cut output kept where read_output reads it rather than in a temporary file on the host. */
+function withKeptOutput(bash: AnyTool, workdir: string): AnyTool {
+  return {
+    ...bash,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const result = await bash.execute(toolCallId, params, signal, onUpdate, ctx);
+      const content = result.content.map((part) => (part.type === "text" ? { ...part, text: keptShellOutput(workdir, part.text) } : part));
+      return { ...result, content };
+    },
+  };
 }
 
 /** What the agent is told about how long its commands may run. */

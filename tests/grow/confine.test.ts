@@ -145,3 +145,25 @@ describe("an agent's sandbox, in its system prompt", () => {
     expect(judge.note).toContain("- You have no shell.");
   });
 });
+
+describe("the walls, as an agent is told them", () => {
+  it("never points into turri's own scratch area, which it is told not to go looking for", async () => {
+    const { sandboxNote } = await import("../../src/grow/confine.ts");
+    const scratch = join(root, "plain_modules", ".turri");
+    const note = sandboxNote({ read: [code], write: [code], shell: [join(root, "plain_modules", "demo"), scratch] });
+    expect(note).toContain(`- Your shell runs in a Linux VM that holds only \`${join(root, "plain_modules", "demo")}\`.`);
+    expect(note).not.toContain(".turri");
+    expect(note).not.toContain("copies test runs use");
+  });
+
+  it("gives every agent with a shell read_output, and keeps the shell from pointing at a file outside its walls", async () => {
+    const fence = confinedTools({ workdir: code });
+    expect(fence.names).toContain("read_output");
+    if (!vmSupported()) return;
+    const bash = fence.tools.find((t) => t.name === "bash")!;
+    const result = await bash.execute("id", { command: "seq 1 5000" }, undefined, undefined, undefined);
+    const text = result.content[0].text as string;
+    expect(text).toMatch(/The whole output is kept as `[^`]+`: read it with read_output\]$/);
+    expect(text).not.toMatch(/Full output: \//);
+  });
+});
