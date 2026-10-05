@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ceilingFor, confinedTools, ConfinementError, insideAny } from "../../src/grow/confine.ts";
+import { confinedTools, ConfinementError, insideAny } from "../../src/grow/confine.ts";
 import { closeAllVms, vmSupported } from "../../src/grow/vm.ts";
 
 let root: string;
@@ -24,17 +24,6 @@ afterEach(async () => {
   // Each test is a project of its own, and so has a VM of its own.
   await closeAllVms();
   rmSync(root, { recursive: true, force: true });
-});
-
-describe("ceilingFor", () => {
-  it("stops at plain_modules", () => {
-    expect(ceilingFor(code)).toBe(join(root, "plain_modules"));
-    expect(ceilingFor(tests)).toBe(join(root, "plain_modules"));
-  });
-
-  it("makes a build directory elsewhere its own ceiling", () => {
-    expect(ceilingFor("/tmp/sandbox/build")).toBe("/tmp/sandbox/build");
-  });
 });
 
 describe("insideAny", () => {
@@ -93,13 +82,29 @@ describe("confinedTools", () => {
     await expect(execute(edit, { path: ".turri.json", edits: [{ oldText: "{", newText: "[" }] })).rejects.toThrow(/no agent does/);
   });
 
-  it("reaches every module in plain_modules", async () => {
-    const fence = confinedTools({ workdir: tests });
+  it("reads and writes only its own module's code - not a sibling module, not turri's scratch, not the module's lineage", async () => {
+    // The coding agent's and the regression repair's fence: the default, from their code folder.
+    const sibling = join(root, "plain_modules", "other", "code");
+    const scratch = join(root, "plain_modules", ".turri", "logs");
+    const lineage = join(root, "plain_modules", "demo", ".plaingit");
+    for (const dir of [sibling, scratch, lineage]) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "x.txt"), "theirs\n");
+    }
+    const fence = confinedTools({ workdir: code });
     const read = fence.tools.find((t) => t.name === "read")!;
     const write = fence.tools.find((t) => t.name === "write")!;
-    await expect(execute(read, { path: join(code, "app.py") })).resolves.toBeDefined();
-    await execute(write, { path: join(root, "plain_modules", "other", "code", "x.py"), content: "x" });
-    expect(existsSync(join(root, "plain_modules", "other", "code", "x.py"))).toBe(true);
+    const ls = fence.tools.find((t) => t.name === "ls")!;
+    for (const dir of [sibling, scratch, lineage]) {
+      await expect(execute(read, { path: join(dir, "x.txt") })).rejects.toThrow(/outside this agent's read directory/);
+      await expect(execute(write, { path: join(dir, "x.txt"), content: "mine\n" })).rejects.toThrow(/outside this agent's write directory/);
+      expect(readFileSync(join(dir, "x.txt"), "utf8")).toBe("theirs\n");
+    }
+    await expect(execute(ls, { path: ".." })).rejects.toThrow(ConfinementError);
+    await expect(execute(read, { path: "app.py" })).resolves.toBeDefined();
+    await execute(write, { path: "pkg/new.py", content: "x = 1\n" });
+    expect(existsSync(join(code, "pkg", "new.py"))).toBe(true);
+    expect(fence.note).toContain(`- Your file tools can read \`${code}\`, and write \`${code}\`.`);
   });
 
   it("refuses to read above plain_modules", async () => {
