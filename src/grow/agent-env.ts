@@ -142,8 +142,8 @@ function turrisOwn(module: string, name: string): Record<string, string> {
   };
 }
 
-/** What `agent-env:` - the project's, with the module's own added - passes, and what of it is not there. */
-function passedCredentials(module: string, hostEnv: NodeJS.ProcessEnv): { values: Record<string, string>; missing: MissingCredential[] } {
+/** What `agent-env:` - the project's, with the module's own added - passes, and what of it is not there. Reads only. */
+export function passedCredentials(module: string, hostEnv: NodeJS.ProcessEnv): { values: Record<string, string>; missing: MissingCredential[] } {
   const root = projectRootOf(module);
   const setting = readProjectConfig(root, configModuleOfBuild(root, basename(module))).agentEnv;
   const values: Record<string, string> = {};

@@ -1,7 +1,7 @@
-import { basename, dirname } from "node:path";
+import { basename, dirname, isAbsolute } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { agentEnvironment } from "./agent-env.ts";
+import { passedCredentials } from "./agent-env.ts";
 import { MODULES_DIR } from "./paths.ts";
 
 /**
@@ -90,8 +90,9 @@ function moduleNameOf(moduleDir: string): string {
  * module's.
  */
 export function missingCredentials(moduleDir: string): EnvironmentError | undefined {
-  if (basename(dirname(moduleDir)) !== MODULES_DIR) return undefined;
-  const { missing } = agentEnvironment(moduleDir);
+  if (!isAbsolute(moduleDir) || basename(dirname(moduleDir)) !== MODULES_DIR) return undefined;
+  // Only read: nothing of the module's environment - its home, its TMPDIR - is made for a check.
+  const { missing } = passedCredentials(moduleDir, process.env);
   if (missing.length === 0) return undefined;
   const names = missing.map((item) => item.name);
   return new EnvironmentError({

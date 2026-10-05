@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,5 +89,7 @@ describe("a credential agent-env names that is not there", () => {
     expect(ran).toBe(false);
     expect(done.error).toContain("**d365 stopped: the environment lacks the credential `TURRI_TEST_NO_SUCH_SECRET`.**");
     expect(done.error).toContain("not set in the environment turri was started in");
+    // A check only reads: no home or temporary folder is made for it.
+    expect(existsSync(join(project, "plain_modules", ".turri"))).toBe(false);
   });
 });
