@@ -21,7 +21,7 @@ pages go into each part.
 | to find out… | read |
 | --- | --- |
 | what my machine needs, and why a check failed | [installation](installation.md) |
-| how to build the full VM image, and what the stock one cannot do | [installation](installation.md#building-the-vm-image) |
+| what turri needs of this machine, and what `turri doctor` checks | [installation](installation.md#what-turri-setup-checks) |
 | how to start a project, or add a feature, in a conversation | [using](using.md#in-a-conversation) |
 | which model renders, and how to change it | [using](using.md#choosing-a-model), [the project config](config.md#models) |
 | what `config.yaml` can set, and what happens without it | [the project config](config.md) |

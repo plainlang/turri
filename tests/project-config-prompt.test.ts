@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { projectConfigBlock, sandboxBlock } from "../src/extension.ts";
+import { projectConfigBlock, machineBlock } from "../src/extension.ts";
+import { onThisMachine } from "../src/grow/test-scripts.ts";
+
+const onPath = (command: string) => onThisMachine(command) !== undefined;
 
 let root: string;
 beforeEach(() => {
@@ -50,30 +53,16 @@ describe("what the chat's agent is told about the project's config.yaml", () => 
   });
 });
 
-describe("what the chat's agent is told about the sandbox VM", () => {
-  it("names the image, what goes into it, what the project's implementation reqs need of it and it lacks, and the extra packages", async () => {
-    process.env.TURRI_VM_IMAGE_CONFIG = join(root, "home-vm-image.json");
-    try {
-      writeFileSync(join(root, "config.yaml"), "system-packages: [sqlite]\nvm-image:\n  add: [zig]\n  remove: [java]\n");
-      writeFileSync(join(root, "game.plain"), "***implementation reqs***\n\n- :Implementation: is written in Zig.\n\n***functional specs***\n\n- Draw a square.\n");
-      const block = sandboxBlock(root);
-      expect(block).toContain("<sandbox VM>");
-      expect(block).toContain("the managing-vms rule says how they work");
-      expect(block).toContain("then this project's vm-image: in config.yaml");
-      expect(block).toMatch(/game: its implementation reqs need Zig \(zig\)/);
-      expect(block).toContain("system-packages: in config.yaml - sqlite");
-      // Its own image is not built here: it takes a build, which the person runs.
-      expect(block).toContain("the person runs turri vm-image in the project");
-    } finally {
-      delete process.env.TURRI_VM_IMAGE_CONFIG;
-    }
-  });
-
-  it("is backed by the managing-vms rule, loaded with the ***plain rules", async () => {
-    const { loadRules } = await import("../src/rules.ts");
-    const rule = loadRules("genome/rules").find((item) => item.name === "managing-vms");
-    expect(rule?.content).toContain("Against the implementation reqs");
-    expect(rule?.content).toContain("turri vm-image --default");
+describe("what the chat's agent is told about this machine", () => {
+  it("says which wall is up, the toolchains each module's implementation reqs need and which this machine lacks, and what its testing scripts lack", async () => {
+    writeFileSync(join(root, "game.plain"), "***implementation reqs***\n\n- :Implementation: is written in Odin.\n\n***functional specs***\n\n- Draw a square.\n");
+    mkdirSync(join(root, "test_scripts"), { recursive: true });
+    writeFileSync(join(root, "test_scripts", "run_unittests_odin.sh"), "#!/bin/bash\nexport ODIN_ROOT=$(/usr/libexec/no_such_odin_home)\nodin test .\n");
+    const block = machineBlock(root);
+    expect(block).toContain("<this machine>");
+    expect(block).toContain("The agents' commands run on this machine, with its toolchains, behind the command check");
+    if (!onPath("odin")) expect(block).toMatch(/game: its implementation reqs need Odin \(odin\) - this machine LACKS Odin/);
+    expect(block).toContain("test_scripts/run_unittests_odin.sh does not fit this machine: it names `/usr/libexec/no_such_odin_home`, which this machine does not have");
+    expect(block).not.toMatch(/VM|vm-image|managing-vms/);
   });
 });
-

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BASE_PACKAGES, defaultRecipe, describePlan, imagePlan, projectImageTag, toolchainsOf } from "../src/vm-image.ts";
-import { stackAgainstImage, stackOf } from "../src/vm-stack.ts";
 import { readProjectConfig } from "../src/config.ts";
 import { describeSources, imageSources, replaceInTar } from "../src/vm-image-contents.ts";
 
@@ -78,17 +77,6 @@ describe("the project config's VM keys", () => {
     expect(readProjectConfig(root).vmImage).toEqual({ add: ["zig"], remove: ["java"] });
     writeFileSync(join(root, "config.backend.yaml"), "system-packages: [curl]\n");
     expect(readProjectConfig(root, "backend").systemPackages).toEqual(["sqlite", "jq"]);
-  });
-});
-
-describe("what a project's implementation reqs need of its VM", () => {
-  it("is the toolchains they name - read by keyword - and which of them the image lacks", () => {
-    expect(stackOf("- :Implementation: uses Python 3.12 with FastAPI.\n- The frontend is React, built with Vite.").map((need) => need.toolchain)).toEqual(["Python", "Node"]);
-    expect(stackOf("- :Implementation: is written in Zig 0.13.").map((need) => need.package)).toEqual(["zig"]);
-    writeFileSync(join(root, "game.plain"), "***implementation reqs***\n\n- :Implementation: is written in Zig, built with zig build.\n\n***functional specs***\n\n- Draw a square.\n");
-    const [game] = stackAgainstImage(root, recipe());
-    expect(game!.module).toBe("game");
-    expect(game!.missing.map((need) => need.toolchain)).toEqual(["Zig"]);
   });
 });
 

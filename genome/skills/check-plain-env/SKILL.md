@@ -145,7 +145,7 @@ Worked example — the GPU case:
 
 Add these to every requirement list regardless of project:
 
-- turri's own needs — Node, QEMU, the sandbox VM image, a model provider — are checked by `turri doctor --quick`. Run it and report its result; do not probe those separately.
+- turri's own needs — Node, bash, the OS sandbox, a model provider — are checked by `turri doctor`. Run it and report its result; do not probe those separately.
 - A shell matching the testing scripts' extension (Bash for `.sh`, PowerShell for `.ps1`).
 - `git` (the renderer uses it; almost every plain project tracks itself in git).
 
@@ -160,7 +160,7 @@ For every requirement the project produced in Step 2, run a check using the `bas
 Probe in the same category order Step 2 produced them, so the report reads top-down:
 
 1. **Category 1 — Language toolchains.** Run the toolchain + package-manager probes listed in Step 2's Category 1 for the languages this project actually uses. Do not probe individual language packages.
-2. **Category 5 — turri and `git`.** Always required, independent of the project. `turri doctor --quick`, `git --version`. Verify the shell flavor matches the scripts' extension; a `.sh`-only project on native Windows is a `FAIL` (suggest WSL).
+2. **Category 5 — turri and `git`.** Always required, independent of the project. `turri doctor`, `git --version`. Verify the shell flavor matches the scripts' extension; a `.sh`-only project on native Windows is a `FAIL` (suggest WSL).
 3. **Category 2 — External services.** For each service identified at runtime, probe the CLI's presence first, then — if the CLI exists — check whether the service itself is reachable. Service binary present but daemon down → `WARN`, not `FAIL`.
 4. **Category 3 — System binaries that language packages wrap.** For each one identified in Step 2, check the system binary is on `PATH` (`which <bin>` / `<bin> --version`). The wrapper package itself isn't probed.
 5. **Category 4 — Hardware, drivers, accelerators.** Walk the layered probe from Step 2 in order (driver → device visibility → SDK → acceleration libs → framework-sees-it → version match), reporting each layer's result separately. Never collapse a multi-layer failure into a single "GPU not available" message — each layer has a different fix.

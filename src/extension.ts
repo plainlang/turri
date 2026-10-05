@@ -17,10 +17,9 @@ import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
 import { sweepOrphanedGroups } from "./grow/shell.ts";
-import { defaultParallelJobs, installedPackages, STOCK_IMAGE, stopOrphanedVms, vmImageFor, vmMemoryFor } from "./grow/vm.ts";
-import { stackAgainstImage } from "./vm-stack.ts";
-import { describePlan, hasProjectImage, imagePlan, planDiffersFromBuilt, readBuiltImage, toolchainsOf, userImageFile } from "./vm-image.ts";
-import { imageSources } from "./vm-image-contents.ts";
+import { defaultParallelJobs, stopOrphanedVms, vmMemoryFor } from "./grow/vm.ts";
+import { readScript, scriptAgainstMachine, stackOnMachine } from "./stack.ts";
+import { sandboxAvailable } from "./grow/os-sandbox.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regrowTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
@@ -235,7 +234,7 @@ export default function (pi: ExtensionAPI) {
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), sandboxBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
+    systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
   }));
 
   // The conversation's agent does not run turri again through its shell, unless the person
@@ -782,45 +781,32 @@ export function changedFiles(before: Map<string, string>, after: Map<string, str
 }
 
 /**
- * The sandbox VM, for the chat's agent, read afresh every turn: the image this project's VMs run and what
- * it holds, what goes into it and from where, what the project's implementation reqs need of it and it
- * lacks, and the project's extra packages. How to manage all of it is the managing-vms rule.
+ * This machine, for the chat's agent, read afresh every turn: which wall is up under the agents' commands, whether the
+ * machine has the toolchains the project's modules name, and what in its testing scripts it lacks - for the person to
+ * install or fix; the agents install nothing.
  */
-export function sandboxBlock(cwd: string): string {
-  const own = hasProjectImage(cwd);
-  const image = vmImageFor(cwd);
-  const built = readBuiltImage(own ? cwd : undefined);
-  const plan = imagePlan(own ? { project: cwd } : {});
-  const holding = built?.packages ?? plan.packages;
-  const holds = (packages: string[]) => {
-    const { toolchains, extra } = toolchainsOf(packages);
-    return [...toolchains, ...extra].join(", ") || "only the basics";
-  };
-  const stack = stackAgainstImage(cwd, image !== undefined ? holding : []);
-  const configured = readProjectConfig(cwd).systemPackages ?? [];
-  const installed = installedPackages(modulesRoot(cwd));
+export function machineBlock(cwd: string): string {
+  const wall = sandboxAvailable();
+  const walls =
+    wall.kind === "none"
+      ? `behind the command check and the audit alone - no OS sandbox: ${wall.why}${wall.fix !== undefined ? ` (to give it one: ${wall.fix})` : ""}`
+      : `behind the command check, ${wall.kind === "seatbelt" ? "Seatbelt" : "bubblewrap"} and the audit`;
+  const modules = stackOnMachine(cwd).filter(({ needs }) => needs.length > 0);
+  const scripts = findTestScripts(cwd);
+  const misfits = [scripts.unit, scripts.conformance].flatMap((script) => {
+    if (script === undefined) return [];
+    const text = readScript(script);
+    const found = text !== undefined ? scriptAgainstMachine(text) : [];
+    return found.length > 0 ? [`- ${relative(cwd, script)} does not fit this machine: it ${found.join("; ")} - the person's to fix.`] : [];
+  });
   return [
-    "<sandbox VM>",
-    "The image the agents' VMs run (the managing-vms rule says how they work):",
-    imageSources(undefined, plan).official
-      ? `- Where it comes from: Alpine Linux ${imageSources().version}, from Alpine's own server - the base system and every package, from its main and community repositories (${imageSources().repositories.map((repository) => repository.url).join(", ")}); a mirror or other repositories can be set in the recipe. build_vm_image with plan: true lists each package a build downloads: its version, repository, project, licence and size, and what each toolchain costs.`
-      : `- Where it comes from: Alpine Linux ${imageSources().version}, from the sources the recipe names in place of Alpine's own server - the base system and kernel from ${imageSources(undefined, plan).mirror}, packages from ${imageSources(undefined, plan).repositories.map((repository) => repository.url).join(", ")}; what a VM installs later comes from there too. build_vm_image with plan: true lists each package a build downloads, as those repositories have it.`,
-    image === undefined
-      ? `- In use: the ${STOCK_IMAGE.short}.`
-      : image.own
-        ? `- In use: this project's own image, ${image.tag}, holding ${holds(holding)}${built !== undefined ? ` (built ${built.builtAt.slice(0, 10)})` : ""}.`
-        : `- In use: the default image, ${image.tag}, holding ${holds(holding)}${built !== undefined ? ` (built ${built.builtAt.slice(0, 10)})` : ""}${image.missing !== undefined ? ` - ${image.missing}` : ""}.`,
-    `- Its recipe: ${describePlan(plan)}. turri's recipe (${join(PACKAGE_ROOT, "vm", "image.json")}), then the person's file ` +
-      `${userImageFile()}${plan.file !== undefined ? "" : " (none yet)"}${own ? `, then this project's vm-image: in config.yaml` : ""}.`,
-    ...(plan.refused.length > 0 ? [`- Not applied: ${plan.refused.join("; ")}.`] : []),
-    ...(planDiffersFromBuilt(plan, built) || (own && image?.own !== true) ? [`- The recipe asks for something the image was not built with: it takes a build - the person runs ${own ? "turri vm-image in the project" : "turri vm-image --default"}.`] : []),
-    ...stack.map(({ module, needs, missing }) =>
-      needs.length === 0
-        ? `- ${module}: its implementation reqs name no toolchain this knows.`
-        : `- ${module}: its implementation reqs need ${needs.map((need) => `${need.toolchain} (${need.words.join(", ")})`).join(", ")}${missing.length > 0 ? ` - the image LACKS ${missing.map((need) => `${need.toolchain} (Alpine: ${need.package})`).join(", ")}` : " - the image has them"}.`,
+    "<this machine>",
+    `The agents' commands run on this machine, with its toolchains, ${walls}. The testing scripts run here too, unfenced, in the person's environment. Nothing is installed by an agent: what the machine lacks is the person's to install.`,
+    ...modules.map(({ module, needs, missing }) =>
+      `- ${module}: its implementation reqs need ${needs.map((need) => `${need.toolchain} (${need.words.join(", ")})`).join(", ")}${missing.length > 0 ? ` - this machine LACKS ${missing.map((need) => need.toolchain).join(", ")}` : " - this machine has them"}.`,
     ),
-    `- Extra packages every VM of this project installs when it starts: system-packages: in config.yaml${configured.length > 0 ? ` - ${configured.join(", ")}` : " - none"}; what the agents installed before they could no longer${installed.length > 0 ? ` - ${installed.join(", ")}` : " - none"}.`,
-    "</sandbox VM>",
+    ...misfits,
+    "</this machine>",
   ].join("\n");
 }
 

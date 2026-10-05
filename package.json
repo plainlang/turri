@@ -17,7 +17,6 @@
     "chat": "pi -e ./src/extension.ts",
     "ask": "pi -p --no-session -e ./src/extension.ts",
     "test": "vitest run",
-    "vm:image": "node bin/turri.mjs vm-image",
     "test:watch": "vitest",
     "mutation": "node scripts/mutation.mjs",
     "bind": "tsx src/bind-cli.ts",
