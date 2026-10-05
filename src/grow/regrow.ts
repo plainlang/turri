@@ -375,7 +375,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const selfChecks = [
     createMyDiffTool({ dir: buildDir, what: "code" }),
     ...(staticChecks !== undefined ? [createStaticChecksTool({ buildDir, script: staticChecks })] : []),
-    ...(scripts.runTestingScriptsIn !== "host" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
+    ...(scripts.runOn !== "in-place" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
   ];
   // A server it built, it can start and try from outside - stopped when it is done.
   const services = createServiceTools({ dir: buildDir });
@@ -480,11 +480,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         attempts += 1;
         const verdict = await verifyUnitSuite(buildDir, runs, scripts.unit);
         if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
-        // A toolchain the script cannot find is no failure of the code, and the agents install nothing: the person sets it
-        // up - on this machine, or in the VM's image - so the job stops now and asks them.
+        // A toolchain the script cannot find is no failure of the code, and the agents install nothing: the person installs
+        // it on this machine, so the job stops now and asks them.
         missing = verdict.ok ? undefined : verdict.missing;
         if (missing !== undefined) {
-          stage(`the unit testing script cannot run: ${missing.command ?? "a toolchain it needs"} is not installed ${missing.where === "host" ? "on this machine" : "in the VM"} - stopping`);
+          stage(`the unit testing script cannot run: ${missing.command ?? "a toolchain it needs"} is not installed on this machine - stopping`);
           return false;
         }
         if (!verdict.ok) {
@@ -512,7 +512,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         forChange: true,
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
-        ...(scripts.runTestingScriptsIn !== "host" ? { unitScript: scripts.unit! } : {}),
+        ...(scripts.runOn !== "in-place" ? { unitScript: scripts.unit! } : {}),
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
         send: async (next) => {
           response = await ask(executor, next, options.onDelta);

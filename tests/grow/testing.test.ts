@@ -7,7 +7,6 @@ import {
   findTestRemovals,
   inventoryTests,
   removalChallengePrompt,
-  runCommand,
 } from "../../src/grow/testing.ts";
 
 let dir: string;
@@ -18,18 +17,6 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
-});
-
-describe("runCommand", () => {
-  it("returns the output of a successful command", async () => {
-    expect(await runCommand(dir, "echo hello")).toEqual({ exitCode: 0, output: "hello\n" });
-  });
-
-  it("returns the exit code and output of a failing command", async () => {
-    const result = await runCommand(dir, "echo boom >&2; exit 2");
-    expect(result.exitCode).toBe(2);
-    expect(result.output).toContain("boom");
-  });
 });
 
 describe("inventoryTests", () => {

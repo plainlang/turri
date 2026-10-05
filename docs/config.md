@@ -39,7 +39,7 @@ judge-model:                         # the verdicts of a conformance run (defaul
 conformance-tests: true              # write and run conformance tests (default: where there are test reqs)
 unittests-script: test_scripts/run_unittests_python.sh
 conformance-tests-script: test_scripts/run_conformance_tests_python.sh
-run-testing-scripts-in: host         # where the testing scripts run: host - this machine, in place (default: vm - each module's VM)
+testing-scripts-run-on: in-place     # what the testing scripts run on: in-place - the code itself (default: copy - a fresh copy)
 ```
 
 | key | what it sets | unset |
@@ -62,7 +62,7 @@ run-testing-scripts-in: host         # where the testing scripts run: host - thi
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | what the memory free then holds VMs for - see [how many jobs at once](#how-many-jobs-at-once) |
 | `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A module's `config.<module>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
 | `toolchains` | folders of this machine an agent's commands may read beside the system's, the `PATH`'s and those the toolchain variables point at - a toolchain installed somewhere unusual (`[/srv/zig]`). A module's own add to the project's. See [the OS sandbox](sandbox.md#the-os-sandbox) | none |
-| `run-testing-scripts-in` | where the testing scripts run. `vm`: in the module's VM, the agents' own, on a fresh copy of the code. `host`: on this machine, in place, on the real build and tests folders, in its environment - for an integration embedded in a host codebase, or tests that need what only this machine has (see [where they run](growing.md#the-testing-scripts)). `testing-scripts:`, its name before, is read the same | `vm` |
+| `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`. `in-place`: the real build and tests folders, the script at its own path, from the project - for an integration embedded in a host codebase (see [the testing scripts](growing.md#the-testing-scripts)) | `copy` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
 does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the

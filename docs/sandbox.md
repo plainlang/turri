@@ -61,8 +61,7 @@ judge's to report (see [growing the code](growing.md)), the person's to provide.
 ## Commands run in a VM
 
 `bash` is the case no argument check can cover - one string, and no way to read where it will
-read or write. So it does not run on the host at all. Every command an agent runs - its `bash`, the
-testing scripts - runs in a
+read or write. So it does not run on the host at all. Every command an agent runs with its `bash` runs in a
 [Gondolin](https://github.com/earendil-works/gondolin) micro-VM (Alpine Linux). A module has two:
 
 - **Its code's**, holding `plain_modules/<module>/code`: where code is rendered - the coding agent's
@@ -71,10 +70,10 @@ testing scripts - runs in a
   conformance tests are rendered - the conformance agent's and the judge's commands. They can read and
   run the code, and build it from a copy in the scratch folder, but never change it.
 
-The project's testing scripts run in the module's VM too, on a fresh copy of the code, and only
-through `run_unit_tests`, `run_conformance_tests` and the harness's own runs. The one exception is a
-project with `run-testing-scripts-in: host`, whose scripts run on this machine, in place - see
-[the testing scripts](growing.md#the-testing-scripts). The agent gets their output, nothing more.
+The project's testing scripts do not run in the VM: they are yours, and run on this machine as you would run them,
+unfenced, in your own environment - on a fresh copy of the code, or in place - and only through `run_unit_tests`,
+`run_conformance_tests` and the harness's own runs; see [the testing scripts](growing.md#the-testing-scripts). The
+agent gets their output, nothing more.
 
 Each also holds `plain_modules/.turri` - the package caches and the copies test runs happen
 in - mounted read-write at the paths they have on the host. Neither holds the other's folder; the

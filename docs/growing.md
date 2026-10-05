@@ -175,11 +175,11 @@ anything - the unit testing script, run by the harness, still does - and its tas
   what the reviewer is shown. Read before handing the work in: every part of the change in it, and nothing else.
 - **`can_it_fail`**: whether the unit tests catch a bug. The agent gives one change to a code file - a
   condition turned round, a value changed - and the unit testing script runs on a fresh copy of the code with
-  it, in the VM; the code itself is never touched. If every test still passes, no test catches that bug. Six
+  it; the code itself is never touched. If every test still passes, no test catches that bug. Six
   runs a job. A bug often makes the code hang instead - a loop that never ends - so a run may take three times
   as long as the last passing run of the unit tests, within 15 and 60 seconds, and one that does not finish is
-  reported as a hang, not as a test that caught it. Not where the testing scripts run on the host, in place:
-  there is no copy to change.
+  reported as a hang, not as a test that caught it. Not where the testing scripts run in place
+  (`testing-scripts-run-on: in-place`): there is no copy to change.
 - **`start_service`**, **`service_logs`**, **`stop_service`**: a server or a worker it built, started in the
   background in its VM, to try from outside with `curl` as a client would. Whatever the stack: the agent gives
   the command that starts it and how to tell it is up - the port it listens on, or a line its log prints. It is
@@ -423,17 +423,16 @@ scripts are not linked from the specs; a link to one is ignored.
 They are required: a build with no unit testing script, or with conformance on and no conformance
 testing script, stops before it starts and says which skill adds it.
 
-**Where they run.** In the module's VM by default - the same Alpine Linux VM the agents' `bash`
-runs in, with the same toolchains and the packages they installed - so what passes in an agent's
-shell passes in the run that decides. That is the only way the two scripts are ever run: the
-harness's own runs, and the agents' `run_unit_tests` and `run_conformance_tests`, which run them
-exactly as the harness does. A toolchain the script needs and the VM lacks - exit 69, exit 127, or
-a `command not found` / `failed to run command` in its output (`missingToolchain`) - is the person's
-to set up, never the agent's: agents install nothing into the VM. The agent is told to end its turn
-rather than work around it, and the job stops at the first run that cannot find it, nothing built,
-saying what is missing and what to do - the command put in the VM image (`vm-image:` in config.yaml,
-then `turri vm-image`), or, when this machine has it - an SDK such as Flutter, most often -
-`run-testing-scripts-in: host` in config.yaml to run the scripts here.
+**Where they run.** On this machine, as you would run them: unfenced - no sandbox, no command check, no audit - in
+your own environment with this machine's toolchains, turri's model providers' API keys alone left out. They are yours,
+and whatever they do is your doing. That is the only way the two scripts are ever run: the harness's own runs, and the
+agents' `run_unit_tests` and `run_conformance_tests`, which run them exactly as the harness does - through the host
+runner, in a process group of their own, so the time limit and a stopped job end the script and all it started. A
+toolchain the script needs and this machine lacks - exit 69, exit 127, or a `command not found` / `failed to run
+command` in its output (`missingToolchain`) - is yours to install, never the agent's: the agent is told to end its turn
+rather than work around it, and the job stops at the first run that cannot find it, nothing built, saying what to
+install. The code and the tests an agent wrote run unfenced inside the script too: what an agent runs with its own
+shell is fenced, what your script runs is not - an accepted gap.
 
 **A script that does not fit where it runs.** When a line of the script itself fails - a command or file it names is
 not there, or not runnable, as bash reports it (`run_unittests.sh: line 6: /usr/libexec/java_home: No such file or
@@ -441,31 +440,23 @@ directory`, a macOS-only line run in Linux) - the agent's output starts with a n
 script, not its code, and not to go looking for what it names; the person is told once, in the job's log, that the
 script is theirs to fix. A failure of what the script runs is left alone: that may well be the code's.
 
-Each run is given a fresh copy of the code, and of the whole conformance suite, in
-`plain_modules/.turri/scripts/`, named for its module and the run, with the project's script
-copied in beside it: the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's
-build is called `code`, so two modules testing at once never share that folder, and nothing a test
-writes reaches the code. The unit tests run in the module's code VM, the conformance suite in its
-tests VM.
+**What they run on.** By default, a fresh copy of the code, and of the whole conformance suite, in
+`plain_modules/.turri/scripts/`, named for its module and the run, with the project's script copied in beside it: the
+scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called `code`, so two modules
+testing at once never share that folder, build output stays out of the code, and nothing a test writes reaches it.
 
-`run-testing-scripts-in: host` in the project's `config.yaml` runs them on this machine instead, in place:
-the project's own script at its own path, from the project's folder, on the real build and tests
-folders, in this machine's environment with its toolchains, as codeplain did. An integration embedded
-in a host codebase needs it - its scripts merge the generated code into the host and find the host
-from their own path - and so does a project whose tests need something only this machine has:
+`testing-scripts-run-on: in-place` in the project's `config.yaml` runs them on the code in place instead: the
+project's own script at its own path, from the project's folder, on the real build and tests folders. An integration
+embedded in a host codebase needs it - its scripts merge the generated code into the host and find the host from their
+own path:
 
 ```yaml
 # plain/config.yaml
-run-testing-scripts-in: host
+testing-scripts-run-on: in-place
 ```
 
-Either way the agents are not moved: their file tools and `bash` stay fenced to `plain_modules` and
-the VM, and only the scripts' output reaches them. The time limit and a stopped job end the script
-and all it started. On the host the model providers' API keys are kept out of its environment, and
-what the script does to the host - copying the package into it - it does, as it is written to. Code
-the agents wrote runs on this machine there, so it is for projects that ask for it. The agents are
-told the host's run is the one that counts, and a toolchain the host lacks cannot be installed
-from their sandbox: the job stops at the first run that cannot find it, saying what to install.
+What the script does to the host - copying the package into it - it does, as it is written to. `can_it_fail` needs a
+copy to change, so an agent has it only where the scripts run on one.
 
 ### What a job is given, and what it records
 
@@ -749,8 +740,8 @@ reported:
 
 The environment is judged what is wrong twice in a row before it counts. The first time, the conformance agent
 checks that the tests do not cause it themselves and, when they do not, changes nothing; the second, the run
-stops, and the person is told what to provide and where the run read it from - and that a run in the VM sees only
-`plain_modules`, so tests that need this machine's credentials run with `run-testing-scripts-in: host`.
+stops, and the person is told what to provide and where the run read it from - the testing scripts run in their own
+environment, so a credential comes from their shell's variables or a `.env` the script loads.
 
 When the code and the tests could both be wrong, the judge is told to choose the tests. A spec
 conflict has to name the two functionalities, each by its module and id - they can be in different

@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { onTestFinished } from "vitest";
 
 /**
  * Testing scripts for a test project, in `test_scripts/` beside its specs - as the
@@ -32,18 +31,4 @@ export function writeTestScripts(
   mkdirSync(dir, { recursive: true });
   if (scripts.unit !== undefined) writeFileSync(join(dir, "run_unittests_python.sh"), scripts.unit);
   if (scripts.conformance !== undefined) writeFileSync(join(dir, "run_conformance_tests_python.sh"), scripts.conformance);
-}
-
-/**
- * Where the testing scripts run for the rest of this test, when its project's config does not say: in the VM, for a test
- * about running them there - the suite has them on the host (tests/setup.ts) - or, undefined, as nothing set it.
- */
-export function scriptsInForThisTest(where: "vm" | undefined): void {
-  const before = process.env.TURRI_TESTING_SCRIPTS_IN;
-  if (where === undefined) delete process.env.TURRI_TESTING_SCRIPTS_IN;
-  else process.env.TURRI_TESTING_SCRIPTS_IN = where;
-  onTestFinished(() => {
-    if (before === undefined) delete process.env.TURRI_TESTING_SCRIPTS_IN;
-    else process.env.TURRI_TESTING_SCRIPTS_IN = before;
-  });
 }

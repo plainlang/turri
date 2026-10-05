@@ -8,7 +8,7 @@ import { NOTES_FILE } from "./notes.ts";
 import { vmScratchDir } from "./paths.ts";
 import { RECORD_FILE } from "./records.ts";
 import { missingToolchain, runUnitScript, scriptFailure } from "./test-scripts.ts";
-import { COMMAND_TIMEOUT_MS, runInVm } from "./vm.ts";
+import { COMMAND_TIMEOUT_MS } from "./shell.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
 
@@ -142,18 +142,6 @@ export function readOutputTool(dir: string) {
 /** Output as an agent is shown it, with the whole of it kept in a file when it had to be cut. */
 export function shownOutput(dir: string, label: string, output: string): string {
   return truncateOutput(output, keepFullOutput(dir, label, output));
-}
-
-/**
- * Run a command an agent chose, from `cwd`.
- *
- * In its module's VM, which holds only that module's folder and the VM scratch (see `vm.ts`), so
- * running the tests cannot be used to read the specification, the other modules, the rest of the
- * project, or anything else on the machine.
- */
-export async function runCommand(cwd: string, command: string): Promise<{ exitCode: number; output: string }> {
-  const { exitCode, output } = await runInVm(command, { cwd, timeoutMs: RUN_TIMEOUT_MS });
-  return { exitCode, output: shownOutput(cwd, command, output) };
 }
 
 /**
@@ -296,10 +284,9 @@ export type UnitVerdict =
   | { ok: true; command: string }
   | { ok: false; command?: string; prompt: string; missing?: MissingToolchain };
 
-/** A toolchain the testing script needs and does not find where it runs: no change to the code can pass it. */
+/** A toolchain the testing script needs and does not find on this machine: no change to the code can pass it. */
 export interface MissingToolchain {
   command?: string;
-  where: "vm" | "host";
 }
 
 /**
@@ -318,7 +305,7 @@ export async function verifyUnitSuite(buildDir: string, runs: TestRun[], script:
     ok: false,
     command: run.command,
     prompt: scriptFailure(run, "unit testing"),
-    ...(missing !== undefined ? { missing: { ...missing, where: run.where ?? "vm" } } : {}),
+    ...(missing !== undefined ? { missing } : {}),
   };
 }
 

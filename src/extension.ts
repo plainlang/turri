@@ -908,9 +908,9 @@ export function projectConfigBlock(root: string): string {
         })(),
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each module's file below names its own" : "none found - every build stops until there is one"}`,
         `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each module's file" : "none found"}`,
-        config.runTestingScriptsIn === "host"
-          ? "- run-testing-scripts-in: host - the testing scripts run in place on this machine, from the project, against the host codebase - not in the sandbox VM."
-          : "- run-testing-scripts-in: vm - the testing scripts run in each module's VM, on a fresh copy of its code; `run-testing-scripts-in: host` runs them on this machine instead, in place.",
+        config.testingScriptsRunOn === "in-place"
+          ? "- testing-scripts-run-on: in-place - the testing scripts run on this machine on the code in place, from the project, against the host codebase."
+          : "- testing-scripts-run-on: copy - the testing scripts run on this machine, on a fresh copy of each module's code; `testing-scripts-run-on: in-place` runs them on the code in place.",
       ].filter((line): line is string => line !== undefined),
     ];
   };

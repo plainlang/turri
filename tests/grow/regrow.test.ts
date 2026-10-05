@@ -176,7 +176,7 @@ describe("rendering a spec diff", () => {
 
   it("stops at once, saying what to install, when the unit testing script on this machine cannot find its toolchain", async () => {
     writeTestScripts(dir, { unit: "#!/bin/bash\necho 'run_unittests.sh: line 3: flutter: command not found'\nexit 127\n" });
-    writeFileSync(join(dir, "config.yaml"), "run-testing-scripts-in: host\n");
+    writeFileSync(join(dir, "config.yaml"), "testing-scripts-run-on: in-place\n");
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
 
@@ -184,7 +184,7 @@ describe("rendering a spec diff", () => {
 
     expect(result.passed).toBe(false);
     expect(result.attempts).toBe(1);
-    expect(result.missingToolchain).toEqual({ command: "flutter", where: "host" });
+    expect(result.missingToolchain).toEqual({ command: "flutter" });
     expect(describeSpecDiff(result)).toContain("`flutter` is not installed on this machine");
   });
 

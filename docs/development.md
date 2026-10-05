@@ -2,12 +2,10 @@
 
 ```bash
 npm run typecheck   # types
-npm test            # the whole suite, about two minutes; tests that run commands boot the sandbox VM
+npm test            # the whole suite, about two minutes; the tests about the VM boot one
 ```
 
-The suite runs the projects' testing scripts on this machine (`TURRI_TESTING_SCRIPTS_IN=host`, set in
-`tests/setup.ts`): a VM booted for every temp project was most of its time. A test about running them in the VM
-asks for it with `scriptsInForThisTest("vm")` from `tests/test-scripts.ts`. The fixture scripts stage each run in a
+The suite runs the projects' testing scripts on this machine, as turri does. The fixture scripts stage each run in a
 folder of their own, as test files running side by side would otherwise share one.
 
 ## Mutation testing

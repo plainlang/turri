@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vit
 import { renderConformanceTests } from "../../src/grow/conformance.ts";
 import { renderSpecDiff } from "../../src/grow/regrow.ts";
 import { findTestScripts, projectRootFor, requireTestScripts, withTestingScripts } from "../../src/grow/test-scripts.ts";
-import { vmSupported } from "../../src/grow/vm.ts";
-import { scriptsInForThisTest } from "../test-scripts.ts";
 
 let root: string;
 beforeEach(() => {
@@ -21,7 +19,6 @@ const put = (path: string, content = "#!/bin/bash\n") => {
 
 describe("finding the testing scripts", () => {
   it("looks in config.yaml first, then the project root, then test_scripts/", () => {
-    scriptsInForThisTest(undefined);
     put("test_scripts/run_unittests_python.sh");
     put("test_scripts/run_conformance_tests_python.sh");
     expect(findTestScripts(root)).toEqual({
@@ -124,7 +121,7 @@ describe("the testing scripts, in an agent's prompt", () => {
 });
 
 describe("the testing scripts, run", () => {
-  it("run on this machine, in place, from the project, when the project says run-testing-scripts-in: host - without the provider keys", async () => {
+  it("run on the code in place, from the project, when the project says testing-scripts-run-on: in-place - without the provider keys", async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -133,7 +130,7 @@ describe("the testing scripts, run", () => {
     const code = join(root, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, "app.py"), "print('hi')\n");
-    writeFileSync(join(root, "config.yaml"), "run-testing-scripts-in: host\n");
+    writeFileSync(join(root, "config.yaml"), "testing-scripts-run-on: in-place\n");
     const script = join(root, "run_unittests.sh");
     writeFileSync(script, 'echo "cwd=$(pwd)"; echo "build=$1"; ls "$1"; echo "key=${ANTHROPIC_API_KEY:-none}"; echo "host=$(uname -s)"\n');
     const before = process.env.ANTHROPIC_API_KEY;
@@ -141,7 +138,6 @@ describe("the testing scripts, run", () => {
     try {
       const run = await runUnitScript(code, script);
       expect(run.exitCode).toBe(0);
-      expect(run.where).toBe("host");
       expect(run.output).toContain(`cwd=${root}\n`);
       // In place: the real build folder, not a copy.
       expect(run.output).toContain(`build=${code}\n`);
@@ -155,39 +151,60 @@ describe("the testing scripts, run", () => {
     }
   });
 
-  it("tell an agent a missing toolchain is the person's to add, in the VM's image or on the host", async () => {
+  it("tell an agent a missing toolchain is the person's to install on this machine, and to end its turn", async () => {
     const { scriptFailure } = await import("../../src/grow/test-scripts.ts");
     const run = { command: "test_scripts/run_unittests_python.sh", exitCode: 69, output: "Error: Python 3.12 or newer is required", timeoutMs: 120_000 };
-    expect(scriptFailure({ ...run, where: "vm" }, "unit testing")).toContain("End your turn");
-    expect(scriptFailure({ ...run, where: "host" }, "unit testing")).toContain("so the person can install it");
+    const said = scriptFailure(run, "unit testing");
+    expect(said).toContain("is not installed on this machine");
+    expect(said).toContain("End your turn");
   });
 });
 
-describe.runIf(vmSupported())("the testing scripts, run in the VM", () => {
-  it("run by default in the module's VM, on a fresh copy of the code named for its module and the run, with the script copied beside it", async () => {
-    scriptsInForThisTest("vm");
-    const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
+describe("the testing scripts, run on a copy", () => {
+  it("run by default on this machine, on a fresh copy of the code named for its module and the run, with the script copied beside it, in the person's environment but for the provider keys", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, readdirSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const { runUnitScript } = await import("../../src/grow/test-scripts.ts");
-    const root = realpathSync(mkdtempSync(join(tmpdir(), "turri-vm-scripts-")));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "turri-copy-scripts-")));
     const code = join(root, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, "app.py"), "print('hi')\n");
     const script = join(root, "test_scripts", "run_unittests.sh");
     mkdirSync(join(root, "test_scripts"));
-    writeFileSync(script, 'echo "build=$1"; ls "$1"; echo "host=$(uname -s)"; echo "me=$0"\n');
+    writeFileSync(script, 'echo "build=$1"; ls "$1"; echo "me=$0"; echo "home=$HOME"; echo "key=${ANTHROPIC_API_KEY:-none}"; touch "$1/made-by-the-run"\n');
+    const before = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-secret";
     try {
       const run = await runUnitScript(code, script);
       expect(run.exitCode, run.output).toBe(0);
-      expect(run.where).toBe("vm");
-      expect(run.output).toMatch(/build=\S+\/app-[\w-]+\n/);
+      expect(run.output).toMatch(new RegExp(`build=${join(root, "plain_modules", ".turri", "scripts").replace(/[/.]/g, "\\$&")}/[\\w-]+/app-[\\w-]+\n`));
       expect(run.output).toContain("app.py");
-      expect(run.output).toContain("host=Linux");
       // The copy names itself as the project's script.
       expect(run.output).toContain("me=test_scripts/run_unittests.sh");
+      // The person's own environment - their home - but not turri's provider keys.
+      expect(run.output).toContain(`home=${process.env.HOME}`);
+      expect(run.output).toContain("key=none");
+      // The code is left as it was, and the copy is gone.
+      expect(readdirSync(code)).toEqual(["app.py"]);
+      expect(readdirSync(join(root, "plain_modules", ".turri", "scripts"))).toEqual([]);
     } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = before;
       rmSync(root, { recursive: true, force: true });
     }
-  }, 300_000);
+  });
+
+  it("no longer reads run-testing-scripts-in", async () => {
+    const { mkdtempSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { readProjectConfig } = await import("../../src/config.ts");
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "turri-old-key-")));
+    writeFileSync(join(root, "config.yaml"), "run-testing-scripts-in: host\n");
+    expect(readProjectConfig(root).testingScriptsRunOn).toBeUndefined();
+    writeFileSync(join(root, "config.yaml"), "testing-scripts-run-on: in-place\n");
+    expect(readProjectConfig(root).testingScriptsRunOn).toBe("in-place");
+    rmSync(root, { recursive: true, force: true });
+  });
 });

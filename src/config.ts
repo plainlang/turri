@@ -25,7 +25,7 @@ import { projectDirOf } from "./grow/paths.ts";
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters - see test-scripts.ts
- * run-testing-scripts-in: host                              # where the testing scripts run: vm (default), or host - see test-scripts.ts
+ * testing-scripts-run-on: in-place                         # what the testing scripts run on: copy (default), or in-place - see test-scripts.ts
  * ```
  *
  * Each model is a model reference and a thinking level (off, minimal, low, medium, high, xhigh, max),
@@ -171,11 +171,10 @@ export interface ProjectConfig {
   /** Path from the root to the static checks script - optional: the coding agent's to run, never a gate. */
   staticChecksScript?: string;
   /**
-   * Where the harness runs the testing scripts: in the sandbox VM (the default), or in place on
-   * this machine - for an integration embedded in a host codebase the VM does not hold.
+   * What the testing scripts run on, on this machine: a fresh copy of the code (the default), or the code in place - for
+   * an integration whose scripts merge it into a host codebase.
    */
-  /** Where the testing scripts run: in each module's VM, or on this machine in place. */
-  runTestingScriptsIn?: "vm" | "host";
+  testingScriptsRunOn?: "copy" | "in-place";
   /** How many jobs run at once in the chat - modules that share nothing build side by side up to it. Unset: from the machine's memory. */
   parallelJobs?: number;
   /**
@@ -226,7 +225,7 @@ export const CONFIG_KEYS = {
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
   staticChecksScript: "static-checks-script",
-  runTestingScriptsIn: "run-testing-scripts-in",
+  testingScriptsRunOn: "testing-scripts-run-on",
   parallelJobs: "parallel-jobs",
   systemPackages: "system-packages",
   rulesOff: "rules-off",
@@ -237,8 +236,8 @@ export const CONFIG_KEYS = {
   toolchains: "toolchains",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
-function whereScriptsRun(value: unknown): "vm" | "host" | undefined {
-  return value === "host" ? "host" : value === "vm" ? "vm" : undefined;
+function whatScriptsRunOn(value: unknown): "copy" | "in-place" | undefined {
+  return value === "copy" || value === "in-place" ? value : undefined;
 }
 
 /** `conformance-tests:` - true or all, chosen, false. Anything else is not read. */
@@ -385,8 +384,7 @@ function readConfigFile(path: string): ProjectConfig {
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),
-    // `testing-scripts:`, its name before, is read the same.
-    runTestingScriptsIn: whereScriptsRun(raw[CONFIG_KEYS.runTestingScriptsIn] ?? raw["testing-scripts"]),
+    testingScriptsRunOn: whatScriptsRunOn(raw[CONFIG_KEYS.testingScriptsRunOn]),
     vmImage: imageChanges(raw[CONFIG_KEYS.vmImage]),
     agentEnv: agentEnvSetting(raw[CONFIG_KEYS.agentEnv]),
     toolchains: Array.isArray(raw[CONFIG_KEYS.toolchains])

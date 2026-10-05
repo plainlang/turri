@@ -24,9 +24,8 @@ turri doctor                             # what the machine lacks (QEMU, VM imag
 
 Tests that boot the sandbox VM are wrapped in `describe.runIf(vmSupported())`. They need QEMU and
 the VM image (`turri setup` / `npm run vm:image`), take up to a few minutes each, and are
-skipped silently on a machine without them. `tests/setup.ts` closes every VM when a file finishes, and runs the
-projects' testing scripts on the host (`TURRI_TESTING_SCRIPTS_IN=host`) - a test about running them in the VM calls
-`scriptsInForThisTest("vm")`. The suite takes about two minutes.
+skipped silently on a machine without them. `tests/setup.ts` closes every VM and kills every process group left when
+a file finishes. The testing scripts run on this machine, as in turri. The suite takes about two minutes.
 
 ## TypeScript runs unbuilt
 
@@ -131,7 +130,7 @@ test scripts) in a Gondolin micro-VM per module, leased through `AsyncLocalStora
 and shut down when idle or when the project moves to another module. `shell.ts` is the host runner taking its place
 (`runCommand`: a process group per command, `withPulse` killing what a pulse left running, a watcher and a start-up sweep
 for a turri killed outright) - built, not yet wired in. There is no host fallback,
-except testing scripts under `run-testing-scripts-in: host`, and what `deploy` starts. turri turns off `AGENTS.md`/`CLAUDE.md`
+except the testing scripts, which run on this machine through `shell.ts` (`testing-scripts-run-on: copy | in-place`), and what `deploy` starts. turri turns off `AGENTS.md`/`CLAUDE.md`
 loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` in `src/pi.ts`).
 
 **Agent sessions.** An agent's whole initial prompt is its system prompt (`createExecutor`'s `task`,
@@ -160,7 +159,7 @@ through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportSta
 **Projects.** A spec is built in its project: the nearest folder upwards holding `config.yaml`, a
 `config.<module>.yaml` or `plain_modules/` (`projectDirOf` in `paths.ts`). `config.yaml`
 (`src/config.ts`) holds `module`, `harness-model`, `coding-model`, `judge-model`,
-`conformance-tests`, `run-testing-scripts-in` and the script paths; a module on a stack of its own lays
+`conformance-tests`, `testing-scripts-run-on` and the script paths; a module on a stack of its own lays
 `config.<module>.yaml` over it, found down its `requires` chain (`configForSpec`). `docs/config.md`
 documents every key.
 
