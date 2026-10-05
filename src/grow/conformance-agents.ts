@@ -263,7 +263,7 @@ export async function exploreInvocation(options: {
   }) as ToolDefinition;
   // It reads the code - and runs it, to see - but changes nothing.
   const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
-  const services = createServiceTools({ dir: options.buildDir });
+  const services = createServiceTools({ dir: options.buildDir, read: [options.buildDir], write: [] });
   const session = await createExecutor({
     cwd: options.buildDir,
     customTools: [submit, ...services.tools, ...fence.tools],
@@ -334,7 +334,7 @@ export async function answerAsExplorer(options: {
     },
   }) as ToolDefinition;
   const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
-  const services = createServiceTools({ dir: options.buildDir });
+  const services = createServiceTools({ dir: options.buildDir, read: [options.buildDir], write: [] });
   const session = await createExecutor({
     cwd: options.buildDir,
     customTools: [submit, ...services.tools, ...fence.tools],

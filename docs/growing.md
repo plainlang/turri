@@ -181,12 +181,14 @@ anything - the unit testing script, run by the harness, still does - and its tas
   reported as a hang, not as a test that caught it. Not where the testing scripts run in place
   (`testing-scripts-run-on: in-place`): there is no copy to change.
 - **`start_service`**, **`service_logs`**, **`stop_service`**: a server or a worker it built, started in the
-  background in its VM, to try from outside with `curl` as a client would. Whatever the stack: the agent gives
-  the command that starts it and how to tell it is up - the port it listens on, or a line its log prints. It is
-  up once something in the VM listens on that port (the VM's network answers any connection itself, so a
-  connect proves nothing); one that exits first or is not up in time is reported with what it printed. Three at
-  once; each runs in a session of its own, outliving the command that started it, and is stopped with
-  everything it started on `stop_service` and in any case when the agent's session ends. The explorer, the
+  background on this machine, behind the same walls as its shell - the command check, the module's environment, the
+  OS sandbox, the audit while it comes up - to try from outside with `curl` as a client would. Whatever the stack: the
+  agent gives the command that starts it and how to tell it is up - the port it listens on, or a line its log prints.
+  It is up once the port answers and it is still running a moment later (a port something else holds answers too); one
+  that exits first or is not up in time is reported with what it printed. Its log is in `plain_modules/.turri/services/`,
+  read through `service_logs`. Three at once; each runs in a process group of its own, outliving the command that
+  started it, and is stopped with everything it started on `stop_service`, when the agent's session ends, and in any
+  case when its pulse ends. The explorer, the
   explorer answering `ask_explorer` and the code fixer of a conformance run have them too.
 - **`run_static_checks`**: the project's type checker and linter, when it has a script for them -
   `static-checks-script:` in the [config](config.md), or the one `run_static_checks*.sh` beside the testing

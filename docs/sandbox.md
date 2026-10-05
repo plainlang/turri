@@ -246,3 +246,10 @@ not this command's to undo (left, and logged). The agent is told in its command'
 log gets a line; you are not told, and the pulse goes on. It compares sizes and modification times, skipping
 dependencies and build output, and contents only where those differ - about 35 ms on a project of 3000 files. Outside
 the project nothing can be put back: that is the OS sandbox's, and on Windows an accepted gap.
+
+### An agent's shell, every wall at once
+
+`src/grow/agent-shell.ts` (`agentShell`) puts the walls together for one agent, from its role's fence: a command is
+checked, refused with exit 126 and its reason - a line in the job log - or run through the host runner from the
+agent's folder in the module's environment, behind the OS sandbox where one is up, under the audit, whose note is added
+to its output. The services an agent starts (`start_service`) already run behind it; its `bash` still runs in the VM.
