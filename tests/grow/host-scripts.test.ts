@@ -26,7 +26,7 @@ beforeEach(() => {
   mkdirSync(join(host, "src", "integrations"), { recursive: true });
   writeFileSync(join(code, "src", "integrations", "hubspot", "client.py"), "x = 1\n");
   writeFileSync(join(tests, "test_hubspot.py"), "t = 1\n");
-  writeFileSync(join(project, "config.yaml"), "unittests-script: test_scripts/run_unittests.sh\nrun-testing-scripts-in: host\n");
+  writeFileSync(join(project, "config.yaml"), "unittests-script: test_scripts/run_unittests.sh\ntesting-scripts-run-on: in-place\n");
 });
 afterEach(() => rmSync(host, { recursive: true, force: true }));
 
@@ -41,15 +41,14 @@ const embedded = (extra = "") =>
     extra,
   ].join("\n");
 
-describe("run-testing-scripts-in: host", () => {
+describe("testing-scripts-run-on: in-place", () => {
   it("is read from the project's config.yaml, beside the specs", () => {
-    expect(readProjectConfig(project).runTestingScriptsIn).toBe("host");
-    expect(readProjectConfig(host).runTestingScriptsIn).toBeUndefined();
-    // Its name before is read the same, so a project written for it keeps running its scripts where it did.
-    writeFileSync(join(host, "config.yaml"), "testing-scripts: host\n");
-    expect(readProjectConfig(host).runTestingScriptsIn).toBe("host");
-    writeFileSync(join(host, "config.yaml"), "run-testing-scripts-in: vm\n");
-    expect(readProjectConfig(host).runTestingScriptsIn).toBe("vm");
+    expect(readProjectConfig(project).testingScriptsRunOn).toBe("in-place");
+    expect(readProjectConfig(host).testingScriptsRunOn).toBeUndefined();
+    writeFileSync(join(host, "config.yaml"), "testing-scripts-run-on: copy\n");
+    expect(readProjectConfig(host).testingScriptsRunOn).toBe("copy");
+    writeFileSync(join(host, "config.yaml"), "testing-scripts-run-on: somewhere\n");
+    expect(readProjectConfig(host).testingScriptsRunOn).toBeUndefined();
   });
 
   it("runs the scripts in place - at their own path, from plain/, on the real folders - so they merge into the real host", async () => {

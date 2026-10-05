@@ -1,12 +1,12 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { describeStop } from "../../src/grow/stop-report.ts";
 import { keepingTestsUnchanged, type TestRun, verifyUnitSuite } from "../../src/grow/testing.ts";
-import { closeAllVms, runInVm, vmSupported } from "../../src/grow/vm.ts";
 import { setScriptTimeoutForTests } from "../../src/grow/test-scripts.ts";
-import { UNIT_SCRIPT, writeTestScripts, scriptsInForThisTest } from "../test-scripts.ts";
+import { UNIT_SCRIPT, writeTestScripts } from "../test-scripts.ts";
 
 let root: string;
 let code: string;
@@ -19,14 +19,13 @@ beforeEach(() => {
   mkdirSync(tests, { recursive: true });
 });
 afterEach(async () => {
-  await closeAllVms();
   rmSync(root, { recursive: true, force: true });
 });
 
 const passingTest = "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n";
 const failingTest = "import unittest\n\nclass T(unittest.TestCase):\n    def test_broken(self):\n        self.assertEqual(1, 2)\n";
 
-describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeout: 120_000 }, () => {
+describe("the harness's own run of the unit tests", { timeout: 120_000 }, () => {
   const script = () => join(root, "test_scripts", "run_unittests_python.sh");
   beforeEach(() => writeTestScripts(root));
 
@@ -69,10 +68,10 @@ describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeo
     expect(readFileSync(join(root, "plain_modules", ".turri", "logs", id), "utf8")).toContain("Downloading dependency 1 of 3000");
   });
 
-  it("counts a run past the time limit as failed, stops it in the VM, and says what most often keeps tests from ending", async () => {
+  it("counts a run past the time limit as failed, stops it with what it started, and says what most often keeps tests from ending", async () => {
     setScriptTimeoutForTests(3000);
     onTestFinished(() => setScriptTimeoutForTests(undefined));
-    writeTestScripts(root, { unit: "#!/bin/bash\necho running test_login_waits_for_server\nsleep 300\n" });
+    writeTestScripts(root, { unit: "#!/bin/bash\necho running test_login_waits_for_server\nsleep 301.7\n" });
 
     const runs: TestRun[] = [];
     const verdict = await verifyUnitSuite(code, runs, script());
@@ -84,13 +83,11 @@ describe.runIf(vmSupported())("the harness's own run of the unit tests", { timeo
     expect(verdict.prompt).toContain("running test_login_waits_for_server");
     expect(verdict.prompt).toContain("a server or a watcher started in the foreground");
     expect(runs.at(-1)).toMatchObject({ exitCode: 124 });
-    // Gone from the VM, not only given up on.
-    const ps = await runInVm("ps -o stat,args | grep -v ' Z ' | grep -c 'sleep 300$' || true", { cwd: code });
-    expect(ps.output.trim()).toBe("0");
+    // Gone, not only given up on.
+    expect(spawnSync("pgrep", ["-f", "sleep 301.7"]).status).not.toBe(0);
   });
 
-  it("stages every run somewhere new, so the VM never sees a copy an earlier run removed", async () => {
-    scriptsInForThisTest("vm");
+  it("stages every run somewhere new, so no run sees a copy an earlier run removed", async () => {
     writeFileSync(join(code, "test_app.py"), passingTest);
     writeTestScripts(root, { unit: "#!/bin/bash\necho \"staged in $1\"\nls \"$1\"\n" });
     const places = new Set<string>();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { missingToolchain, needsThePerson, scriptFailure } from "../../src/grow/test-scripts.ts";
+import { missingToolchain, scriptFailure } from "../../src/grow/test-scripts.ts";
 import { describeStop } from "../../src/grow/stop-report.ts";
 
 describe("a testing script that cannot find its toolchain", () => {
@@ -21,30 +21,16 @@ describe("a testing script that cannot find its toolchain", () => {
     expect(missingToolchain({ exitCode: 1, output: "FAILED (failures=1)\nAssertionError: 2 != 3" })).toBeUndefined();
   });
 
-  it("tells the person what is missing and where, not to split the spec", () => {
-    const vm = describeStop({ moduleName: "game2048", at: "unit tests", attempts: 3, missingToolchain: { command: "flutter", where: "vm" } });
-    expect(vm).toContain("`flutter` is not installed in the sandbox VM");
-    expect(vm).toContain("vm-image");
-    expect(vm).not.toContain("Split it");
-
-    const host = describeStop({ moduleName: "game2048", at: "unit tests", attempts: 1, missingToolchain: { command: "flutter", where: "host" } });
-    expect(host).toContain("`flutter` is not installed on this machine");
-    expect(host).toContain("Install flutter on this machine");
-  });
-
-  it("points at running the scripts on this machine when the command is installed here", () => {
-    const vm = describeStop({ moduleName: "app", at: "unit tests", missingToolchain: { command: "sh", where: "vm" } });
-    expect(vm).toMatch(/It is installed on this machine \(.*\/sh\): set `run-testing-scripts-in: host`/);
-  });
-
-  it("always needs the person: the agents install nothing", () => {
-    expect(needsThePerson({ command: "anything-at-all-xyz" }, "host")).toBe(true);
-    expect(needsThePerson({ command: "no-such-toolchain-xyz" }, "vm")).toBe(true);
-    expect(needsThePerson({}, "vm")).toBe(true);
+  it("tells the person what is missing - on this machine, where the testing scripts run - not to split the spec", () => {
+    const told = describeStop({ moduleName: "game2048", at: "unit tests", attempts: 1, missingToolchain: { command: "flutter" } });
+    expect(told).toContain("`flutter` is not installed on this machine");
+    expect(told).toContain("Install flutter on this machine");
+    expect(told).not.toContain("Split it");
+    expect(told).not.toContain("vm-image");
   });
 
   it("tells the agent to stop, not to work around it, whatever the command", () => {
-    const run = { command: "run_unittests.sh", exitCode: 127, output: "run.sh: line 2: no-such-toolchain-xyz: command not found", timeoutMs: 1000, where: "vm" as const };
+    const run = { command: "run_unittests.sh", exitCode: 127, output: "run.sh: line 2: no-such-toolchain-xyz: command not found", timeoutMs: 1000 };
     const told = scriptFailure(run, "unit testing");
     expect(told).toContain("End your turn");
     expect(told).not.toContain("install_system_packages");

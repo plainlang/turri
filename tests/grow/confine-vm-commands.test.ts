@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { confinedTools } from "../../src/grow/confine.ts";
 import { withActivity } from "../../src/grow/activity.ts";
-import { runCommand } from "../../src/grow/testing.ts";
+
 import { closeAllVms, runInVm, vmSupported } from "../../src/grow/vm.ts";
 
 let root: string;
@@ -48,7 +48,7 @@ describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () =>
     const stop = new AbortController();
     const quiet = { stage() {}, activity() {}, now() {}, usage() {}, transcript() {}, signal: stop.signal };
     const started = Date.now();
-    const run = withActivity(quiet, () => runCommand(code, "sleep 300"));
+    const run = withActivity(quiet, () => runInVm("sleep 300", { cwd: code }));
     setTimeout(() => stop.abort(), 1500);
     await expect(run).rejects.toThrow("aborted");
     // Well short of the command's 300s: at once, even with the other test files' VMs taking the machine (alone, 2-3s).

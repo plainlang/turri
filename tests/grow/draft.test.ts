@@ -43,7 +43,7 @@ const drafts = () => prompts.filter((prompt) => prompt.startsWith("You have not 
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "turri-draft-")));
   writeTestScripts(dir);
-  writeFileSync(join(dir, "config.yaml"), "run-testing-scripts-in: host\n");
+  writeFileSync(join(dir, "config.yaml"), "testing-scripts-run-on: in-place\n");
   cwd = process.cwd();
   process.chdir(dir);
   prompts.length = 0;

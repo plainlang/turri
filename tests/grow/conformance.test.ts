@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderConformanceTests } from "../../src/grow/conformance.ts";
 import { runConformanceScript } from "../../src/grow/test-scripts.ts";
-import { scriptsInForThisTest } from "../test-scripts.ts";
 
 const SIMPLE = "tests/data/simple.plain";
 
@@ -64,7 +63,6 @@ describe("the harness's run of the conformance testing script", () => {
   });
 
   it("leaves the build and test directories untouched, and starts each run afresh", async () => {
-    scriptsInForThisTest("vm");
     writeFileSync(join(buildDir, "app.txt"), "hello");
     await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && echo first > state.txt\n'));
     expect(readdirSync(buildDir)).toEqual(["app.txt"]);

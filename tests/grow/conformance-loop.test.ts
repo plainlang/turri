@@ -338,7 +338,7 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const { describeStop } = await import("../../src/grow/stop-report.ts");
     const stop = describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result });
     expect(stop).toContain("cannot pass with what their run is given - judged so 2 times in a row");
-    expect(stop).toContain("run-testing-scripts-in: host");
+    expect(stop).toContain("The testing scripts run on this machine in your own environment");
   });
 
   it("counts a failure that comes back after another as stuck too - a run swinging between two - and journals cause and effect", async () => {

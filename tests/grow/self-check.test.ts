@@ -7,8 +7,6 @@ import { createCanItFailTool, createMyDiffTool, selfCheckNote } from "../../src/
 import { findStaticChecks } from "../../src/grow/test-scripts.ts";
 import { unitReviewTask } from "../../src/grow/unit-review.ts";
 import { createAskExplorerTool } from "../../src/grow/conformance-agents.ts";
-import { vmSupported } from "../../src/grow/vm.ts";
-import { scriptsInForThisTest } from "../test-scripts.ts";
 
 let root: string;
 let code: string;
@@ -87,9 +85,8 @@ describe("can_it_fail", () => {
     expect(await call(tool, { file: "calc.sh", find: "$1 + $2", replace: "$1 + $2" })).toContain("changes nothing");
   });
 
-  describe.runIf(vmSupported())("run in the VM", () => {
+  describe("run on a copy", () => {
     it("runs the unit tests on a copy with the bug in - fails when a test catches it, passes when none does - and never touches the code", async () => {
-      scriptsInForThisTest("vm");
       const source = "add() { echo $(( $1 + $2 )); }\n# the sum of two numbers\n";
       writeFileSync(join(code, "calc.sh"), source);
       const script = join(root, "test_scripts", "run_unittests.sh");
@@ -105,7 +102,6 @@ describe("can_it_fail", () => {
     }, 300_000);
 
     it("gives up soon on a bug that makes the code hang, and says it hung - never that a test caught it", async () => {
-      scriptsInForThisTest("vm");
       const { runUnitScript } = await import("../../src/grow/test-scripts.ts");
       writeFileSync(join(code, "calc.sh"), "add() { echo $(( $1 + $2 )); }\n");
       const script = join(root, "test_scripts", "run_unittests.sh");

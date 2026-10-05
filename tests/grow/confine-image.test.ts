@@ -2,10 +2,8 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runConformanceScript } from "../../src/grow/test-scripts.ts";
-import { runCommand } from "../../src/grow/testing.ts";
+
 import { closeAllVms, installSystemPackages, runInVm, systemPackages, vmImage, vmSupported } from "../../src/grow/vm.ts";
-import { scriptsInForThisTest } from "../test-scripts.ts";
 
 let root: string;
 let code: string;
@@ -81,34 +79,18 @@ describe.runIf(vmSupported() && vmImage() !== undefined)("the turri image", { ti
 describe.runIf(vmSupported())("running the tests", { timeout: VM_TIMEOUT }, () => {
   it("cannot be used to read the spec above plain_modules", async () => {
     writeFileSync(join(root, "app.plain"), "***functional specs***\n");
-    const result = await runCommand(code, "cat ../../../app.plain");
+    const result = await runInVm("cat ../../../app.plain", { cwd: code });
     expect(result.exitCode).not.toBe(0);
     expect(result.output).not.toContain("functional specs");
   });
 
   it("can still resolve its own working directory", async () => {
-    const result = await runCommand(code, "python3 -c 'import os; print(os.path.abspath(\".\"))'");
+    const result = await runInVm("python3 -c 'import os; print(os.path.abspath(\".\"))'", { cwd: code });
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain(code);
   });
 
   it("still runs the tests themselves", async () => {
-    expect(await runCommand(code, "python3 app.py")).toEqual({ exitCode: 0, output: "hi\n" });
-  });
-
-  it("runs the conformance testing script in the module's VM, on a copy inside plain_modules, and leaves nothing behind", async () => {
-    scriptsInForThisTest("vm");
-    writeFileSync(join(tests, "check.sh"), "python3 app.py; pwd\n");
-    const script = (body: string) => {
-      writeFileSync(join(root, "run_conformance_tests.sh"), body);
-      return { conformance: join(root, "run_conformance_tests.sh") };
-    };
-    const result = await runConformanceScript(code, [tests], script('cd "$1" && sh "$2/check.sh"\n'));
-    expect(result.output).toContain("hi\n");
-    expect(result.output).toContain(join(root, "plain_modules", ".turri", "scripts"));
-    expect(result.where).toBe("vm");
-    // In the VM, which holds nothing above plain_modules.
-    expect((await runConformanceScript(code, [tests], script(`cat ${join(outside, "secret.ts")}\n`))).exitCode).not.toBe(0);
-    expect(readdirSync(join(root, "plain_modules", ".turri", "scripts"))).toEqual([]);
+    expect(await runInVm("python3 app.py", { cwd: code })).toEqual({ exitCode: 0, output: "hi\n" });
   });
 });
