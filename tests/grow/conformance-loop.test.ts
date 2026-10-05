@@ -226,7 +226,7 @@ describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () =
     const system = (conformanceCall[0] as { system?: string }).system!;
     expect(system).not.toContain(".turri");
     expect(tools.map((candidate) => candidate.name)).toContain("read_output");
-    expect(system).toContain("You work inside a sandbox, and only there.");
+    expect(system).toContain("but never write it: you write tests, not code.");
     expect(system).toContain(codeDir);
 
     const coderCall = spy.mock.calls.find(([opts]) => (opts as { label?: string }).label?.endsWith("coding agent"))!;

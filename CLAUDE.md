@@ -125,12 +125,13 @@ told mid-turn or at its next turn, its record moved, twice a job at most). `regr
   that decides pass or fail.
 
 **Sandbox.** `confine.ts` rebuilds pi's file tools with a path check (argument and resolved path,
-symlinks resolved) that fences each agent to its own module's folders - `code/`, and `tests/` for the conformance roles. `vm.ts` runs every command (agent `bash`,
-test scripts) in a Gondolin micro-VM per module, leased through `AsyncLocalStorage`
-and shut down when idle or when the project moves to another module. `shell.ts` is the host runner taking its place
-(`runCommand`: a process group per command, `withPulse` killing what a pulse left running, a watcher and a start-up sweep
-for a turri killed outright) - built, not yet wired in. There is no host fallback,
-except the testing scripts, which run on this machine through `shell.ts` (`testing-scripts-run-on: copy | in-place`), and what `deploy` starts. turri turns off `AGENTS.md`/`CLAUDE.md`
+symlinks resolved) that fences each agent to its own module's folders - `code/`, and `tests/` for the conformance roles -
+and gives it a `bash` on this machine behind `agent-shell.ts`: `command-check.ts` before each command, the module's
+environment (`agent-env.ts`), the OS sandbox (`os-sandbox.ts`: Seatbelt, bubblewrap) where one is up, `audit.ts`
+after, all run through the host runner `shell.ts` (a process group per command; `withPulse` kills what a pulse left
+running; a watcher and a start-up sweep for a turri killed outright). The testing scripts run on this machine unfenced
+(`testing-scripts-run-on: copy | in-place`), as does what `deploy` starts. The Gondolin VM (`vm.ts`) is still in the
+tree, used by nothing but setup and doctor, and goes. turri turns off `AGENTS.md`/`CLAUDE.md`
 loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` in `src/pi.ts`).
 
 **Agent sessions.** An agent's whole initial prompt is its system prompt (`createExecutor`'s `task`,

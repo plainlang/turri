@@ -56,47 +56,8 @@ describe.runIf(vmSupported())("the project's VM", { timeout: VM_TIMEOUT }, () =>
     expect((await sh("ps -o stat,args | grep -v ' Z ' | grep -c 'sleep 300$' || true")).output.trim()).toBe("0");
   });
 
-  it("gives the agent's bash the timeout it asked for, and says when it ran out", async () => {
-    const bash = confinedTools({ workdir: code }).tools.find((t) => t.name === "bash")!;
-    expect(bash.description).toContain("start a server or a watcher in the background");
-    const outcome = await (bash as any).execute("id", { command: "echo started; sleep 300", timeout: 2 }, undefined, undefined, {} as never).then(
-      (result: any) => result.content.map((part: any) => part.text).join(""),
-      (error: Error) => error.message,
-    );
-    expect(outcome).toContain("started");
-    expect(outcome).toContain("stopped after 2s, the time limit");
-  });
-
   it("runs several commands at once", async () => {
     const results = await Promise.all([1, 2, 3].map((n) => sh(`sleep 1; echo ${n}`)));
     expect(results.map((r) => r.output.trim())).toEqual(["1", "2", "3"]);
-  });
-
-  it("is the shell the agent's bash tool runs", async () => {
-    const fence = confinedTools({ workdir: code });
-    const bash = fence.tools.find((t) => t.name === "bash")!;
-    const run = (command: string) =>
-      (bash as any).execute("id", { command }, undefined, undefined, {} as never).then(
-        (result: any) => result.content.map((part: any) => part.text).join(""),
-        (error: Error) => error.message,
-      );
-    expect(await run("python3 app.py")).toContain("hi");
-    expect(await run(`cat ${join(outside, "secret.ts")}`)).not.toContain("const secret");
-    // Nothing to install with: what the VM lacks is the person's to add to its image.
-    expect(fence.names).not.toContain("install_system_packages");
-    expect(bash.description).toContain("not yours to install");
-  });
-
-  it("puts back a credential file the agent's bash wrote, in its module or the VM scratch, and tells it why", async () => {
-    const scratch = join(root, "plain_modules", ".turri");
-    mkdirSync(scratch, { recursive: true });
-    const bash = confinedTools({ workdir: code }).tools.find((t) => t.name === "bash")!;
-    const output = await (bash as any).execute("id", { command: `echo TOKEN=dummy > .env && echo TOKEN=dummy > ${join(scratch, ".env")}` }, undefined, undefined, {} as never).then(
-      (result: any) => result.content.map((part: any) => part.text).join(""),
-      (error: Error) => error.message,
-    );
-    expect(existsSync(join(code, ".env"))).toBe(false);
-    expect(existsSync(join(scratch, ".env"))).toBe(false);
-    expect(output).toMatch(/turri put back \.env, \.env as it was\. \.env holds credentials, and they are the person's to provide/);
   });
 });

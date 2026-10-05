@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
-import { warmVm } from "./vm.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -375,7 +374,6 @@ export async function renderConformanceTests(
     .map((item) => ({ module: moduleName, frid: item.frid, count: item.acceptanceTests.length }))
     .filter((item) => item.count > 0);
   // The tests' VM, where the conformance agent's shell runs, boots while the explorer works.
-  warmVm(conformanceDir);
   let invocation = await exploreInvocation({ buildDir, spec: specContext, scope, testingScripts, acceptance: toCarryOut, label, model: options.model, onDelta: options.onDelta });
   reportActivity(`  how to invoke it: ${invocation.split("\n")[0]!.slice(0, 120)}`);
   const agentPrompt = withTestingScripts(

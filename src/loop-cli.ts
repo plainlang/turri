@@ -1,3 +1,4 @@
+import { sweepOrphanedGroups } from "./grow/shell.ts";
 import { stopOrphanedVms } from "./grow/vm.ts";
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
@@ -29,6 +30,7 @@ export async function runLoop(options: {
 }): Promise<never> {
   const plainFile = resolve(options.plainFile);
   // Sandbox VMs a turri that was killed left running hold memory nothing frees: stopped before any starts.
+  sweepOrphanedGroups();
   const orphans = stopOrphanedVms();
   if (orphans > 0) console.log(`Stopped ${orphans} sandbox VM${orphans === 1 ? "" : "s"} a turri that was killed left running.`);
   const project = { ...readProjectConfig(process.cwd()), ...Object.fromEntries(Object.entries(configForSpec(plainFile)).filter(([, value]) => value !== undefined)) };

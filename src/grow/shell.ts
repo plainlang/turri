@@ -71,8 +71,27 @@ const WINDOWS = process.platform === "win32";
 /** Every group this turri started that may still be running: by its leader's process id, which is the group's id. */
 const groups = new Set<number>();
 
-/** The groups the current pulse started. */
-const pulse = new AsyncLocalStorage<Set<number>>();
+/** A pulse running: the groups it started, and the modules it works in. */
+interface Pulse {
+  groups: Set<number>;
+  modules: Set<string>;
+}
+
+/** The current pulse. */
+const pulse = new AsyncLocalStorage<Pulse>();
+
+/** Every pulse running in this process. */
+const pulses = new Set<Pulse>();
+
+/**
+ * Whether a pulse other than the current one is at work in `moduleDir` - what changes there is that pulse's, and the
+ * audit leaves it.
+ */
+export function anotherPulseIn(moduleDir: string): boolean {
+  const mine = pulse.getStore();
+  for (const other of pulses) if (other !== mine && other.modules.has(moduleDir)) return true;
+  return false;
+}
 
 /** Where each running turri records its groups, a file named for its process id: for its watcher, and the sweep. */
 export function groupRecordsDir(): string {
@@ -121,7 +140,7 @@ function watch(): void {
 
 function track(group: number): void {
   groups.add(group);
-  pulse.getStore()?.add(group);
+  pulse.getStore()?.groups.add(group);
   writeRecord();
   watch();
 }
@@ -157,14 +176,17 @@ function killGroup(group: number): void {
 
 /**
  * Run `work` - a pulse - and kill every group it started when it ends, however it ends: what an agent left running in
- * the background is the pulse's, and goes with it. Groups of a pulse running beside it are left alone.
+ * the background is the pulse's, and goes with it. Groups of a pulse running beside it are left alone. `modules`: the
+ * module folders it works in - its lanes - which the audit of another pulse's commands leaves to it.
  */
-export async function withPulse<T>(work: () => Promise<T>): Promise<T> {
-  const mine = new Set<number>();
+export async function withPulse<T>(work: () => Promise<T>, options: { modules?: string[] } = {}): Promise<T> {
+  const mine: Pulse = { groups: new Set(), modules: new Set(options.modules ?? []) };
+  pulses.add(mine);
   try {
     return await pulse.run(mine, work);
   } finally {
-    for (const group of mine) {
+    pulses.delete(mine);
+    for (const group of mine.groups) {
       killGroup(group);
       forget(group);
     }
