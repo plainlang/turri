@@ -234,3 +234,16 @@ namespaces) the check and the audit hold alone. What a command behind it reaches
 installed, user namespaces off (Docker: `--security-opt seccomp=unconfined`), AppArmor in the way (Docker:
 `--security-opt apparmor=unconfined`; Ubuntu 24.04: its user-namespace restriction), or Docker's masked `/proc` - for
 which bubblewrap falls back to binding the host's `/proc` rather than mounting its own.
+
+### The audit
+
+After every such command, on every platform - a sandbox up or not - turri puts back what the command's role may not
+change inside the project (`src/grow/audit.ts`): the specs, `config*.yaml`, the testing scripts, every credential file
+(the agent's own folder included), the code record, the module's lineage `.plaingit` (its refs and settings), the other
+modules, the folders the role only reads, and the part of its own module it does not write - the coding agent's
+conformance tests. A changed file is put back, a new one removed, a deleted one brought back: from a copy kept before
+the command, or - another module - as its last commit has it, unless a pulse is at work in that module, whose writes are
+not this command's to undo (left, and logged). The agent is told in its command's result what was put back; the job's
+log gets a line; you are not told, and the pulse goes on. It compares sizes and modification times, skipping
+dependencies and build output, and contents only where those differ - about 35 ms on a project of 3000 files. Outside
+the project nothing can be put back: that is the OS sandbox's, and on Windows an accepted gap.
