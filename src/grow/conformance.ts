@@ -420,7 +420,7 @@ export async function renderConformanceTests(
     RUNS_PER_TURN,
   );
   // What the code fixer starts to try the code - a server - stopped when the run ends.
-  const fixerServices = createServiceTools({ dir: buildDir });
+  const fixerServices = createServiceTools({ dir: buildDir, read: [buildDir, conformanceDir], write: [buildDir] });
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
   stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { currentStopSignal } from "./activity.ts";
@@ -292,6 +292,46 @@ export async function runCommand(command: string, options: RunOptions): Promise<
     return { exitCode: 124, output: `${output}${note}`, timedOut: true };
   }
   return { exitCode, output };
+}
+
+/**
+ * Start `command` in the background, in a process group of its own, its output to `logFile` - a server an agent starts
+ * to try from outside. It is its pulse's: running until stopped (`stopGroup`), and killed when the pulse ends.
+ */
+export function startInBackground(command: string, options: { cwd: string; env?: NodeJS.ProcessEnv; wrap?: (argv: string[]) => string[]; logFile: string }): { pid: number } {
+  const argv = options.wrap !== undefined ? options.wrap(["bash", "-c", command]) : ["bash", "-c", command];
+  const log = openSync(options.logFile, "a");
+  try {
+    const child = spawn(argv[0]!, argv.slice(1), { cwd: options.cwd, env: options.env ?? process.env, detached: !WINDOWS, stdio: ["ignore", log, log], windowsHide: true });
+    child.on("error", () => undefined);
+    child.unref();
+    if (child.pid === undefined) throw new Error(`${argv[0]} could not be started`);
+    track(child.pid);
+    return { pid: child.pid };
+  } finally {
+    closeSync(log);
+  }
+}
+
+/** Whether a process is still running. */
+export function isRunning(pid: number): boolean {
+  if (WINDOWS) return spawnSync("tasklist", ["/FI", `PID eq ${pid}`, "/NH"], { encoding: "utf8", windowsHide: true }).stdout.includes(String(pid));
+  return processAlive(pid);
+}
+
+/** Stop a group started in the background: asked to end, then - after `graceMs` - made to. */
+export async function stopGroup(group: number, graceMs = 1000): Promise<void> {
+  if (!WINDOWS) {
+    try {
+      process.kill(-group, "SIGTERM");
+    } catch {
+      // Already gone.
+    }
+    const end = Date.now() + graceMs;
+    while (groupAlive(group) && Date.now() < end) await new Promise((done) => setTimeout(done, 50));
+  }
+  killGroup(group);
+  forget(group);
 }
 
 process.on("exit", killAllGroups);
