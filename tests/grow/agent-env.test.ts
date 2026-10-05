@@ -78,7 +78,9 @@ describe("the environment of an agent's command", () => {
     const { env } = agentEnvironment(module, { hostEnv: host, home });
     const cache = join(project, "plain_modules", ".turri", "cache");
     expect(env).toMatchObject({ npm_config_cache: join(cache, "npm"), PIP_CACHE_DIR: join(cache, "pip"), GOMODCACHE: join(cache, "go-mod") });
-    expect(env.MAVEN_OPTS).toBe(`-Dmaven.repo.local=${join(cache, "m2")}`);
+    expect(env.MAVEN_OPTS).toBe(`-Dmaven.repo.local=${join(cache, "m2")} -Djava.io.tmpdir=${env.TMPDIR}`);
+    // Java's temporary files go to the module's TMPDIR, not the system's.
+    expect(env.GRADLE_OPTS).toBe(`-Djava.io.tmpdir=${env.TMPDIR}`);
   });
 
   it.skipIf(process.platform === "win32")("stops git at the module, so a project that is itself a repository is not found from the code", async () => {

@@ -209,3 +209,28 @@ refused - not run - with the rule it broke and what to do instead, when it:
 
 On Windows, drive letters, backslashes and any case are read as Windows has them. It knowingly misses a path built at
 run time (`$(...)`, a variable, a script that reads one from a file): the OS sandbox and the audit are for those.
+
+### The OS sandbox
+
+Under the check, where the OS offers one, the command runs behind an OS sandbox (`src/grow/os-sandbox.ts`), driven
+directly from the role's fence: Seatbelt (`sandbox-exec`) on macOS, bubblewrap on Linux and WSL2. It is an extra wall,
+never where a rule lives - where neither starts (native Windows, WSL1, a container that does not allow user
+namespaces) the check and the audit hold alone. What a command behind it reaches:
+
+- reads: its role's roots, the module's home, `TMPDIR` and the package caches, and of the machine only the system's
+  folders, every folder on the agent's `PATH` (the folder itself, not its parent: `~/.cargo/bin`, not `~/.cargo`), the
+  folders the toolchain variables point at (`JAVA_HOME`, `RUSTUP_HOME`, `NVM_DIR`, ...) and the project's
+  `toolchains:` - nothing else of the person's home;
+- writes: its role's own roots - none for a role that only reads - and the module's home, `TMPDIR` and caches. On macOS
+  the developer tools' own scratch files too (`xcrun`'s database, clang's module cache), which go where macOS says, not
+  where `TMPDIR` does;
+- never the code record; no Unix socket outside its folders (on macOS, the name service's excepted); signals and
+  process listings only within its own sandbox (bubblewrap's PID namespace, Seatbelt's same-sandbox), so `ps` shows
+  nothing else and `kill` reaches nothing else;
+- the network as this machine has it;
+- at most 4096 processes and files of at most 8 GiB, set with `ulimit` inside.
+
+`sandboxAvailable()` tries it once and says which wall is up, or why none starts and how to give it one: bubblewrap not
+installed, user namespaces off (Docker: `--security-opt seccomp=unconfined`), AppArmor in the way (Docker:
+`--security-opt apparmor=unconfined`; Ubuntu 24.04: its user-namespace restriction), or Docker's masked `/proc` - for
+which bubblewrap falls back to binding the host's `/proc` rather than mounting its own.

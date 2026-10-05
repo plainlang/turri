@@ -45,6 +45,9 @@ const TOOLCHAIN_LOCATORS: Record<string, string | undefined> = {
   PNPM_HOME: undefined,
 };
 
+/** The variables that locate a toolchain - their folders are what the OS sandbox lets a command read of the person's. */
+export const TOOLCHAIN_VARIABLES: string[] = Object.keys(TOOLCHAIN_LOCATORS);
+
 /** Where package managers keep their caches: in the project's scratch area, so a dependency downloads once. */
 export function packageCacheDir(dir: string): string {
   return join(vmScratchDir(dir), "cache");
@@ -123,7 +126,17 @@ function turrisOwn(module: string, name: string): Record<string, string> {
   if (!existsSync(gitconfig)) writeFileSync(gitconfig, GITCONFIG);
   const tmp = join(scratch, "tmp", name);
   mkdirSync(tmp, { recursive: true });
-  return { ...cacheEnv(packageCacheDir(module)), HOME: fakeHome, TMPDIR: tmp, GIT_CEILING_DIRECTORIES: module };
+  const caches = cacheEnv(packageCacheDir(module));
+  // Java takes its temporary folder from the system, not TMPDIR - on macOS a per-user folder outside the sandbox.
+  const javaTmp = `-Djava.io.tmpdir=${tmp}`;
+  return {
+    ...caches,
+    MAVEN_OPTS: `${caches.MAVEN_OPTS} ${javaTmp}`,
+    GRADLE_OPTS: javaTmp,
+    HOME: fakeHome,
+    TMPDIR: tmp,
+    GIT_CEILING_DIRECTORIES: module,
+  };
 }
 
 /** What `agent-env:` - the project's, with the module's own added - passes, and what of it is not there. */
