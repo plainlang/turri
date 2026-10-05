@@ -7,8 +7,7 @@ import { fileURLToPath } from "node:url";
 /**
  * What turri needs from the machine it runs on, found out without changing anything.
  *
- * Kept free of heavy imports so the CLI can ask these questions before it has loaded pi or
- * Gondolin - and so `turri doctor` can report a missing piece instead of crashing on it.
+ * Kept free of heavy imports so the CLI can ask these questions before it has loaded pi - and so `turri doctor` can report a missing piece instead of crashing on it.
  */
 
 export const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -26,21 +25,6 @@ export function nodeVersionOk(version: string = process.versions.node): boolean 
 export function runs(command: string, args: string[] = ["--version"]): boolean {
   const result = spawnSync(command, args, { stdio: "ignore", timeout: 15_000 });
   return result.status === 0;
-}
-
-/** The QEMU binary Gondolin boots VMs with on this machine. */
-export function qemuBinary(): string {
-  return process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
-}
-
-export function qemuInstalled(): boolean {
-  return runs(qemuBinary());
-}
-
-/** How to install QEMU here, as a command to copy. */
-export function qemuInstallHint(): string {
-  if (process.platform === "darwin") return "brew install qemu";
-  return process.arch === "arm64" ? "sudo apt install qemu-system-arm" : "sudo apt install qemu-system-x86";
 }
 
 /** The global pi extension file that loads turri into every `pi`, if there is one. */

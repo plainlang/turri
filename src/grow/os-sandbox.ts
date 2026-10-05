@@ -263,3 +263,9 @@ export function underAny(path: string, roots: string[]): boolean {
     return target === base || target.startsWith(base + sep);
   });
 }
+
+/** Where the agents' commands run, in one line for the person: which walls are up, or that only the shared ones are. */
+export function sandboxSummary(wall: Wall = sandboxAvailable()): { level: "ok" | "limited"; text: string } {
+  if (wall.kind === "none") return { level: "limited", text: `agents' commands run on this machine behind the command check and the audit - no OS sandbox: ${wall.why} (turri doctor)` };
+  return { level: "ok", text: `agents' commands run on this machine behind the command check, ${wall.kind === "seatbelt" ? "Seatbelt" : "bubblewrap"} and the audit` };
+}

@@ -24,7 +24,7 @@ What this skill writes:
 - `test_scripts/run_unittests_<lang>.sh` — always.
 - `test_scripts/run_conformance_tests_<lang>.sh` — only if conformance testing is enabled.
 
-turri requires these scripts: a build with no unit testing script (or, with conformance on, no conformance testing script) stops before it starts. The harness runs them with Bash in a Linux VM, so they are `.sh` scripts.
+turri requires these scripts: a build with no unit testing script (or, with conformance on, no conformance testing script) stops before it starts. The harness runs them with Bash on the person's machine, so they are `.sh` scripts.
 
 What this skill does **not** do:
 

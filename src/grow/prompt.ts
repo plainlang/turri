@@ -1,4 +1,4 @@
-import { vmScratchDir } from "./paths.ts";
+import { modulesScratchDir } from "./paths.ts";
 import {
   ACCEPTANCE_TESTS,
   DEFINITIONS,
@@ -590,7 +590,7 @@ export function buildConformancePrompt(input: ConformancePromptInput): string {
                 "not write access: you write tests, never code. Read it to see how the software is reached - its routes,",
                 "commands, names, how it starts - never for what it should do: that comes from the specification. Your",
                 "shell holds your tests folder and the code, the code read only: to build or run the software yourself,",
-                `copy the code into a folder of your own under ${vmScratchDir(input.readCode)}, and build and run it there.`,
+                `copy the code into a folder of your own under ${modulesScratchDir(input.readCode)}, and build and run it there.`,
               ]
             : [
                 "You cannot read or view the code. It is not in your sandbox - your file tools and your shell hold your",

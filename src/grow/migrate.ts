@@ -48,7 +48,7 @@ function mergeOver(from: string, to: string): void {
 
 /**
  * A project built before turri had its name, brought over to the names it uses now - once a process, and only what
- * is still under an old name: the project's scratch and the VM's (`.plainwright` → `.turri`), and in each module the
+ * is still under an old name: the project's scratch and the modules' (`.plainwright` → `.turri`), and in each module the
  * records and the working notes (`.plainwright.json` → `.turri.json`, `.plainwright-notes.md` → `.turri-notes.md`),
  * committed to the module's history on their own, so the history goes on from them. `plain_modules` and `.plaingit`
  * are the ***plain language's, and keep their names.

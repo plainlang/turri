@@ -115,8 +115,8 @@ entry point.
   name is reserved, so which one a spec builds on never depends on what is on disk beside it.
 - **No concepts.** Its requirements are on the predefined `:Implementation:`, `:UnitTests:` and
   `:ConformanceTests:` only, so it never collides with a spec's own definitions.
-- **Pinned to the VM.** It names the toolchains of the default VM image - Python 3.12, Node.js 24,
-  Java 21, Go 1.25, Rust - so its builds find them.
+- **Pinned to a toolchain.** It names its stack's toolchain - Python 3.12, Node.js 24, Java 21, Go 1.25, Rust -
+  which the agents use from this machine; `turri doctor` says when the machine lacks it.
 - **Not storage, not the testing scripts.** A module with a database says which on top of its
   stack. It still needs its unit testing script, and a conformance testing script when it has
   conformance tests.

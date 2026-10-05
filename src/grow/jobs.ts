@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { availableParallelism } from "node:os";
 import { withPulse } from "./shell.ts";
 import { describeEnvironmentError, EnvironmentError, missingCredentials } from "./environment-error.ts";
 import { addAgentReport, describeAgents, JobStoppedError, withActivity, type AgentReport, type AgentTally, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
@@ -145,8 +146,8 @@ export function createJobRegistry(options?: {
   diagnose?: (job: Job, failures: string[], jobLog?: string) => Promise<string | undefined>;
   /**
    * How many jobs may run at once. Jobs whose lanes are free still wait for a slot past it - each
-   * module's jobs start VMs, and ten modules at once would ask for more than the machine has. Not
-   * given: no limit.
+   * module's jobs build and test on this machine, and ten modules at once would ask for more than it
+   * has. Not given: no limit.
    */
   maxRunning?: number;
 }): JobRegistry {
@@ -411,7 +412,7 @@ export function createJobRegistry(options?: {
             job.logFile = log.file;
             sink.activity(`pulse log: ${log.file}`);
           }
-          // The job holds the VMs it uses until it ends, and no longer.
+          // What the job's agents start runs until it ends, and no longer (withPulse).
           return guarded ? runGuarded() : runOnce();
         })
         .then(
@@ -538,4 +539,12 @@ export function describeJob(job: Job): string {
  */
 export function shouldWait(mode: string, wait: boolean | undefined): boolean {
   return wait ?? mode !== "tui";
+}
+
+/**
+ * How many jobs run at once when nothing says: half this machine's cores, at least one and at most four - a pulse's
+ * builds and tests run here, beside the person's own work.
+ */
+export function defaultParallelJobs(cores: number = availableParallelism()): number {
+  return Math.min(4, Math.max(1, Math.floor(cores / 2)));
 }

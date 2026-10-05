@@ -7,8 +7,8 @@ pages go into each part.
 
 ## Start here
 
-1. [Installation](installation.md) - get a machine ready: `turri setup`, `doctor`, and the
-   VM image every command runs in.
+1. [Installation](installation.md) - get a machine ready: `turri setup`, `doctor`, and what turri needs of
+   this machine.
 2. [Using turri](using.md) - the conversation, the skills and tools, background jobs and
    `/watch`, choosing the model that renders, the command line.
 3. [Authoring \*\*\*plain](authoring-plain.md) - writing the specs: what a spec is made of, the
@@ -44,14 +44,14 @@ pages go into each part.
 
 | page | covers |
 | --- | --- |
-| [Installation](installation.md) | setup and doctor, building the VM image, the stock image's limits, turri in every `pi`, environment variables |
+| [Installation](installation.md) | setup and doctor, what turri needs of this machine, turri in every `pi`, environment variables |
 | [Using turri](using.md) | the conversation, the tools, background jobs, choosing a model, module history, the command line |
 | [The project config](config.md) | `config.yaml` and `config.<module>.yaml`: where they are read from, every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Deploy](deploy.md) | trying what is built: dist/<module>, the last commit, starting it on your machine, asking before installing, `turri release` |
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |
 | [Rendering](growing.md) | where things go, one job, a whole module and how its work is cut into jobs, each job's cases, spec changes, conformance tests, the two records of what is built |
-| [The sandbox](sandbox.md) | what an agent can reach, the file-tool fence, the VM, installing what the image lacks |
+| [The sandbox](sandbox.md) | what an agent can reach, the file-tool fence, the command check, the OS sandbox, the audit |
 | [Skills and gates](skills-and-gates.md) | the gate syntax, what the harness enforces, what a step can do, the rules, trying the gates |
 | [The \*\*\*plain parser](parser.md) | the TypeScript port, `turri validate`, inheritance, the iterator, fidelity |
 | [Theming](theming.md) | the turri themes, contrast, backgrounds, the font |

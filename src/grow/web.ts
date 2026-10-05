@@ -11,14 +11,12 @@ import { Type } from "typebox";
  * has two tools: `web_search`, which asks DuckDuckGo and returns the results, and `web_fetch`,
  * which reads one page and returns it as text.
  *
- * Both run here, on the host, not in the VM. The VM's network stays what it was - the package
- * registries and nothing else - so the code an agent builds and runs, its tests and whatever
- * packages it installs, still cannot reach arbitrary hosts. What reaches the web is a request the
- * agent made through a tool, and what comes back is text it reads.
+ * Both run here, in turri itself. What reaches the web through them is a request the agent made
+ * through a tool, and what comes back is text it reads.
  *
  * Only the public web: `web_fetch` refuses an address on this machine or its network - localhost,
- * the private ranges, the cloud metadata address - so it cannot be used to reach a service the
- * VM is kept from, by way of the host.
+ * the private ranges, the cloud metadata address - so it cannot be used to reach the cloud's
+ * credentials or a service inside the person's network by way of turri.
  */
 
 export const WEB_TOOLS = ["web_search", "web_fetch"];

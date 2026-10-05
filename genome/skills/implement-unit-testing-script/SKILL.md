@@ -18,7 +18,7 @@ The reference implementation is [assets/run_unittests_java.sh](assets/run_unitte
 
 ## Always Bash
 
-turri requires this script and runs it itself, as `bash run_unittests_<lang>.sh <build_folder>` in its Linux (Alpine) VM: its exit code decides whether a functionality's unit tests pass. So the script is always **Bash (`.sh`)**, and stays Alpine/BusyBox-friendly.
+turri requires this script and runs it itself, as `bash run_unittests_<lang>.sh <build_folder>` on the person's machine - macOS, Linux or WSL: its exit code decides whether a functionality's unit tests pass. So the script is always **Bash (`.sh`)**, and stays portable across them - POSIX tools and flags, nothing only one of them has.
 
 A **PowerShell (`.ps1`)** copy is written only when the user asks for one, to run the tests by hand on native Windows. turri never runs it, so a project with only a `.ps1` has no unit testing script.
 

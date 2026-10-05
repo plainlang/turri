@@ -7,7 +7,7 @@ import { writeTestScripts } from "../test-scripts.ts";
 /**
  * The conformance step: an explorer says how the code is invoked, the conformance agent - who never
  * sees the code - writes the tests from the spec, a test fails because the code is wrong, a judge
- * says so, and the coding agent fixes the code. Stubbed agents, but every run is real, in the VMs.
+ * says so, and the coding agent fixes the code. Stubbed agents, but every run is real, on this machine.
  */
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; role: string; task?: string; asked?: boolean };
 /** What each agent was asked, by who it is. */
@@ -123,7 +123,6 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 });
 
 const { renderConformanceTests } = await import("../../src/grow/conformance.ts");
-const { closeAllVms, vmSupported } = await import("../../src/grow/vm.ts");
 const { withActivity } = await import("../../src/grow/activity.ts");
 
 let root: string;
@@ -151,11 +150,10 @@ beforeEach(() => {
   arbiterRules = undefined;
 });
 afterEach(async () => {
-  await closeAllVms();
   rmSync(root, { recursive: true, force: true });
 });
 
-describe.runIf(vmSupported())("the conformance step", { timeout: 180_000 }, () => {
+describe("the conformance step", { timeout: 180_000 }, () => {
   it("explores how the code is invoked, has the tests written apart from it, and sends a failure to whichever is wrong", async () => {
     const stages: string[] = [];
     const sink = { stage: (label: string) => stages.push(label), activity() {}, now() {}, usage() {}, transcript() {}, spec() {} };

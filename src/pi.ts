@@ -26,8 +26,6 @@ import {
   reportAgent,
   reportTranscript,
   reportUsage,
-  type TurnClock,
-  withTurnClock,
 } from "./grow/activity.ts";
 import { debugLogOf, startDebugLog } from "./grow/debug-log.ts";
 
@@ -355,39 +353,16 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // A timed turn is ended where it is when the time is up. The agent is not told: a turn cut short is taken up again
   // by the harness, and a clock in the prompt only hurries the work.
   const timed = timedSessions.has(session) && TURN_LIMIT_MS > 0;
-  // Its clock stops while the harness keeps it waiting (activity.ts `offTheTurnClock`): its VM starting is not its time.
   let outOfTime = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let left = TURN_LIMIT_MS;
-  let runningSince = Date.now();
-  let pauses = 0;
-  let finished = false;
-  const runClock = () => {
-    runningSince = Date.now();
+  if (timed) {
     timer = setTimeout(() => {
       outOfTime = true;
       reportActivity(`  stopped the agent's turn: its ${formatLimit(TURN_LIMIT_MS)} are up`);
       debug?.note(`turn stopped: its ${formatLimit(TURN_LIMIT_MS)} are up`);
       void session.abort();
-    }, left);
-  };
-  const clock: TurnClock = {
-    pause() {
-      if (!timed || outOfTime) return () => {};
-      if (pauses++ === 0) {
-        clearTimeout(timer);
-        timer = undefined;
-        left = Math.max(0, left - (Date.now() - runningSince));
-      }
-      let resumed = false;
-      return () => {
-        if (resumed) return;
-        resumed = true;
-        if (--pauses === 0 && !finished) runClock();
-      };
-    },
-  };
-  if (timed) runClock();
+    }, TURN_LIMIT_MS);
+  }
   // What the model is sent, and only that: its task is its system prompt, which the log already holds whole.
   debug?.prompt(text);
 
@@ -397,13 +372,12 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
     const attach = images !== undefined && !images.sent ? images.images : undefined;
     // The log holds what the model is sent as text; an image is not text, so the log says it went too.
     if (attach !== undefined) debug?.note(`sent with this message: ${attach.length === 1 ? "1 image" : `${attach.length} images`} (${attach.map((image) => image.mimeType).join(", ")})`);
-    await withTurnClock(clock, () => session.prompt(text, { expandPromptTemplates: false, ...(attach !== undefined ? { images: attach } : {}) }));
+    await session.prompt(text, { expandPromptTemplates: false, ...(attach !== undefined ? { images: attach } : {}) });
     if (images !== undefined) images.sent = true;
   } catch (error) {
     debug?.note(`turn failed after ${seconds(Date.now() - turnStarted)}: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   } finally {
-    finished = true;
     if (timer !== undefined) clearTimeout(timer);
     unsubscribe();
     stop?.removeEventListener("abort", onStop);

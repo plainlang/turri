@@ -4,7 +4,7 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readdirSync
 import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import { CONFIG_FILE, CONFIG_KEYS, configModuleOf, configModuleOfBuild, moduleConfigFile, readProjectConfig } from "../config.ts";
 import { reportActivity, reportNote } from "./activity.ts";
-import { ensureInVmScratch, vmScratchDir } from "./paths.ts";
+import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { keepFullOutput, listFiles, truncateOutput, type TestRun } from "./testing.ts";
@@ -293,7 +293,7 @@ export interface ScriptRun {
  */
 function stagingFor(buildDir: string): { root: string; build: string; tests: string } {
   const key = randomUUID().slice(0, 12);
-  const root = join(vmScratchDir(buildDir), "scripts", key);
+  const root = join(modulesScratchDir(buildDir), "scripts", key);
   return { root, build: join(root, `${basename(dirname(resolve(buildDir)))}-${key}`), tests: join(root, "tests") };
 }
 
@@ -477,7 +477,7 @@ export async function runOnCode(
   }
   const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
-  ensureInVmScratch(buildDir, staging.root);
+  ensureInModulesScratch(buildDir, staging.root);
   try {
     reportActivity(`  copying ${stageBuild(buildDir, staging.build)} files of the code for the ${what}`);
     change?.(staging.build);
@@ -501,7 +501,7 @@ export async function runConformanceScript(buildDir: string, testsDirs: string[]
   const project = projectOfBuild(buildDir);
   const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
-  ensureInVmScratch(buildDir, staging.root);
+  ensureInModulesScratch(buildDir, staging.root);
   try {
     let build: string;
     let tests: string;
