@@ -162,3 +162,43 @@ describe("read_output: the whole of an output that was cut", () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe("a test run's output, as an agent is shown it", () => {
+  const maven = [
+    "[INFO] Scanning for projects...",
+    ...Array.from({ length: 1500 }, (_, n) => `2026-10-06T10:18:29.${String(n).padStart(3, "0")}+02:00 DEBUG 42179 --- [main] o.h.v.i.e.ValidatorFactory : HV000234: Using provider ${n}`),
+    "[INFO] Running com.shop.OrderServiceTest",
+    "[ERROR] Tests run: 4, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.2 s <<< FAILURE! -- in com.shop.OrderServiceTest",
+    "[ERROR] com.shop.OrderServiceTest.rejectsAnEmptyOrder -- Time elapsed: 0.01 s <<< FAILURE!",
+    "org.opentest4j.AssertionFailedError: expected: <400> but was: <200>",
+    "\tat org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:151)",
+    "\tat com.shop.OrderServiceTest.rejectsAnEmptyOrder(OrderServiceTest.java:42)",
+    ...Array.from({ length: 1500 }, (_, n) => `2026-10-06T10:18:30.${String(n).padStart(3, "0")}+02:00 DEBUG 42179 --- [main] _.s.web.servlet.HandlerMapping : mapping ${n}`),
+    "[INFO] Results:",
+    "[ERROR] Failures:",
+    "[ERROR]   OrderServiceTest.rejectsAnEmptyOrder:42 expected: <400> but was: <200>",
+    "[ERROR] Tests run: 79, Failures: 1, Errors: 0, Skipped: 0",
+    "[INFO] BUILD FAILURE",
+  ].join("\n");
+
+  it("is whole when it is short", async () => {
+    const { shownTestOutput } = await import("../../src/grow/testing.ts");
+    expect(shownTestOutput("Ran 3 tests\nOK\n", "/p/run.log")).toBe("Ran 3 tests\nOK\n");
+  });
+
+  it("is the failures with their traces, the counts and the end - not the logging - with the whole a read_output away", async () => {
+    const { shownTestOutput } = await import("../../src/grow/testing.ts");
+    const shown = shownTestOutput(maven, "/p/plain_modules/.turri/logs/2026-run_unittests.sh.log");
+    expect(shown.length).toBeLessThan(16_000);
+    expect(shown).toMatch(/^\[turri: the run printed 3012 lines; shown are its failures, its counts and its end - the whole is kept as `2026-run_unittests\.sh\.log`: call read_output with that id for the rest\]\n/);
+    for (const line of [
+      "[ERROR] com.shop.OrderServiceTest.rejectsAnEmptyOrder -- Time elapsed: 0.01 s <<< FAILURE!",
+      "org.opentest4j.AssertionFailedError: expected: <400> but was: <200>",
+      "\tat com.shop.OrderServiceTest.rejectsAnEmptyOrder(OrderServiceTest.java:42)",
+      "[ERROR] Tests run: 79, Failures: 1, Errors: 0, Skipped: 0",
+      "[INFO] BUILD FAILURE",
+    ]) expect(shown).toContain(line);
+    expect(shown).not.toContain("HV000234");
+    expect(shown).toMatch(/\.\.\. \[\d+ lines left out\] \.\.\./);
+  });
+});
