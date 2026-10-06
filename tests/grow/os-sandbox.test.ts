@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -155,6 +155,17 @@ describe.runIf(wall.kind !== "none")(`behind ${wall.kind === "none" ? "no wall" 
     } finally {
       outside.kill();
     }
+  });
+
+  it.runIf(spawnSync("java", ["-version"]).status === 0)("lets a JVM it starts - a forked test JVM too - write its temporary files and find its home", async () => {
+    writeFileSync(
+      join(code, "Tmp.java"),
+      'public class Tmp { public static void main(String[] a) throws Exception { System.out.println(java.io.File.createTempFile("tmp", ".txt").getParent()); System.out.println(System.getProperty("user.home")); } }\n',
+    );
+    // As Surefire starts one: a JVM of its own, given none of MAVEN_OPTS.
+    const result = await run("env -u MAVEN_OPTS java Tmp.java 2>/dev/null");
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output.trim().split("\n")).toEqual([env.TMPDIR!, env.HOME!]);
   });
 
   it("caps the processes and the size of a file", async () => {

@@ -129,13 +129,13 @@ function turrisOwn(module: string, name: string): Record<string, string> {
   if (!existsSync(gitconfig)) writeFileSync(gitconfig, GITCONFIG);
   const tmp = join(scratch, "tmp", name);
   mkdirSync(tmp, { recursive: true });
-  const caches = cacheEnv(packageCacheDir(module));
-  // Java takes its temporary folder from the system, not TMPDIR - on macOS a per-user folder outside the sandbox.
-  const javaTmp = `-Djava.io.tmpdir=${tmp}`;
+  // Java takes its temporary folder and its home from the system, not from TMPDIR and HOME - on macOS a per-user folder
+  // and the person's home, both outside the sandbox. Every JVM reads JAVA_TOOL_OPTIONS, a test JVM Surefire or Gradle
+  // forks too, and an agent's own MAVEN_OPTS does not replace it: Maven without its repository setting falls back to the
+  // module's home, not the person's ~/.m2. (Each JVM says on stderr that it picked them up.)
   return {
-    ...caches,
-    MAVEN_OPTS: `${caches.MAVEN_OPTS} ${javaTmp}`,
-    GRADLE_OPTS: javaTmp,
+    ...cacheEnv(packageCacheDir(module)),
+    JAVA_TOOL_OPTIONS: `-Djava.io.tmpdir=${tmp} -Duser.home=${fakeHome}`,
     HOME: fakeHome,
     TMPDIR: tmp,
     GIT_CEILING_DIRECTORIES: module,
