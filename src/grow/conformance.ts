@@ -30,13 +30,13 @@ import {
   runConformanceScript,
   runUnitScript,
   type ScriptRun,
-  missingToolchain,
   scriptFailure,
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createMyDiffTool } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
+import { missingToolchainError, toolchainError } from "./environment-error.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   codeFixPrompt,
@@ -567,6 +567,13 @@ export async function renderConformanceTests(
       let recheck = await runConformanceScript(buildDir, [conformanceDir], scripts);
       runs.push({ command: recheck.command, exitCode: recheck.exitCode });
       options.onRun?.(recheck.command, recheck.exitCode);
+      // The script cannot find its toolchain: the machine lacks it, and no change to the tests or the code would pass it.
+      // The pulse stops - rolled back by the loop - and the person is told; no agent is sent to work around it.
+      const lacking = recheck.exitCode !== 0 ? missingToolchainError(recheck, { moduleName, script: scripts.conformance!, kind: "conformance" }) : undefined;
+      if (lacking !== undefined) {
+        if (start !== undefined) abandonWork(start, moduleName, "the conformance testing script could not run");
+        throw lacking;
+      }
       if (recheck.exitCode !== 0) {
         // Nothing changing: the same failure, taken the same way, round after round. Once, the explorer
         // is asked what the tests lack - most often how they reach the software; after that, it stops.
@@ -615,9 +622,8 @@ export async function renderConformanceTests(
           recordAttempt(rounds, recheck, `the same failure ${STUCK_ROUNDS} times - the explorer was asked again what the tests lack`, { who: "conformance agent", files: asked.files });
           return "asked";
         };
-        // A toolchain missing, or a run out of time, is not a question of test or code: the tests'
-        // environment is the conformance agent's.
-        if (missingToolchain(recheck) !== undefined || recheck.timedOut === true) {
+        // A run out of time is not a question of test or code: the tests' environment is the conformance agent's.
+        if (recheck.timedOut === true) {
           const moved = await unmoved();
           if (moved === "stuck") break;
           if (moved === "asked") continue;
@@ -733,6 +739,7 @@ export async function renderConformanceTests(
             stage("checking the fix: the code's unit tests");
             const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
             if (unit.ok) break;
+            if (unit.missing !== undefined) throw toolchainError(unit.missing, { moduleName, script: scripts.unit!, kind: "unit" });
             stage("the fix does not build or pass its unit tests - back to the coding agent");
             await changing(() =>
               askFixer(`Your fix does not build or pass the code's unit tests - it has to before the conformance suite runs again.\n\n${unit.prompt}`),
@@ -753,6 +760,7 @@ export async function renderConformanceTests(
       // the code looks changed. Conformance passing on code whose unit tests fail is not done.
       stage("running the unit testing script too");
       const unit = await verifyUnitSuite(buildDir, unitRuns, scripts.unit!);
+      if (!unit.ok && unit.missing !== undefined) throw toolchainError(unit.missing, { moduleName, script: scripts.unit!, kind: "unit" });
       if (!unit.ok) {
         stage("unit tests NOT passing - the coding agent fixes the code");
         await askFixer(`The conformance tests pass, but the code's unit tests do not - and both have to.\n\n${unit.prompt}`);

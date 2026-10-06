@@ -7,6 +7,7 @@ import { confinedTools } from "./confine.ts";
 import { projectRootOf } from "./paths.ts";
 import { buildRegressionFixPrompt, sectionModules } from "./prompt.ts";
 import { abandonWork, markWork, recordHistory, type WorkStart } from "./lineage.ts";
+import { missingToolchainError } from "./environment-error.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import { createScriptTool, MissingTestScriptError, runConformanceScript, runUnitScript, withTestingScripts, type TestScripts } from "./test-scripts.ts";
@@ -184,6 +185,12 @@ export async function ensureRegressionPasses(input: {
         : `${unitOf(input.moduleName)}: repair ${round} done - running the whole conformance suite again`,
     );
     const result = await runConformanceScript(input.buildDir, dirs, input.scripts);
+    // The script cannot find its toolchain: no repair would pass it - the pulse stops, and the person is told.
+    const lacking = result.exitCode !== 0 ? missingToolchainError(result, { moduleName: input.moduleName, script: input.scripts.conformance, kind: "conformance" }) : undefined;
+    if (lacking !== undefined) {
+      abandonWork(start, input.moduleName, "the conformance testing script could not run");
+      throw lacking;
+    }
     command = result.command;
     runs.push({ command, exitCode: result.exitCode, frids: input.frids });
     reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
@@ -195,6 +202,11 @@ export async function ensureRegressionPasses(input: {
     if (passing && input.scripts.unit !== undefined) {
       reportStage(`${unitOf(input.moduleName)}: the whole conformance suite passes - running the unit testing script too`);
       const unit = await runUnitScript(input.buildDir, input.scripts.unit);
+      const lackingUnit = unit.exitCode !== 0 ? missingToolchainError(unit, { moduleName: input.moduleName, script: input.scripts.unit, kind: "unit" }) : undefined;
+      if (lackingUnit !== undefined) {
+        abandonWork(start, input.moduleName, "the unit testing script could not run");
+        throw lackingUnit;
+      }
       runs.push({ command: unit.command, exitCode: unit.exitCode, frids: input.frids });
       input.onEvent?.({ type: "run", command: unit.command, exitCode: unit.exitCode, frids: input.frids });
       if (unit.exitCode !== 0) {

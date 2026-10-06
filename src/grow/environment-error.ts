@@ -2,6 +2,7 @@ import { basename, dirname, isAbsolute } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { passedCredentials } from "./agent-env.ts";
+import { missingToolchain } from "./test-scripts.ts";
 import { MODULES_DIR } from "./paths.ts";
 
 /**
@@ -77,6 +78,31 @@ export function environmentErrorTool(record: (report: { missing: string; neededB
       return { content: [{ type: "text" as const, text: "Recorded. Your turn ends here; the person is told." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;
+}
+
+/**
+ * A testing script that cannot find its toolchain: the machine lacks it, and no change to the code or the tests would
+ * pass the script - so it is the environment's, found by the harness. `missing` is what the run's output named.
+ */
+export function toolchainError(missing: { command?: string }, details: { moduleName: string; script: string; kind: "unit" | "conformance" }): EnvironmentError {
+  const needs = missing.command !== undefined ? `\`${missing.command}\`` : `a toolchain the ${details.kind} testing script needs`;
+  return new EnvironmentError({
+    moduleName: details.moduleName,
+    missing: needs,
+    neededBy: `the ${details.kind} testing script, \`${basename(details.script)}\``,
+    shownBy: missing.command !== undefined ? `it could not find \`${missing.command}\`` : "it exited saying a toolchain is missing",
+    fix: `install ${missing.command ?? "it"} on this machine, so the testing script finds it on its PATH.`,
+    source: "harness",
+  });
+}
+
+/** The harness's run of a testing script, when it could not find its toolchain: the error that stops the pulse. */
+export function missingToolchainError(
+  run: { exitCode: number; output: string },
+  details: { moduleName: string; script: string; kind: "unit" | "conformance" },
+): EnvironmentError | undefined {
+  const missing = missingToolchain(run);
+  return missing !== undefined ? toolchainError(missing, details) : undefined;
 }
 
 /** The module a folder is part of, by name: `plain_modules/<module>/...`. */

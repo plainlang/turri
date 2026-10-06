@@ -32,7 +32,7 @@ describe("a testing script that cannot find its toolchain", () => {
   it("tells the agent to stop, not to work around it, whatever the command", () => {
     const run = { command: "run_unittests.sh", exitCode: 127, output: "run.sh: line 2: no-such-toolchain-xyz: command not found", timeoutMs: 1000 };
     const told = scriptFailure(run, "unit testing");
-    expect(told).toContain("End your turn");
+    expect(told).toContain("Call report_environment_error");
     expect(told).not.toContain("install_system_packages");
   });
 });

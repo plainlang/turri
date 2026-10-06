@@ -628,8 +628,8 @@ export function scriptFailure(run: ScriptRun, what: string): string {
   const cause =
     missing !== undefined
       ? `It could not run: ${needs} is not installed on this machine, where the testing scripts run. That is the person's ` +
-        "to install, not yours: do not work around it, and do not change the code for it. End your turn, saying exactly " +
-        "what is missing."
+        "to install, not yours: do not work around it, and do not change the code or the tests for it. Call " +
+        "report_environment_error with exactly what is missing."
       : [
           ...fixMethod({
             what: what === "unit testing" ? "unit tests" : "conformance tests",

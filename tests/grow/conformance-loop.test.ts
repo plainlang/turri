@@ -204,6 +204,28 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_acceptance_hello.py"), "utf8")).toContain("# acceptance test 1 of functionality 1:");
   });
 
+  it("stops at the harness's first run when the conformance testing script cannot find its toolchain - no turn back to the conformance agent", async () => {
+    writeTestScripts(root, { conformance: "#!/bin/bash\necho 'run_conformance_tests.sh: line 3: flutter: command not found'\nexit 127\n" });
+    const { EnvironmentError, describeEnvironmentError } = await import("../../src/grow/environment-error.ts");
+    const stopped = await renderConformanceTests({
+      plainFile: join(root, "app.plain"),
+      frid: "1",
+      buildDir: codeDir,
+      conformanceDir: join(root, "plain_modules", "app", "tests"),
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(stopped).toBeInstanceOf(EnvironmentError);
+    const said = describeEnvironmentError(stopped as InstanceType<typeof EnvironmentError>);
+    expect(said).toContain("**app stopped: the environment lacks `flutter`.**");
+    expect(said).toContain("Needed by: the conformance testing script, `run_conformance_tests_python.sh`");
+    expect(said).toContain("install flutter on this machine");
+    // The conformance agent was never sent back to work around what the machine lacks.
+    for (const turn of asked.filter((candidate) => candidate.role === "conformance agent")) expect(turn.prompt).not.toContain("is not installed on this machine");
+    expect(asked.map((turn) => turn.role)).not.toContain("judge");
+  });
+
   it("lets the conformance agent read the code but write only tests, and the coding agent read the tests but write only code", async () => {
     const { createExecutor } = await import("../../src/pi.ts");
     const spy = vi.mocked(createExecutor);

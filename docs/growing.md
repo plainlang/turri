@@ -430,9 +430,10 @@ and whatever they do is your doing. That is the only way the two scripts are eve
 agents' `run_unit_tests` and `run_conformance_tests`, which run them exactly as the harness does - through the host
 runner, in a process group of their own, so the time limit and a stopped job end the script and all it started. A
 toolchain the script needs and this machine lacks - exit 69, exit 127, or a `command not found` / `failed to run
-command` in its output (`missingToolchain`) - is yours to install, never the agent's: the agent is told to end its turn
-rather than work around it, and the job stops at the first run that cannot find it, nothing built, saying what to
-install. The code and the tests an agent wrote run unfenced inside the script too: what an agent runs with its own
+command` in its output (`missingToolchain`) - is yours to install, never the agent's: the agent is told to report it
+with `report_environment_error` rather than work around it, and the pulse stops at the harness's first run of either
+script - unit or conformance - that cannot find it, rolled back, saying what to install (see
+[when the environment lacks something](#when-the-environment-lacks-something)). The code and the tests an agent wrote run unfenced inside the script too: what an agent runs with its own
 shell is fenced, what your script runs is not - an accepted gap.
 
 **A script that does not fit where it runs.** When a line of the script itself fails - a command or file it names is
@@ -475,7 +476,8 @@ It is raised two ways:
 - **by an agent**, which calls `report_environment_error` - every agent with a shell has it, and its walls name it -
   with what is missing, what needs it and the command that showed it. Its turn ends, the pulse stops, and what it said
   goes to you as it is, not investigated further;
-- **by the harness itself**: a testing script that cannot find its toolchain (exit 69 or 127, `command not found`), or
+- **by the harness itself**: a testing script - the unit or the conformance one, in a code pulse, a conformance pulse or
+  the whole-suite run - that cannot find its toolchain (exit 69 or 127, `command not found`), or
   a credential `agent-env:` names that is not there when the pulse starts - before any agent does. What the harness
   found it works out at once - the diagnosis, not after a second failure - to say how to fix it on this machine.
 
@@ -803,8 +805,9 @@ the run failed with, how it was judged, and which files the agent sent to fix it
 attempt's line says what came of it - and each judge reads them first, so it does not send a
 failure the way that already failed. A run that does not pass is undone whole, its notes with it.
 
-Then the suite runs again. A run that never got to the tests - a toolchain missing, a time limit - goes
-back to the conformance agent without a judge: the tests' environment is its. Unit tests failing after
+Then the suite runs again. A run stopped by its time limit goes back to the conformance agent without a judge: the
+tests' environment is its. A run whose script cannot find its toolchain stops the pulse instead - see
+[when the environment lacks something](#when-the-environment-lacks-something). Unit tests failing after
 the suite passes go to the coding agent. It goes round up to 20 times; still failing, the work is undone.
 
 Before each run the harness checks for itself: both kinds of test are there and labelled, none of

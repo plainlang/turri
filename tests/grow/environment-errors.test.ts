@@ -93,3 +93,33 @@ describe("a credential agent-env names that is not there", () => {
     expect(existsSync(join(project, "plain_modules", ".turri"))).toBe(false);
   });
 });
+
+describe("the whole conformance suite, when its script cannot find its toolchain", () => {
+  let project: string;
+  beforeEach(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), "turri-env-regression-")));
+    mkdirSync(join(project, "plain_modules", "app", "code"), { recursive: true });
+    mkdirSync(join(project, "plain_modules", "app", "tests"), { recursive: true });
+    writeFileSync(join(project, "plain_modules", "app", "tests", "test_app.py"), "def test(): pass\n");
+    writeFileSync(join(project, "run_conformance_tests.sh"), "#!/bin/bash\necho 'line 2: flutter: command not found'\nexit 127\n");
+  });
+  afterEach(() => rmSync(project, { recursive: true, force: true }));
+
+  it("stops the pulse at once - no repair agent is started to work around it", async () => {
+    const { ensureRegressionPasses } = await import("../../src/grow/regression.ts");
+    const stopped = await ensureRegressionPasses({
+      buildDir: join(project, "plain_modules", "app", "code"),
+      conformanceRoot: join(project, "plain_modules"),
+      moduleName: "app",
+      frids: ["1"],
+      tree: {} as never,
+      required: [],
+      scripts: { conformance: join(project, "run_conformance_tests.sh") },
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(stopped).toBeInstanceOf(EnvironmentError);
+    expect(describeEnvironmentError(stopped as EnvironmentError)).toContain("**app stopped: the environment lacks `flutter`.**");
+  });
+});

@@ -156,7 +156,7 @@ describe("the testing scripts, run", () => {
     const run = { command: "test_scripts/run_unittests_python.sh", exitCode: 69, output: "Error: Python 3.12 or newer is required", timeoutMs: 120_000 };
     const said = scriptFailure(run, "unit testing");
     expect(said).toContain("is not installed on this machine");
-    expect(said).toContain("End your turn");
+    expect(said).toContain("Call report_environment_error");
   });
 });
 
