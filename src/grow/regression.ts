@@ -8,6 +8,7 @@ import { projectRootOf } from "./paths.ts";
 import { buildRegressionFixPrompt, sectionModules } from "./prompt.ts";
 import { abandonWork, markWork, recordHistory, type WorkStart } from "./lineage.ts";
 import { missingToolchainError } from "./environment-error.ts";
+import { workspaceBlock } from "./workspace.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
 import { notesForSession, withNotes } from "./notes.ts";
 import { createScriptTool, MissingTestScriptError, runConformanceScript, runUnitScript, withTestingScripts, type TestScripts } from "./test-scripts.ts";
@@ -91,7 +92,7 @@ async function repairRegression(input: {
     tools: [...fence.names, ...FIX_TOOLS, ...WEB_TOOLS],
     model: input.model,
     label: `${input.step} repair agent`,
-    system: fence.note,
+    system: `${fence.note}\n\n${workspaceBlock({ dir: input.buildDir, hasMyDiff: FIX_TOOLS.includes("my_diff") })}`,
     task: withNotes(
       withTestingScripts(
         buildRegressionFixPrompt({

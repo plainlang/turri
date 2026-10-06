@@ -36,6 +36,7 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createCanItFailTool, createMyDiffTool, createStaticChecksTool, selfCheckNote } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
 import { toolchainError } from "./environment-error.ts";
+import { workspaceBlock } from "./workspace.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
@@ -402,7 +403,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), ...services.names, "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
-    system: fence.note,
+    system: `${fence.note}\n\n${workspaceBlock({ dir: buildDir, hasMyDiff: true })}`,
     task,
     compaction: { instructions: CODER_COMPACTION },
     images: resourceImages(linkedResources),

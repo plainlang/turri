@@ -37,6 +37,7 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createMyDiffTool } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
 import { missingToolchainError, toolchainError } from "./environment-error.ts";
+import { workspaceBlock } from "./workspace.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   codeFixPrompt,
@@ -441,7 +442,7 @@ export async function renderConformanceTests(
     tools: [...fence.names, "run_conformance_tests", "my_diff", "ask_explorer", "update_notes", "submit_work", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
-    system: fence.note,
+    system: `${fence.note}\n\n${workspaceBlock({ dir: conformanceDir, hasMyDiff: true })}`,
     task: [withNotes(agentPrompt, buildDir), "", ...SUBMIT_WORK_NOTE].join("\n"),
     compaction: { instructions: CONFORMANCE_COMPACTION },
     images: resourceImages(linkedResources),

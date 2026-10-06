@@ -9,7 +9,7 @@ import { BEGIN } from "../../src/pi.ts";
 /** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
 const prompts: string[] = [];
 /** The images each agent is made with, by its label. */
-const imagesGiven: Array<{ label?: string; images?: unknown[] }> = [];
+const imagesGiven: Array<{ label?: string; images?: unknown[]; system?: string }> = [];
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
   // Asked to leave notes, it does - and that is not a turn the test is about.
@@ -54,8 +54,8 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string; label?: string; images?: unknown[] }) => {
-      imagesGiven.push({ label: opts.label, images: opts.images });
+    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string; label?: string; images?: unknown[]; system?: string }) => {
+      imagesGiven.push({ label: opts.label, images: opts.images, system: opts.system });
       return { tools: opts.customTools, task: opts.task, dispose() {} };
     },
     ask: vi.fn(passingAgent),
@@ -172,6 +172,16 @@ describe("rendering a spec diff", () => {
     const coder = imagesGiven.find((agent) => agent.label?.endsWith("coding agent"));
     expect(coder?.images).toEqual([{ type: "image", data: png.toString("base64"), mimeType: "image/png" }]);
     expect(prompts[0]).toContain('<resource name="the mockup" path="mockup.png" type="image/png">\n[an image: attached to your first message, image 1]');
+  });
+
+  it("tells the coding agent up front about its folder and this machine, beside its walls", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir });
+    const coder = imagesGiven.find((agent) => agent.label?.endsWith("coding agent"))!;
+    expect(coder.system).toContain("<sandbox>");
+    expect(coder.system).toContain("<your folder and this machine>");
+    expect(coder.system).toContain("It is not a git repository, and none above it is yours: `my_diff` shows what you have changed in this pulse.");
   });
 
   it("stops at once, saying what to install, when the unit testing script on this machine cannot find its toolchain", async () => {

@@ -99,7 +99,7 @@ describe("long output, as an agent is shown it", () => {
     const output = `toolchain: python 3.12\n${"installing a dependency\n".repeat(4000)}FAILED test_login - AssertionError: 401 != 200\n`;
     const shown = truncateOutput(output, "/p/plain_modules/.turri/logs/2026-run.log");
     // The whole output is reached through a tool, by its id - never by a path outside the agent's walls.
-    expect(shown).toMatch(/^\.\.\. \[\d+ characters cut from the start - the whole output is kept as `2026-run\.log`: read it with read_output\] \.\.\.\n\n/);
+    expect(shown).toMatch(/^\.\.\. \[\d+ characters cut from the start - the whole output is kept as `2026-run\.log`: call read_output with that id - it is not a file in your folder\] \.\.\.\n\n/);
     expect(shown).not.toContain("/p/plain_modules");
     expect(shown.endsWith(output.slice(-60_000))).toBe(true);
     expect(shown).not.toContain("toolchain: python 3.12");
@@ -155,7 +155,7 @@ describe("read_output: the whole of an output that was cut", () => {
     const temp = join(root, "pi-bash-abc.log");
     writeFileSync(temp, "all of it\n");
     const text = keptShellOutput(code, `tail\n\n[Showing lines 10-12 of 12. Full output: ${temp}]`);
-    expect(text).toMatch(/^tail\n\n\[Showing lines 10-12 of 12\. The whole output is kept as `[^`]+-bash\.log`: read it with read_output\]$/);
+    expect(text).toMatch(/^tail\n\n\[Showing lines 10-12 of 12\. The whole output is kept as `[^`]+-bash\.log`: call read_output with that id - it is not a file in your folder\]$/);
     const id = /`([^`]+)`/.exec(text)![1]!;
     expect(readFileSync(join(root, "plain_modules", ".turri", "logs", id), "utf8")).toBe("all of it\n");
     expect(keptShellOutput(code, "nothing cut")).toBe("nothing cut");
@@ -190,7 +190,7 @@ describe("a test run's output, as an agent is shown it", () => {
     const { shownTestOutput } = await import("../../src/grow/testing.ts");
     const shown = shownTestOutput(maven, "/p/plain_modules/.turri/logs/2026-run_unittests.sh.log");
     expect(shown.length).toBeLessThan(16_000);
-    expect(shown).toMatch(/^\[turri: the run printed 3012 lines; shown are its failures, its counts and its end - the whole is kept as `2026-run_unittests\.sh\.log`: call read_output with that id for the rest\]\n/);
+    expect(shown).toMatch(/^\[turri: the run printed 3012 lines; shown are its failures, its counts and its end - the whole is kept as `2026-run_unittests\.sh\.log`: call read_output with that id for the rest - it is not a file in your folder\]\n/);
     for (const line of [
       "[ERROR] com.shop.OrderServiceTest.rejectsAnEmptyOrder -- Time elapsed: 0.01 s <<< FAILURE!",
       "org.opentest4j.AssertionFailedError: expected: <400> but was: <200>",
