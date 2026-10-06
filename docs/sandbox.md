@@ -81,7 +81,10 @@ write. So every command an agent runs - its `bash`, a service it starts - goes t
 2. **the module's own environment** - not yours: the path, the locale, the terminal, the user and the toolchains'
    variables pass, nothing else - no provider key, no token, no SSH agent; a home folder of the module's own in
    `plain_modules/.turri/home/<module>`, kept between pulses, a `TMPDIR`, the package caches in the project, git
-   stopped at the module folder, and what `agent-env:` passes (see [credentials for the agents](config.md#credentials-for-the-agents));
+   stopped at the module folder, and what `agent-env:` passes (see [credentials for the agents](config.md#credentials-for-the-agents)).
+   Every JVM - a test JVM Maven or Gradle forks too - is given the module's `TMPDIR` and home through
+   `JAVA_TOOL_OPTIONS`, since Java takes both from the system rather than from `TMPDIR` and `HOME`; each says so in a
+   "Picked up JAVA_TOOL_OPTIONS" line on its stderr;
 3. **the OS sandbox**, where one is up - Seatbelt on macOS, bubblewrap on Linux and WSL2;
 4. **the audit**, after it, which puts back what it changed that its role may not, and tells the agent.
 

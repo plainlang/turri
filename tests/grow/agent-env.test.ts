@@ -78,9 +78,12 @@ describe("the environment of an agent's command", () => {
     const { env } = agentEnvironment(module, { hostEnv: host, home });
     const cache = join(project, "plain_modules", ".turri", "cache");
     expect(env).toMatchObject({ npm_config_cache: join(cache, "npm"), PIP_CACHE_DIR: join(cache, "pip"), GOMODCACHE: join(cache, "go-mod") });
-    expect(env.MAVEN_OPTS).toBe(`-Dmaven.repo.local=${join(cache, "m2")} -Djava.io.tmpdir=${env.TMPDIR}`);
-    // Java's temporary files go to the module's TMPDIR, not the system's.
-    expect(env.GRADLE_OPTS).toBe(`-Djava.io.tmpdir=${env.TMPDIR}`);
+    expect(env.MAVEN_OPTS).toBe(`-Dmaven.repo.local=${join(cache, "m2")}`);
+    // Every JVM - a forked test JVM too - has its temporary files in the module's TMPDIR and its home in the module's
+    // home, which Java takes from the system rather than from HOME: an agent's own MAVEN_OPTS cannot send Maven to the
+    // person's ~/.m2.
+    expect(env.JAVA_TOOL_OPTIONS).toBe(`-Djava.io.tmpdir=${env.TMPDIR} -Duser.home=${env.HOME}`);
+    expect(env.GRADLE_OPTS).toBeUndefined();
   });
 
   it.skipIf(process.platform === "win32")("stops git at the module, so a project that is itself a repository is not found from the code", async () => {
