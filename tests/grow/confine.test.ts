@@ -141,6 +141,9 @@ describe("an agent's walls, in its system prompt", () => {
     expect(fence.note).toContain("(`$HOME`, `$TMPDIR`)");
     expect(fence.note).toContain("A command that names a path outside is refused before it runs. Anything a command changes outside is\n  put back, and you are told.");
     expect(fence.note).toContain("If a port is taken by something else, use another port.");
+    // What would otherwise cost it a command or two to find out.
+    expect(fence.note).toContain("Temporary files go in `$TMPDIR`: `/tmp` is outside your walls.");
+    expect(fence.note).toContain("`ps` may show nothing but what you started: check a server you started with `kill -0 $!`, its log, or a request to it.");
     expect(fence.note).not.toMatch(/VM|every attempt fails|cheat/);
     expect(fence.note).not.toContain(".turri");
   });

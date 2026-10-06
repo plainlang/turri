@@ -248,6 +248,8 @@ export function sandboxNote(fence: { read: string[]; write: string[]; shell: boo
       `  machine lacks something the code needs, ${report}, name what is missing, and go no further with what depends on it.`,
       "  The person decides.",
       "- Ports and processes: you may stop only what you started. If a port is taken by something else, use another port.",
+      "  `ps` may show nothing but what you started: check a server you started with `kill -0 $!`, its log, or a request to it.",
+      "- Temporary files go in `$TMPDIR`: `/tmp` is outside your walls.",
     );
   } else {
     lines.push("You have no shell. Nothing else exists for you; everything you need is in this prompt.");
