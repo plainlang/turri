@@ -46,7 +46,9 @@ enforced and are the same on every platform:
 - that the project's dependencies are its own, through the build manifest, and installing anything else is not: what
   the machine lacks it reports with `report_environment_error`, naming what is missing, and goes no further with what
   depends on it (see [when the environment lacks something](growing.md#when-the-environment-lacks-something));
-- that it may stop only what it started, and that a port something else holds means another port.
+- that it may stop only what it started, and that a port something else holds means another port; that `ps` may show
+  nothing but what it started, so a server is checked with `kill -0 $!`, its log or a request;
+- that temporary files go in `$TMPDIR`, `/tmp` being outside its walls.
 
 No other path is named - nothing into `plain_modules/.turri`. A test run or a command whose output was cut names the
 whole of it by an id, and the agent reads it with `read_output` - not by a path into `plain_modules/.turri` or to a
