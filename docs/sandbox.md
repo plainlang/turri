@@ -62,6 +62,10 @@ tool was called with, and once on the absolute path the tool resolved it to, bec
 differ. Symlinks are resolved before comparing, so a link cannot walk out, and a glob containing
 `..` is refused outright.
 
+The record of what the code is built from, `code/.turri.json`, is the harness's: no agent reads or writes it. `read`
+refuses it, and `ls`, `grep` and `find` leave it out of what they list - as the command check, the OS sandbox and the
+audit keep it from commands.
+
 Credentials are the person's: no agent writes a `.env` or a variant of one (`.env.local`, `.env.test`) - a
 template, `.env.example`, is fine. The file tools refuse it, the command check refuses a command that would
 write one, and what a command does to one anyway is put back by the audit, the agent told why. A made-up credential makes every later run fail without anyone seeing why; a missing one is the

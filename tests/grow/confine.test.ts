@@ -76,7 +76,22 @@ describe("confinedTools", () => {
     const write = fence.tools.find((tool) => tool.name === "write")!;
     const edit = fence.tools.find((tool) => tool.name === "edit")!;
     await expect(execute(write, { path: ".turri.json", content: "{}\n" })).rejects.toThrow(/the harness's record of what the code is built from/);
-    await expect(execute(edit, { path: ".turri.json", edits: [{ oldText: "{", newText: "[" }] })).rejects.toThrow(/no agent does/);
+    await expect(execute(edit, { path: ".turri.json", edits: [{ oldText: "{", newText: "[" }] })).rejects.toThrow(/no agent reads or writes it/);
+  });
+
+  it("hides the record of what the code is built from - not read, and not in what ls, grep or find list", async () => {
+    writeFileSync(join(code, ".turri.json"), '{"frids": ["1"], "secret": "spec-text"}\n');
+    writeFileSync(join(code, "notes.txt"), "spec-text is mentioned here too\n");
+    const fence = confinedTools({ workdir: code });
+    const tool = (name: string) => fence.tools.find((t) => t.name === name)!;
+    const text = async (name: string, params: unknown) => ((await execute(tool(name), params)) as { content: Array<{ text: string }> }).content.map((part) => part.text).join("");
+    await expect(execute(tool("read"), { path: ".turri.json" })).rejects.toThrow(/the harness's record of what the code is built from/);
+    expect(await text("ls", { path: "." })).not.toContain(".turri.json");
+    expect(await text("ls", { path: "." })).toContain("app.py");
+    const grep = await text("grep", { pattern: "spec-text", path: "." });
+    expect(grep).toContain("notes.txt");
+    expect(grep).not.toContain(".turri.json");
+    expect(await text("find", { pattern: "*.json", path: "." })).not.toContain(".turri.json");
   });
 
   it("reads and writes only its own module's code - not a sibling module, not turri's scratch, not the module's lineage", async () => {
