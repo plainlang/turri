@@ -230,6 +230,9 @@ function pathWords(text: string, paths: Paths, fence: CommandFence): string[] {
     [...fence.read, ...fence.write, ...(fence.writable ?? []), ...(fence.readable ?? [])].map((root) => root.split(/[\\/]/).filter(Boolean)[0]),
   );
   return found.filter((word) => {
+    // The root alone - a slash in code (`case '/':`), a route, `ls /` - reads nothing but the names of the system's own
+    // folders; written to, it is a write target, and checked as one.
+    if (word === "/") return false;
     if (!word.startsWith("/") || paths.win) return true;
     // A path that names something on disk: under a known top folder, one of the fence's, or one that is there.
     const top = word.split("/").filter(Boolean)[0];

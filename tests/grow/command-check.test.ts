@@ -92,6 +92,8 @@ describe("an ordinary working session", () => {
     `echo '{"items": [{"sku": "A-1", "path": "/catalog/a-1"}]}' > fixtures/order.json`,
     "go test ./... -run TestCheckout -v",
     "cargo test --quiet 2>/dev/null || cargo build",
+    "jshell << 'EOF'\nswitch (c) { case '/': return \"/\"; }\nString root = \"/\";\n/exit\nEOF",
+    "cat << 'EOF' > target/Encode.java\nif (c == '/' || path.equals(\"/\")) {}\nEOF",
   ])("lets `%s` through", (command) => {
     expect(refused(command)).toBeUndefined();
   });
@@ -105,6 +107,14 @@ describe("the code record", () => {
 
   it("lets the notes be read", () => {
     expect(refused("cat .turri-notes.md")).toBeUndefined();
+  });
+});
+
+describe("the root folder", () => {
+  it("is not a path to read when it stands alone - a slash in code, a route - but is refused as a place to write", () => {
+    expect(refused("echo / && ls /")).toBeUndefined();
+    expect(refused("rm -rf /")).toMatchObject({ rule: "path" });
+    expect(refused("echo x > /")).toMatchObject({ rule: "path" });
   });
 });
 
