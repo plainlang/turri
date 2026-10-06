@@ -117,7 +117,8 @@ refused - not run - with the rule it broke and what to do instead, when it:
   before it), or inside a quoted string (`python3 -c "..."`). `~`, `$HOME` and `$TMPDIR` are the module's own and
   allowed, as are the package caches, the machine's system folders and the toolchains, and the devices
   (`/dev/null`). A path is checked when it names something on disk - under a top folder such as `/Users`, `/home`,
-  `/etc` or `/tmp`, one of the fence's, or one that exists - so an API route in a curl or a JSON body is not one;
+  `/etc` or `/tmp`, one of the fence's, or one that exists - so an API route in a curl or a JSON body is not one, and
+  nor is `/` alone, a slash in code (`case '/':`), though writing to `/` is refused;
 - names the code record, `.turri.json`;
 - writes a credential file (`.env` and its variants; a template is fine) - by redirect, `tee`, `cp`, `mv` or an edit
   in place;
