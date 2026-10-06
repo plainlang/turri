@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
 import { createServiceTools } from "./services.ts";
+import { workspaceBlock } from "./workspace.ts";
 import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
@@ -1063,7 +1064,7 @@ export async function createCodeFixer(options: {
     tools: [...fence.names, ...options.toolNames, ...WEB_TOOLS],
     model: options.model,
     label: `${options.label} coding agent`,
-    system: fence.note,
+    system: `${fence.note}\n\n${workspaceBlock({ dir: options.buildDir, hasMyDiff: options.toolNames.includes("my_diff") })}`,
     task: codeFixerTask(options),
     compaction: { instructions: CODER_COMPACTION },
   });

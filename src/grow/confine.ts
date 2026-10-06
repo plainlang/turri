@@ -16,7 +16,7 @@ import {
 import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
 import { RECORD_FILE } from "./records.ts";
-import { keptShellOutput, readOutputTool } from "./testing.ts";
+import { keptShellOutput, outputsDir, readOutputTool } from "./testing.ts";
 import { reportNote } from "./activity.ts";
 import { agentShell, type AgentShell } from "./agent-shell.ts";
 import { ENVIRONMENT_ERROR_TOOL } from "./environment-error.ts";
@@ -132,9 +132,17 @@ function refuseRecord(path: string): void {
   throw new ConfinementError(`${RECORD_FILE} is the harness's record of what the code is built from: no agent reads or writes it.`);
 }
 
+/** An output turri kept, named as the cut named it: not a file in the agent's folder, but read_output's to read. */
+function refuseKeptOutput(raw: string, path: string, cwd: string): void {
+  const id = basename(raw);
+  if (id !== raw.trim() || existsSync(path) || !existsSync(join(outputsDir(cwd), id))) return;
+  throw new ConfinementError(`${id} is an output turri kept, not a file in your folder: call read_output with that id.`);
+}
+
 function check(raw: string | undefined, cwd: string, roots: string[], verb: "read" | "write"): void {
   if (raw === undefined) return;
   const path = absolutize(raw, cwd);
+  if (verb === "read") refuseKeptOutput(raw, path, cwd);
   if (!insideAny(path, roots)) refuse(path, roots, verb);
   refuseRecord(path);
   if (verb === "write") {

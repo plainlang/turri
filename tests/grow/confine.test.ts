@@ -94,6 +94,17 @@ describe("confinedTools", () => {
     expect(await text("find", { pattern: "*.json", path: "." })).not.toContain(".turri.json");
   });
 
+  it("points read at read_output when it is given the id of an output turri kept", async () => {
+    const logs = join(root, "plain_modules", ".turri", "logs");
+    mkdirSync(logs, { recursive: true });
+    writeFileSync(join(logs, "2026-10-06T07-49-44-157Z-run_unittests.sh.log"), "the whole run\n");
+    const fence = confinedTools({ workdir: code });
+    const read = fence.tools.find((t) => t.name === "read")!;
+    await expect(execute(read, { path: "2026-10-06T07-49-44-157Z-run_unittests.sh.log" })).rejects.toThrow(
+      "2026-10-06T07-49-44-157Z-run_unittests.sh.log is an output turri kept, not a file in your folder: call read_output with that id.",
+    );
+  });
+
   it("reads and writes only its own module's code - not a sibling module, not turri's scratch, not the module's lineage", async () => {
     // The coding agent's and the regression repair's fence: the default, from their code folder.
     const sibling = join(root, "plain_modules", "other", "code");
@@ -235,7 +246,7 @@ describe("the walls, as an agent is told them", () => {
     const bash = fence.tools.find((t) => t.name === "bash")!;
     const result = await bash.execute("id", { command: "seq 1 5000" }, undefined, undefined, undefined);
     const text = result.content[0].text as string;
-    expect(text).toMatch(/The whole output is kept as `[^`]+`: read it with read_output\]$/);
+    expect(text).toMatch(/The whole output is kept as `[^`]+`: call read_output with that id - it is not a file in your folder\]$/);
     expect(text).not.toMatch(/Full output: \//);
   });
 });

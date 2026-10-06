@@ -34,7 +34,7 @@ const MAX_LOGS = 100;
 export function truncateOutput(text: string, log?: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;
   const cut = text.length - MAX_OUTPUT_CHARS;
-  const where = log !== undefined ? ` - the whole output is kept as \`${basename(log)}\`: read it with read_output` : "";
+  const where = log !== undefined ? ` - the whole output is kept as \`${basename(log)}\`: call read_output with that id - it is not a file in your folder` : "";
   return `... [${cut} characters cut from the start${where}] ...\n\n${text.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
@@ -79,12 +79,12 @@ export function shownTestOutput(text: string, log?: string): string {
   if (left > 0) shown.push(`    ... [${left} lines left out] ...`);
   let body = shown.join("\n");
   if (body.length > TEST_OUTPUT_WHOLE) body = `... [the start cut] ...\n${body.slice(-TEST_OUTPUT_WHOLE)}`;
-  const where = log !== undefined ? `the whole is kept as \`${basename(log)}\`: call read_output with that id for the rest` : "the rest was not kept";
+  const where = log !== undefined ? `the whole is kept as \`${basename(log)}\`: call read_output with that id for the rest - it is not a file in your folder` : "the rest was not kept";
   return `[turri: the run printed ${lines.length} lines; shown are its failures, its counts and its end - ${where}]\n${body}`;
 }
 
 /** Where the whole outputs are kept: the project's scratch area, read only through read_output. */
-function outputsDir(dir: string): string {
+export function outputsDir(dir: string): string {
   return join(modulesScratchDir(dir), "logs");
 }
 
@@ -137,7 +137,7 @@ export function keptShellOutput(dir: string, text: string): string {
   } catch {
     kept = undefined;
   }
-  const pointer = kept !== undefined ? `The whole output is kept as \`${basename(kept)}\`: read it with read_output]` : "The rest of the output was not kept]";
+  const pointer = kept !== undefined ? `The whole output is kept as \`${basename(kept)}\`: call read_output with that id - it is not a file in your folder]` : "The rest of the output was not kept]";
   return text.slice(0, found.index) + pointer;
 }
 

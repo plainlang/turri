@@ -50,8 +50,16 @@ enforced and are the same on every platform:
   nothing but what it started, so a server is checked with `kill -0 $!`, its log or a request;
 - that temporary files go in `$TMPDIR`, `/tmp` being outside its walls.
 
+Beside its walls, an agent that writes code or tests - the coding agent, the conformance agent, the code fixer, the
+repair agent - is told up front what it would otherwise go looking for (`src/grow/workspace.ts`): whether its folder is
+empty, with nothing above it to find, or holds code whose unit tests passed when it was committed; that it is not a git
+repository, and `my_diff` shows its work; the versions of the toolchains its module's implementation reqs name, probed
+once on this machine, or that one is missing; that the package caches and Maven's repository are set for it, and to
+leave `JAVA_TOOL_OPTIONS` set; and that the network is open.
+
 No other path is named - nothing into `plain_modules/.turri`. A test run or a command whose output was cut names the
-whole of it by an id, and the agent reads it with `read_output` - not by a path into `plain_modules/.turri` or to a
+whole of it by an id - not a file in its folder, which `read` says if it is given one - and the agent reads it with
+`read_output`: not by a path into `plain_modules/.turri` or to a
 temporary file on this machine (see [long output](growing.md#the-tests-must-actually-pass)).
 
 ## File tools
