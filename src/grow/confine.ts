@@ -94,13 +94,8 @@ function refuse(path: string, roots: string[], verb: string): never {
   );
 }
 
-/** The working notes are written through update_notes, a line at a time - never as a file. And the record of what the code is built from is the harness's alone. */
+/** The working notes are written through update_notes, a line at a time - never as a file. */
 function refuseNotes(path: string): void {
-  if (basename(path) === RECORD_FILE) {
-    throw new ConfinementError(
-      `${RECORD_FILE} is the harness's record of what the code is built from: it writes it when work lands, and no agent does.`,
-    );
-  }
   if (basename(path) !== NOTES_FILE) return;
   throw new ConfinementError(
     `${NOTES_FILE} is not written as a file. Call update_notes to add, change or remove its lines.`,
@@ -131,10 +126,17 @@ function refuseHarnessFiles(path: string): void {
   }
 }
 
+/** The record of what the code is built from is the harness's: no agent reads it either - nothing in it is theirs to go by. */
+function refuseRecord(path: string): void {
+  if (basename(path) !== RECORD_FILE) return;
+  throw new ConfinementError(`${RECORD_FILE} is the harness's record of what the code is built from: no agent reads or writes it.`);
+}
+
 function check(raw: string | undefined, cwd: string, roots: string[], verb: "read" | "write"): void {
   if (raw === undefined) return;
   const path = absolutize(raw, cwd);
   if (!insideAny(path, roots)) refuse(path, roots, verb);
+  refuseRecord(path);
   if (verb === "write") {
     refuseNotes(path);
     refuseHarnessFiles(path);
@@ -153,6 +155,20 @@ function checkPattern(pattern: string | undefined): void {
 }
 
 type AnyTool = ToolDefinition<any, any, any>;
+
+/** Same tool, its listing without the record of what the code is built from: ls, grep and find do not show it. */
+function withoutRecord(def: AnyTool): AnyTool {
+  return {
+    ...def,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const result = await def.execute(toolCallId, params, signal, onUpdate, ctx);
+      const content = result.content.map((part) =>
+        part.type === "text" ? { ...part, text: part.text.split("\n").filter((line) => !line.includes(RECORD_FILE)).join("\n") } : part,
+      );
+      return { ...result, content };
+    },
+  };
+}
 
 /** Same tool, with the path arguments checked before it runs. */
 function guard(def: AnyTool, inspect: (params: any) => void): AnyTool {
@@ -175,6 +191,7 @@ function guard(def: AnyTool, inspect: (params: any) => void): AnyTool {
 function guardedOps(roots: string[], verb: "read" | "write") {
   return (path: string) => {
     if (!insideAny(path, roots)) refuse(path, roots, verb);
+    refuseRecord(path);
     if (verb === "write") {
       refuseNotes(path);
       refuseHarnessFiles(path);
@@ -315,15 +332,19 @@ export function confinedTools(c: Confinement): ConfinedTools {
       }),
       (p) => check(p.path, workdir, write, "write"),
     ),
-    guard(createLsToolDefinition(workdir), (p) => check(p.path, workdir, read, "read")),
-    guard(createGrepToolDefinition(workdir), (p) => {
-      check(p.path, workdir, read, "read");
-      checkPattern(p.glob);
-    }),
-    guard(createFindToolDefinition(workdir), (p) => {
-      check(p.path, workdir, read, "read");
-      checkPattern(p.pattern);
-    }),
+    withoutRecord(guard(createLsToolDefinition(workdir), (p) => check(p.path, workdir, read, "read"))),
+    withoutRecord(
+      guard(createGrepToolDefinition(workdir), (p) => {
+        check(p.path, workdir, read, "read");
+        checkPattern(p.glob);
+      }),
+    ),
+    withoutRecord(
+      guard(createFindToolDefinition(workdir), (p) => {
+        check(p.path, workdir, read, "read");
+        checkPattern(p.pattern);
+      }),
+    ),
   ];
 
   // Nothing to write to: no tool that writes.
