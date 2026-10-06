@@ -104,6 +104,8 @@ export interface StartJobInput {
    * them. Jobs with no lanes in common run side by side.
    */
   lanes?: string[];
+  /** The command that runs the work again - `turri regrow <the spec>` - for a message that stops it. */
+  rerun?: string;
   run: (onDelta: (delta: string) => void) => Promise<JobOutcome>;
 }
 
@@ -345,9 +347,9 @@ export function createJobRegistry(options?: {
             job.failedForGood = true;
             if (error.source === "harness" && options?.diagnose !== undefined) {
               sink.stage("the environment lacks something - working out what to do about it");
-              job.diagnosis = await withActivity(sink, () => options.diagnose!(job, [error.message, describeEnvironmentError(error)], log?.file)).catch(() => undefined);
+              job.diagnosis = await withActivity(sink, () => options.diagnose!(job, [error.message, describeEnvironmentError(error, input.rerun)], log?.file)).catch(() => undefined);
             }
-            job.environment = describeEnvironmentError(error);
+            job.environment = describeEnvironmentError(error, input.rerun);
             throw new Error([job.environment, ...(job.diagnosis !== undefined ? ["", job.diagnosis] : [])].join("\n"));
           }
           failures.push(error !== undefined ? (error instanceof Error ? error.message : String(error)) : outcome!.report);

@@ -40,13 +40,16 @@ export class EnvironmentError extends Error {
   }
 }
 
-/** What the person is told, in the chat, at the end of `turri regrow`, and in the job's log. */
-export function describeEnvironmentError(error: EnvironmentError): string {
+/**
+ * What the person is told, in the chat, at the end of `turri regrow`, and in the job's log. `rerun`: the command that runs
+ * the work again, as the pulse knows it - the spec the person ran; without it, the module's own spec by its name.
+ */
+export function describeEnvironmentError(error: EnvironmentError, rerun?: string): string {
   return [
     `**${error.moduleName} stopped: the environment lacks ${error.missing}.**`,
     `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,
     `To fix: ${error.fix ?? "provide it on this machine, then run it again."}`,
-    `Then re-run: \`turri regrow ${error.moduleName}.plain\`, or say "resume" in the chat.`,
+    `Then re-run: \`${rerun ?? `turri regrow ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
   ].join("\n");
 }
 

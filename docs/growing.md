@@ -482,7 +482,7 @@ It is raised two ways:
   found it works out at once - the diagnosis, not after a second failure - to say how to fix it on this machine.
 
 Either way the pulse is not tried again: no second run would find what is missing. The message is in the chat, at the
-end of `turri regrow`, and in the job's log; after the fix the pulse runs again from the start.
+end of `turri regrow`, and in the job's log; after the fix the pulse runs again from the start. The re-run line names the spec that was grown, as the folder it was run from reaches it.
 
 ### What a job is given, and what it records
 
