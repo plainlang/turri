@@ -154,8 +154,11 @@ runs the unit testing script itself**, and only that run counts (see
   change or say why it needs no code: one that only rewords a spec may need none. After that, the
   turn is taken as what it did.
 
-**Long output.** An agent is shown a run's output whole up to 60,000 characters, and past that its end, where a
-test run says what failed. The whole of it is kept in `plain_modules/.turri/logs/`, and the cut names it by an id:
+**Long output.** A testing script's run is shown whole up to 16,000 characters. Past that the agent is shown its
+failures, each with the 20 lines after it - its trace - its counts (`Tests run:`, `Ran 3 tests`, `BUILD FAILURE`) and
+its last 80 lines, with DEBUG and TRACE logging left out and each gap marked: on the hycu runs, 73% less to carry, every
+failing run's failures still there. Any other output an agent is shown is whole up to 60,000 characters, and past that
+its end. The whole of it is kept in `plain_modules/.turri/logs/`, and the cut names it by an id:
 the agent reads it with `read_output` - a range of lines, or the lines matching a pattern, each with its number -
 which reads those kept outputs and nothing else. A command in its shell cut short by pi is kept the same way. No
 output points at a path: the file it is in is outside what the agent may reach.

@@ -64,7 +64,7 @@ describe("the harness's own run of the unit tests", { timeout: 120_000 }, () => 
     if (verdict.ok) return;
     expect(verdict.prompt).toContain("test_broken");
     expect(verdict.prompt).toContain("AssertionError");
-    const id = /the whole output is kept as `([^`]+)`: read it with read_output/.exec(verdict.prompt)![1]!;
+    const id = /the whole is kept as `([^`]+)`: call read_output with that id/.exec(verdict.prompt)![1]!;
     expect(readFileSync(join(root, "plain_modules", ".turri", "logs", id), "utf8")).toContain("Downloading dependency 1 of 3000");
   });
 

@@ -38,6 +38,51 @@ export function truncateOutput(text: string, log?: string): string {
   return `... [${cut} characters cut from the start${where}] ...\n\n${text.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
+/** A test run's output up to this long is shown whole. */
+const TEST_OUTPUT_WHOLE = 16_000;
+/** Past it: lines after a failure kept with it - its trace - and lines kept from the end. */
+const TRACE_LINES = 20;
+const END_LINES = 80;
+
+/** What says a test failed, and what says how many ran - in the frameworks' own words. */
+const FAILURE_LINE =
+  /FAIL|ERROR|Error:|Exception|Traceback|Assertion|AssertionError|expected|Caused by|panicked|✗|✕|×|<<<|BUILD (SUCCESS|FAILURE)|Tests run:|tests? (passed|failed)|\d+ (passed|failed)|Ran \d+ tests?|^(OK|FAILED)\b/;
+/** A framework's or an application's logging below a warning: noise in a failing run. */
+const LOG_NOISE = /^\S*\s*\S*\s*(DEBUG|TRACE)\b|^\[?(DEBUG|TRACE)\]?\s/;
+
+/**
+ * A test run's output as an agent is shown it: whole when it is short; otherwise its failures with the trace after each,
+ * its counts and its end - DEBUG and TRACE logging left out - with the whole kept and one read_output away. Most of what
+ * agents carried in their context was a failing run's logging; what they act on is which test failed, where, and why.
+ */
+export function shownTestOutput(text: string, log?: string): string {
+  if (text.length <= TEST_OUTPUT_WHOLE) return text;
+  const lines = text.split("\n");
+  const keep = new Set<number>();
+  lines.forEach((line, index) => {
+    if (LOG_NOISE.test(line) || !FAILURE_LINE.test(line)) return;
+    for (let at = index; at < Math.min(lines.length, index + TRACE_LINES); at += 1) {
+      if (at > index && LOG_NOISE.test(lines[at]!)) break;
+      keep.add(at);
+    }
+  });
+  for (let at = Math.max(0, lines.length - END_LINES); at < lines.length; at += 1) if (!LOG_NOISE.test(lines[at]!)) keep.add(at);
+  const shown: string[] = [];
+  let left = 0;
+  lines.forEach((line, index) => {
+    if (keep.has(index)) {
+      if (left > 0) shown.push(`    ... [${left} lines left out] ...`);
+      left = 0;
+      shown.push(line);
+    } else left += 1;
+  });
+  if (left > 0) shown.push(`    ... [${left} lines left out] ...`);
+  let body = shown.join("\n");
+  if (body.length > TEST_OUTPUT_WHOLE) body = `... [the start cut] ...\n${body.slice(-TEST_OUTPUT_WHOLE)}`;
+  const where = log !== undefined ? `the whole is kept as \`${basename(log)}\`: call read_output with that id for the rest` : "the rest was not kept";
+  return `[turri: the run printed ${lines.length} lines; shown are its failures, its counts and its end - ${where}]\n${body}`;
+}
+
 /** Where the whole outputs are kept: the project's scratch area, read only through read_output. */
 function outputsDir(dir: string): string {
   return join(modulesScratchDir(dir), "logs");
@@ -67,6 +112,12 @@ function keepOutput(dir: string, label: string, output: string | Buffer): string
  */
 export function keepFullOutput(dir: string, label: string, output: string): string | undefined {
   if (output.length <= MAX_OUTPUT_CHARS) return undefined;
+  return keepOutput(dir, label, output);
+}
+
+/** Keep a test run's whole output for read_output when it is too long to be shown whole - past TEST_OUTPUT_WHOLE. */
+export function keepTestOutput(dir: string, label: string, output: string): string | undefined {
+  if (output.length <= TEST_OUTPUT_WHOLE) return undefined;
   return keepOutput(dir, label, output);
 }
 

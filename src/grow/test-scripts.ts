@@ -7,7 +7,7 @@ import { reportActivity, reportNote } from "./activity.ts";
 import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { keepFullOutput, listFiles, truncateOutput, type TestRun } from "./testing.ts";
+import { keepTestOutput, listFiles, shownTestOutput, type TestRun } from "./testing.ts";
 import { COMMAND_TIMEOUT_MS, runCommand } from "./shell.ts";
 
 /**
@@ -389,8 +389,9 @@ async function runScript(cwd: string, script: string, args: string[], logDir: st
   // The copy's path, where the script names itself, reads as the project's script.
   const text = options.named !== undefined ? output.split(options.named).join(shown(script)) : output;
   const noted = withScriptLineNote(text, script);
-  const log = keepFullOutput(logDir, basename(script), noted);
-  return { command: shown(script), exitCode: timedOut === true ? 124 : exitCode, output: truncateOutput(noted, log), timedOut: timedOut === true, timeoutMs, ...(log !== undefined ? { log } : {}) };
+  // Its failures, counts and end are what the agent is shown; the whole is kept, a read_output away.
+  const log = keepTestOutput(logDir, basename(script), noted);
+  return { command: shown(script), exitCode: timedOut === true ? 124 : exitCode, output: shownTestOutput(noted, log), timedOut: timedOut === true, timeoutMs, ...(log !== undefined ? { log } : {}) };
 }
 
 /** What bash says when a line of the script itself cannot run: a command or file that is not there, or not runnable. */
