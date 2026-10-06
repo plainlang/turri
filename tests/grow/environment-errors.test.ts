@@ -28,6 +28,22 @@ describe("what the person is told", () => {
   });
 });
 
+describe("how to run it again", () => {
+  it("names the spec the person ran, when the pulse knows it - not the module's own name", async () => {
+    const registry = createJobRegistry({ retries: 1, diagnose: async () => undefined });
+    const job = registry.start({
+      kind: "regrow",
+      summary: "app.plain fs 1",
+      lanes: ["d365"],
+      rerun: "turri regrow specs/app.plain",
+      run: async () => Promise.reject(jdk("agent")),
+    });
+    const done = await registry.wait(job.id);
+    expect(done.error).toContain('Then re-run: `turri regrow specs/app.plain`, or say "resume" in the chat.');
+    expect(done.error).not.toContain("d365_version_api.plain");
+  });
+});
+
 describe("report_environment_error", () => {
   it("records what the agent says is missing, and ends its turn", async () => {
     const reports: unknown[] = [];

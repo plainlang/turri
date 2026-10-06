@@ -557,6 +557,7 @@ export function createWorkLoop(options: {
       diff: shown.diff,
       ...(state.model !== undefined ? { model: state.model } : {}),
       lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
+      rerun: `turri regrow ${relative(options.cwd, tip.plainFile) || basename(tip.plainFile)}`,
       run: async (onDelta) => {
         // The guardrail: a conformance job tests only code that is built - the code record, read as the job starts, has every functional spec it tests as it tests it.
         if (conformance) {
