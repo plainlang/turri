@@ -25,11 +25,11 @@ import { COMMAND_TIMEOUT_MS, runCommand } from "./shell.ts";
  * keys left out) - through the host runner (shell.ts), which gives them a time limit and a stop. What they run on is the
  * project's choice (`testing-scripts-run-on:` in its config):
  *
- * - `copy`, the default: a fresh copy of the code, staged in the project's scratch with the script copied beside it -
- *   build output stays out of the code, two modules testing at once never share a folder, and nothing a test writes
- *   reaches the code.
- * - `in-place`: the project's own script at its own path, from the project, on the real build and tests folders - for
- *   an integration embedded in a host codebase, whose scripts merge the code into it.
+ * - `in-place`, the default: the project's own script at its own path, from the project, on the real build and tests
+ *   folders - so a script that finds things from its own path (a host codebase it merges the code into) finds them.
+ * - `copy`: a fresh copy of the code, staged in the project's scratch with the script copied beside it - build output
+ *   stays out of the code, two modules testing at once never share a folder, and nothing a test writes reaches the
+ *   code.
  *
  * A copy is named for its module and the run: the scripts work in `/tmp/<lang>_<basename of the build>`, and every
  * module's build is called `code`.
@@ -46,7 +46,7 @@ export interface TestScripts {
   notes?: Partial<Record<ScriptKind, string>>;
   /** Conformance was turned off: the conformance testing script is not run, found or not. */
   conformanceOff?: boolean;
-  /** What the config has them run on: a fresh copy of the code (the default), or the code in place. */
+  /** What the config has them run on: the code in place (the default, unset), or a fresh copy of the code. */
   runOn?: "copy" | "in-place";
 }
 
@@ -245,7 +245,7 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
   });
 
   const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
-  const inPlace = (scripts.runOn ?? readProjectConfig(root).testingScriptsRunOn) === "in-place";
+  const inPlace = (scripts.runOn ?? readProjectConfig(root).testingScriptsRunOn) !== "copy";
   return [
     "<testing scripts>",
     rendered.join("\n\n"),
@@ -345,8 +345,8 @@ export function setScriptTimeoutForTests(ms: number | undefined): void {
 
 /**
  * The project a build belongs to - the folder above its `plain_modules`, where the testing scripts'
- * own paths start - and whether its config has them run on the code in place
- * (`testing-scripts-run-on: in-place`), rather than on a fresh copy.
+ * own paths start - and whether they run on the code in place (the default), rather than on a fresh copy
+ * (`testing-scripts-run-on: copy`).
  */
 function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const parts = resolve(buildDir).split(sep);
@@ -354,7 +354,7 @@ function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const root = index > 0 ? parts.slice(0, index).join(sep) : dirname(resolve(buildDir));
   // The module's own config file decides, when it has one: plain_modules/<module>/code.
   const module = configModuleOfBuild(root, basename(dirname(resolve(buildDir))));
-  return { root, inPlace: readProjectConfig(root, module).testingScriptsRunOn === "in-place" };
+  return { root, inPlace: readProjectConfig(root, module).testingScriptsRunOn !== "copy" };
 }
 
 /** The model providers' keys, kept out of what runs on this machine: the tests are agents' code. */
@@ -443,7 +443,7 @@ async function runOnCopy(stagingRoot: string, script: string, args: string[], lo
 /**
  * The harness's run of the unit testing script on the code as it is now - and run_unit_tests'.
  *
- * On this machine, on a fresh copy of the code, or - `testing-scripts-run-on: in-place` - on the code in place
+ * On this machine, on the code in place, or - `testing-scripts-run-on: copy` - on a fresh copy of the code
  * (see the top of this file). This and runConformanceScript are the only ways the testing
  * scripts are ever run.
  */

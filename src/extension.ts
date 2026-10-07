@@ -14,7 +14,7 @@ import { allocateImageId, Box, type Component, compositeTuiLine, getCapabilities
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
-import { CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, splitModelSpec } from "./config.ts";
+import { AGENT_ROLES, CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
 import { sweepOrphanedGroups } from "./grow/shell.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine } from "./stack.ts";
@@ -572,7 +572,7 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       "tests, runs them with the whole suite the module inherits, and, where one fails, fixes the test or the code, " +
       "whichever is wrong. What they are written for is recorded apart from the code. For this session, whatever the " +
       "config's conformance-tests says. Functional specs not built yet can be named: the conformance pulse is scheduled at " +
-      "once and starts when every one named is built, before the next code pulse. A functional spec " +
+      "once and starts when the module's code is built - every code pulse of it landed - before anything is built on it. A functional spec " +
       "the spec does not have, or a module without test reqs, is refused. A conformance pulse checks, as it starts, that " +
       "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
@@ -890,13 +890,23 @@ export function projectConfigBlock(root: string): string {
             models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless engine chose another in this session.` : undefined,
             models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
             models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model turri chat starts with.` : undefined,
+            // The other roles' own, where models: names them.
+            ...AGENT_ROLES.filter((role) => role !== "coding" && role !== "chat").flatMap((role) => {
+              const own = roleModel(config, role);
+              return own !== undefined ? [`- models: ${role}: ${shown(own)}`] : [];
+            }),
+            ...(() => {
+              const limits = AGENT_ROLES.flatMap((role) => (config.models?.[role]?.turnLimit !== undefined ? [`${role} ${config.models[role]!.turnLimit}s`] : []));
+              const all = config.models?.default?.turnLimit ?? config.turnLimit;
+              return all !== undefined || limits.length > 0 ? [`- turn limits: ${all !== undefined ? `${all}s each` : "two minutes each"}${limits.length > 0 ? `; ${limits.join(", ")}` : ""}.`] : [];
+            })(),
           ];
         })(),
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each module's file below names its own" : "none found - every build stops until there is one"}`,
         `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each module's file" : "none found"}`,
-        config.testingScriptsRunOn === "in-place"
-          ? "- testing-scripts-run-on: in-place - the testing scripts run on this machine on the code in place, from the project, against the host codebase."
-          : "- testing-scripts-run-on: copy - the testing scripts run on this machine, on a fresh copy of each module's code; `testing-scripts-run-on: in-place` runs them on the code in place.",
+        config.testingScriptsRunOn === "copy"
+          ? "- testing-scripts-run-on: copy - the testing scripts run on this machine, on a fresh copy of each module's code; `testing-scripts-run-on: in-place` (the default) runs them on the code in place."
+          : "- testing-scripts-run-on: in-place - the testing scripts run on this machine on the code in place, from the project, against the host codebase; `testing-scripts-run-on: copy` runs them on a fresh copy of each module's code.",
       ].filter((line): line is string => line !== undefined),
     ];
   };
@@ -1178,10 +1188,12 @@ async function deliver(
           (job.status === "queued"
             ? `Queued ${input.kind} as pulse ${job.id}: ${summary}${onModel}. It writes the same ` +
               `module as ${job.waitingOn.map((id) => `pulse ${id}`).join(" and ")}, so it starts when that ` +
-              "finishes. Tell the user it is queued and why, and carry on. "
+              "finishes. Nothing to wait for: if what you are doing has a next step, take it now, in this same turn, and tell " +
+              "the user it is queued and why alongside it, never as a reply that ends your turn. "
             : `Started ${input.kind} as pulse ${job.id}: ${summary}${onModel}.\n` +
-              "It is running now and will report back when it finishes. Tell the user it has started, " +
-              "and carry on. ") +
+              "It is running now and will report back when it finishes - nothing to wait for: if what you are doing has a " +
+              "next step, take it now, in this same turn, and tell the user it has started alongside it, never as a reply " +
+              "that ends your turn. ") +
           `Use growth with "${job.id}" if they ask how it is going.`,
       },
     ],

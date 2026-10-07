@@ -86,6 +86,8 @@ describe("can_it_fail", () => {
   });
 
   describe("run on a copy", () => {
+    beforeEach(() => writeFileSync(join(root, "config.yaml"), "testing-scripts-run-on: copy\n"));
+
     it("runs the unit tests on a copy with the bug in - fails when a test catches it, passes when none does - and never touches the code", async () => {
       const source = "add() { echo $(( $1 + $2 )); }\n# the sum of two numbers\n";
       writeFileSync(join(code, "calc.sh"), source);

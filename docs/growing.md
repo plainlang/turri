@@ -122,8 +122,11 @@ The agents with one thing to decide have a budget of tool calls: the judge 30, t
 explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
 with what it knows; past twice the budget its turn is stopped. Handing the decision over starts the
 count again - a reviewer kept for the next review gets its whole budget for it. And every turn of an agent a render
-starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none). It is told so, and when they
-are up its turn ends where it is and the harness takes it from there - it runs the tests, and judges.
+starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none). When they are up its turn ends at its next
+request to the model - never in the middle of one, which the provider bills whole, uncached, for an answer thrown
+away: what is running then, the model answering or a tool, finishes first, within a grace of a minute
+(TURRI_TURN_GRACE) after which it is ended where it is. The harness takes it from there - it runs the tests, and
+judges.
 A code fix has to build and pass the code's unit tests before the conformance suite runs again: one
 that does not goes straight back to the coding agent, with the output, rather than to a judge. So is an agent whose calls to one tool fail ten times in a row with nothing going through
 in between - arguments the tool refuses never reach it, so however they are reworded, no call-by-call
@@ -173,6 +176,10 @@ starts, so breaking an earlier functionality's test is caught too.
 The coding agent has tools to check its work before the harness and the reviewer do. None of them decides
 anything - the unit testing script, run by the harness, still does - and its task says when to use each:
 
+- **`copy_resource`**: a linked resource copied whole, byte for byte, into the agent's own folder - at its code-copy
+  path, or where it says inside its folder. A resource is shown in the prompt cut at 8,000 characters, saying how long
+  it is whole, and the file itself is outside the agent's walls: it copies the resource the code or the tests need as
+  a file, or one it has to read whole, rather than type it out. The conformance agent has it too, into the tests folder.
 - **`my_diff`**: the diff of the code folder from the commit the job started from, new files whole - exactly
   what the reviewer is shown. Read before handing the work in: every part of the change in it, and nothing else.
 - **`can_it_fail`**: whether the unit tests catch a bug. The agent gives one change to a code file - a
@@ -180,8 +187,8 @@ anything - the unit testing script, run by the harness, still does - and its tas
   it; the code itself is never touched. If every test still passes, no test catches that bug. Six
   runs a job. A bug often makes the code hang instead - a loop that never ends - so a run may take three times
   as long as the last passing run of the unit tests, within 15 and 60 seconds, and one that does not finish is
-  reported as a hang, not as a test that caught it. Not where the testing scripts run in place
-  (`testing-scripts-run-on: in-place`): there is no copy to change.
+  reported as a hang, not as a test that caught it. Only where the testing scripts run on a copy
+  (`testing-scripts-run-on: copy`): in place, the default, there is no copy to change.
 - **`start_service`**, **`service_logs`**, **`stop_service`**: a server or a worker it built, started in the
   background on this machine, behind the same walls as its shell - the command check, the module's environment, the
   OS sandbox, the audit while it comes up - to try from outside with `curl` as a client would. Whatever the stack: the
@@ -190,8 +197,7 @@ anything - the unit testing script, run by the harness, still does - and its tas
   that exits first or is not up in time is reported with what it printed. Its log is in `plain_modules/.turri/services/`,
   read through `service_logs`. Three at once; each runs in a process group of its own, outliving the command that
   started it, and is stopped with everything it started on `stop_service`, when the agent's session ends, and in any
-  case when its pulse ends. The explorer, the
-  explorer answering `ask_explorer` and the code fixer of a conformance run have them too.
+  case when its pulse ends. The code fixer of a conformance run has them too; the explorers, which only read, do not.
 - **`run_static_checks`**: the project's type checker and linter, when it has a script for them -
   `static-checks-script:` in the [config](config.md), or the one `run_static_checks*.sh` beside the testing
   scripts. Optional: with none, the agent has no such tool.
@@ -445,23 +451,24 @@ directory`, a macOS-only line run in Linux) - the agent's output starts with a n
 script, not its code, and not to go looking for what it names; the person is told once, in the job's log, that the
 script is theirs to fix. A failure of what the script runs is left alone: that may well be the code's.
 
-**What they run on.** By default, a fresh copy of the code, and of the whole conformance suite, in
-`plain_modules/.turri/scripts/`, named for its module and the run, with the project's script copied in beside it: the
-scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called `code`, so two modules
-testing at once never share that folder, build output stays out of the code, and nothing a test writes reaches it.
+**What they run on.** By default, the code in place: the project's own script at its own path, from the project's
+folder, on the real build and tests folders. A script that finds things from its own path - an integration embedded in
+a host codebase, whose scripts merge the generated code into the host and find the host from where they sit - finds
+them. What the script does to the host - copying the package into it - it does, as it is written to.
 
-`testing-scripts-run-on: in-place` in the project's `config.yaml` runs them on the code in place instead: the
-project's own script at its own path, from the project's folder, on the real build and tests folders. An integration
-embedded in a host codebase needs it - its scripts merge the generated code into the host and find the host from their
-own path:
+`testing-scripts-run-on: copy` in the project's `config.yaml` runs them on a fresh copy of the code instead, and of the
+whole conformance suite, in `plain_modules/.turri/scripts/`, named for its module and the run, with the project's script
+copied in beside it: the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called
+`code`, so two modules testing at once never share that folder, build output stays out of the code, and nothing a test
+writes reaches it. A script copied there no longer sits beside the project, so one that finds things from its own path
+does not find them:
 
 ```yaml
 # plain/config.yaml
-testing-scripts-run-on: in-place
+testing-scripts-run-on: copy
 ```
 
-What the script does to the host - copying the package into it - it does, as it is written to. `can_it_fail` needs a
-copy to change, so an agent has it only where the scripts run on one.
+`can_it_fail` needs a copy to change, so an agent has it only where the scripts run on one.
 
 ### When the environment lacks something
 
@@ -476,9 +483,15 @@ and you are told:
 
 It is raised two ways:
 
-- **by an agent**, which calls `report_environment_error` - every agent with a shell has it, and its walls name it -
-  with what is missing, what needs it and the command that showed it. Its turn ends, the pulse stops, and what it said
-  goes to you as it is, not investigated further;
+- **by an agent**, which calls `report_environment_error` - only the agents that write and run code have it: the
+  coding agent, the code fixer, the repair agent and the conformance agent; explorers, reviewers and judges observe,
+  and never stop a pulse this way -
+  with what is missing, what needs it and the command that showed it. Its shell runs behind walls the testing scripts
+  do not, so what failed there may run here: the harness first runs the testing script itself - the unit one, the
+  conformance one for the conformance agent. If it passes, the report does not stand: the agent is told the machine has
+  what the work needs and goes on. If it cannot find its toolchain, the report stands. If it fails otherwise, the agent
+  is shown its output once, and a report made again after that stands. A report that stands ends its turn, the pulse
+  stops, and what it said goes to you as it is;
 - **by the harness itself**: a testing script - the unit or the conformance one, in a code pulse, a conformance pulse or
   the whole-suite run - that cannot find its toolchain (exit 69 or 127, `command not found`), or
   a credential `agent-env:` names that is not there when the pulse starts - before any agent does. What the harness
@@ -615,30 +628,45 @@ the job's functional specs and the definitions they bring past 120 lines. The re
 with the first job, and do not count. When the person asks for it - one at a time, separately - `bind`'s
 `one_by_one` (`turri bind --one-by-one`) makes it a job a functional spec instead, until conformance tests are asked
 for again without it. Only work that
-touches no functional spec at all, the test reqs changed say, is a job without one - and a conformance job runs on the module's lane before its
-next code job: after a job lands, the tests of what it built come before anything is built on it.
+touches no functional spec at all, the test reqs changed say, is a job without one. A module's conformance jobs run
+on its lane once its code is built - every code job of it landed - so the module is tested once, as built: one
+explorer, one run of the whole suite, rather than a conformance cycle after each code job; and they pass before
+anything is built on it.
 
 A conformance job is a spec diff's conformance run: the tests of its change written, changed or taken out,
 a failure judged - the test or the code wrong - and fixed, then the whole suite with the unit tests, the
-tests the module inherits with them. Passing, the tests record is written and committed with the tests;
-otherwise all of it - code fixes included - is rolled back, and the module's conformance tests halt until
-the spec or the code changes, or `bind` asks again. The code goes on being built meanwhile.
+tests the module inherits with them. The run that passed already was of the whole suite - the module's tests
+folder holds the chain's, copied up - so the suite is run once more only when the code or the tests changed after
+it passed with the unit tests; otherwise it is not run again. Passing, the tests record is written and committed with the tests;
+otherwise all of it - code fixes included - is rolled back, and the module halts until the spec or the code
+changes, or `bind` asks again: its conformance tests, its code - nothing more is built on code whose conformance
+tests did not pass - and every module built on it, which waits.
+
+**Up the chain.** A module built on another starts from its code and its conformance tests, copied up, and its
+conformance testing script runs those with its own. So a module waits for the one below it until that one's code
+is built and its conformance tests - those wanted, chosen or scheduled - are written and pass; only then is its
+codebase started from there.
 With `conformance-tests: false` none is written unless the conversation asks with `bind`, for
 the session. With `conformance-tests: chosen` they are written for the functional specs chosen: every one with
 acceptance tests - the author said what to check - and those the chat model chooses. It chooses when the work
 is planned, ahead of the code: what `regrow` returns lists what the
 planned code jobs add or change that no conformance test is for, chosen or scheduled, and the chat model decides
 which are worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why,
-and calls `bind` with them; a code job's report lists any left undecided. The ones named are added
+and calls `bind` with them; a code job's report lists any left undecided. With no conversation - `turri regrow` - an
+agent on `harness-model` (or `models: chooser`) chooses in its place, asked the same: as the work is planned, and once
+a module's code is built - its last code job landed - with every functional spec of it that is built and has none in
+view, it reads the module's spec and names those worth it and why, and they are bound as `bind` binds them; one it
+passed over is not offered again while its text is the same. `conformance-budget:` caps how many of a module's
+functional specs are chosen, beside those with acceptance tests - a count, or a share of them: every choice for the
+module counts against it, the chooser is told what is left and can choose no more, and the chat model is told it
+too; the person's own `bind` is not limited. The ones named are added
 to those chosen before, and a functional spec that has conformance tests keeps them: they are rewritten when it
 changes, never taken out because others were named.
 
 **Scheduled ahead of the code.** `bind` may name functional specs whose code is not built yet:
-each call schedules them as one group, shown at once in what is planned, after the code job that builds the
-last of them. Its functional specs are chosen once the code record has every one as the spec has it - not one
-by one as each lands - and its tests are written then, before the next code job. Say code jobs a and b are
-planned, then d and e: conformance tests named for what a and b build run once b lands, before d, and those
-named for e's after e. A functional spec the spec does not have - built by no code job - or a module with no
+each call schedules them as one group, shown at once in what is planned, after the module's last code job. Its
+functional specs are chosen once the code record has every one as the spec has it, and its tests are written once
+the module's code is built. A functional spec the spec does not have - built by no code job - or a module with no
 test reqs is refused, and nothing is scheduled; one taken out of the spec later is dropped from its group.
 Groups whose code is built by then are tested together, in one job with the rest, as far as the guardrail lets.
 
@@ -679,7 +707,7 @@ tools can read the code too, and it is told so - read access, never write access
 software is reached from the code, never what it should do. Its shell holds the tests folder only. The
 coding agent that fixes the code is told the same of the tests: it can read them, never change them.
 Before the test author starts, an explorer - an agent in
-the code's folder, which reads the code and runs it but changes nothing - hands over everything
+the code's folder with the file tools alone: it reads the code, runs nothing and changes nothing - hands over everything
 the author needs, in parts: how to build and run it; how the conformance tests reach it as the project's
 conformance testing script runs them - the explorer is given the script, and says what it builds or
 installs and what the tests depend on or start (a package, a module, an entry point, by its exact name);
@@ -700,7 +728,7 @@ tests cannot accumulate state between attempts and nothing they write reaches th
 
 While it writes the tests, the conformance agent can put a question to the explorer - `ask_explorer`, three
 times a run: how a functionality is reached, what a field is called. A fresh explorer, in the code's folder,
-given the account it handed over and the question, reads and runs the code and answers in words; it changes
+given the account it handed over and the question, reads the code and answers in words; it runs and changes
 nothing. And `my_diff` shows it the tests folder's diff from where the run started, as its reviewer is shown it.
 
 ### When a conformance test fails
@@ -753,10 +781,9 @@ and the coding agent can run the conformance suite themselves, to reproduce a fa
 fix - three times a turn: the third ends the turn, and the harness runs it and judges. The conformance
 agent is told that a failure of the software itself - it does not build or start, or does what the
 spec says it must not - is not the tests' to work around. When it fails, a judge - an agent that reads
-the code and the tests, changes neither, and holds both to the spec - decides which is wrong. Like the
-explorer it has a shell and the web (`web_search`, `web_fetch`), to try the software or ask a
-service it calls what it answers; its file tools write nothing, and a file its shell changes anyway is
-reported:
+the code and the tests, changes neither, and holds both to the spec - decides which is wrong. It has the
+file tools and the web (`web_search`, `web_fetch`), to look up what a service the code calls answers - no shell: it
+judges from the code, the tests, the spec and the failing run's output, and its file tools write nothing:
 
 - **the code:** the coding agent - in the code's folder, reading the tests but never changing them - fixes it,
   and keeps its unit tests passing;
@@ -902,7 +929,11 @@ ones around it. Where two lines disagree, the later one is right. A line that sa
 Leaving notes is required, and only through the `update_notes` tool. The file tools refuse the
 notes file, and a change made to it any other way - from the shell, by a script - is undone. An agent
 that finishes without calling `update_notes` is asked again, up to three times; if it still has not,
-the activity log says so.
+the activity log says so. The turn that asks is for the notes alone: the work is done - its testing script's run
+passed, and the agent is told so first, so its notes speak of work that succeeded - so every tool but `update_notes` is
+refused, and an agent that keeps calling them has its turn stopped. What
+landed is what the harness checked; nothing changes after it. Only work that lands is asked: a job whose code or tests do not pass - or whose
+testing script cannot run - is rolled back, notes and all, so its agent is not asked to leave any.
 
 The notes are disposable - delete the file and nothing breaks; the next agent just explores a little
 more. They live in the code folder, so they are committed with it, reset with it after an

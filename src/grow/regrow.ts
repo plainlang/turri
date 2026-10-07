@@ -21,7 +21,7 @@ import { abandonWork, recordHistory, startWork } from "./lineage.ts";
 import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
 import type { JobCases } from "./drift.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
-import { notesForSession, withNotes } from "./notes.ts";
+import { NOTES_TURN, notesForSession, passedOutcome, withNotes } from "./notes.ts";
 import {
   createScriptTool,
   findStaticChecks,
@@ -41,7 +41,7 @@ import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } from "./requires.ts";
-import { loadLinkedResources, resourceImages } from "./resources.ts";
+import { createCopyResourceTool, loadLinkedResources, resourceImages } from "./resources.ts";
 import { markTold, waitingSteer, type JobSteering } from "./steering.ts";
 import { misplacedConformanceTests, misplacedTestsPrompt } from "./test-kinds.ts";
 import { sectionsOf } from "./state.ts";
@@ -366,7 +366,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   const digestsBefore = digestFiles(buildDir);
   const runs: TestRun[] = [];
-  const fence = confinedTools({ workdir: buildDir });
+  const fence = confinedTools({ workdir: buildDir, reportsEnvironment: true });
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
@@ -376,7 +376,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const selfChecks = [
     createMyDiffTool({ dir: buildDir, what: "code" }),
     ...(staticChecks !== undefined ? [createStaticChecksTool({ buildDir, script: staticChecks })] : []),
-    ...(scripts.runOn !== "in-place" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
+    ...(scripts.runOn === "copy" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
   ];
   // A server it built, it can start and try from outside - stopped when it is done.
   const services = createServiceTools({ dir: buildDir });
@@ -399,14 +399,17 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       ...selfChecks,
       ...services.tools,
       ...fence.tools,
+      createCopyResourceTool({ resources: linkedResources, dir: buildDir }),
     ],
-    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), ...services.names, "update_notes", "submit_work", ...WEB_TOOLS],
+    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), ...services.names, "update_notes", "submit_work", "copy_resource", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
+    role: "coding",
     system: `${fence.note}\n\n${workspaceBlock({ dir: buildDir, hasMyDiff: true })}`,
     task,
     compaction: { instructions: CODER_COMPACTION },
     images: resourceImages(linkedResources),
+    checkEnvironment: { run: () => runUnitScript(buildDir, scripts.unit!), script: scripts.unit! },
   });
 
   let response: string;
@@ -511,7 +514,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         forChange: true,
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
-        ...(scripts.runOn !== "in-place" ? { unitScript: scripts.unit! } : {}),
+        ...(scripts.runOn === "copy" ? { unitScript: scripts.unit! } : {}),
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
         send: async (next) => {
           response = await ask(executor, next, options.onDelta);
@@ -528,8 +531,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // A steer that came during the review: the agent's turn, and the tests until they pass - within its rounds.
     while (verified && steering !== undefined && waitingSteer(steering) !== undefined) verified = await untilPassing();
 
-    stage("checking the working notes were left");
-    await notes.ensureWritten((next) => ask(executor, next, options.onDelta));
+    // Notes are kept only with work that lands: work that does not is rolled back, notes and all.
+    if (verified) {
+      stage("checking the working notes were left");
+      await notes.ensureWritten((next) => ask(executor, next, options.onDelta, NOTES_TURN), passedOutcome("unit testing script"));
+    }
   } finally {
     if (steering !== undefined) steering.deliver = undefined;
     executor.dispose();

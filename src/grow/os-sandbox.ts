@@ -140,7 +140,7 @@ export function seatbeltProfile(fence: SandboxFence, userDirs: { temp?: string; 
 
 /** macOS's per-user temporary and cache folders, as `getconf` gives them - asked once. */
 let darwinDirs: { temp?: string; cache?: string } | undefined;
-function darwinUserDirs(): { temp?: string; cache?: string } {
+export function darwinUserDirs(): { temp?: string; cache?: string } {
   if (darwinDirs !== undefined) return darwinDirs;
   const ask = (name: string) => {
     if (process.platform !== "darwin") return undefined;

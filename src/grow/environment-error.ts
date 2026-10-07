@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { passedCredentials } from "./agent-env.ts";
 import { missingToolchain } from "./test-scripts.ts";
 import { MODULES_DIR } from "./paths.ts";
+import { reportActivity } from "./activity.ts";
 
 /**
  * When the machine lacks what the work needs - a toolchain, a system library, a credential - no agent can fix it, and
@@ -56,19 +57,70 @@ export function describeEnvironmentError(error: EnvironmentError, rerun?: string
 /** The name agents know the tool by - their wall text names it. */
 export const ENVIRONMENT_ERROR_TOOL = "report_environment_error";
 
+/** An agent's report that the machine lacks something. */
+export interface EnvironmentReport {
+  missing: string;
+  neededBy: string;
+  shownBy?: string;
+}
+
+/** Whether a report stands - the pulse stops - or not, and what the agent is told then. */
+export type ReportVerdict = { stands: true } | { stands: false; reply: string };
+
+/** How much of the harness's run a report that does not stand is shown, at most. */
+const RUN_SHOWN_CHARS = 4000;
+
+/**
+ * An agent's report checked against the harness's own run of the testing script - on this machine, outside the agent's
+ * sandbox, the run that decides whether the work is done. Its shell runs behind walls the script does not: what fails
+ * there may run here. The script passing, the machine has what the work needs: the report does not stand, and the agent
+ * goes on. The script not finding its toolchain, it stands. Failing otherwise, the agent is shown the run once - a
+ * report made again after it stands.
+ */
+export function checkAgainstScript(run: () => Promise<{ exitCode: number; output: string }>, script: string): (report: EnvironmentReport) => Promise<ReportVerdict> {
+  let shown = false;
+  return async () => {
+    const result = await run();
+    const name = basename(script);
+    if (result.exitCode === 0) {
+      return {
+        stands: false,
+        reply:
+          `Not recorded: the harness ran the project's testing script, ${name}, on this machine itself, and it passed - ` +
+          "the machine has what the work needs. What failed was your shell: your commands run behind a sandbox the " +
+          "testing scripts do not. Do not work around it, and do not report it again: carry on with the work, and " +
+          "check it with the tool that runs the testing script as the harness does.",
+      };
+    }
+    if (missingToolchain(result) !== undefined || shown) return { stands: true };
+    shown = true;
+    const output = result.output.length > RUN_SHOWN_CHARS ? `...\n${result.output.slice(-RUN_SHOWN_CHARS)}` : result.output;
+    return {
+      stands: false,
+      reply:
+        `Not recorded yet: the harness ran the project's testing script, ${name}, on this machine itself - outside your ` +
+        `sandbox - and it exited ${result.exitCode}, but not for want of a toolchain. Read its output below. A failure ` +
+        "of the code or the tests is yours to fix; if it shows the machine lacks what you reported, call " +
+        `${ENVIRONMENT_ERROR_TOOL} again and it stands.\n\n${output}`,
+    };
+  };
+}
+
 /**
  * `report_environment_error`: an agent that finds the machine lacking what the work needs says so, and its turn ends.
- * `record` is told what it reported; whoever asked the turn stops the pulse with it.
+ * `record` is told what it reported; whoever asked the turn stops the pulse with it. With `check`, the report is checked
+ * first: one that does not stand is not recorded, and the agent is told why and goes on.
  */
-export function environmentErrorTool(record: (report: { missing: string; neededBy: string; shownBy?: string }) => void): ToolDefinition {
+export function environmentErrorTool(record: (report: EnvironmentReport) => void, check?: (report: EnvironmentReport) => Promise<ReportVerdict>): ToolDefinition {
   return defineTool({
     name: ENVIRONMENT_ERROR_TOOL,
     label: "Report an environment error",
     description:
       "Say that this machine lacks something the work needs - a toolchain, a system library, a driver, a service, a " +
       "credential - which you cannot and may not install or make up. It ends your turn: the pulse stops, and the person " +
-      "is told exactly what you write here. Use it only for what is missing from the machine, never for a problem in the " +
-      "code or the tests.",
+      "is told exactly what you write here - unless the harness's own run of the testing script, outside your sandbox, " +
+      "shows the machine has it: then you are told so, and go on. Use it only for what is missing from the machine, never " +
+      "for a problem in the code or the tests.",
     promptSnippet: `${ENVIRONMENT_ERROR_TOOL}: the machine lacks something the work needs - ends your turn`,
     parameters: Type.Object({
       missing: Type.String({ description: "What is missing - e.g. `JDK 21`, `the CUDA toolkit (nvcc)`, `the D365_CLIENT_SECRET credential`" }),
@@ -77,7 +129,16 @@ export function environmentErrorTool(record: (report: { missing: string; neededB
     }),
     async execute(_id, params) {
       const { missing, needed_by: neededBy, shown_by: shownBy } = params as { missing: string; needed_by: string; shown_by?: string };
-      record({ missing, neededBy, ...(shownBy !== undefined ? { shownBy } : {}) });
+      const report = { missing, neededBy, ...(shownBy !== undefined ? { shownBy } : {}) };
+      if (check !== undefined) {
+        reportActivity(`  the agent reports the environment lacks ${missing} - checking it with the harness's own run of the testing script`);
+        const verdict = await check(report);
+        if (!verdict.stands) {
+          reportActivity("  it does not stand: the agent goes on");
+          return { content: [{ type: "text" as const, text: verdict.reply }], details: {} };
+        }
+      }
+      record(report);
       return { content: [{ type: "text" as const, text: "Recorded. Your turn ends here; the person is told." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;

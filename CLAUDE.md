@@ -107,7 +107,7 @@ told mid-turn or at its next turn, its record moved, twice a job at most). `regr
   `turri regrow` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
-  spec diff's conformance run, the whole suite with it - before the module's next code job; `bind`
+  spec diff's conformance run, the whole suite with it - once the module's code is built, before anything is built on it; `bind`
   turns it on for the session over `conformance-tests: false`.
 - `spec-steps.ts`: a tree written out one item a line, diffed with git into changes by id, and a step
   (`makeStep`) made of some of them - its tree, its diff, its text diff laid out as the module's file.

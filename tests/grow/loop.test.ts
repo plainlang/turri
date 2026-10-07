@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -408,7 +408,7 @@ describe("the work loop", () => {
       return { ran, gate, runConformance };
     }
 
-    it("are written after a job lands and before the next builds on it, with the config on - each functional spec's, as built", async () => {
+    it("are written once the module's code is built - every code job of it landed - in one job for the module, with the config on", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
       const code = runner();
       const tests = conformanceRunner();
@@ -423,8 +423,8 @@ describe("the work loop", () => {
       });
       await loop.bringUp("app.plain");
       await loop.drain();
-      expect(order.map((entry) => entry.split(" ")[0])).toEqual(["code", "tests", "code", "tests"]);
-      expect(tests.ran.map((job) => job.add)).toEqual([["1"], ["2"]]);
+      expect(order.map((entry) => entry.split(" ")[0])).toEqual(["code", "code", "tests"]);
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "2"]]);
       const tested = readRecord(testsDir())!;
       expect(JSON.stringify(tested)).toContain("Say goodbye.");
       expect(JSON.stringify(tested)).toContain("use pytest.");
@@ -493,6 +493,103 @@ describe("the work loop", () => {
       expect(tests.ran.at(-1)).toMatchObject({ patch: ["2"] });
     });
 
+    it("under conformance-tests: chosen, ask whoever chooses without a conversation once the module's code is built - every built functional spec none is for, at once", async () => {
+      const withAcceptance = "Say hello.\n\n  ***acceptance tests***\n\n  - It prints hello.";
+      writeFileSync(join(dir, "app.plain"), app([withAcceptance, "Say goodbye.", "Say thanks."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const told: Array<{ plainFile: string; frids: string[] }> = [];
+      const loop = createWorkLoop({
+        registry: createJobRegistry(),
+        cwd: dir,
+        planner: false,
+        conformanceOn: () => true,
+        conformanceChosen: () => true,
+        run: code.run,
+        runConformance: tests.runConformance,
+        onChoose: async (plainFile, specs) => (told.push({ plainFile, frids: specs.map((touched) => touched.frid) }), ["2"]),
+      });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      // Asked once, when the last code job landed - not after each - with the whole module's choice.
+      expect(code.ran).toHaveLength(3);
+      expect(told).toEqual([{ plainFile: join(dir, "app.plain"), frids: ["2", "3"] }]);
+      // What it chose is scheduled before the job ends, and written with the one that has acceptance tests, in one job.
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "2"]]);
+    });
+
+    it("under conformance-budget:, offer the chooser only what the module's budget has left, every earlier choice counted - and schedule no more", async () => {
+      const withAcceptance = "Say hello.\n\n  ***acceptance tests***\n\n  - It prints hello.";
+      writeFileSync(join(dir, "app.plain"), app([withAcceptance, "Say goodbye.", "Say thanks.", "Say sorry."]));
+      writeFileSync(join(dir, "config.yaml"), "conformance-budget: 2\n");
+      const code = runner();
+      const tests = conformanceRunner();
+      const told: Array<{ frids: string[]; budget?: number }> = [];
+      const loop = createWorkLoop({
+        registry: createJobRegistry(),
+        cwd: dir,
+        planner: false,
+        conformanceOn: () => true,
+        conformanceChosen: () => true,
+        run: code.run,
+        runConformance: tests.runConformance,
+        // It answers with more than it may: only the first that fit are scheduled.
+        onChoose: async (_plainFile, specs, budget) => (told.push({ frids: specs.map((touched) => touched.frid), ...(budget !== undefined ? { budget } : {}) }), ["2", "3", "4"]),
+      });
+      code.holdNext();
+      await loop.bringUp("app.plain");
+      // One chosen ahead of the code: it counts.
+      await loop.conformance("app.plain", { frids: ["4"] });
+      code.gate.release!();
+      await loop.drain();
+      expect(told).toEqual([{ frids: ["2", "3"], budget: 1 }]);
+      // Acceptance tests' fs 1 does not count against it; fs 4 and the one that fit do.
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "2", "4"]]);
+    });
+
+    const base = (spec: string) => `***implementation reqs***\n\n- :Implementation: is Python.\n\n***test reqs***\n\n- :ConformanceTests: use pytest.\n\n***functional specs***\n\n- ${spec}\n`;
+    const top = (spec: string) => `---\nrequires:\n  - base\n---\n\n${base(spec)}`;
+
+    it("are written and pass for a module before one built on it starts - which starts from its code and its conformance tests", async () => {
+      writeFileSync(join(dir, "base.plain"), base("Users register."));
+      writeFileSync(join(dir, "top.plain"), top("The home page says hello."));
+      const order: string[] = [];
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({
+        registry: createJobRegistry(),
+        cwd: dir,
+        planner: false,
+        conformanceOn: () => true,
+        run: async (job, onDelta) => (order.push(`code ${job.moduleName}`), code.run(job, onDelta)),
+        runConformance: async (job, onDelta) => {
+          order.push(`tests ${job.moduleName}`);
+          return tests.runConformance(job, onDelta);
+        },
+      });
+      await loop.bringUp("top.plain");
+      await loop.drain();
+      expect(order).toEqual(["code base", "tests base", "code top", "tests top"]);
+      // The module above started from the conformance tests below it - base's, then its own added.
+      expect(readFileSync(join(testsDir("top"), "test_app.py"), "utf8")).toBe("# conformance\n# conformance\n");
+      expect(readFileSync(join(codeDir("top"), "base.py"), "utf8")).toContain("Users register.");
+    });
+
+    it("that do not pass halt their module - no more of its code - and every module built on it", async () => {
+      writeFileSync(join(dir, "base.plain"), base("Users register."));
+      writeFileSync(join(dir, "top.plain"), top("The home page says hello."));
+      const code = runner();
+      const tests = conformanceRunner();
+      tests.gate.pass = false;
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("top.plain");
+      await loop.drain();
+      expect(code.ran.map((job) => job.module)).toEqual(["base"]);
+      const [below, above] = loop.status();
+      expect(below!.why).toMatch(/did not pass/);
+      expect(above!.why).toMatch(/^waiting for base: its conformance tests did not pass/);
+    });
+
     it("named in the conversation one after the other, are written for every one named - never taking out the tests of those named before", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
       const code = runner();
@@ -510,7 +607,7 @@ describe("the work loop", () => {
       expect(tests.ran.flatMap((job) => job.add)).toEqual(["1", "2"]);
     });
 
-    it("scheduled ahead of their code, are written in one job once every functional spec named is built - after the code job that builds the last, before the next", async () => {
+    it("scheduled ahead of their code, are written once the module's code is built - after its last code job, the groups together", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks.", "Say sorry."]));
       const code = runner();
       const tests = conformanceRunner();
@@ -525,15 +622,15 @@ describe("the work loop", () => {
       });
       code.holdNext();
       await loop.bringUp("app.plain");
-      // Scheduled while the first code job runs: shown at once, after the code job that builds the last of them.
+      // Scheduled while the first code job runs: shown at once, after the module's last code job.
       const [status] = await loop.conformance("app.plain", { frids: ["1", "2"] });
       await loop.conformance("app.plain", { frids: ["4"] });
       const planned = loop.status()[0]!.planned;
-      expect(status!.planned.map((job) => job.waitsFor)).toEqual([undefined, ["1", "2"], undefined, undefined]);
-      expect(planned.map((job) => `${job.track} ${job.title}`)).toEqual(["code Say goodbye.", "conformance fs 1, fs 2", "code Say thanks.", "code Say sorry.", "conformance fs 4"]);
+      expect(status!.planned.map((job) => job.waitsFor)).toEqual([undefined, undefined, undefined, ["1", "2"]]);
+      expect(planned.map((job) => `${job.track} ${job.title}`)).toEqual(["code Say goodbye.", "code Say thanks.", "code Say sorry.", "conformance fs 1, fs 2", "conformance fs 4"]);
       code.gate.release!();
       await loop.drain();
-      expect(order).toEqual(["code 1", "code 2", "tests 1,2", "code 3", "code 4", "tests 4"]);
+      expect(order).toEqual(["code 1", "code 2", "code 3", "code 4", "tests 1,2,4"]);
       expect(JSON.stringify(readRecord(testsDir()))).not.toContain("Say thanks.");
     });
 
@@ -551,7 +648,7 @@ describe("the work loop", () => {
       expect(scheduled!.toChoose?.map((touched) => touched.frid)).toEqual(["2"]);
       code.gate.release!();
       await loop.drain();
-      expect(tests.ran.map((job) => job.add)).toEqual([["1"], ["3"]]);
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "3"]]);
     });
 
     it("asked for, are written for every functional spec in one job - or one a functional spec when the person asked for that", async () => {

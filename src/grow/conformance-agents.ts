@@ -1,9 +1,11 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
-import { createServiceTools } from "./services.ts";
+import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { reportActivity } from "./activity.ts";
 import type { ScriptRun } from "./test-scripts.ts";
@@ -182,6 +184,8 @@ export async function exploreInvocation(options: {
   model?: string;
   onDelta?: (delta: string) => void;
 }): Promise<string> {
+  // The codebase's account from an earlier run, and what of the code changed since: the explorer starts from it.
+  const previous = options.question === undefined ? previousExploration(options.buildDir) : undefined;
   let exploration: Exploration | undefined;
   let submissions = 0;
   const target = options.scope.tested;
@@ -263,16 +267,17 @@ export async function exploreInvocation(options: {
     },
   }) as ToolDefinition;
   // It reads the code - and runs it, to see - but changes nothing.
-  const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
-  const services = createServiceTools({ dir: options.buildDir, read: [options.buildDir], write: [] });
+  // The explorer only reads: the file tools, no shell - it scours the code, it runs nothing.
+  const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [], noBash: true });
   const session = await createExecutor({
     cwd: options.buildDir,
-    customTools: [submit, ...services.tools, ...fence.tools],
-    tools: [...fence.names, ...services.names, "submit_exploration"],
+    customTools: [submit, ...fence.tools],
+    tools: [...fence.names, "submit_exploration"],
     model: options.model,
     label: `${options.label} explorer`,
+    role: "explorer",
     system: fence.note,
-    task: explorePrompt(options.buildDir, options.spec, options.scope, options.testingScripts, options.question),
+    task: explorePrompt(options.buildDir, options.spec, options.scope, options.testingScripts, options.question, previous),
     budget: { calls: EXPLORER_CALLS, finish: ["submit_exploration"] },
   });
   const replies: string[] = [];
@@ -292,7 +297,6 @@ export async function exploreInvocation(options: {
     }
   } finally {
     session.dispose();
-    await services.stopAll();
   }
   const complete = explorationProblems(exploration, options.scope, options.spec.moduleName, options.acceptance).length === 0;
   const found = replies.filter((reply) => reply.trim() !== "");
@@ -301,7 +305,41 @@ export async function exploreInvocation(options: {
       ? `The explorer did not hand over a complete account. What it wrote as it worked:\n\n${found.join("\n\n")}`
       : "The explorer could not say how the software is invoked. Work it out from the test reqs and the files in the build.";
   }
-  return explorationText(exploration, complete ? [] : found);
+  const account = explorationText(exploration, complete ? [] : found);
+  // Kept for the codebase's next conformance run: its explorer starts from it, and from what changed since.
+  if (complete) keepExploration(options.buildDir, account);
+  return account;
+}
+
+/** Where a codebase's last complete exploration is kept: its module's scratch, beside the code - never in it. */
+function explorationFile(buildDir: string): string {
+  return join(modulesScratchDir(buildDir), "explorations", `${basename(dirname(resolve(buildDir)))}.json`);
+}
+
+/** Keep an account, with the code as it was when it was handed over, file by file. */
+function keepExploration(buildDir: string, account: string): void {
+  try {
+    const file = explorationFile(buildDir);
+    ensureInModulesScratch(buildDir, dirname(file));
+    writeFileSync(file, JSON.stringify({ account, code: Object.fromEntries(digestFiles(buildDir)) }));
+  } catch {
+    /* only a head start: without it, the next explorer starts from the code */
+  }
+}
+
+/** The codebase's last complete exploration, and the files of the code changed since - added, changed or removed. */
+export function previousExploration(buildDir: string): { account: string; changed: string[] } | undefined {
+  try {
+    const kept = JSON.parse(readFileSync(explorationFile(buildDir), "utf8")) as { account?: unknown; code?: Record<string, string> };
+    if (typeof kept.account !== "string" || kept.code === undefined) return undefined;
+    const now = digestFiles(buildDir);
+    const changed = new Set<string>();
+    for (const [file, digest] of now) if (kept.code[file] !== digest) changed.add(file);
+    for (const file of Object.keys(kept.code)) if (!now.has(file)) changed.add(file);
+    return { account: kept.account, changed: [...changed].sort() };
+  } catch {
+    return undefined;
+  }
 }
 
 /** How many questions the test author may put to the explorer in one conformance run, and how long an answer may be. */
@@ -334,20 +372,21 @@ export async function answerAsExplorer(options: {
       return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;
-  const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [] });
-  const services = createServiceTools({ dir: options.buildDir, read: [options.buildDir], write: [] });
+  // The explorer only reads: the file tools, no shell - it scours the code, it runs nothing.
+  const fence = confinedTools({ workdir: options.buildDir, read: [options.buildDir], write: [], noBash: true });
   const session = await createExecutor({
     cwd: options.buildDir,
-    customTools: [submit, ...services.tools, ...fence.tools],
-    tools: [...fence.names, ...services.names, "submit_answer"],
+    customTools: [submit, ...fence.tools],
+    tools: [...fence.names, "submit_answer"],
     model: options.model,
     label: `${options.label} explorer`,
+    role: "explorer",
     system: fence.note,
     task: [
       `You explored the built code of the \`${options.spec.moduleName}\` specification, in ${options.buildDir}, for the`,
       "person writing its black-box conformance tests, and handed over the account below. They are writing the tests from it",
-      "now and have a question. Answer it from the code: read it, and run it to see where reading is not enough - change",
-      "nothing. Answer only what is asked, in words, with the exact names - routes, fields, commands, paths, versions - as",
+      "now and have a question. Answer it from the code: read it - you have no shell, and run nothing. Answer only what is",
+      "asked, in words, with the exact names - routes, fields, commands, paths, versions - as",
       `the code has them, never guessed. Under ${MAX_ANSWER_CHARS} characters. Call submit_answer once.`,
       "",
       `<your account>\n${options.account.trim()}\n</your account>`,
@@ -361,7 +400,6 @@ export async function answerAsExplorer(options: {
     reply = await ask(session, BEGIN, options.onDelta);
   } finally {
     session.dispose();
-    await services.stopAll();
   }
   const given = (answer ?? reply).trim();
   return given === "" ? "The explorer could not answer. Work it out from the account and the code, which you can read." : given.slice(0, MAX_ANSWER_CHARS * 2);
@@ -394,6 +432,7 @@ export function explorePrompt(
   scope: ConflictScope,
   testingScripts?: Array<{ path: string; runs: string; content: string }>,
   question?: { failure: string; account: string },
+  previous?: { account: string; changed: string[] },
 ): string {
   const target =
     scope.tested !== undefined
@@ -411,8 +450,7 @@ export function explorePrompt(
     `fields and their types in words - no code listings, no files pasted whole, under ${MAX_EXPLORATION_CHARS} characters in all. In its parts:`,
     "",
     "- build_and_run: what to install and build, the exact command that starts or runs it, where it listens",
-    "  and how to tell it is up - for a server, start it with start_service and reach it with curl, so what you hand",
-    "  over is what you saw it do;",
+    "  and how to tell it is up - as its build file, its entry point and its configuration say;",
     "- tests_reach_it: how the conformance tests reach it, run as the conformance testing script below runs",
     "  them. Read the script: what it builds or installs, and where, before the tests run; then say exactly what",
     "  the tests depend on or start - a package, module, entry point, path or address, with its exact name and",
@@ -434,8 +472,8 @@ export function explorePrompt(
     "",
     "Describe how to call it, never what it answers: what it returns in each case is for the tests to check",
     "against the specification, not to copy from the code - so the plan's expectations come from the",
-    "specification, and the code only tells you how to reach it. Read the code, and run it in your shell to be",
-    "sure. Change nothing. Then call submit_exploration - once, with the whole of it: it ends your turn, and",
+    "specification, and the code only tells you how to reach it. Read the code - its build files, its entry points, its",
+    "configuration - with the file tools: you have no shell, and run nothing. Change nothing. Then call submit_exploration - once, with the whole of it: it ends your turn, and",
     `you are told if anything is missing. You can hand it over ${EXPLORATION_SUBMISSIONS} times at most.`,
     "",
     "<specification>",
@@ -447,6 +485,24 @@ export function explorePrompt(
           "This is the project's conformance testing script, which the harness runs to decide whether the",
           "tests pass - read it for what it builds or installs before the tests run, and so what the tests can depend on:",
           ...testingScripts.flatMap((script) => ["", `<script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</script>"]),
+        ]
+      : []),
+    ...(previous !== undefined && question === undefined
+      ? [
+          "",
+          "This codebase was explored before, for an earlier conformance run, and the account below was handed over then.",
+          "Start from it - do not explore again what it already says. Check what it says against the files that changed",
+          "since, listed below, and read further only for what it does not cover yet: how the functionality under test",
+          "now is reached, and the plan for its tests. Then hand over the whole account, updated - what still holds kept,",
+          "what changed corrected, what is new added.",
+          "",
+          `<the account handed over before>
+${previous.account.trim()}
+</the account handed over before>`,
+          "",
+          previous.changed.length > 0
+            ? `<files changed since>\n${previous.changed.slice(0, 200).join("\n")}${previous.changed.length > 200 ? `\n... and ${previous.changed.length - 200} more` : ""}\n</files changed since>`
+            : "No file of the code changed since.",
         ]
       : []),
     ...(question !== undefined
@@ -563,7 +619,7 @@ export async function createTestReviewer(options: {
     customTools: [submit, ...fence.tools],
     tools: [...fence.names, "submit_review"],
     model: options.model,
-    label: `${options.label} test reviewer`,
+    label: `${options.label} test reviewer`, role: "test-reviewer",
     system: fence.note,
     task: testReviewTask(options),
     compaction: { instructions: REVIEWER_COMPACTION },
@@ -901,17 +957,16 @@ export async function judgeFailure(options: {
       return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;
-  // It reads both, and changes neither. It has a shell and the web too - to try the software, or ask
-  // a service it calls what it answers - as the explorer does: its file tools write nothing, and what
-  // it changes through the shell is told.
-  const fence = confinedTools({ workdir: options.conformanceDir, read: [options.buildDir, options.conformanceDir], write: [] });
+  // It reads both, and changes neither: the file tools and the web - to look up what a service it calls answers -
+  // and no shell. It judges from the code, the tests, the spec and the failing run's output, which it is given.
+  const fence = confinedTools({ workdir: options.conformanceDir, read: [options.buildDir, options.conformanceDir], write: [], noBash: true });
   const before = { code: digestFiles(options.buildDir), tests: digestFiles(options.conformanceDir) };
   const session = await createExecutor({
     cwd: options.conformanceDir,
     customTools: [submit, ...createWebTools(), ...fence.tools],
     tools: [...fence.names, ...WEB_TOOLS, "submit_verdict"],
     model: options.model,
-    label: `${options.label} judge`,
+    label: `${options.label} judge`, role: "judge",
     system: fence.note,
     task: judgePrompt(options),
     budget: { calls: JUDGE_CALLS, finish: ["submit_verdict"] },
@@ -939,7 +994,7 @@ export async function judgeFailure(options: {
   } finally {
     session.dispose();
   }
-  // A judge changes nothing: what its shell changed anyway is said, for whoever looks at the run.
+  // A judge changes nothing: should anything have changed anyway, it is said, for whoever looks at the run.
   for (const [what, dir, digest] of [["code", options.buildDir, before.code], ["tests", options.conformanceDir, before.tests]] as const) {
     const changed = diffFiles(digest, digestFiles(dir));
     const files = [...changed.added, ...changed.changed, ...changed.removed];
@@ -1052,21 +1107,25 @@ export async function createCodeFixer(options: {
   /** Its own tools beyond the file tools: running the unit tests, its notes. */
   tools: ToolDefinition[];
   toolNames: string[];
+  /** The harness's own run its environment reports are checked against. */
+  checkEnvironment?: { run: () => Promise<{ exitCode: number; output: string }>; script: string };
 }): Promise<AgentSession> {
   const fence = confinedTools({
     workdir: options.buildDir,
     read: [options.buildDir, ...(options.conformanceDir !== undefined ? [options.conformanceDir] : [])],
     write: [options.buildDir],
+    reportsEnvironment: true,
   });
   return createExecutor({
     cwd: options.buildDir,
     customTools: [...options.tools, ...createWebTools(), ...fence.tools],
     tools: [...fence.names, ...options.toolNames, ...WEB_TOOLS],
     model: options.model,
-    label: `${options.label} coding agent`,
+    label: `${options.label} coding agent`, role: "coding",
     system: `${fence.note}\n\n${workspaceBlock({ dir: options.buildDir, hasMyDiff: options.toolNames.includes("my_diff") })}`,
     task: codeFixerTask(options),
     compaction: { instructions: CODER_COMPACTION },
+    ...(options.checkEnvironment !== undefined ? { checkEnvironment: options.checkEnvironment } : {}),
   });
 }
 

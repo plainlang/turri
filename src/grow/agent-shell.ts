@@ -1,10 +1,10 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { readProjectConfig, configModuleOfBuild } from "../config.ts";
 import { reportNote } from "./activity.ts";
-import { agentEnvironment, packageCacheDir, TOOLCHAIN_VARIABLES } from "./agent-env.ts";
+import { agentEnvironment, DARWIN_TEMP_SUFFIX, packageCacheDir, TOOLCHAIN_VARIABLES } from "./agent-env.ts";
 import { afterCommand, auditMessage, beforeCommand } from "./audit.ts";
 import { checkCommand, machineReadable, type CheckResult, type CommandFence } from "./command-check.ts";
-import { machineFor, sandboxAvailable, sandboxWrap, type SandboxFence, type Wall } from "./os-sandbox.ts";
+import { darwinUserDirs, machineFor, sandboxAvailable, sandboxWrap, type SandboxFence, type Wall } from "./os-sandbox.ts";
 import { MODULES_DIR, projectRootOf } from "./paths.ts";
 import { RECORD_FILE } from "./records.ts";
 import { runCommand, type RunResult } from "./shell.ts";
@@ -41,6 +41,16 @@ export interface AgentShell {
   audited<T>(work: () => Promise<T>): Promise<{ value: T; note?: string }>;
 }
 
+/**
+ * What a module's shell writes beside its roots: its home, its TMPDIR, the package caches - and on macOS its own folder
+ * in the per-user temporary folder, where its JVMs keep the attach sockets Mockito's inline mocks and jcmd go through.
+ */
+export function writableFor(env: Record<string, string>, moduleDir: string): string[] {
+  const darwinTemp = darwinUserDirs().temp;
+  const suffix = env[DARWIN_TEMP_SUFFIX];
+  return [env.HOME!, env.TMPDIR!, packageCacheDir(moduleDir), ...(darwinTemp !== undefined && suffix !== undefined ? [join(darwinTemp, suffix)] : [])];
+}
+
 /** The module a folder is part of: `plain_modules/<module>`, or - a build folder elsewhere - its parent. */
 function moduleOf(dir: string): string {
   const parts = resolve(dir).split(sep);
@@ -58,7 +68,7 @@ export function agentShell(role: ShellRole, options: { wall?: Wall; busy?: (modu
   const root = projectRootOf(moduleDir);
   const toolchains = readProjectConfig(root, configModuleOfBuild(root, basename(moduleDir))).toolchains ?? [];
   const machine = machineFor(env, TOOLCHAIN_VARIABLES, toolchains);
-  const writable = [env.HOME!, env.TMPDIR!, packageCacheDir(moduleDir)];
+  const writable = writableFor(env, moduleDir);
 
   const commandFence: CommandFence = {
     cwd: workdir,

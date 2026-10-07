@@ -47,6 +47,11 @@ export interface Confinement {
   write?: string[];
   /** No shell either - for an agent that only reads. */
   noBash?: boolean;
+  /**
+   * It may report that the machine lacks what the work needs (report_environment_error) - only the agents that write
+   * and run code: the coding agents and the conformance agent. Observers, explorers and judges never do.
+   */
+  reportsEnvironment?: boolean;
 }
 
 export class ConfinementError extends Error {
@@ -378,12 +383,12 @@ export function confinedTools(c: Confinement): ConfinedTools {
     tools.push(readOutputTool(workdir));
   }
 
-  // An agent with a shell is given report_environment_error with it (pi.ts), and its walls name it.
+  // An agent that writes and runs code is given report_environment_error (pi.ts), and its walls name it.
   return {
     tools,
     names: tools.map((t) => t.name),
     description,
-    note: sandboxNote({ read, write, shell: c.noBash !== true, ...(c.noBash !== true ? { environmentTool: ENVIRONMENT_ERROR_TOOL } : {}) }),
+    note: sandboxNote({ read, write, shell: c.noBash !== true, ...(c.noBash !== true && c.reportsEnvironment === true ? { environmentTool: ENVIRONMENT_ERROR_TOOL } : {}) }),
   };
 }
 

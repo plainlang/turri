@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -68,6 +68,23 @@ describe("an exploration", () => {
 });
 
 describe("the explorer", () => {
+  it("starts from the codebase's last complete account, and the files changed since, rather than exploring it all again", async () => {
+    writeFileSync(join(dir, "server.js"), "// v1\n");
+    turns.push({ reply: "", submit: whole("1") });
+    await explore();
+    expect(prompts[0]).not.toContain("<the account handed over before>");
+    // The next run's explorer, after the code changed.
+    writeFileSync(join(dir, "server.js"), "// v2\n");
+    writeFileSync(join(dir, "orders.js"), "// new\n");
+    prompts.length = 0;
+    turns.push({ reply: "", submit: whole("1") });
+    await explore();
+    expect(prompts[0]).toContain("<the account handed over before>");
+    expect(prompts[0]).toContain("npm ci && npm run build");
+    expect(prompts[0]).toMatch(/<files changed since>\norders\.js\nserver\.js\n<\/files changed since>/);
+  });
+
+
   it("is sent back when it hands over one line - as happened - and what it wrote is kept when it never completes it", async () => {
     // A full account written in the reply, then a thin one handed over, again and again.
     const thin = { build_and_run: "node dist/orders-app-1.0.0.js", interfaces: [], environment: "", plan: [] };

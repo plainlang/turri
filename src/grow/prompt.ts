@@ -9,7 +9,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import type { LoadedResource } from "./resources.ts";
+import { codeCopyOf, type LoadedResource } from "./resources.ts";
 import { acceptanceLabel, acceptanceText, conformanceLabel } from "./test-kinds.ts";
 import { codeCasesBlock, conformanceCasesBlock } from "./cases.ts";
 import { marksGrowAgain } from "./records.ts";
@@ -109,6 +109,8 @@ export function specPrimer(options: { testReqs: boolean }): string {
     "  A linked resource is not in your workspace. When the code needs what one holds while it runs - a schema it",
     "  validates against, a version it reports - it keeps exactly one copy, at the path its code-copy names in the",
     "  codebase (or where the <implementation reqs> put such files), and reads it from there; otherwise it copies none.",
+    "  copy_resource makes that copy, whole and byte for byte - never type a resource out. A long one is shown cut",
+    "  short: copy it to read the whole of it.",
     "  An image among them is attached to your first message, numbered in the order they are listed: look at it.",
     "- <spec change>: a change to the specification, section by section, each section in its own tag - what it adds,",
     "  what it changes (before and now), and what it removes.",
@@ -223,14 +225,6 @@ export function moduleSection(key: string, items: string[], moduleName: string, 
   );
   const tag = sectionTag(key);
   return `<${tag}>\n${groups.join("\n\n")}\n</${tag}>`;
-}
-
-/** Where in the codebase a linked resource's one copy goes: its path, without the steps up and the leading `./`. */
-function codeCopyOf(target: string): string {
-  return target
-    .split(/[\\/]/)
-    .filter((part) => part !== "" && part !== "." && part !== "..")
-    .join("/");
 }
 
 function linkedResourcesSection(resources: LoadedResource[]): string | null {

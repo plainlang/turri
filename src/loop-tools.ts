@@ -91,7 +91,10 @@ export async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: 
     "",
     wait
       ? "Tell the user how it went."
-      : "It grows in the background: tell the user what runs and what is planned, and carry on. Use growth with a pulse's id if they ask how it is going.",
+      : "It grows in the background. " +
+        "Nothing to wait for: if what you are doing has a next step - a question to ask, a file to edit, a bind to decide - take it now, " +
+        "in this same turn, and tell the user what runs and what is planned alongside it, never as a reply that ends your turn. " +
+        "Use growth with a pulse's id if they ask how it is going.",
   ].join("\n");
   return { content: [{ type: "text" as const, text }], details: { jobIds } };
 }

@@ -11,9 +11,9 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
-import { readProjectConfig, splitModelSpec } from "./config.ts";
+import { configModuleOfBuild, inheritModel, readProjectConfig, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
 import { maskToolResults } from "./grow/masking.ts";
-import { ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool } from "./grow/environment-error.ts";
+import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool } from "./grow/environment-error.ts";
 import { MODULES_DIR, projectRootOf, sessionsDir } from "./grow/paths.ts";
 import {
   currentStopSignal,
@@ -192,7 +192,36 @@ function throwIfEnvironmentReported(session: AgentSession): void {
   throw new EnvironmentError({ moduleName, missing: report.missing, neededBy: report.neededBy, ...(report.shownBy !== undefined ? { shownBy: report.shownBy } : {}), source: "agent" });
 }
 
-export async function ask(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
+/** A turn with one thing left to do: every tool but these is refused, the tools the session has left as they are. */
+export interface TurnOptions {
+  onlyTools?: string[];
+}
+
+/** The tools a session's turn may use, while one is restricted (ask's `onlyTools`). */
+const turnTools = new WeakMap<AgentSession, Set<string>>();
+
+/** How many calls a restricted turn may have refused before it is stopped. */
+export const REFUSED_BEFORE_STOP = 3;
+
+/**
+ * `run`, with every tool of the session but `names` refused (guardRepeats refuses them) until it ends. The tools
+ * themselves are left as they are, so the tools the model is sent - and its prompt cache - stay the same.
+ */
+export async function withOnlyTools<T>(session: AgentSession, names: string[], run: () => Promise<T>): Promise<T> {
+  turnTools.set(session, new Set(names));
+  try {
+    return await run();
+  } finally {
+    turnTools.delete(session);
+  }
+}
+
+export async function ask(session: AgentSession, text: string, onDelta?: (delta: string) => void, turn?: TurnOptions): Promise<string> {
+  if (turn?.onlyTools === undefined) return askUnrestricted(session, text, onDelta);
+  return withOnlyTools(session, turn.onlyTools, () => askUnrestricted(session, text, onDelta));
+}
+
+async function askUnrestricted(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
   // Between turns, not during one: the work so far, summed up, once it has grown past the threshold.
   // The summary keeps no images: they go with the next message again.
   if (await compactIfDue(session)) {
@@ -330,10 +359,15 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
         reportUsage(spent);
         if (agent !== undefined) reportAgent({ label: agent.label, usage: spent });
       }
+      // A provider error counts only if the turn ends on it: a later message that ends well - pi's own retry, the
+      // stream picked up again - means it recovered, and the turn's work stands.
       if (message.role === "assistant" && message.stopReason === "error") {
         providerError = message.errorMessage ?? "the provider returned an error";
+      } else if (message.role === "assistant") {
+        providerError = undefined;
       }
     }
+    if (event.type === "auto_retry_end" && event.success) providerError = undefined;
   });
 
   // A job asked to stop: abort the turn in progress, and do not start another. Every
@@ -350,18 +384,33 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // For the agent's log: the whole prompt and how the turn ended; the session streams the rest.
   const debug = debugLogOf(session);
   const turnStarted = Date.now();
-  // A timed turn is ended where it is when the time is up. The agent is not told: a turn cut short is taken up again
-  // by the harness, and a clock in the prompt only hurries the work.
-  const timed = timedSessions.has(session) && TURN_LIMIT_MS > 0;
+  // A timed turn is ended when the time is up. The agent is not told: a turn cut short is taken up again by the
+  // harness, and a clock in the prompt only hurries the work. It ends at the next request to the model, not in the
+  // middle of one: a request aborted in flight is billed whole and uncached, and its answer thrown away. What is running
+  // then - the model answering, a tool - finishes; past the grace on top of the limit, it is ended where it is.
+  const limitMs = timedSessions.get(session) ?? 0;
+  const timed = limitMs > 0;
   let outOfTime = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let backstop: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  const endTurn = (how: string) => {
+    if (stopped) return;
+    stopped = true;
+    reportActivity(`  stopped the agent's turn: its ${formatLimit(limitMs)} are up`);
+    debug?.note(`turn stopped: its ${formatLimit(limitMs)} are up${how}`);
+    void session.abort();
+  };
+  const atNextRequest = timed
+    ? session.subscribe((event) => {
+        if (outOfTime && (event as { type?: string }).type === "turn_start") endTurn("");
+      })
+    : undefined;
   if (timed) {
     timer = setTimeout(() => {
       outOfTime = true;
-      reportActivity(`  stopped the agent's turn: its ${formatLimit(TURN_LIMIT_MS)} are up`);
-      debug?.note(`turn stopped: its ${formatLimit(TURN_LIMIT_MS)} are up`);
-      void session.abort();
-    }, TURN_LIMIT_MS);
+      backstop = setTimeout(() => endTurn(" - and the grace after it: ended where it was"), TURN_GRACE_MS);
+    }, limitMs);
   }
   // What the model is sent, and only that: its task is its system prompt, which the log already holds whole.
   debug?.prompt(text);
@@ -379,11 +428,13 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
     throw error;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    if (backstop !== undefined) clearTimeout(backstop);
+    atNextRequest?.();
     unsubscribe();
     stop?.removeEventListener("abort", onStop);
     reportNow(undefined);
   }
-  if (outOfTime) out = `${out.trim()}\n\n[the turn was stopped: its ${formatLimit(TURN_LIMIT_MS)} were up]`.trim();
+  if (stopped) out = `${out.trim()}\n\n[the turn was stopped: its ${formatLimit(limitMs)} were up]`.trim();
 
   if (stop?.aborted) {
     debug?.note(`turn stopped on request after ${seconds(Date.now() - turnStarted)}`);
@@ -391,7 +442,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   }
 
   // A turn ended for its time is ended, whatever the provider was doing then.
-  if (providerError !== undefined && !outOfTime) {
+  if (providerError !== undefined && !stopped) {
     debug?.note(`turn ended with a provider error after ${seconds(Date.now() - turnStarted)}: ${providerError}`);
     throw new ProviderError(`${session.model?.id ?? "model"}: ${providerError}`);
   }
@@ -405,7 +456,13 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
  * the harness goes on as after any turn - it runs the tests, and judges. TURRI_TURN_LIMIT sets
  * it, in seconds; 0 turns it off.
  */
-export const TURN_LIMIT_MS = Number(process.env.TURRI_TURN_LIMIT ?? 120) * 1000;
+export const DEFAULT_TURN_LIMIT_MS = 120 * 1000;
+
+/** TURRI_TURN_LIMIT, in seconds: over the config's turn limits, for every agent. */
+const TURN_LIMIT_FROM_ENV = process.env.TURRI_TURN_LIMIT !== undefined && process.env.TURRI_TURN_LIMIT.trim() !== "" ? Number(process.env.TURRI_TURN_LIMIT) * 1000 : undefined;
+
+/** How long past the turn limit what is running then - the model answering, a tool - may take to finish. */
+export const TURN_GRACE_MS = Number(process.env.TURRI_TURN_GRACE ?? 60) * 1000;
 
 /** A session's task, in its instructions, until its first turn shows it in the transcript. */
 const pendingTask = new WeakMap<object, string>();
@@ -520,8 +577,8 @@ export async function compactIfDue(session: AgentSession): Promise<boolean> {
   }
 }
 
-/** The sessions whose turns are timed: the agents a render starts, not the conversation or a skill's. */
-const timedSessions = new WeakSet<object>();
+/** The sessions whose turns are timed, and how long each turn may take: the agents a render starts, not the conversation or a skill's. */
+const timedSessions = new WeakMap<object, number>();
 
 /** Which agent a session is, and what it runs on - for its transcript entries. */
 const agentLabels = new WeakMap<object, { label: string; model?: string }>();
@@ -530,9 +587,12 @@ function agentOf(session: object): { label: string; model?: string } | undefined
   return agentLabels.get(session);
 }
 
-/** Have this session's turns timed, as an agent a render starts has. */
-export function timeTurns(session: object): void {
-  timedSessions.add(session);
+/**
+ * Have this session's turns timed, as an agent a render starts has: `limitMs` each - its role's in the config - or
+ * the default. TURRI_TURN_LIMIT wins over both.
+ */
+export function timeTurns(session: object, limitMs?: number): void {
+  timedSessions.set(session, TURN_LIMIT_FROM_ENV ?? limitMs ?? DEFAULT_TURN_LIMIT_MS);
 }
 
 /** How many calls to one tool may fail in a row, nothing going through, before the agent's turn is stopped. */
@@ -586,10 +646,28 @@ export function guardRepeats(tools: ToolDefinition[], session: () => AgentSessio
   // Looks made since the last call that could change anything, and how often each.
   const looks = new Map<string, number>();
   let calls = 0;
+  // Calls refused in the restricted turn under way, and which turn's set that was.
+  let refused = 0;
+  let refusedIn: Set<string> | undefined;
   return tools.map((tool) => ({
     ...tool,
     execute: async (...args: Parameters<ToolDefinition["execute"]>) => {
       const [, params] = args;
+      const current = session();
+      const only = current !== undefined ? turnTools.get(current) : undefined;
+      if (only !== undefined && !only.has(tool.name)) {
+        if (refusedIn !== only) (refused = 0), (refusedIn = only);
+        refused += 1;
+        if (refused > REFUSED_BEFORE_STOP) {
+          reportActivity(`  stopped the agent's turn: ${refused} calls to tools this turn does not have`);
+          void current?.abort();
+          throw new Error(`Stopped: ${refused} calls to tools this turn does not have.`);
+        }
+        throw new Error(
+          `Not run: your work is done and checked - this turn is for ${[...only].join(" and ")} alone, and nothing else is ` +
+            `run. Call ${[...only].join(" or ")}, then finish.`,
+        );
+      }
       calls += 1;
       if (budget !== undefined && !budget.finish.includes(tool.name) && calls > budget.calls) {
         if (calls > budget.calls * 2) {
@@ -685,6 +763,17 @@ export async function createExecutor(opts: {
    * compaction, which sums them up with the rest. A model that cannot read images is refused, before any work.
    */
   images?: AgentImage[];
+  /**
+   * For an agent that writes and runs code: the harness's own run of the testing script, which an environment report it
+   * makes is checked against before the pulse stops (checkAgainstScript). Only an agent given it has
+   * report_environment_error at all.
+   */
+  checkEnvironment?: { run: () => Promise<{ exitCode: number; output: string }>; script: string };
+  /**
+   * What the agent does: its role's model, thinking and turn limit in the config (`models:`) apply - the model over
+   * `model`, unless the config names none for the role.
+   */
+  role?: AgentRole;
 }): Promise<AgentSession> {
   // Saved to disk, in the project: an agent's session is the record of what it did, and the
   // only way to pick a long run back up after the process that ran it is gone.
@@ -692,10 +781,12 @@ export async function createExecutor(opts: {
     opts.resumeFrom !== undefined
       ? SessionManager.open(opts.resumeFrom)
       : SessionManager.create(opts.cwd, sessionsDir(projectRootOf(opts.cwd)));
-  // An agent with a shell can say the machine lacks what the work needs: its turn ends, and the pulse stops with it.
-  const hasShell = opts.customTools.some((tool) => tool.name === "bash");
+  // An agent that writes and runs code - given the harness's run its reports are checked against - can say the machine
+  // lacks what the work needs: its turn ends, and the pulse stops with it. Observers, explorers and judges cannot.
+  const hasShell = opts.customTools.some((tool) => tool.name === "bash") && opts.checkEnvironment !== undefined;
   const reported: { report?: { missing: string; neededBy: string; shownBy?: string } } = {};
-  const withEnvironmentErrors = hasShell ? [...opts.customTools, environmentErrorTool((report) => (reported.report = report))] : opts.customTools;
+  const check = opts.checkEnvironment !== undefined ? checkAgainstScript(opts.checkEnvironment.run, opts.checkEnvironment.script) : undefined;
+  const withEnvironmentErrors = hasShell ? [...opts.customTools, environmentErrorTool((report) => (reported.report = report), check)] : opts.customTools;
   const { session } = await createAgentSession({
     cwd: opts.cwd,
     modelRuntime: await subAgentModelRuntime(),
@@ -709,7 +800,10 @@ export async function createExecutor(opts: {
   if (hasShell) environmentReports.set(session, { cwd: opts.cwd, reported });
   if (opts.compaction !== undefined) keepCompacted(session, { instructions: opts.compaction.instructions, atTokens: opts.compaction.atTokens ?? compactAtFor(opts.cwd) });
 
-  const chosen = splitModelSpec(opts.model);
+  // Its role's own model and thinking, where the config names them; otherwise what it was given.
+  const config = opts.role !== undefined ? configForCwd(opts.cwd) : undefined;
+  const fromRole = config !== undefined && opts.role !== undefined ? roleModel(config, opts.role) : undefined;
+  const chosen = fromRole !== undefined ? (inheritModel(fromRole, splitModelSpec(opts.model)) ?? {}) : splitModelSpec(opts.model);
   if (chosen.model !== undefined) {
     const model = findModel(session, chosen.model);
     if (model === undefined) {
@@ -730,8 +824,9 @@ export async function createExecutor(opts: {
 
   // After both, so the log's header says what it really runs on.
   if (opts.label !== undefined) startDebugLog(session, { cwd: opts.cwd, label: opts.label, tools: opts.tools });
-  // An agent a render starts - it has a label - has its turns timed.
-  if (opts.label !== undefined) timeTurns(session);
+  // An agent a render starts - it has a label - has its turns timed: as long as its role's turns may take.
+  if (opts.label !== undefined) timeTurns(session, config !== undefined ? roleTurnLimitMs(config, opts.role) : undefined);
+  sendReasoningEffort(session);
   if (opts.label !== undefined) {
     const thinking = session.thinkingLevel;
     agentLabels.set(session, { label: opts.label, model: session.model !== undefined ? `${session.model.provider}/${session.model.id}${thinking ? `:${thinking}` : ""}` : undefined });
@@ -741,6 +836,42 @@ export async function createExecutor(opts: {
 }
 
 /** The project's compact-at, for an agent working in `cwd`: from its config.yaml, else the default. */
+/** The config an agent working in `cwd` is under: its module's own over the project's, inside plain_modules/<module>. */
+function configForCwd(cwd: string): ProjectConfig {
+  try {
+    const root = projectRootOf(cwd);
+    const parts = resolve(cwd).split(sep);
+    const index = parts.lastIndexOf(MODULES_DIR);
+    const module = index >= 0 && parts.length > index + 1 ? configModuleOfBuild(root, parts[index + 1]!) : undefined;
+    return readProjectConfig(root, module);
+  } catch {
+    return {};
+  }
+}
+
+/** pi's thinking levels as the reasoning effort OpenAI's models on Bedrock take. */
+const BEDROCK_OPENAI_EFFORT: Record<string, string> = { off: "none", minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "xhigh" };
+
+/**
+ * OpenAI's models on Bedrock are sent the session's thinking level as their reasoning effort - pi sends none for a
+ * model that is not Anthropic's, and they would think at their own default whatever the config said.
+ */
+function sendReasoningEffort(session: AgentSession): void {
+  const agent = session.agent as { onPayload?: (payload: unknown, model: unknown) => unknown };
+  const before = agent.onPayload;
+  agent.onPayload = async (payload: unknown, model: unknown) => withReasoningEffort((await before?.(payload, model)) ?? payload, model, session.thinkingLevel);
+}
+
+/** A provider request with its thinking level sent as reasoning effort, where the model takes one turri sends itself. */
+export function withReasoningEffort(payload: unknown, model: unknown, thinkingLevel: string | undefined): unknown {
+  const m = model as { api?: string; id?: string; reasoning?: boolean } | undefined;
+  const effort = BEDROCK_OPENAI_EFFORT[thinkingLevel ?? ""];
+  if (m?.api !== "bedrock-converse-stream" || m.reasoning !== true || !/(^|\.)openai\./.test(m.id ?? "") || effort === undefined) return payload;
+  if (payload === null || typeof payload !== "object") return payload;
+  const input = payload as { additionalModelRequestFields?: Record<string, unknown> };
+  return { ...input, additionalModelRequestFields: { ...(input.additionalModelRequestFields ?? {}), reasoning: { effort } } };
+}
+
 function compactAtFor(cwd: string): number {
   try {
     return readProjectConfig(projectRootOf(cwd)).compactAt ?? DEFAULT_COMPACT_AT;

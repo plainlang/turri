@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { guardRepeats, REPEATS_ALLOWED, REPEATS_BEFORE_STOP } from "../src/pi.ts";
+import { guardRepeats, REFUSED_BEFORE_STOP, REPEATS_ALLOWED, REPEATS_BEFORE_STOP, withOnlyTools } from "../src/pi.ts";
 
 /** An ls that counts what it really ran, and a session that says when it was stopped. */
 function setUp() {
@@ -137,5 +137,28 @@ describe("an agent whose calls keep failing", () => {
     const { session, aborted } = failingSession(results);
     await ask(session, "Fix the build.");
     expect(aborted()).toBe(0);
+  });
+});
+
+describe("a turn with one thing left to do", () => {
+  it("refuses every tool but the ones it is for, stops the turn when the agent keeps on, and gives them all back after - as a coding agent kept editing in its notes turn", async () => {
+    const ran: string[] = [];
+    const tool = (name: string) => ({ name, execute: async () => (ran.push(name), { content: [{ type: "text", text: "ok" }] }) });
+    let aborted = 0;
+    const session = { abort: async () => void (aborted += 1) } as unknown as AgentSession;
+    const [write, notes] = guardRepeats([tool("write"), tool("update_notes")] as unknown as ToolDefinition[], () => session);
+    const call = (guarded: ToolDefinition) => (guarded.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", {});
+
+    await withOnlyTools(session, ["update_notes"], async () => {
+      for (let n = 0; n < REFUSED_BEFORE_STOP; n += 1) await expect(call(write!)).rejects.toThrow(/Not run: your work is done and checked - this turn is for update_notes alone/);
+      await call(notes!);
+      expect(aborted).toBe(0);
+      await expect(call(write!)).rejects.toThrow(/Stopped: 4 calls to tools this turn does not have/);
+      expect(aborted).toBe(1);
+    });
+    expect(ran).toEqual(["update_notes"]);
+
+    await call(write!);
+    expect(ran).toEqual(["update_notes", "write"]);
   });
 });

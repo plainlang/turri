@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readProjectConfig } from "../src/config.ts";
+import { budgetFor, projectModels, readProjectConfig, roleModel, roleTurnLimitMs } from "../src/config.ts";
 
 let root: string;
 beforeEach(() => {
@@ -155,6 +155,92 @@ describe("compact-at", () => {
     writeFileSync(join(root, "config.yaml"), "compact-at: 150000\n");
     writeFileSync(join(root, "config.backend.yaml"), "compact-at: 50000\n");
     expect(readProjectConfig(root, "backend").compactAt).toBe(150_000);
+  });
+});
+
+describe("conformance-budget:", () => {
+  it("is a count or a share of a module's functional specs - a share rounded up, at least one - and unset is no limit", () => {
+    writeFileSync(join(root, "config.yaml"), "conformance-budget: 2\n");
+    expect(readProjectConfig(root).conformanceBudget).toEqual({ count: 2 });
+    writeFileSync(join(root, "config.yaml"), "conformance-budget: 30%\n");
+    const share = readProjectConfig(root).conformanceBudget!;
+    expect(share).toEqual({ share: 0.3 });
+    expect([budgetFor(share, 1), budgetFor(share, 7), budgetFor(share, 10)]).toEqual([1, 3, 3]);
+    writeFileSync(join(root, "config.yaml"), "conformance-budget: lots\n");
+    expect(readProjectConfig(root).conformanceBudget).toBeUndefined();
+    writeFileSync(join(root, "config.yaml"), "conformance-tests: chosen\n");
+    expect(readProjectConfig(root).conformanceBudget).toBeUndefined();
+  });
+});
+
+describe("models: and turn-limit:", () => {
+  const sonnet = "amazon-bedrock/eu.anthropic.claude-sonnet-5";
+  const luna = "amazon-bedrock/global.openai.gpt-6-luna";
+  const lite = "google/gemini-3.1-flash-lite";
+  const opus = "amazon-bedrock/eu.anthropic.claude-opus-5-5";
+
+  it("gives each agent role its own model, thinking and turn limit, and every role it does not name the default", () => {
+    writeFileSync(
+      join(root, "config.yaml"),
+      [
+        "harness-model: " + opus,
+        "turn-limit: 150",
+        "models:",
+        `  default: { model: ${luna}, thinking: medium }`,
+        `  coding: { model: ${sonnet}, thinking: high, turn-limit: 180 }`,
+        `  explorer: ${lite}`,
+        "  reviewer:",
+        "    thinking: low",
+        "  nonsense: whatever",
+      ].join("\n"),
+    );
+    const config = readProjectConfig(root);
+    expect(config.models).toEqual({
+      default: { model: luna, thinking: "medium" },
+      coding: { model: sonnet, thinking: "high", turnLimit: 180 },
+      explorer: { model: lite },
+      reviewer: { thinking: "low" },
+    });
+    // The job's model - the coding agents' - and the chat's.
+    expect(projectModels(config)).toEqual({ harness: { model: opus }, coding: { model: sonnet, thinking: "high" }, judge: { model: luna, thinking: "medium" } });
+    // What a role runs on: its own entry, what it leaves out from the default; the coding role is given its model.
+    expect(roleModel(config, "explorer")).toEqual({ model: lite, thinking: "medium" });
+    expect(roleModel(config, "reviewer")).toEqual({ model: luna, thinking: "low" });
+    expect(roleModel(config, "judge")).toEqual({ model: luna, thinking: "medium" });
+    expect(roleModel(config, "coding")).toBeUndefined();
+    // The conversation's side keeps the chat's model unless named.
+    expect(roleModel(config, "chooser")).toBeUndefined();
+    // Turn limits: the role's own, else the default's, else turn-limit:.
+    expect(roleTurnLimitMs(config, "coding")).toBe(180_000);
+    expect(roleTurnLimitMs(config, "explorer")).toBe(150_000);
+    expect(roleTurnLimitMs(config, undefined)).toBe(150_000);
+  });
+
+  it("takes one turn limit for every agent from turn-limit: alone, and none from nothing - the harness's two minutes", () => {
+    writeFileSync(join(root, "config.yaml"), "turn-limit: 150\n");
+    expect(roleTurnLimitMs(readProjectConfig(root), "conformance")).toBe(150_000);
+    writeFileSync(join(root, "config.yaml"), "coding-model: google/gemini-3.8-flash\n");
+    expect(roleTurnLimitMs(readProjectConfig(root), "conformance")).toBeUndefined();
+  });
+
+  it("reads the old keys as before, models: winning over them - judge-model for the judge and the test review", () => {
+    writeFileSync(join(root, "config.yaml"), [`harness-model: ${opus}`, `coding-model: ${luna}`, `judge-model: ${sonnet}`].join("\n"));
+    let config = readProjectConfig(root);
+    expect(projectModels(config)).toEqual({ harness: { model: opus }, coding: { model: luna }, judge: { model: sonnet } });
+    expect(roleModel(config, "test-reviewer")).toEqual({ model: sonnet });
+    expect(roleModel(config, "explorer")).toBeUndefined();
+    writeFileSync(join(root, "config.yaml"), [`harness-model: ${opus}`, `coding-model: ${luna}`, "models:", `  coding: ${sonnet}`, `  chat: ${lite}`].join("\n"));
+    config = readProjectConfig(root);
+    expect(projectModels(config).coding).toEqual({ model: sonnet });
+    expect(projectModels(config).harness).toEqual({ model: lite });
+  });
+
+  it("lays a module's own models: over the project's, role by role - but never the chat's", () => {
+    writeFileSync(join(root, "config.yaml"), ["models:", `  default: { model: ${luna}, turn-limit: 120 }`, `  chat: ${opus}`].join("\n"));
+    writeFileSync(join(root, "config.backend.yaml"), ["models:", "  default: { thinking: high }", `  explorer: ${lite}`, `  chat: ${lite}`, "turn-limit: 200"].join("\n"));
+    const config = readProjectConfig(root, "backend");
+    expect(config.models).toEqual({ default: { model: luna, thinking: "high", turnLimit: 120 }, chat: { model: opus }, explorer: { model: lite } });
+    expect(config.turnLimit).toBe(200);
   });
 });
 

@@ -326,6 +326,17 @@ export function sectionNamed(name: string): Section | undefined {
 /** How many times an agent that finishes without update_notes is asked to call it. */
 export const NOTES_ASKS = 3;
 
+/** The turn that asks for the notes: update_notes is the only tool it may use - the work it follows is done. */
+export const NOTES_TURN = { onlyTools: ["update_notes"] };
+
+/** What the notes turn says first, once the harness's own run of `script` has passed on the work. */
+export function passedOutcome(script: string): string {
+  return (
+    `The harness ran the project's ${script} on your work itself, and it passed: your work is done and accepted. ` +
+    "Write the notes as of work that succeeded - never that the tests could not be made to pass."
+  );
+}
+
 function current(buildDir: string): string | undefined {
   const path = notesPath(buildDir);
   return existsSync(path) ? readFileSync(path, "utf8") : undefined;
@@ -393,17 +404,22 @@ export function notesForSession(buildDir: string, source?: string) {
       undoDirectWrites,
       source,
     ),
-    /** Ask for the notes until this agent has updated them; whether it has. */
-    async ensureWritten(ask: (prompt: string) => Promise<unknown>): Promise<boolean> {
+    /**
+     * Ask for the notes until this agent has updated them; whether it has. `outcome`: how the harness's own check of the
+     * work went, said first - so the notes tell the next agent the work passed, never that it could not be made to.
+     */
+    async ensureWritten(ask: (prompt: string) => Promise<unknown>, outcome?: string): Promise<boolean> {
       for (let round = 0; round < NOTES_ASKS && !written; round++) {
         const undone = undoDirectWrites();
         await ask(
+          (outcome !== undefined ? `${outcome} ` : "") +
           (undone
             ? `You changed ${NOTES_FILE} directly, and that was undone: the notes are written only through update_notes. `
             : "") +
             "Before you finish: call update_notes - add what you learned about this codebase, change what is no longer " +
             "true, and record the assumptions you made where the specification is silent. Call the tool itself; " +
-            "writing the file does not count.",
+            "writing the file does not count. Your work is done: this turn is for the notes alone - every other tool is " +
+            "refused, so change nothing else.",
         );
       }
       undoDirectWrites();

@@ -325,7 +325,7 @@ function installReason(why: string): string {
     `This installs software outside the project - ${why}. The machine is the person's: what it lacks - a toolchain, a ` +
     "system library, a tool - is theirs to install. The project's own dependencies are yours: declare them in its " +
     "manifest and install them into the project (npm install, pip into its venv, mvn, gradle, cargo, go mod). If the " +
-    "project cannot be built without something the machine lacks, call report_environment_error and say what is missing."
+    "project cannot be built without something the machine lacks, say what is missing - with report_environment_error, if you have it."
   );
 }
 

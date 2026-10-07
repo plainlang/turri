@@ -71,7 +71,7 @@ export async function diagnoseFailure(options: {
     customTools: [submit, ...fence.tools],
     tools: [...fence.names, "submit_diagnosis"],
     model: options.model,
-    label: `${options.job.summary} diagnosis`,
+    label: `${options.job.summary} diagnosis`, role: "diagnosis",
     system: fence.note,
     task: diagnosisPrompt(options),
     budget: { calls: DIAGNOSIS_CALLS, finish: ["submit_diagnosis"] },

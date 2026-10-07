@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -139,7 +140,21 @@ function turrisOwn(module: string, name: string): Record<string, string> {
     HOME: fakeHome,
     TMPDIR: tmp,
     GIT_CEILING_DIRECTORIES: module,
+    ...(process.platform === "darwin" ? { [DARWIN_TEMP_SUFFIX]: darwinTempSuffix(module, name) } : {}),
   };
+}
+
+/**
+ * On macOS, what a program asks the system for as the per-user temporary folder - not TMPDIR - is that folder with this
+ * suffix added: a folder of the module's own inside it. The JVM keeps its attach sockets there (`.java_pid<pid>`), which
+ * Mockito's inline mocks, jcmd and jstack attach through; the sandbox reaches this folder alone, never the person's
+ * JVMs' sockets beside it.
+ */
+export const DARWIN_TEMP_SUFFIX = "DIRHELPER_USER_DIR_SUFFIX";
+
+/** The module's own folder in macOS's per-user temporary folder: named for it, and for where it is. */
+function darwinTempSuffix(module: string, name: string): string {
+  return `turri-${name.replace(/[^\w.-]/g, "_")}-${createHash("sha256").update(resolve(module)).digest("hex").slice(0, 8)}`;
 }
 
 /** What `agent-env:` - the project's, with the module's own added - passes, and what of it is not there. Reads only. */

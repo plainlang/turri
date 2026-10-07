@@ -13,7 +13,7 @@ const imagesGiven: Array<{ label?: string; images?: unknown[]; system?: string }
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
   // Asked to leave notes, it does - and that is not a turn the test is about.
-  if (prompt.startsWith("Before you finish: call update_notes")) {
+  if (prompt.includes("Before you finish: call update_notes")) {
     await session.tools.find((candidate) => candidate.name === "update_notes")!.execute("id", {
       changes: [{ section: "where", action: "add", text: "stub agent was here" }],
     });
@@ -28,7 +28,7 @@ async function agentRunning(command: string, session: StubSession, prompt: strin
 }
 /** As a real agent would: a unit test, then the whole suite - the run the harness then repeats. */
 async function passingAgent(session: StubSession, prompt: string) {
-  if (prompt.startsWith("Before you finish: call update_notes")) return agentRunning("", session, prompt);
+  if (prompt.includes("Before you finish: call update_notes")) return agentRunning("", session, prompt);
   // The explorer a conformance run starts with, and the judge of a failing run.
   const own = (name: string) => session.tools.find((tool) => tool.name === name);
   if (own("submit_exploration")) {
@@ -184,10 +184,11 @@ describe("rendering a spec diff", () => {
     expect(coder.system).toContain("It is not a git repository, and none above it is yours: `my_diff` shows what you have changed in this pulse.");
   });
 
-  it("stops at once, saying what to install, when the unit testing script on this machine cannot find its toolchain", async () => {
+  it("stops at once, saying what to install, when the unit testing script on this machine cannot find its toolchain - its agent never asked for notes", async () => {
     writeTestScripts(dir, { unit: "#!/bin/bash\necho 'run_unittests.sh: line 3: flutter: command not found'\nexit 127\n" });
-    writeFileSync(join(dir, "config.yaml"), "testing-scripts-run-on: in-place\n");
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const { ask } = await import("../../src/pi.ts");
+    vi.mocked(ask).mockClear();
     const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
 
     const stopped = await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir }).then(
@@ -200,6 +201,8 @@ describe("rendering a spec diff", () => {
     const said = describeEnvironmentError(stopped as InstanceType<typeof EnvironmentError>);
     expect(said).toContain("**app stopped: the environment lacks `flutter`.**");
     expect(said).toContain("install flutter on this machine");
+    // The work is rolled back, notes and all: there is nothing to leave them in.
+    expect(vi.mocked(ask).mock.calls.some(([, prompt]) => String(prompt).includes("Before you finish: call update_notes"))).toBe(false);
   });
 
   it("gives a steer that came between turns as the agent's next turn, runs the tests again, and lands the spec as it was steered to", async () => {
@@ -279,8 +282,10 @@ describe("rendering a spec diff", () => {
     expect(result.passed).toBe(true);
   });
 
-  it("starts from the notes earlier agents left, and leaves its own, labelled as the spec change", async () => {
+  it("starts from the notes earlier agents left, and leaves its own, labelled as the spec change - told first that its unit tests passed", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const { ask } = await import("../../src/pi.ts");
+    vi.mocked(ask).mockClear();
     const code = join(dir, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, NOTES_FILE), "# Working notes\n\n## Assumptions\n\n- [2026-09-24 09:00 · app 1] One means exactly one\n");
@@ -291,22 +296,26 @@ describe("rendering a spec diff", () => {
     expect(prompts[0]).toContain("<notes from earlier agents>");
     expect(prompts[0]).toContain("- [2026-09-24 09:00 · app 1] One means exactly one");
     expect(readNotes(code).where).toEqual([expect.stringMatching(/^\[[\d: -]+ · app spec change\] stub agent was here$/)]);
+    const asked = vi.mocked(ask).mock.calls.map(([, prompt]) => String(prompt)).find((prompt) => prompt.includes("Before you finish: call update_notes"));
+    expect(asked).toMatch(/^The harness ran the project's unit testing script on your work itself, and it passed: your work is done and accepted\./);
     expect(readNotes(code).assumptions).toEqual(["[2026-09-24 09:00 · app 1] One means exactly one"]);
   });
 
-  it("stops at the unit tests when they do not pass, and undoes the change - no code, no tree", async () => {
+  it("stops at the unit tests when they do not pass, and undoes the change - no code, no tree, its agent never asked for notes", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     mkdirSync(join(dir, "plain_modules", "app", "code"), { recursive: true });
     const { ask } = await import("../../src/pi.ts");
+    vi.mocked(ask).mockClear();
     // It writes code, and its unit tests fail.
     vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
-      if (!prompt.startsWith("Before you finish")) await session.tools.find((tool) => tool.name === "write")!.execute("id", { path: "app.py", content: "print('uno')\n" });
+      if (!prompt.includes("Before you finish: call update_notes")) await session.tools.find((tool) => tool.name === "write")!.execute("id", { path: "app.py", content: "print('uno')\n" });
       return agentRunning("false", session, prompt);
     }) as never);
     const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- Uno."])), cwd: dir });
     expect(result.stoppedAt).toBe("unit tests");
     expect(readRecord(result.buildDir)).toBeNull();
     expect(listFiles(result.buildDir)).toEqual([]);
+    expect(vi.mocked(ask).mock.calls.some(([, prompt]) => String(prompt).includes("Before you finish: call update_notes"))).toBe(false);
   });
 });
 

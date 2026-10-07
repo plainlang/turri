@@ -43,7 +43,7 @@ describe("linked images", () => {
     const loaded = loadLinkedResources(treeLinking("api.yaml", "mockup.png", "photo.jpg"), null, [dir]);
 
     expect(loaded.map((resource) => resource.target)).toEqual(["api.yaml", "mockup.png", "photo.jpg"]);
-    expect(loaded[0]).toEqual({ text: "api.yaml", target: "api.yaml", content: "openapi: 3.0.0\n" });
+    expect(loaded[0]).toMatchObject({ text: "api.yaml", target: "api.yaml", content: "openapi: 3.0.0\n", source: join(dir, "api.yaml") });
     expect(loaded[1]!.content).toContain("image 1");
     expect(loaded[2]!.content).toContain("image 2");
     expect(resourceImages(loaded)).toEqual([
