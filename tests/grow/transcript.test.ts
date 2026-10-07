@@ -114,6 +114,19 @@ describe("the side panel", () => {
     expect(closed).toBe(false);
   });
 
+  it("says on its top line when the chat is waiting for an answer, and sends esc back to the chat", async () => {
+    const { createSidePanel } = await import("../../src/grow/side-panel.ts");
+    let waiting = false;
+    let back = 0;
+    const panel = createSidePanel({ jobs: () => [], rows: () => 20, style: PLAIN, key: "ctrl+h", back: () => (back += 1), close: () => {}, waiting: () => waiting });
+    expect(panel.render(120)[0]).not.toContain("waiting");
+    waiting = true;
+    expect(panel.render(120)[0]).toContain("the chat is waiting for your answer - ctrl+h to go back");
+    expect(panel.render(120).at(-1)).toContain("esc or ctrl+h back to the chat");
+    panel.handleInput("\x1b");
+    expect(back).toBe(1);
+  });
+
   it("shows under each finished spec diff the whole change, and says which render a conformance job was the conformance of", async () => {
     const { createSidePanel } = await import("../../src/grow/side-panel.ts");
     const { createJobRegistry } = await import("../../src/grow/jobs.ts");

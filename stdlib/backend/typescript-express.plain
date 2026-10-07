@@ -8,6 +8,7 @@ description: A backend in TypeScript on Node.js 24 with Express 5, zod and pino.
 ***implementation reqs***
 
 - :Implementation: runs on Node.js 24, with Express 5, zod for validation, and pino with pino-http for logs.
+- :Implementation: is an ES module package: `"type": "module"` in `package.json`, `module` and `moduleResolution` `NodeNext` in `tsconfig.json`, and every relative import ending in `.js` - `import { x } from "./x.js"` - as Node.js needs to run what `tsc` emits.
 - :Implementation: keeps its code in `src/`.
   - `src/app.ts` builds the application in `createApp(deps)`, and `src/server.ts` starts it and stops it on a signal.
   - `src/config.ts` parses the environment with a zod schema, `src/routes/` holds one `Router` per resource, `src/services/` the services, `src/repositories/` the repositories, and `src/errors.ts` the domain errors.

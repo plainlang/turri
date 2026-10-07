@@ -277,19 +277,37 @@ export function describeToolCall(name: string, args: Record<string, unknown> | u
       return `✎ write ${path ?? ""}`.trimEnd();
     case "edit":
       return `✎ edit ${path ?? ""}`.trimEnd();
+    // Every kind of call has its mark, so every line has the same shape - a reviewer that only reads as well.
     case "read":
-      return `  read ${path ?? ""}`.trimEnd();
+      return `○ read ${path ?? ""}`.trimEnd();
     case "ls":
     case "find":
     case "grep":
-      return `  ${name} ${clip(pattern ?? path ?? "")}`.trimEnd();
+      return `⌕ ${name} ${clip(pattern ?? path ?? "")}`.trimEnd();
+    case "web_search":
+    case "web_fetch":
+      return `⇢ ${name} ${clip(text("query") ?? text("url") ?? "")}`.trimEnd();
     case "bash":
       return `$ ${clip(command ?? "")}`;
     case "run_unit_tests":
     case "run_conformance_tests":
       return `▶ ${name === "run_unit_tests" ? "unit tests" : "conformance tests"}: the project's script`;
+    // turri's own tools: what they do, at a glance.
+    case "read_output":
+      return `○ read_output`;
+    case "my_diff":
+      return `± my_diff`;
+    case "update_notes":
+      return `✐ update_notes`;
+    case "copy_resource":
+      return `⎘ copy_resource ${path ?? text("to") ?? ""}`.trimEnd();
+    case "can_it_fail":
+      return `? can_it_fail`;
+    case "ask_explorer":
+      return `? ask_explorer`;
     default:
-      return `  ${shownName(name)}`;
+      // A hand-over - submit_work, submit_review, a verdict - ends with a check; anything else, a dot.
+      return `${/^submit_/.test(name) ? "✓" : "•"} ${shownName(name)}`;
   }
 }
 

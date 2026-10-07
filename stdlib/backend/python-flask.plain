@@ -18,3 +18,6 @@ description: A backend in Python 3.12 with Flask 3, Pydantic v2, Gunicorn and st
 - :Implementation: logs as JSON with structlog, set up once in `app/logging.py`, with the standard `logging` module routed through it.
   - A `before_request` hook binds the request id with `structlog.contextvars`, and an `after_request` hook logs the request line and sends back `X-Request-ID`.
 - :UnitTests: use an application from `create_app` with test settings, and its `test_client()`.
+  - They name it anything but `app`, which is the package: `application = create_app(test_settings)`.
+- :UnitTests: that use a database use SQLite in memory, one database a test, kept on one connection for the whole test - with SQLAlchemy, `poolclass=StaticPool` and `check_same_thread=False` - since every new connection to an in-memory SQLite database opens an empty one of its own.
+  - The tables are created on that engine before the first request, and the application under test is given that same engine through its settings.

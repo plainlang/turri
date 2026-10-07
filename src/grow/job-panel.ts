@@ -1,5 +1,3 @@
-import { diffView, PLAIN_PAINT, type DiffPaint } from "./diff-view.ts";
-import { plainPaint } from "./plain-palette.ts";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
 
@@ -28,9 +26,6 @@ export const JOB_PANEL_KEY = "turri-jobs";
  */
 export const PANEL_KEY = "ctrl+h";
 
-/** How the side panel is found your way around, as the job panel says it. */
-export const PANEL_HELP =
-  `in the side panel: ↑↓ move over the pulses · enter opens one - what it builds, whole · o/c open or close them all · esc back to the chat · ${PANEL_KEY} closes it`;
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -52,6 +47,27 @@ export function pulseName(job: Job): string {
   return job.module === undefined ? job.summary : `${job.module} ${job.kind}`;
 }
 
+/** A pulse that ran to its end and whose build did not pass - stopped at a gate - is not a success. */
+export function didNotPass(job: Job): boolean {
+  return job.status === "succeeded" && (job.details as { passed?: unknown } | undefined)?.passed === false;
+}
+
+/** How a finished pulse's mark is coloured: green it passed, red it failed or did not pass, amber it was stopped. */
+export interface MarkPaint {
+  success(text: string): string;
+  error(text: string): string;
+  warning(text: string): string;
+}
+
+const PLAIN_MARKS: MarkPaint = { success: (text) => text, error: (text) => text, warning: (text) => text };
+
+/** A finished pulse's mark, in the colour of how it ended. */
+export function finishedMark(job: Job, paint: MarkPaint = PLAIN_MARKS): string {
+  if (didNotPass(job) || job.status === "failed") return paint.error("✗");
+  if (job.status === "stopped") return paint.warning("■");
+  return paint.success("✓");
+}
+
 /** What a pulse cost, as its line says it: " · $0.12", or nothing when the price is not known. */
 export function pulseCost(job: Job): string {
   return job.usage.cost > 0 ? ` · $${job.usage.cost.toFixed(2)}` : "";
@@ -65,9 +81,6 @@ const SPEC_SHOWN_BY_WIDGET = new Set(["regrow"]);
 
 /** Spec lines shown per running job while expanded. */
 const EXPANDED_SPEC_LINES = 30;
-
-/** Diff lines shown per running job while expanded. */
-const EXPANDED_DIFF_LINES = 20;
 
 /**
  * One line saying what a spec change does: the files, the lines added and removed, and the
@@ -126,29 +139,28 @@ export function wrapKeepingIndent(line: string, width: number): string[] {
 }
 
 /** A diff's colours for the +/- alone, when there is nothing to highlight with. */
-const paintOf = (style: DiffStyle): DiffPaint => ({ ...PLAIN_PAINT, added: style.added, removed: style.removed });
-
 export interface PanelOptions {
   /** Everything, rather than the compact view. */
   expanded?: boolean;
   now?: number;
-  /** Colours for the diffs of render spec diff jobs. */
-  diffStyle?: DiffStyle;
-  /** How the expanded diff is painted - ***plain highlighted, added and removed lines banded - and how wide. */
-  diffPaint?: DiffPaint;
   width?: number;
   /** The lines of help about ctrl+o and the side panel - left out where they do not apply, as in the side panel itself. */
   hints?: boolean;
+  /** How the finished pulses' marks are coloured. */
+  marks?: MarkPaint;
 }
 
 export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[] {
   const now = options.now ?? Date.now();
   const expanded = options.expanded === true;
-  const diffStyle = options.diffStyle ?? PLAIN_DIFF;
   const inOrder = [...jobs].sort((a, b) => a.sequence - b.sequence);
   const running = inOrder.filter((job) => job.status === "running");
   const queued = inOrder.filter((job) => job.status === "queued");
+  // Nothing running or waiting: no panel - what finished is in the side panel.
   if (running.length === 0 && queued.length === 0) return [];
+  const finished = inOrder
+    .filter((job) => (job.status === "succeeded" || job.status === "failed" || job.status === "stopped") && job.replacedBy === undefined)
+    .sort((a, b) => (b.finishedAt ?? b.sequence) - (a.finishedAt ?? a.sequence) || b.sequence - a.sequence);
 
   const lines: string[] = [];
   let hidden = false;
@@ -157,14 +169,6 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (lines.length > 0) lines.push("");
     // Its module, how long and what it has cost: what it is doing follows.
     lines.push(`${spinner(now)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`);
-    // Its spec change: whole with ctrl+o, not summed up in a line - the line above already says which module.
-    if (job.diff !== undefined) {
-      if (expanded) {
-        const body = diffView(job.diff, Math.max(10, (options.width ?? 100) - 8), options.diffPaint ?? paintOf(diffStyle), job.diffWhere);
-        for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${line}`);
-        if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - ${PANEL_KEY} shows it all`);
-      }
-    }
     // What it is on now, and for how long - beside the job's own time, which is the whole of it.
     const onIt = job.building?.since !== undefined ? ` · ${formatElapsed(now - job.building.since)}` : "";
     if (job.building !== undefined && SPEC_SHOWN_BY_WIDGET.has(job.kind)) {
@@ -205,12 +209,23 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     }
   }
 
+  // What finished, newest first: each with ctrl+o, as the side panel lists it; else counted, in one line.
+  if (finished.length > 0) {
+    lines.push("");
+    const marks = options.marks ?? PLAIN_MARKS;
+    if (expanded) {
+      for (const job of finished) lines.push(`  ${finishedMark(job, marks)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`);
+    } else {
+      lines.push(`  finished (${finished.length}): ${finished.map((job) => `${finishedMark(job, marks)} ${pulseName(job)}`).join(" · ")}`);
+      if (finished.length > 1) hidden = true;
+    }
+  }
+
   // Always a line of help: how to see more here, and how to inspect the jobs in the side panel.
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
   } else if (expanded) {
     lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each pulse builds`);
-    lines.push(`  ${PANEL_HELP}`);
   } else {
     lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ${PANEL_KEY} to see what each pulse builds`);
   }
@@ -223,7 +238,7 @@ interface Redrawable {
 
 /** What of pi's theme the panel paints with: the diff's colours and bands, and ***plain's colours in it. */
 interface PanelTheme {
-  fg(color: "toolDiffAdded" | "toolDiffRemoved", text: string): string;
+  fg(color: "toolDiffAdded" | "toolDiffRemoved" | "success" | "error" | "warning", text: string): string;
   /** Whether it is made for a dark or a light surface, and how many colours the terminal has: the diff's palette. */
   appearance?: "dark" | "light";
   getColorMode?(): string;
@@ -271,16 +286,12 @@ export function createJobPanel(list: () => Job[]): JobPanel {
           JOB_PANEL_KEY,
           (next, theme) => {
             tui = next;
-            const diffStyle: DiffStyle = {
-              added: (text) => theme.fg("toolDiffAdded", text),
-              removed: (text) => theme.fg("toolDiffRemoved", text),
-            };
-            const diffPaint: DiffPaint = plainPaint(theme);
             return {
               // Laid out on every render, so ctrl+o takes effect on the very next frame.
               render: (width) => {
                 const expanded = target.getToolsExpanded();
-                const lines = jobPanelLines(list(), { expanded, diffStyle, diffPaint, width });
+                const marks: MarkPaint = { success: (text) => theme.fg("success", text), error: (text) => theme.fg("error", text), warning: (text) => theme.fg("warning", text) };
+                const lines = jobPanelLines(list(), { expanded, width, marks });
                 // Opened, nothing is cut off: every line wraps. Closed, a line each - the panel stays short.
                 return expanded ? lines.flatMap((line) => wrapKeepingIndent(line, width)) : lines.map((line) => truncateToWidth(line, width));
               },

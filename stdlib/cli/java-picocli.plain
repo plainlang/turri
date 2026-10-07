@@ -8,6 +8,7 @@ description: A command-line tool in Java 21 with picocli 4 and Maven.
 ***implementation reqs***
 
 - :Implementation: uses picocli 4, built with Maven through the Maven wrapper into one executable jar with its dependencies, run with `java -jar target/<tool>.jar`.
+  - The jar is made by maven-shade-plugin, with a `ManifestResourceTransformer` naming the main class, and `<finalName><tool></finalName>`, so it is `target/<tool>.jar` and runs on its own.
 - :Implementation: keeps the main class with the top command in the base package, one `@Command` class per subcommand in `cli`, the work in `core`, and the tool's exceptions in `error`.
   - An `IExecutionExceptionHandler` turns the tool's exceptions into the message and exit code, and an `IParameterExceptionHandler` usage errors.
 - :Implementation: logs through SLF4J with slf4j-simple on standard error, at the level `--verbose` or `--debug` gives.

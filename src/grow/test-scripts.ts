@@ -647,3 +647,27 @@ export function scriptFailure(run: ScriptRun, what: string): string {
     cause,
   ].join("\n");
 }
+
+/** How many rounds running the same failure, taken the same way, is nothing changing. */
+export const STUCK_ROUNDS = 3;
+
+/**
+ * A failing run, as a fingerprint: the lines that say what went wrong, without what changes from run
+ * to run - numbers, times, paths, ids. Two runs failing the same way have the same one.
+ */
+export function failureSignature(run: ScriptRun): string {
+  if (run.timedOut === true) return "the run did not finish in the time limit";
+  const lines = run.output.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+  const telling = lines.filter((line) => /error|exception|fail|refused|timed out|cannot|unable|not found|denied/i.test(line));
+  const normal = (line: string) =>
+    line
+      // Colour codes, and ids a service makes up for each response - a request's UUID, a correlation id in hex.
+      .replace(/\x1B\[[0-9;]*m/g, "")
+      .replace(/\/[^\s:'"]+/g, "<path>")
+      .replace(/\b[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "<id>")
+      .replace(/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{4,}\b/gi, "<id>")
+      .replace(/\b[0-9a-f]{8,}\b/gi, "<id>")
+      .replace(/\d+(\.\d+)?/g, "<n>")
+      .replace(/\s+/g, " ");
+  return [...new Set((telling.length > 0 ? telling : lines.slice(-20)).map(normal))].slice(0, 30).join("\n");
+}

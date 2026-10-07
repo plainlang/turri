@@ -147,6 +147,15 @@ runs the unit testing script itself**, and only that run counts (see
   code the judge found wrong): understand the failure from its whole trace; find the root cause in the
   lines it points at, against the spec; reproduce it with that one test; fix the cause; check it with
   that test and then the whole suite, the run that counts; and leave the cause and the fix in the notes.
+  **The same failure three times running** - the same fingerprint of the run, its numbers, paths and ids
+  left out, as a conformance run counts it - and a **debugger** looks at it with fresh eyes: an agent of its
+  own (`src/grow/debugger.ts`), on the `debugger` role's model, else the coding model, with a new session,
+  that reads the failing run, the tests, the code, the build files and the unit testing script, and the web,
+  and changes nothing. It hands over the root cause and the fix - which files, what to change - and the
+  coding agent gets them with the failure, told to make that fix rather than another variation on what it
+  tried. An agent circles a cause it has not thought of - an in-memory database every connection opens
+  empty, a test runner that leaves the code off its path - and this is the way out. The rounds go on as
+  before, up to 20; should the same failure come round three times again, the debugger looks again.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
 - **It wrote nothing.** A turn can end with the agent having only thought the problem through, and

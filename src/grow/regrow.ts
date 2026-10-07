@@ -14,6 +14,7 @@ import {
 } from "../plain/spec.ts";
 import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
 import { reportActivity, reportLogNote, reportStage, unitOf } from "./activity.ts";
+import { debugFailure, diagnosisText } from "./debugger.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec, sectionModules } from "./prompt.ts";
@@ -24,11 +25,13 @@ import { CODER_COMPACTION } from "./compaction.ts";
 import { NOTES_TURN, notesForSession, passedOutcome, withNotes } from "./notes.ts";
 import {
   createScriptTool,
+  failureSignature,
   findStaticChecks,
   findTestScripts,
   projectRootFor,
   requireTestScripts,
   runUnitScript,
+  STUCK_ROUNDS,
   withoutConformance,
   withTestingScripts,
 } from "./test-scripts.ts";
@@ -449,6 +452,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // Back and forth until the harness's run of the unit testing script passes - whatever the
     // agent ran, and whether it ran anything - or the rounds run out. Picks up where it left off
     // when called again.
+    // The same failure, round after round: how many times each has been seen running.
+    const seenFailures = new Map<string, number>();
     const untilPassing = async (): Promise<boolean> => {
       for (; followUp < MAX_FOLLOW_UPS; followUp += 1) {
         // A steer that came between its turns: its own turn, then the tests run again.
@@ -490,8 +495,41 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           return false;
         }
         if (!verdict.ok) {
+          // Failing the same way STUCK_ROUNDS times running: a debugger looks at it with fresh eyes, and the coding agent
+          // is given what it found with the failure. The rounds go on as before - and it looks again if it repeats.
+          const key = verdict.run !== undefined ? failureSignature(verdict.run) : undefined;
+          const seen = key !== undefined ? (seenFailures.get(key) ?? 0) + 1 : 0;
+          seenFailures.clear();
+          if (key !== undefined) seenFailures.set(key, seen);
+          let prompt = verdict.prompt;
+          if (key !== undefined && seen >= STUCK_ROUNDS) {
+            seenFailures.delete(key);
+            stage(`the same failure ${seen} times - a debugger looks at it with fresh eyes`);
+            const found = await debugFailure({
+              buildDir,
+              failure: verdict.run!.output,
+              times: seen,
+              task: steeredChange() ?? codingText ?? changeText ?? options.diff ?? "",
+              script: scripts.unit,
+              label: `${moduleName} spec change`,
+              ...(options.model !== undefined ? { model: options.model } : {}),
+              onDelta: options.onDelta,
+            }).catch(() => undefined);
+            if (found !== undefined) {
+              reportActivity(`  the debugger: ${found.rootCause.split("\n")[0]!.slice(0, 160)}`);
+              prompt = [
+                verdict.prompt,
+                "",
+                `It has failed this same way ${seen} times in a row, so a debugger looked at it with fresh eyes - it read the code,`,
+                "the tests, the build files and the testing script. This is what it found. Check it against the code, then make",
+                "the fix it names, rather than another variation on what you tried before.",
+                "",
+                diagnosisText(found),
+              ].join("\n");
+            }
+          }
           stage(`unit tests not passing - fixing (round ${followUp + 1} of ${MAX_FOLLOW_UPS})`);
-          response = await ask(executor, verdict.prompt, options.onDelta);
+          response = await ask(executor, prompt, options.onDelta);
           continue;
         }
         // Passing on what it was told before - a steer since, and they run again.

@@ -13,5 +13,6 @@ description: A command-line tool in Python 3.12 with the standard library's argp
   - One module per command in `app/commands/`, each with `add_parser(subparsers)` and `run(args) -> int`.
   - The work lives in `app/core/`, and the tool's errors in `app/errors.py`, under one base class `ToolError`.
   - `[project.scripts]` names the tool, `<tool> = "app.cli:main"`.
+  - `pyproject.toml` declares a build system - hatchling, with `[tool.hatch.build.targets.wheel]` `packages = ["app"]` - so `uv sync` installs the package and the `<tool>` command: without one, uv installs no `[project.scripts]` at all.
 - :Implementation: sets up the standard `logging` module to write to standard error with the level `--verbose` or `--debug` gives.
 - :UnitTests: call `main` with a list of arguments, and read what it printed with `capsys`.

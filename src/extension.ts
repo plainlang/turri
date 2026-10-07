@@ -1350,9 +1350,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // The side panel: the job queue - on the right,
-  // beside the conversation. Its key (PANEL_KEY) opens it with the keyboard in it; esc goes back to the chat and
-  // leaves it open and live; the key again takes the keyboard back to it, and closes it from there.
+  // The side panel: the job queue, over the whole screen. Its key (PANEL_KEY) opens it; the key again, or esc, closes it
+  // and goes back to the chat. While it shows, every key is its own.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
   // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
   const jobsTree = createJobsTreeState();
@@ -1363,9 +1362,11 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       panel.handle?.focus();
       return;
     }
-    // Not awaited: the panel lives on while the person types in the conversation.
+    // Not awaited: the panel lives on while the jobs it shows run.
     void ctx.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
+        const close = () => done(undefined);
+        let component: { render(width: number): string[] } | undefined;
         const view = createSidePanel({
           jobs: () => shownJobs(jobs),
           tree: jobsTree,
@@ -1383,38 +1384,53 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             // A spec diff's ***plain highlighted as plyn highlights it, and its added and removed lines filled.
             diff: plainPaint(theme),
           },
-          back: () => {
-            entry.handle?.unfocus();
-            tui.requestRender();
+          back: close,
+          close,
+          // Something took the keys' focus while the panel showed - a question in the chat - and waits there.
+          waiting: () => {
+            const focused = (tui as unknown as { getFocusedComponent?(): unknown }).getFocusedComponent?.() ?? null;
+            return focused !== null && focused !== component;
           },
-          close: () => done(undefined),
         });
-        const entry: NonNullable<typeof panel> = { view, close: () => done(undefined) };
+        const entry: NonNullable<typeof panel> = { view, close };
         panel = entry;
+        // Every key goes to the panel while it shows, whatever has the focus: a question the chat model asks in the
+        // background takes the focus, but no key reaches it - an enter never answers it unseen. It waits in the chat
+        // until the panel closes, and has the keys then. Mouse events are the screen's, before this sees them.
+        const unlisten = tui.addInputListener((data) => {
+          if (entry.handle?.isHidden() === true) return undefined;
+          if (matchesKey(data, PANEL_KEY)) close();
+          else view.handleInput(data);
+          tui.requestRender();
+          return { consume: true };
+        });
         // Jobs keep writing; redraw so the panel follows them while it shows.
         const timer = setInterval(() => {
           if (entry.handle?.isHidden() !== true) tui.requestRender();
         }, WATCH_REDRAW_MS);
         timer.unref?.();
-        return {
+        component = {
           render: (width: number) => view.render(width),
+          // Reached only if the listener above is gone: the same, so the panel never passes a key on.
           handleInput: (data: string) => {
-            // The panel has the keys while focused, so its own key closes it from here.
-            if (matchesKey(data, PANEL_KEY)) done(undefined);
+            if (matchesKey(data, PANEL_KEY)) close();
             else view.handleInput(data);
             tui.requestRender();
           },
           handleMouse: (event: Parameters<NonNullable<ReturnType<typeof createSidePanel>["handleMouse"]>>[0]) => view.handleMouse(event),
           invalidate: () => view.invalidate(),
           dispose: () => {
+            unlisten();
             clearInterval(timer);
             if (panel === entry) panel = undefined;
           },
-        };
+        } as { render(width: number): string[] };
+        return component as never;
       },
       {
         overlay: true,
-        overlayOptions: { width: "50%", minWidth: 40, maxHeight: "100%", anchor: "top-right", margin: 0 },
+        // The whole screen: the panel or the chat, one at a time.
+        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
         onHandle: (handle) => {
           if (panel !== undefined) panel.handle = handle;
         },

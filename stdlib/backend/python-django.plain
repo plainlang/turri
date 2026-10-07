@@ -16,3 +16,4 @@ description: A backend in Python 3.12 with Django 5, Django REST Framework, Guni
 - :Implementation: sets DRF's `EXCEPTION_HANDLER` to one function that turns the domain errors, DRF's exceptions and `Http404` into the error body, and DRF's `ValidationError` into `validation_error` with its `details`.
 - :Implementation: logs as JSON with python-json-logger, set up in `LOGGING` in `config/settings.py`, with a middleware that keeps the request id in a context variable, adds it to every record, and logs the request line.
 - :UnitTests: use pytest-django with DRF's `APIClient`, against a test database Django creates.
+  - `[tool.pytest.ini_options]` sets `DJANGO_SETTINGS_MODULE = "config.settings"`, so pytest-django finds the settings without an environment variable.

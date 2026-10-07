@@ -13,3 +13,4 @@ description: A frontend in Svelte 5 and TypeScript with SvelteKit as a single-pa
 - :Implementation: shows the page that says something went wrong from `src/routes/+error.svelte`, and catches any other failure in `handleError` in `src/hooks.client.ts`.
 - :Implementation: styles components in their own `<style>` block.
 - :UnitTests: render components with `@testing-library/svelte`.
+  - Vitest's config sets `resolve.conditions` to `["browser"]` for the tests, so Svelte 5 mounts components as in the browser rather than as on a server.

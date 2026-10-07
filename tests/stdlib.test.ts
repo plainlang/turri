@@ -120,4 +120,31 @@ describe("the standard library", () => {
   it("names Rust and C++ paths without the double colon the concept syntax would read as a concept", () => {
     for (const template of templates) expect(template.text, template.name).not.toMatch(/\w::\w+::/);
   });
+  it("gives every stack what its tests need to import and run the code - the setup an agent would otherwise go looking for", () => {
+    // Every Python stack: pytest imports the package whether or not uv installs the project.
+    expect(text("stdlib/lang/python")).toMatch(/\[tool\.pytest\.ini_options\][^\n]*pythonpath/);
+    // A Python command-line tool: uv installs its command only from a project with a build system.
+    for (const name of ["stdlib/cli/python-argparse", "stdlib/cli/python-click", "stdlib/cli/python-typer"]) {
+      expect(text(name), name).toContain("declares a build system - hatchling");
+      expect(text(name.replace("stdlib/cli/", "stdlib/cli/conformance/")), name).toContain("uv run --project <the built code> <tool>");
+    }
+    expect(text("stdlib/backend/python-django")).toContain('DJANGO_SETTINGS_MODULE = "config.settings"');
+    // In-memory SQLite in tests: one connection, or every request sees an empty database; the package is not the application.
+    for (const name of ["stdlib/backend/python-fastapi", "stdlib/backend/python-flask"]) {
+      expect(text(name), name).toContain("`poolclass=StaticPool`");
+      expect(text(name), name).toContain("anything but `app`, which is the package");
+    }
+    // Node.js runs what tsc emits only with NodeNext and .js imports; NestJS stays CommonJS.
+    for (const name of ["stdlib/backend/typescript-express", "stdlib/backend/typescript-fastify", "stdlib/cli/typescript-commander", "stdlib/library/typescript"]) {
+      expect(text(name), name).toContain("`moduleResolution` `NodeNext`");
+    }
+    expect(text("stdlib/backend/typescript-nestjs")).toContain("compiles to CommonJS");
+    expect(text("stdlib/frontend/sveltekit-spa")).toContain('`resolve.conditions` to `["browser"]`');
+    // A jar whose name the tests can run.
+    expect(text("stdlib/cli/java-picocli")).toContain("maven-shade-plugin");
+    expect(text("stdlib/backend/java-springboot")).toContain("<finalName>${project.artifactId}</finalName>");
+    // Black-box tests start and run the software as its stack says, from wherever they are.
+    expect(text("stdlib/backend/conformance/common")).toContain("exactly as its stack's implementation reqs say");
+    expect(text("stdlib/cli/conformance/common")).toContain("by its absolute path in the built code");
+  });
 });
