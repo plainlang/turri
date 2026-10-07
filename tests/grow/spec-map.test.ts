@@ -8,7 +8,7 @@ import { createWorkLoop, type JobRunner, type MapCodebase, type MapPlan, type Ma
 import { recordHistory } from "../../src/grow/lineage.ts";
 import { writeCodeRecord } from "../../src/grow/records.ts";
 import { createSidePanel } from "../../src/grow/side-panel.ts";
-import { createSpecMapSource, defaultMapFiles, importLabel, layOut, markSpecMap, pageItems, readSpecMap, type MapItem, type MapPage } from "../../src/grow/spec-map.ts";
+import { createSpecMapSource, defaultMapFiles, importLabel, layOut, markSpecMap, pageItems, readSpecMap, type MapItem, type MapPage, type MarkedPage } from "../../src/grow/spec-map.ts";
 import { createSpecMapState, focusOf, lineDiff, specMapHeader, specMapLines, wordDiff } from "../../src/grow/spec-map-view.ts";
 import type { TranscriptStyle } from "../../src/grow/transcript-view.ts";
 import { PLAIN_PAINT } from "../../src/grow/diff-view.ts";
@@ -53,7 +53,7 @@ function pulseOf(items: MapItem[], number: number, running: boolean, title = `pu
   return { number, title, track: "code", running, rowId: running ? `job${number}` : `planned-app-${number}`, before: lines((entry) => entry.wasLine), after: lines((entry) => entry.line) };
 }
 
-const codebase = (first: MapPage, rest: Partial<MapCodebase> = {}): MapCodebase => ({ module: "app", plainFile: first.plainFile, buildDir: first.buildDir, pulses: [], ...rest });
+const codebase = (first: MapPage, rest: Partial<MapCodebase> = {}): MapCodebase => ({ module: "app", plainFile: first.plainFile, buildDir: first.buildDir, pulses: [], conformance: true, ...rest });
 
 describe("the regeneration from the files", () => {
   it("marks each item built, new or changed against the code record, and keeps an item taken out as a ghost in its place", () => {
@@ -220,6 +220,52 @@ describe("the plan laid over the map", () => {
     expect(marked!.status).toBe("the planner couldn't cut it into pulses");
   });
 
+  it("spins beside each functional spec a running conformance pulse writes tests for - its acceptance tests changed too", () => {
+    const first = page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in."] }));
+    const spec = (markdown: string, frid: string, tests: string[]) => JSON.stringify({ acceptance_tests: tests.map((test) => ({ markdown: test })), frid, markdown });
+    const conformance = (before: string[], after: string[], extra = ""): MapPulse => ({
+      number: 2, title: "conformance", track: "conformance", running: true, rowId: "job2",
+      before: `["${DEFINITIONS}"]\n${extra}["${FUNCTIONAL_REQUIREMENTS}"]\n${before.join("\n")}\n`,
+      after: `["${DEFINITIONS}"]\n["${FUNCTIONAL_REQUIREMENTS}"]\n${after.join("\n")}\n`,
+    });
+    // Log in's acceptance tests changed, its text did not: its tests are written again.
+    const changed = conformance([spec("- Register.", "1", []), spec("- Log in.", "2", ["- Wrong password gives 401."])], [spec("- Register.", "1", []), spec("- Log in.", "2", ["- Wrong password gives 403."])]);
+    let [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [changed] })] });
+    expect(marked!.items.map((entry) => [entry.text, entry.testing === true])).toEqual([["- Register.", false], ["- Log in.", true]]);
+    // Only a definition changed: every one is tested again.
+    const definitions = conformance([spec("- Register.", "1", []), spec("- Log in.", "2", [])], [spec("- Register.", "1", []), spec("- Log in.", "2", [])], `{"markdown":"- :User: is a person."}\n`);
+    [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [definitions] })] });
+    expect(marked!.items.every((entry) => entry.testing === true)).toBe(true);
+  });
+
+  it("marks a test req from the conformance track: followed by the tests, being written for, or not yet - none where nothing is tested", () => {
+    const spec = tree({ [TEST_REQUIREMENTS]: ["- Use pytest.", "- Run against the sandbox."], [FUNCTIONAL_REQUIREMENTS]: ["- Say hello."] });
+    const record = tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Say hello."] });
+    const reqs = (marked: MarkedPage) => marked.items.filter((entry) => entry.section === TEST_REQUIREMENTS).map((entry) => entry.mark);
+    // No conformance test written anywhere: test reqs carry no mark.
+    expect(reqs(markSpecMap([page(spec, record)], noPlan)[0]!)).toEqual(["none", "none"]);
+    // The tests follow the first; the second waits for its conformance pulse - and, running, spins.
+    const tested = tree({ [TEST_REQUIREMENTS]: ["- Use pytest."], [FUNCTIONAL_REQUIREMENTS]: ["- Say hello."] });
+    const first = page(spec, record, tested);
+    expect(reqs(markSpecMap([first], noPlan)[0]!)).toEqual(["built", "waiting"]);
+    const pulse: MapPulse = {
+      number: 3, title: "conformance", track: "conformance", running: true, rowId: "job3",
+      before: `["${TEST_REQUIREMENTS}"]\n{"markdown":"- Use pytest."}\n`,
+      after: `["${TEST_REQUIREMENTS}"]\n{"markdown":"- Use pytest."}\n{"markdown":"- Run against the sandbox."}\n`,
+    };
+    expect(reqs(markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [pulse] })] })[0]!)).toEqual(["built", "growing"]);
+  });
+
+  it("shows test reqs only where conformance tests are on - by the config, or asked for this session", () => {
+    const spec = tree({ [TEST_REQUIREMENTS]: ["- Use pytest."], [FUNCTIONAL_REQUIREMENTS]: ["- Say hello."] });
+    const off = { ...page(spec, null), conformance: false };
+    const testReqs = (marked: MarkedPage) => marked.items.filter((entry) => entry.section === TEST_REQUIREMENTS).length;
+    expect(testReqs(markSpecMap([off], noPlan)[0]!)).toBe(0);
+    // The loop's word wins: bind turned them on for this session.
+    expect(testReqs(markSpecMap([off], { files: [], codebases: [codebase(off, { conformance: true })] })[0]!)).toBe(1);
+    expect(testReqs(markSpecMap([page(spec, null)], { files: [], codebases: [codebase(page(spec, null), { conformance: false })] })[0]!)).toBe(0);
+  });
+
   it("says what a module waits for", () => {
     const first = page(spec, record);
     const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { waitsFor: "base" })] });
@@ -243,7 +289,7 @@ describe("the regeneration drawn", () => {
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
   });
 
-  it("opens an item to all of it, the pulse that grows it and its conformance tests - and a definition to the specs that use it", () => {
+  it("opens an item to all of it and the pulse that grows it - and a built one to its text alone, its marks saying the rest", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201."] }),
       tree({ [DEFINITIONS]: ["- :User: is a person."] }),
@@ -255,8 +301,9 @@ describe("the regeneration drawn", () => {
     const text = specMapLines([marked!], state, 120, style).lines.join("\n");
     expect(text).toContain("  - The response is 201.");
     expect(text).toContain("grown by pulse 2 (planned - the number moves when the plan is made again): registration");
-    expect(text).toContain("conformance tests: none written for it");
-    expect(text).toContain("used by 1 functional spec: A :User: can register. (pulse 2)");
+    expect(text).not.toContain("built: the code record");
+    expect(text).not.toContain("conformance tests:");
+    expect(text).not.toContain("used by");
   });
 
   it("groups what a module is built from under it - the files it imports, the modules it requires - each closed until opened", () => {

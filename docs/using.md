@@ -130,7 +130,12 @@ come waits for a free slot, and says so.
   reads now: more than tested, its code is shown end to end to do what the spec says. It is dimmed when the
   conformance tests were written for an earlier text, struck through for a spec taken out, and a spinner while
   a conformance pulse writes them. Under `conformance-tests: chosen` a functional spec not chosen has none, and
-  shows none. Test reqs get no mark: they are the conformance tests', never built.
+  shows none. Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or
+  `bind` turned them on this session. A test req is the conformance tests', never built into the code, so its
+  mark is theirs:
+  `✓` once the conformance tests follow it as it reads now, a spinner while a conformance pulse writes them
+  for it, that pulse's number while it is planned, `·` until then - and none where no conformance test is
+  written at all.
 
   A changed item shows what changed in it: its first line word by word - what is gone struck through in red,
   what is new in green, what is kept highlighted as it reads now - and, under it, only the sub-bullets that changed. A spec never built that is taken
@@ -139,9 +144,8 @@ come waits for a free slot, and says so.
   `not asked to build - regrow plans it` (turri was just opened, or nothing has asked for the module: the
   plan lives in memory and is made again on the next regrow), `planning`, `waits for backend`, and in red
   `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: all of
-  its text against the code's, its acceptance tests, the pulse that grows it or why there is none, its
-  conformance tests - and, for a definition, every functional spec that uses its concept and how far each is
-  built: what a change to it can break.
+  its text against the code's, its acceptance tests and - not built - the pulse that grows it, or why there is
+  none.
 
   Each module mapped is a row of its own, `▾ backend.plain ████░░ 5/12 built · pulse 3 of 8 growing`, with
   its items under it. Only the module in focus starts open - the one growing now, else the one asked for, else

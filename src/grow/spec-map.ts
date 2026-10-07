@@ -10,7 +10,7 @@ import {
   TEST_REQUIREMENTS,
   type MarshalledPlainSource,
 } from "../plain/spec.ts";
-import { readProjectConfig } from "../config.ts";
+import { configForSpec, readProjectConfig } from "../config.ts";
 import { STDLIB_ROOT } from "../plain/stdlib.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { chainSpec, type MapCodebase, type MapPlan, type MapPulse } from "./loop.ts";
@@ -65,6 +65,8 @@ export interface MapPage {
   imports: string[];
   /** The module it requires - whose code it is built on - when it requires one. */
   requires?: string;
+  /** Its conformance tests are on, as its config has it: `conformance-tests:` is not false. */
+  conformance?: boolean;
   items: MapItem[];
   /** Its spec does not parse, or could not be read. */
   error?: string;
@@ -188,7 +190,13 @@ export function pageItems(input: { module: string; own: boolean; spec: Marshalle
     else if (change?.kind === "remove") push(section, "removed", undefined, line);
     else push(section, "built", line, undefined);
   }
-  if (input.own) for (const item of itemsOf(input.spec, TEST_REQUIREMENTS)) items.push({ key: "", section: TEST_REQUIREMENTS, state: "test", text: item.markdown, acceptance: [] });
+  // Test reqs are the conformance tests', never the code's: written for, as the tests record has them, or not yet.
+  const testReqs = new Set(itemsOf(input.tested ?? null, TEST_REQUIREMENTS).map((item) => item.markdown.trim()));
+  if (input.own) {
+    for (const item of itemsOf(input.spec, TEST_REQUIREMENTS)) {
+      items.push({ key: "", section: TEST_REQUIREMENTS, state: "test", text: item.markdown, acceptance: [], ...(testReqs.has(item.markdown.trim()) ? { tests: "now" as const } : {}) });
+    }
+  }
 
   // Conformance tests: of the functional specs, those the tests record has as they read now, as they read before, or taken out.
   const tested = new Set(itemsOf(input.tested ?? null, FUNCTIONAL_REQUIREMENTS).map((item) => item.markdown.trim()));
@@ -319,7 +327,15 @@ export function readSpecMapWithDeps(files: string[]): { pages: MapPage[]; deps: 
         seen.add(entry.plainFile);
         const home = Math.max(at, furthest);
         const codebase = chain[home]!;
-        const page: MapPage = { module: entry.moduleName, plainFile: entry.plainFile, buildDir: codebase.buildDir, imports: [], items: [], ...(entry.requires !== null ? { requires: entry.requires } : {}) };
+        const page: MapPage = {
+          module: entry.moduleName,
+          plainFile: entry.plainFile,
+          buildDir: codebase.buildDir,
+          imports: [],
+          items: [],
+          ...(entry.requires !== null ? { requires: entry.requires } : {}),
+          conformance: conformanceOn(entry.plainFile),
+        };
         const spec = specOf(home);
         if (spec instanceof Error) {
           pages.push({ ...page, error: spec.message });
@@ -354,6 +370,15 @@ function fingerprint(paths: string[]): string {
     .join("\n");
 }
 
+/** Whether a module's config has its conformance tests on: `conformance-tests:` is not false. */
+function conformanceOn(plainFile: string): boolean {
+  try {
+    return configForSpec(plainFile).conformanceTests !== false;
+  } catch {
+    return true;
+  }
+}
+
 function readText(path: string): string {
   try {
     return readFileSync(path, "utf8");
@@ -365,22 +390,35 @@ function readText(path: string): string {
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The lines of a serialized tree, as a set: what a pulse's trees are matched by. */
-const linesSeen = new WeakMap<MapPulse, { before: Set<string>; after: Set<string>; testedBefore: Set<string>; testedAfter: Set<string> }>();
+const linesSeen = new WeakMap<MapPulse, { before: Set<string>; after: Set<string>; testing: Set<string>; testReqs: Set<string> }>();
 function linesOf(pulse: MapPulse) {
   let seen = linesSeen.get(pulse);
   if (seen === undefined) {
     const set = (text: string) => new Set(text.split("\n").filter((line) => line.startsWith("{")));
-    // A conformance pulse's trees are the tests record's: matched by a functional spec's text.
-    const tested = (text: string) => {
-      const out = new Set<string>();
+    // A conformance pulse's trees are the tests record's: its functional specs' lines - each with its number and acceptance tests.
+    const specLines = (text: string, of = FUNCTIONAL_REQUIREMENTS) => {
+      const out: string[] = [];
       let section = "";
       for (const line of text.split("\n")) {
         if (line.startsWith("[")) section = (JSON.parse(line) as string[])[0]!;
-        else if (line.startsWith("{") && section === FUNCTIONAL_REQUIREMENTS) out.add(markdownOf(line).trim());
+        else if (line.startsWith("{") && section === of) out.push(line);
       }
       return out;
     };
-    seen = pulse.track === "code" ? { before: set(pulse.before), after: set(pulse.after), testedBefore: new Set(), testedAfter: new Set() } : { before: new Set(), after: new Set(), testedBefore: tested(pulse.before), testedAfter: tested(pulse.after) };
+    // The test reqs it writes tests to follow: those new in it.
+    const testReqs = () => {
+      const before = new Set(specLines(pulse.before, TEST_REQUIREMENTS));
+      return new Set(specLines(pulse.after, TEST_REQUIREMENTS).filter((line) => !before.has(line)).map((line) => markdownOf(line).trim()));
+    };
+    const testing = () => {
+      // What it writes tests for: each functional spec whose line is new - its text, its acceptance tests or its number
+      // changed - by its text; none, and it is the definitions, reqs or test reqs that changed: it tests every one again.
+      const before = new Set(specLines(pulse.before));
+      const after = specLines(pulse.after);
+      const changed = after.filter((line) => !before.has(line));
+      return new Set((changed.length > 0 ? changed : after).map((line) => markdownOf(line).trim()));
+    };
+    seen = pulse.track === "code" ? { before: set(pulse.before), after: set(pulse.after), testing: new Set(), testReqs: new Set() } : { before: new Set(), after: new Set(), testing: testing(), testReqs: testReqs() };
     linesSeen.set(pulse, seen);
   }
   return seen;
@@ -401,6 +439,19 @@ function haltText(stuck: NonNullable<MapCodebase["stuck"]>): string {
   return `halted - ${stuck.why.split(" - ")[0]}`;
 }
 
+/**
+ * A test req's mark, from the conformance track: followed by the conformance tests as it reads now, being written
+ * for in the running conformance pulse, planned in one, or not yet - none, where no conformance test is written at all.
+ */
+function testReqMark(item: MapItem, codebase: MapCodebase | undefined, page: MapPage): { mark: Mark; pulse?: MapPulse } {
+  if (item.tests === "now") return { mark: "built" };
+  const text = item.text.trim();
+  const pulse = codebase?.pulses.find((candidate) => candidate.track === "conformance" && linesOf(candidate).testReqs.has(text));
+  if (pulse !== undefined) return { mark: pulse.running ? "growing" : "planned", pulse };
+  const anyTested = page.items.some((other) => other.tests !== undefined);
+  return { mark: anyTested ? "waiting" : "none" };
+}
+
 /** The count a page's top line starts with: how many of its functional specs are built as the spec has them. */
 export function countOf(page: MapPage): { built: number; total: number } {
   const specs = page.items.filter((item) => item.section === FUNCTIONAL_REQUIREMENTS && item.state !== "removed");
@@ -418,13 +469,14 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
     const stuckPulse = codebase?.stuck?.pulse;
     const failed: MapPulse | undefined = stuckPulse !== undefined ? { number: stuckPulse.number, title: "", track: "code", running: false, rowId: "", before: stuckPulse.before, after: stuckPulse.after } : undefined;
     const conformance = codebase?.pulses.find((pulse) => pulse.running && pulse.track === "conformance");
-    const items = page.items.map((item): MarkedItem => {
+    // Test reqs only where conformance tests are on: the loop's word for it - the config, or asked for this session - else the config's.
+    const conformanceIsOn = codebase?.conformance ?? page.conformance !== false;
+    const items = page.items.filter((item) => item.state !== "test" || conformanceIsOn).map((item): MarkedItem => {
       const testing = conformance !== undefined && item.section === FUNCTIONAL_REQUIREMENTS && item.state !== "removed" && (() => {
-        const lines = linesOf(conformance);
-        return lines.testedAfter.has(item.text.trim()) && !lines.testedBefore.has(item.text.trim());
+        return linesOf(conformance).testing.has(item.text.trim());
       })();
       const extra = testing ? { testing: true } : {};
-      if (item.state === "test") return { ...item, mark: "none", ...extra };
+      if (item.state === "test") return { ...item, ...testReqMark(item, codebase, page), ...extra };
       if (item.state === "built") return { ...item, mark: "built", ...extra };
       const pulse = codebase?.pulses.find((candidate) => grows(candidate, item));
       if (pulse !== undefined) return { ...item, mark: pulse.running ? "growing" : "planned", pulse, ...extra };
