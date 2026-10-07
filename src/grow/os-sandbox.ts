@@ -200,7 +200,7 @@ export function whyBubblewrapFailed(output: string): { why: string; fix?: string
     return {
       why: "this machine does not let an unprivileged process create a user namespace",
       fix:
-        "in Docker, run the container with `--security-opt seccomp=unconfined`; on the host, `sysctl -w kernel.unprivileged_userns_clone=1`",
+        "in Docker, run the container as a user that is not root (`--user`), with `--security-opt seccomp=unconfined`; on the host, `sysctl -w kernel.unprivileged_userns_clone=1`",
     };
   }
   if (/setting up uid map: Permission denied|Failed to make \/ slave: Permission denied/.test(output)) {
@@ -210,7 +210,7 @@ export function whyBubblewrapFailed(output: string): { why: string; fix?: string
         "in Docker, add `--security-opt apparmor=unconfined`; on Ubuntu 24.04, `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` or an AppArmor profile for bwrap",
     };
   }
-  if (/Can't mount proc on \/proc/.test(output)) {
+  if (/Can't mount proc on (\/newroot)?\/proc/.test(output)) {
     return { why: "the container masks /proc", fix: "in Docker, add `--security-opt systempaths=unconfined`" };
   }
   return { why: `bubblewrap did not start: ${output.trim().split("\n")[0] ?? "no reason given"}` };
@@ -248,7 +248,7 @@ function probe(): Wall {
     const mounted = tryProc("mount");
     if (mounted.status === 0) return { kind: "bubblewrap", proc: "mount" };
     const output = `${mounted.stderr ?? ""}${mounted.error !== undefined ? String(mounted.error) : ""}`;
-    if (/Can't mount proc on \/proc/.test(output) && tryProc("bind").status === 0) return { kind: "bubblewrap", proc: "bind" };
+    if (/Can't mount proc on (\/newroot)?\/proc/.test(output) && tryProc("bind").status === 0) return { kind: "bubblewrap", proc: "bind" };
     return { kind: "none", ...whyBubblewrapFailed(output) };
   }
   if (process.platform === "win32") return { kind: "none", why: "Windows has no OS sandbox turri drives: the command check and the audit hold alone" };

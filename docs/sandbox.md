@@ -164,7 +164,7 @@ namespaces) the check and the audit hold alone. What a command behind it reaches
 - at most 4096 processes and files of at most 8 GiB, set with `ulimit` inside.
 
 `sandboxAvailable()` tries it once and says which wall is up, or why none starts and how to give it one: bubblewrap not
-installed, user namespaces off (Docker: `--security-opt seccomp=unconfined`), AppArmor in the way (Docker:
+installed, user namespaces off (Docker: a user that is not root, `--security-opt seccomp=unconfined`), AppArmor in the way (Docker:
 `--security-opt apparmor=unconfined`; Ubuntu 24.04: its user-namespace restriction), or Docker's masked `/proc` - for
 which bubblewrap falls back to binding the host's `/proc` rather than mounting its own.
 

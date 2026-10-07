@@ -27,6 +27,15 @@ turri               # pi, with turri's tools, skills and themes loaded
 `node_modules`, and a copying global install puts them there. The link points at this working
 copy, so edits here take effect immediately.
 
+## In Docker
+
+`docker/Dockerfile` builds an image with Node, git, bash, bubblewrap and **turri** linked; the agents' commands and the
+testing scripts run inside it, so add the toolchains your projects need first. It runs **turri** as the user who owns
+the project folder mounted at `/work`, never as root - bubblewrap as root in a container lacks the capability to make
+its namespaces - and with seccomp and AppArmor unconfined the OS sandbox starts. `systempaths=unconfined` lets it mount
+a `/proc` of its own; without it, it binds the container's. The build, the run, Windows and the keys:
+[turri in Docker](../docker/README.md).
+
 ## What `turri setup` checks
 
 It checks, in order, and says exactly what to run for anything missing:
@@ -35,7 +44,7 @@ It checks, in order, and says exactly what to run for anything missing:
 | --- | --- | --- |
 | Node 22.19+ | turri runs its `.ts` sources directly, and pi needs 22.19 | install a newer Node |
 | bash | every command an agent runs, and every testing script, runs with it | on Windows, Git for Windows; elsewhere, the system's package manager |
-| the OS sandbox | the wall under the command check and the audit | macOS has Seatbelt; on Linux, `apt install bubblewrap`. Where it does not start it says why and how to give it one - user namespaces off (Docker: `--security-opt seccomp=unconfined`), AppArmor in the way (Docker: `--security-opt apparmor=unconfined`; Ubuntu 24.04: `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), Docker's masked `/proc` (`--security-opt systempaths=unconfined`, or nothing: turri binds the host's `/proc` instead). Without one, the check and the audit hold alone |
+| the OS sandbox | the wall under the command check and the audit | macOS has Seatbelt; on Linux, `apt install bubblewrap`. Where it does not start it says why and how to give it one - user namespaces off (Docker: a user that is not root, `--security-opt seccomp=unconfined`), AppArmor in the way (Docker: `--security-opt apparmor=unconfined`; Ubuntu 24.04: `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), Docker's masked `/proc` (`--security-opt systempaths=unconfined`, or nothing: turri binds the container's `/proc` instead). Without one, the check and the audit hold alone |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
 | `turri` on PATH | so it runs from any project | `npm link` in this clone |
 | in every `pi` (optional) | a plain `pi` gets the tools too, not only `turri` | `setup` offers to write the one-line extension and copy the themes |

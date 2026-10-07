@@ -1,0 +1,10 @@
+.git
+node_modules
+.claude
+.forge
+.scratch
+.stryker-tmp
+.turri
+build
+conformance
+reports

@@ -76,11 +76,12 @@ describe("the bubblewrap arguments, per role", () => {
 describe("why bubblewrap does not start", () => {
   it.each([
     ["it is not installed", "spawnSync bwrap ENOENT", /not installed/, /apt install bubblewrap/],
-    ["Docker's seccomp", "bwrap: Creating new namespace failed: Operation not permitted", /user namespace/, /seccomp=unconfined/],
-    ["a non-root container", "bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces.", /user namespace/, /seccomp=unconfined/],
+    ["Docker's seccomp", "bwrap: Creating new namespace failed: Operation not permitted", /user namespace/, /not root.*seccomp=unconfined/],
+    ["a non-root container", "bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces.", /user namespace/, /not root.*seccomp=unconfined/],
     ["AppArmor", "bwrap: Failed to make / slave: Permission denied", /AppArmor/, /apparmor=unconfined/],
     ["Ubuntu 24.04's AppArmor", "bwrap: setting up uid map: Permission denied", /AppArmor/, /apparmor_restrict_unprivileged_userns/],
     ["Docker's masked /proc", "bwrap: Can't mount proc on /proc: Operation not permitted", /masks \/proc/, /systempaths=unconfined/],
+    ["Docker's masked /proc, as bubblewrap names it from inside", "bwrap: Can't mount proc on /newroot/proc: Operation not permitted", /masks \/proc/, /systempaths=unconfined/],
   ])("says so when %s", (_what, output, why, fix) => {
     const said = whyBubblewrapFailed(output);
     expect(said.why).toMatch(why);

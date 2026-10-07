@@ -52,6 +52,8 @@ No project of your own yet? [**The walkthrough**](docs/walkthrough.md) grows one
 a Strava for students, from an empty folder to a running FastAPI backend and React web app - the interview, the
 specs, the pulses, the regeneration, and changing your mind.
 
+Rather not install Node and the rest? **turri** also runs in Docker, from one image: [turri in Docker](docker/README.md).
+
 What `setup` checks and where **turri** runs: [install](#install); choosing models:
 [models](#models); what to do next: [use](#use).
 
