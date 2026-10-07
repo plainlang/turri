@@ -22,17 +22,34 @@ npm install && npm link   # puts `turri` on your PATH
 turri setup               # checks the machine
 ```
 
-Then start it, signed in to your model providers, choosing the model you talk to and the one that
-writes the code:
+Then, in your project, `turri init-config` writes a `config.yaml` with its two models - a strong one to talk
+to, and a smaller, cheaper one to write the code:
+
+```yaml
+harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
+coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
+```
+
+These two are only an example. **turri** runs on [pi](https://pi.dev), so any model pi supports works - Anthropic,
+OpenAI, Google, Amazon Bedrock, OpenRouter, a local one - signed in any way pi supports: an API key, `/login`
+with a subscription, a cloud account. What we recommend is the split: a capable model to talk to, and a smaller,
+cheaper one for the coding. Change the two lines to the models you have.
+
+Start it, signed in to your model providers:
 
 ```bash
 cd ~/my-project
+turri init-config
 export ANTHROPIC_API_KEY=...   # a key for each provider you use - or skip these,
-export OPENAI_API_KEY=...      # and type /login in turri once it has started
-turri --harness-model anthropic/claude-opus-5-5 --coding-model openai/gpt-6-luna
+export GEMINI_API_KEY=...      # and type /login in turri once it has started
+turri
 ```
 
 Then say: *Let's start a new project: a small API where people can register and sign in.*
+
+No project of your own yet? [**The walkthrough**](docs/walkthrough.md) grows one with you, step by step: cognio,
+a Strava for students, from an empty folder to a running FastAPI backend and React web app - the interview, the
+specs, the pulses, the regeneration, and changing your mind.
 
 What `setup` checks and where **turri** runs: [install](#install); choosing models:
 [models](#models); what to do next: [use](#use).
@@ -226,6 +243,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | | |
 | --- | --- |
 | [Installation](docs/installation.md) | setup and doctor, what turri needs of this machine, **turri** in every `pi`, environment variables |
+| [Walkthrough](docs/walkthrough.md) | cognio, grown step by step from an empty folder: the interview, the specs, the pulses, the regeneration, changing your mind |
 | [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and the regeneration, choosing models, the command line |
 | [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
