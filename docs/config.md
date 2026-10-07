@@ -5,6 +5,18 @@ optional: with no file at all, turri finds the testing scripts on its own, turns
 tests on wherever a module has test reqs, and runs on pi's configured model. A project whose
 modules are on different stacks adds a file per module, `config.<module>.yaml`, beside it.
 
+`turri init-config` starts one: the two models, a strong one to talk to and a smaller one to write the code.
+They are an example, not a requirement - any model [pi](https://pi.dev) supports works, signed in any way pi
+supports; what we recommend is that split, a capable model to talk to and a smaller, cheaper one for the coding.
+
+```yaml
+harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
+coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
+```
+
+It never writes over a `config.yaml` already there - `--force` does - and takes a folder other than the current
+one as its argument.
+
 ## Where it is read from
 
 A spec belongs to its **project**: the nearest folder, from the spec's own folder up, that holds a

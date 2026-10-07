@@ -19,7 +19,8 @@ Then, in the project that holds your specs:
 
 ```bash
 cd ~/my-project
-turri      # pi, with turri's tools, skills and themes loaded
+turri init-config   # a config.yaml with the model you talk to and the one that writes the code
+turri               # pi, with turri's tools, skills and themes loaded
 ```
 
 `npm link` has to be a link, not `npm install -g`: Node will not run `.ts` files from inside a

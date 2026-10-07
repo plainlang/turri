@@ -92,6 +92,7 @@ const ALIASES: Record<string, string> = {
 
 /** Getting the machine ready, and checking it is. */
 const SETUP_COMMANDS: Record<string, string> = {
+  "init-config": "write a quick start config.yaml here: a strong model to talk to, a smaller one to write the code",
   setup: "get this machine ready: check everything, and offer to load turri into every pi",
   doctor: "check what turri needs - in a project, what it needs of this machine - without changing anything",
 };
@@ -125,6 +126,11 @@ if (command === "-h" || command === "--help") {
 // `turri chat`, which still opens it. A word turri does not know is an error below, not a conversation started on it.
 if (command === undefined || command.startsWith("-")) chat(process.argv.slice(2));
 if (command === "chat") chat(rest);
+
+if (command === "init-config") {
+  const { main } = await import("./init-config.ts");
+  process.exit(main(rest));
+}
 
 if (command in SETUP_COMMANDS) {
   const { main } = await import("./setup.ts");
