@@ -11,4 +11,5 @@ description: Python 3.12 with uv, ruff and pytest - what every stdlib Python sta
   - It catches an exception only where it handles it, or to raise one of its own with `raise ... from`, keeping the cause.
 - :Implementation: logs through the standard `logging` module, with one logger per module from `logging.getLogger(__name__)`, and never with `print`.
 - :UnitTests: use pytest, in `tests/` mirroring the package layout, named `test_<module>.py`, and run with `uv run pytest`.
+  - `pyproject.toml` sets `[tool.pytest.ini_options]` with `testpaths = ["tests"]` and `pythonpath` naming the folder the package is in - `["."]` for a package at the project root, `["src"]` for one under `src/` - so `uv run pytest` imports it whether or not uv installs the project: without a build system it never does.
 - :UnitTests: use fixtures and `monkeypatch` for stand-ins, and `tmp_path` for files.

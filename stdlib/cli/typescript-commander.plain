@@ -8,6 +8,7 @@ description: A command-line tool in TypeScript on Node.js 24 with Commander.
 ***implementation reqs***
 
 - :Implementation: runs on Node.js 24, with Commander.
+- :Implementation: is an ES module package: `"type": "module"` in `package.json`, `module` and `moduleResolution` `NodeNext` in `tsconfig.json`, and every relative import ending in `.js` - `import { x } from "./x.js"` - as Node.js needs to run what `tsc` emits.
 - :Implementation: keeps its code in `src/`: `src/cli.ts` builds the program with `exitOverride()` and runs it, one module per command in `src/commands/`, the work in `src/core/`, and the tool's errors in `src/errors.ts` under one base class `ToolError`.
   - `bin` in `package.json` names the tool, pointing at `dist/cli.js`.
   - It builds with `npm run build` - `tsc` into `dist/` - and runs with `node dist/cli.js`.

@@ -1,6 +1,6 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { describeAgents } from "./activity.ts";
-import { pulseCost, pulseName, spinner } from "./job-panel.ts";
+import { didNotPass, finishedMark, pulseCost, pulseName, spinner } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 import { diffFiles, fileHeader, PLAIN_PAINT } from "./diff-view.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
@@ -105,17 +105,10 @@ export function jobsTreeRows(jobs: Job[], state: JobsTreeState): TreeRow[] {
  */
 const MARK: Record<string, (now: number) => string> = { running: spinner, queued: () => "·", succeeded: () => "✓", failed: () => "✗", stopped: () => "■" };
 
-/** A pulse that ran to its end and whose build did not pass - stopped at a gate - is not a success. */
-function didNotPass(job: Job): boolean {
-  return job.status === "succeeded" && (job.details as { passed?: unknown } | undefined)?.passed === false;
-}
-
 /** A pulse's mark: running or queued as it is; finished, in the colour of how it ended - green it passed, red it failed or did not pass, stopped amber. */
 function markOf(job: Job, style: TranscriptStyle): string {
   if (sectionOf(job) !== "finished") return MARK[job.status]?.(Date.now()) ?? "·";
-  if (didNotPass(job) || job.status === "failed") return style.error("✗");
-  if (job.status === "stopped") return (style.warning ?? style.accent)("■");
-  return (style.success ?? style.added)("✓");
+  return finishedMark(job, { success: style.success ?? style.added, error: style.error, warning: style.warning ?? style.accent });
 }
 
 function wrap(text: string, width: number, indent: string, colour: (text: string) => string = (t) => t): string[] {

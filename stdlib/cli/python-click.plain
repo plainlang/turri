@@ -11,5 +11,6 @@ description: A command-line tool in Python 3.12 with Click 8.
   - `app/cli.py` holds the `@click.group()` with `--verbose`, `--debug` and `--version`, which sets up logging, and one module per command in `app/commands/`.
   - The work lives in `app/core/`, and the tool's errors in `app/errors.py`, under one base class `ToolError`, a subclass of `click.ClickException` whose `exit_code` is 1.
   - `[project.scripts]` names the tool, `<tool> = "app.cli:cli"`.
+  - `pyproject.toml` declares a build system - hatchling, with `[tool.hatch.build.targets.wheel]` `packages = ["app"]` - so `uv sync` installs the package and the `<tool>` command: without one, uv installs no `[project.scripts]` at all.
 - :Implementation: sets up the standard `logging` module to write to standard error with the level `--verbose` or `--debug` gives.
 - :UnitTests: run commands with Click's `CliRunner`.

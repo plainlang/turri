@@ -8,6 +8,7 @@ description: A backend in TypeScript on Node.js 24 with NestJS 11, class-validat
 ***implementation reqs***
 
 - :Implementation: runs on Node.js 24, with NestJS 11 on its Express platform.
+- :Implementation: compiles to CommonJS, as the Nest CLI sets a project up - the one stdlib TypeScript stack that is not ES modules - so Nest's decorators and Jest with ts-jest work without further setup.
 - :Implementation: keeps one Nest module per resource in `src/<resource>/`, with its controller, its service, and its repository as a provider.
   - `src/main.ts` starts the application with `enableShutdownHooks()`, and `src/app.module.ts` imports the modules.
   - It builds with `npm run build` - `nest build` into `dist/` - and starts with `npm start`, which runs `node dist/main.js`.

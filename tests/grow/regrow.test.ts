@@ -145,6 +145,45 @@ describe("the change agent's prompt", () => {
 });
 
 describe("rendering a spec diff", () => {
+  it("has a debugger look at a failure that repeats 3 times running, and gives the coding agent its root cause and fix", async () => {
+    writeFileSync(join(dir, "config.yaml"), "review: false\n");
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });
+    const failing = "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        raise RuntimeError('no such table: users')\n";
+    const passing = "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_two(self):\n        self.assertEqual(2, 1 + 1)\n";
+    const debuggerSaw: string[] = [];
+    let coderTurns = 0;
+    const { ask } = await import("../../src/pi.ts");
+    vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+      const own = (name: string) => session.tools.find((tool) => tool.name === name);
+      if (own("submit_diagnosis")) {
+        debuggerSaw.push(session.task ?? "");
+        await own("submit_diagnosis")!.execute("id", { root_cause: "every connection opens its own in-memory database", fix: "use StaticPool in the test engine" });
+        return "Done.";
+      }
+      if (prompt.includes("Before you finish: call update_notes")) return agentRunning("", session, prompt);
+      coderTurns += 1;
+      // It keeps failing the same way until it is told the cause.
+      const told = prompt.includes("use StaticPool in the test engine");
+      await own("write")!.execute("id", { path: "test_app.py", content: told ? passing : failing });
+      return agentRunning("python3 -m unittest discover", session, prompt);
+    }) as never);
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+
+    expect(result.passed).toBe(true);
+    // Once, after the third failure in a row: the run it saw, and the testing script that decides.
+    expect(debuggerSaw).toHaveLength(1);
+    expect(debuggerSaw[0]).toContain("have failed the same way 3 times in a row");
+    expect(debuggerSaw[0]).toContain("no such table: users");
+    expect(debuggerSaw[0]).toContain("<testing script path=");
+    expect(imagesGiven.some((agent) => agent.label === "app spec change debugger")).toBe(true);
+    const told = prompts.find((prompt) => prompt.includes("a debugger looked at it with fresh eyes"));
+    expect(told).toContain("<root cause>\nevery connection opens its own in-memory database\n</root cause>");
+    expect(told).toContain("<fix>\nuse StaticPool in the test engine\n</fix>");
+    expect(coderTurns).toBe(4);
+  });
+
   it("gives the agent the spec the code is built from - the state before the change - and the change, never the spec after it", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });

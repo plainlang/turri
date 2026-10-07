@@ -101,9 +101,8 @@ describe("jobs that write the same module", () => {
     expect(lines).toContain("  queued  app 6");
     expect(lines.join("\n")).not.toContain(ids[3]!);
     expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(3);
-    // Expanded, the help says how to collapse, and how to find your way around the side panel.
-    expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+h to see what each pulse builds");
-    expect(lines.at(-1)).toContain("in the side panel: ↑↓ move over the pulses · enter opens one - what it builds, whole");
-    expect(lines.at(-1)).toContain("esc back to the chat · ctrl+h closes it");
+    // Expanded, the help says how to collapse and where to see more - not the side panel's own keys, which it shows itself.
+    expect(lines.at(-1)).toContain("ctrl+o collapse · ctrl+h to see what each pulse builds");
+    expect(lines.join("\n")).not.toContain("in the side panel:");
   });
 });

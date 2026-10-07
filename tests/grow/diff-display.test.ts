@@ -26,7 +26,7 @@ describe("showing a spec change", () => {
     expect(summarizeDiff(diff)).toBe("backend.plain +3 −1 · :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
   });
 
-  it("shows under a running job in full with ctrl+o - and is not summed up in a line under any job", async () => {
+  it("is not shown under a running job - neither summed up in a line nor whole with ctrl+o", async () => {
     const jobs = createJobRegistry();
     const { opened, release } = gate();
     jobs.start({ kind: "regrow", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => (await opened, { report: "" }) });
@@ -37,8 +37,7 @@ describe("showing a spec change", () => {
     expect(compact.some((line) => line.includes("│"))).toBe(false);
 
     const expanded = jobPanelLines(jobs.list(), { expanded: true });
-    // The sign in a column of its own, the row padded out for its band.
-    expect(expanded.map((line) => line.trimEnd())).toContain("      │ + - :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
+    expect(expanded.join("\n")).not.toContain(":Kudo: is a unit of appreciation");
     expect(expanded.join("\n")).not.toContain("backend.plain +3 −1");
     release();
   });

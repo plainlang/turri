@@ -7,7 +7,7 @@ import { maskSecrets } from "./masking.ts";
 import { NOTES_FILE } from "./notes.ts";
 import { modulesScratchDir } from "./paths.ts";
 import { RECORD_FILE } from "./records.ts";
-import { missingToolchain, runUnitScript, scriptFailure } from "./test-scripts.ts";
+import { missingToolchain, runUnitScript, scriptFailure, type ScriptRun } from "./test-scripts.ts";
 import { COMMAND_TIMEOUT_MS } from "./shell.ts";
 
 /** Shared test-running and test-preservation machinery for both render tools. */
@@ -333,7 +333,7 @@ export function draftPrompt(): string {
 
 export type UnitVerdict =
   | { ok: true; command: string }
-  | { ok: false; command?: string; prompt: string; missing?: MissingToolchain };
+  | { ok: false; command?: string; prompt: string; missing?: MissingToolchain; run?: ScriptRun };
 
 /** A toolchain the testing script needs and does not find on this machine: no change to the code can pass it. */
 export interface MissingToolchain {
@@ -356,6 +356,7 @@ export async function verifyUnitSuite(buildDir: string, runs: TestRun[], script:
     ok: false,
     command: run.command,
     prompt: scriptFailure(run, "unit testing"),
+    run,
     ...(missing !== undefined ? { missing } : {}),
   };
 }

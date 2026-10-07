@@ -208,12 +208,21 @@ describe("models: and turn-limit:", () => {
     expect(roleModel(config, "reviewer")).toEqual({ model: luna, thinking: "low" });
     expect(roleModel(config, "judge")).toEqual({ model: luna, thinking: "medium" });
     expect(roleModel(config, "coding")).toBeUndefined();
+    // The debugger, unnamed, runs on the coding model it is given - not the default.
+    expect(roleModel(config, "debugger")).toBeUndefined();
     // The conversation's side keeps the chat's model unless named.
     expect(roleModel(config, "chooser")).toBeUndefined();
     // Turn limits: the role's own, else the default's, else turn-limit:.
     expect(roleTurnLimitMs(config, "coding")).toBe(180_000);
     expect(roleTurnLimitMs(config, "explorer")).toBe(150_000);
     expect(roleTurnLimitMs(config, undefined)).toBe(150_000);
+  });
+
+  it("runs the debugger on its own model when models: names one, and on the coding model when it does not", () => {
+    writeFileSync(join(root, "config.yaml"), "models:\n  default: openai/gpt-5.5\n  debugger: { model: anthropic/claude-opus-5-5, thinking: high }\n");
+    expect(roleModel(readProjectConfig(root), "debugger")).toEqual({ model: "anthropic/claude-opus-5-5", thinking: "high" });
+    writeFileSync(join(root, "config.yaml"), "models:\n  default: openai/gpt-5.5\n");
+    expect(roleModel(readProjectConfig(root), "debugger")).toBeUndefined();
   });
 
   it("takes one turn limit for every agent from turn-limit: alone, and none from nothing - the harness's two minutes", () => {

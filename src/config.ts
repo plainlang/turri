@@ -96,7 +96,7 @@ export interface ModelChoice {
  * The code fixer of a conformance run and the repair agent are coding agents; the unit-test and conformance arbiters
  * are both `arbiter`.
  */
-export const AGENT_ROLES = ["chat", "chooser", "planner", "diagnosis", "release", "coding", "conformance", "explorer", "reviewer", "test-reviewer", "judge", "arbiter"] as const;
+export const AGENT_ROLES = ["chat", "chooser", "planner", "diagnosis", "release", "coding", "conformance", "explorer", "reviewer", "test-reviewer", "judge", "arbiter", "debugger"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
 /** The roles on the conversation's side: without their own entry they take the chat's model, not `default`. */
@@ -173,6 +173,8 @@ export function roleModel(config: Pick<ProjectConfig, "harnessModel" | "judgeMod
   if (role === "coding") return undefined;
   const models = config.models ?? {};
   const own = choiceOf(models[role]);
+  // The debugger looks at the coding agent's failure: without its own entry it runs on the coding model it is given.
+  if (role === "debugger") return own;
   if (CHAT_SIDE.includes(role)) return own === undefined ? undefined : inheritModel(own, inheritModel(choiceOf(models.chat), config.harnessModel));
   const legacy = role === "judge" || role === "test-reviewer" ? config.judgeModel : undefined;
   return inheritModel(own, inheritModel(legacy, choiceOf(models.default)));

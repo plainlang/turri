@@ -64,14 +64,22 @@ describe("tool calls as one line", () => {
   it("names files written and commands run", () => {
     expect(describeToolCall("write", { path: "src/greeter.py" })).toBe("✎ write src/greeter.py");
     expect(describeToolCall("run_unit_tests", {})).toBe("▶ unit tests: the project's script");
-    expect(describeToolCall("something_new", {})).toBe("  something_new");
+    expect(describeToolCall("something_new", {})).toBe("• something_new");
+    // turri's own tools have theirs.
+    expect(describeToolCall("update_notes", {})).toBe("✐ update_notes");
+    expect(describeToolCall("my_diff", {})).toBe("± my_diff");
+    expect(describeToolCall("submit_work", {})).toBe("✓ submit_work");
+    expect(describeToolCall("submit_review", {})).toBe("✓ submit_review");
+    // Reading, searching and the web have their marks too: no line without one.
+    expect(describeToolCall("grep", { pattern: "create_app" })).toBe("⌕ grep create_app");
+    expect(describeToolCall("web_search", { query: "sqlite in-memory no such table" })).toBe("⇢ web_search sqlite in-memory no such table");
   });
 
   it("gives paths as they are inside plain_modules, wherever they appear", () => {
     const root = "/Users/someone/Work/shop/plain_modules";
     expect(describeToolCall("write", { path: `${root}/version/code/src/version.py` })).toBe("✎ write version/code/src/version.py");
     expect(describeToolCall("bash", { command: `cd ${root}/version/code && pytest -q` })).toBe("$ cd version/code && pytest -q");
-    expect(describeToolCall("read", { path: `${root}/version/tests/test_version.py` })).toBe("  read version/tests/test_version.py");
+    expect(describeToolCall("read", { path: `${root}/version/tests/test_version.py` })).toBe("○ read version/tests/test_version.py");
     expect(describeToolCall("edit", { path: "plain_modules/app/code/main.py" })).toBe("✎ edit app/code/main.py");
     // Anything else is left as it is.
     expect(describeToolCall("bash", { command: "ls /tmp/other && cat my_plain_modules/x" })).toBe("$ ls /tmp/other && cat my_plain_modules/x");
@@ -84,13 +92,29 @@ describe("tool calls as one line", () => {
   });
 
   it("shows a tool by the name the person knows it by, not the one its agent calls", () => {
-    expect(describeToolCall("write_spec_diff", { plain_file: "app.plain", diff: "" })).toBe("  mutate");
+    expect(describeToolCall("write_spec_diff", { plain_file: "app.plain", diff: "" })).toBe("• mutate");
     expect(describeToolResult("write_spec_diff", {}, true)).toBe("  ✗ mutate failed");
   });
 });
 
 describe("the panel", () => {
-  it("shows running jobs only, by module, time and cost, with their activity and not their stage", async () => {
+  it("lists what finished below the queue, newest first, each with its mark, time and cost with ctrl+o - and is gone when nothing runs or waits", async () => {
+    const jobs = createJobRegistry();
+    const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", run: async () => ({ report: "", details: { passed: true } }) });
+    await jobs.wait(first.id);
+    const second = jobs.start({ kind: "bind", summary: "y", module: "backend", run: async () => ({ report: "", details: { passed: false } }) });
+    await jobs.wait(second.id);
+    // Nothing running or waiting: no panel at all.
+    expect(jobPanelLines(jobs.list())).toEqual([]);
+    jobs.start({ kind: "regrow", summary: "z", module: "backend", run: () => new Promise(() => {}) });
+    const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };
+    expect(jobPanelLines(jobs.list(), { marks })).toContain("  finished (2): <bad>✗ backend bind · <ok>✓ backend regrow");
+    const expanded = jobPanelLines(jobs.list(), { expanded: true, marks });
+    expect(expanded.some((line) => /^  <bad>✗ backend bind · \d+s$/.test(line))).toBe(true);
+    expect(expanded.some((line) => /^  <ok>✓ backend regrow · \d+s$/.test(line))).toBe(true);
+  });
+
+  it("shows running jobs by module, time and cost, with their activity and not their stage - and what finished, in a line", async () => {
     const jobs = createJobRegistry();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -112,7 +136,8 @@ describe("the panel", () => {
     expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app render · \d+s$/);
     expect(lines.join("\n")).not.toContain("app 3: writing code and unit tests");
     expect(lines).toContain("      ✎ write app.py");
-    expect(lines.join("\n")).not.toContain("done already");
+    // What finished is counted in one line below, newest first, with its mark.
+    expect(lines).toContain("  finished (1): ✓ done already");
 
     release();
   });

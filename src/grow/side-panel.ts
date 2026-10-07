@@ -17,8 +17,10 @@ export interface SidePanelOptions {
   /** Rows the panel may use. */
   rows: () => number;
   style: TranscriptStyle;
-  /** Back to the conversation, the panel staying open. */
+  /** Back to the conversation: the panel closes. */
   back: () => void;
+  /** Whether something in the conversation waits for the person - a question asked while the panel showed. */
+  waiting?: () => boolean;
   /** Close the panel. */
   close: () => void;
   /** The key that opens and closes it, shown in the footer. */
@@ -50,9 +52,11 @@ export function createSidePanel(options: SidePanelOptions) {
       const where = tree_.lines.length > bodyHeight ? `${tree.top + 1}-${Math.min(tree_.lines.length, tree.top + bodyHeight)} of ${tree_.lines.length}` : "all shown";
       while (visible.length < bodyHeight) visible.push("");
 
-      const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", "esc chat", `${options.key} close`];
+      const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", `esc or ${options.key} back to the chat`];
+      // A question asked while it showed waits in the chat, unanswered: the person is told it is there.
+      const waiting = options.waiting?.() === true ? `   ${style.warning?.("the chat is waiting for your answer") ?? style.accent("the chat is waiting for your answer")} - ${options.key} to go back` : "";
       return [
-        truncateToWidth(style.heading("Regeneration"), width),
+        truncateToWidth(`${style.heading("Regeneration")}${waiting}`, width),
         style.muted("─".repeat(Math.max(1, width))),
         ...visible.map((line) => truncateToWidth(line, width)),
         style.muted(truncateToWidth(`${where}  —  ${keys.join(" · ")}`, width)),

@@ -82,13 +82,15 @@ modules or ten. How many run at once is capped by what the machine has room for:
 `parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a pulse whose turn has
 come waits for a free slot, and says so.
 
-- **The panel** above the input shows each running pulse - its module, time and cost, and what its
-  agents are doing - and the queue, by module. `ctrl+o` expands it.
+- **The panel** above the input, while something runs or waits, shows each running pulse - its module,
+  time and cost, and what its agents are doing - the queue, by module, and what finished, newest first,
+  its mark green, red or amber as in the side panel: in one line, or each with its time and cost with
+  `ctrl+o`. It shows no spec diff - the side panel does. With nothing running or waiting it is gone.
 - **A pulse's change** is what its agent works from, not a text diff of the module's file: the items
   `<spec change>` gives the agent - only what the pulse's functional specs use, an import's items as
   well as the module's own, a code pulse's without the test reqs - each in the file it is written in,
   under its section, in the file's order (`change-view.ts`).
-- **A spec diff**, wherever a panel shows one, reads as an editor shows a diff: its \*\*\*plain highlighted
+- **A spec diff**, in the side panel, reads as an editor shows a diff: its \*\*\*plain highlighted
   as [plyn](https://github.com/plainlang/plyn) highlights it - section headers, concepts, names in
   backticks, text in quotes, links, the front matter - each added line filled green and each removed one
   red, the text on top, the fill the width of the panel ([colours](theming.md#spec-diffs)). It is shown
@@ -100,12 +102,11 @@ come waits for a free slot, and says so.
   that cannot be placed is listed last, under "not found in the spec's files". Where lines of a file are not in
   the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
   the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
-  as GitHub names a hunk's function: each section is named once. Opened with `ctrl+o`, the panel wraps
-  every line rather than cutting it off.
+  as GitHub names a hunk's function: each section is named once.
 - **The side panel** (`ctrl+h`, or **`/regeneration`** - `/regen` for short, `/growth` too - not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
-  terminal set to send `^H` for its Backspace key would open the panel on it) opens on the right, beside the chat:
+  terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time:
   the **regeneration** - every pulse as three sections - running, queued, finished - each opened and closed on
     its own (running and queued start open). A pulse is one line: its module and kind (`hubspot regrow`, `hubspot bind`), its time and its cost - a
     finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
@@ -120,8 +121,10 @@ come waits for a free slot, and says so.
     closes when it moves to another section. What is open is kept while the panel is closed. What the agents
     said and did is not shown - it is in each pulse's log (see [Agent logs](#agent-logs)).
 
-  `esc` goes back to the chat and leaves it open and live; `ctrl+h` takes the keys back to it, and closes it
-  from there.
+  `ctrl+h` again, or `esc`, closes it and goes back to the chat. While it shows, every key is the panel's,
+  whatever else happens: a question the chat model asks in the background (`ask_user`) waits in the chat,
+  unanswered - an `enter` in the panel never answers it - and the panel's top line says "the chat is waiting
+  for your answer". Back in the chat, the question is there, with the keys.
 - `turri chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the pulses redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
