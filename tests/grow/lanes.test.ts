@@ -87,20 +87,21 @@ describe("jobs that write the same module", () => {
     }
     const lines = jobPanelLines(jobs.list());
     expect(lines).toContain("  queued (9): app 4 → app 5 → app 6 → app 7 → app 8 → app 9 → app 10 → app 11 → app 12");
-    expect(lines.at(-1)).toContain("ctrl+o for the full queue and activity · ctrl+h to see what each pulse builds");
+    // The queue counted is all of it: ctrl+o has no more of it to show.
+    expect(lines.at(-1)).toContain("ctrl+o expand · ctrl+h to see what each pulse builds");
     expect(lines.length).toBeLessThanOrEqual(10);
   });
 
-  it("list every queued job, and all activity, while expanded", () => {
+  it("show all activity while expanded, the queue still counted in one line", () => {
     const jobs = createJobRegistry();
     const { run } = gated();
     const ids = [3, 4, 5, 6].map(
       (frid) => jobs.start({ kind: "render", summary: `app ${frid}`, lanes: ["m"], run: run(`${frid}`) }).id,
     );
     const lines = jobPanelLines(jobs.list(), { expanded: true });
-    expect(lines).toContain("  queued  app 6");
+    expect(lines).toContain("  queued (3): app 4 → app 5 → app 6");
     expect(lines.join("\n")).not.toContain(ids[3]!);
-    expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(3);
+    expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(0);
     // Expanded, the help says how to collapse and where to see more - not the side panel's own keys, which it shows itself.
     expect(lines.at(-1)).toContain("ctrl+o collapse · ctrl+h to see what each pulse builds");
     expect(lines.join("\n")).not.toContain("in the side panel:");

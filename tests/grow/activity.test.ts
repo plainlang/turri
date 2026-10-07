@@ -98,7 +98,7 @@ describe("tool calls as one line", () => {
 });
 
 describe("the panel", () => {
-  it("lists what finished below the queue, newest first, each with its mark, time and cost with ctrl+o - and is gone when nothing runs or waits", async () => {
+  it("counts what finished below the queue, newest first, each with its mark, in one line - ctrl+o or not - and is gone when nothing runs or waits", async () => {
     const jobs = createJobRegistry();
     const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(first.id);
@@ -109,9 +109,10 @@ describe("the panel", () => {
     jobs.start({ kind: "regrow", summary: "z", module: "backend", run: () => new Promise(() => {}) });
     const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };
     expect(jobPanelLines(jobs.list(), { marks })).toContain("  finished (2): <bad>✗ backend bind · <ok>✓ backend regrow");
+    // ctrl+o expands the agents' trace, not what finished: the side panel lists each.
     const expanded = jobPanelLines(jobs.list(), { expanded: true, marks });
-    expect(expanded.some((line) => /^  <bad>✗ backend bind · \d+s$/.test(line))).toBe(true);
-    expect(expanded.some((line) => /^  <ok>✓ backend regrow · \d+s$/.test(line))).toBe(true);
+    expect(expanded).toContain("  finished (2): <bad>✗ backend bind · <ok>✓ backend regrow");
+    expect(expanded.some((line) => /^  <ok>✓ backend regrow · \d+s$/.test(line))).toBe(false);
   });
 
   it("shows running jobs by module, time and cost, with their activity and not their stage - and what finished, in a line", async () => {

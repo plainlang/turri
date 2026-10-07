@@ -104,6 +104,11 @@ export interface ModuleStatus {
    */
   planned: Array<{ title: string; cases: JobCases; track: Track; waitsFor?: string[]; planning?: true }>;
   /**
+   * What the plan of its code did not do as asked: the person's wishes its planner did not follow and why, an answer
+   * that did not hold, a group split for its size.
+   */
+  planNotes?: string[];
+  /**
    * Under `conformance-tests: chosen`: the functional specs the planned code jobs add or change that no conformance
    * test is for, is chosen to be, or is scheduled - for the conversation to choose from now.
    */
@@ -127,7 +132,8 @@ interface ModuleState {
   askedFile: string;
   model?: string;
   guidance: string[];
-  plan?: { specKey: string; from: string; jobs: PlannedJob[] };
+  /** The code's plan: planned again when the spec, where it starts from or the steering it followed changes. */
+  plan?: { specKey: string; from: string; steeringKey: string; jobs: PlannedJob[]; notes: string[] };
   /** The conformance tests' plan, apart from the code's: planned from what they are written for. */
   conformancePlan?: { specKey: string; from: string; jobs: PlannedJob[] };
   running?: {
@@ -621,7 +627,14 @@ export function createWorkLoop(options: {
     return true;
   };
 
-  const plan = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track = "code"): Promise<PlannedJob[]> => {
+  /** How the person wants a codebase's work planned: the conversation's and AGENTS.md's steering, then the requests'. */
+  const steeringOf = (state: ModuleState): Steering[] => [
+    ...(options.steering?.(state.askedFile) ?? []),
+    ...state.guidance.map((text) => ({ source: "the request that asked for the work", text })),
+  ];
+  const steeringKeyOf = (state: ModuleState): string => JSON.stringify(steeringOf(state));
+
+  const plan = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track = "code"): Promise<{ jobs: PlannedJob[]; notes: string[] }> => {
     const tip = tipEntry(state);
     const current = track === "code" ? codeTree(spec.tree) : conformanceOf(state, spec);
     const specFile = relative(options.cwd, tip.plainFile);
@@ -631,26 +644,25 @@ export function createWorkLoop(options: {
     } catch {
       /* the layout is only for how the diffs read */
     }
-    const steering = [
-      ...(options.steering?.(state.askedFile) ?? []),
-      ...state.guidance.map((text) => ({ source: "the request that asked for the work", text })),
-    ];
+    const steering = steeringOf(state);
     const separately = track === "conformance" && state.conformanceSeparately === true;
     const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, ...(separately ? { separately } : {}) };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into pulses`);
-    const draft = await planChunks(input, agents);
+    const notes: string[] = [];
+    const draft = await planChunks(input, agents, notes);
     const fresh = tip.requires === null && (track === "code" ? !started(tip) : readRecord(testsDirOf(state)) === null);
-    return stepsOf(input, draft).map((job, index) => {
+    const jobs = stepsOf(input, draft).map((job, index) => {
       // Its cases from its own change: the spec before it to the spec after it - the plan's changes are numbered from where the plan starts.
       const cases = casesOf(parseTree(job.step.before), changesBetween(job.step.before, job.step.after), { fresh: fresh && index === 0, module: tip.moduleName });
       return { title: job.title, reason: job.reason, cases, step: job.step, track };
     });
+    return { jobs, notes };
   };
 
   /** Plan a track: while the planner works, the codebase says so rather than showing nothing - or, a job running, the old plan. */
-  const planIdle = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track): Promise<PlannedJob[]> => {
+  const planIdle = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track): Promise<{ jobs: PlannedJob[]; notes: string[] }> => {
     state.planning = track;
     try {
       return await plan(state, spec, from, track);
@@ -931,15 +943,17 @@ export function createWorkLoop(options: {
           return;
         }
       }
-      // Still wanted: what comes after it is planned now, from what it will land - not once it has.
+      // Still wanted: what comes after it is planned now, from what it will land - not once it has. The steering
+      // changed, the code's is planned again too: what is not running yet follows it.
       const planOf = track === "code" ? state.plan : state.conformancePlan;
-      if (planOf === undefined || planOf.specKey !== specKey) {
+      const steeringKey = steeringKeyOf(state);
+      if (planOf === undefined || planOf.specKey !== specKey || (track === "code" && state.plan?.steeringKey !== steeringKey)) {
         const running = state.running;
         // Shown as being planned on the regeneration; the status goes on showing the running job.
-        const rest = workOf(track, running.after, state, spec).length === 0 ? [] : await planIdle(state, spec, running.after, track);
-        const next = { specKey, from: serializeTree(running.from), jobs: [running.planned, ...rest] };
+        const rest = workOf(track, running.after, state, spec).length === 0 ? { jobs: [], notes: [] } : await planIdle(state, spec, running.after, track);
+        const next = { specKey, from: serializeTree(running.from), jobs: [running.planned, ...rest.jobs] };
         if (state.running === running) {
-          if (track === "code") state.plan = next;
+          if (track === "code") state.plan = { ...next, steeringKey, notes: rest.notes };
           else state.conformancePlan = next;
         }
       }
@@ -980,7 +994,7 @@ export function createWorkLoop(options: {
         const testedKey = serializeTree(tested);
         const existing = state.conformancePlan;
         if (existing === undefined || existing.specKey !== specKey || existing.from !== testedKey || existing.jobs.length === 0) {
-          state.conformancePlan = { specKey, from: testedKey, jobs: await planIdle(state, spec, tested, "conformance") };
+          state.conformancePlan = { specKey, from: testedKey, jobs: (await planIdle(state, spec, tested, "conformance")).jobs };
         }
         const next = state.conformancePlan!.jobs[0];
         if (next !== undefined) {
@@ -999,9 +1013,10 @@ export function createWorkLoop(options: {
       return;
     }
     const fromKey = serializeTree(from);
-    if (state.plan === undefined || state.plan.specKey !== specKey || state.plan.from !== fromKey || state.plan.jobs.length === 0) {
-      const jobs = await planIdle(state, spec, from, "code");
-      state.plan = { specKey, from: fromKey, jobs };
+    const steeringKey = steeringKeyOf(state);
+    if (state.plan === undefined || state.plan.specKey !== specKey || state.plan.from !== fromKey || state.plan.steeringKey !== steeringKey || state.plan.jobs.length === 0) {
+      const { jobs, notes } = await planIdle(state, spec, from, "code");
+      state.plan = { specKey, from: fromKey, steeringKey, jobs, notes };
       if (jobs.length === 0) {
         state.why = NO_PLAN;
         return;
@@ -1069,6 +1084,7 @@ export function createWorkLoop(options: {
           }
         : {}),
       planned: state.running !== undefined ? planned.slice(1) : planned,
+      ...(replanning !== "code" && (state.plan?.notes.length ?? 0) > 0 ? { planNotes: [...state.plan!.notes] } : {}),
       ...(choose.size > 0 ? { toChoose: [...choose.values()] } : {}),
       ...(choose.size > 0 && state.seen !== undefined && budgetLeft(state, state.seen) !== undefined ? { chooseBudget: budgetLeft(state, state.seen) } : {}),
       ...(state.running === undefined && state.why !== undefined ? { why: state.why } : {}),
@@ -1514,6 +1530,7 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
             : `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - ${casesText(job.cases)}`,
         ),
       );
+      if (status.planNotes !== undefined) lines.push("  what the plan did not do as asked:", ...status.planNotes.map((note) => `    - ${note}`));
       if (status.why !== undefined) lines.push(`  ${status.why}`);
       if (status.toChoose !== undefined && options.for !== "command line") lines.push(...chooseNow(status.plainFile, status.toChoose, status.chooseBudget));
       lines.push(...startOver(status));

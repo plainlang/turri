@@ -22,7 +22,8 @@ mkdir ~/cognio && cd ~/cognio
 turri init-config
 ```
 
-`init-config` writes a `config.yaml` with the two models **turri** works with:
+`init-config` writes a `config.yaml` with the two models **turri** works with - and, below them, every other key
+commented out with what it does, to read and try later:
 
 ```yaml
 harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
@@ -99,7 +100,7 @@ Regeneration  backend.plain   ██████████▓▓▓▓░░�
       │ ***functional specs***
   ✓   │ - A visitor can register a :User: via `POST /users` with the JSON body …
   ✓   │ - A :User: can log in via `POST /auth/login` with the JSON body `{"email", "password"}`.
-  ⠋   │ - :CurrentUser: can follow a :User: via `PUT /users/{handle}/follow` …   ← growing now · 1m 12s
+  ⠋   │ - :CurrentUser: can follow a :User: via `PUT /users/{handle}/follow` …
   6   │ - :CurrentUser: can post a :StudySession: via `POST /sessions`, …
   ·   │ - :CurrentUser: can read their :Feed: via `GET /feed`, …
 ```

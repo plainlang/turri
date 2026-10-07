@@ -19,7 +19,7 @@ npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one 
 npm run chat                                   # pi with the extension loaded straight from src/
 turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
 turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
-turri init-config                        # a quick start config.yaml in the current folder: the two models
+turri init-config                        # a quick start config.yaml in the current folder: the two models, every other key commented out
 turri doctor                             # what the machine lacks (bash, the OS sandbox, a model provider; in a project, its toolchains)
 ```
 

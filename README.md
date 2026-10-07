@@ -22,20 +22,7 @@ npm install && npm link   # puts `turri` on your PATH
 turri setup               # checks the machine
 ```
 
-Then, in your project, `turri init-config` writes a `config.yaml` with its two models - a strong one to talk
-to, and a smaller, cheaper one to write the code:
-
-```yaml
-harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
-coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
-```
-
-These two are only an example. **turri** runs on [pi](https://pi.dev), so any model pi supports works - Anthropic,
-OpenAI, Google, Amazon Bedrock, OpenRouter, a local one - signed in any way pi supports: an API key, `/login`
-with a subscription, a cloud account. What we recommend is the split: a capable model to talk to, and a smaller,
-cheaper one for the coding. Change the two lines to the models you have.
-
-Start it, signed in to your model providers:
+Then start it in your project, signed in to your model providers:
 
 ```bash
 cd ~/my-project
@@ -45,7 +32,21 @@ export GEMINI_API_KEY=...      # and type /login in turri once it has started
 turri
 ```
 
-Then say: *Let's start a new project: a small API where people can register and sign in.*
+`turri init-config` writes the project's `config.yaml`. It sets two models - a capable one you talk to, which writes
+the specs and plans the work, and a smaller, cheaper one that writes the code:
+
+```yaml
+harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
+coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
+```
+
+These two are only an example. **turri** runs on [pi](https://pi.dev), so any model pi supports works - Anthropic,
+OpenAI, Google, Amazon Bedrock, OpenRouter, a local one - signed in any way pi supports: an API key, `/login`
+with a subscription, a cloud account. If you use other providers, change the two lines before you run `turri`, and
+sign in to those instead. Below them, the file lists every other setting commented out, each with what it does -
+uncomment one to try it; [the project config](docs/config.md) has them all.
+
+Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
 
 No project of your own yet? [**The walkthrough**](docs/walkthrough.md) grows one with you, step by step: cognio,
 a Strava for students, from an empty folder to a running FastAPI backend and React web app - the interview, the
