@@ -271,8 +271,8 @@ function wrapped(text: string, width: number, colour: (text: string) => string =
     .map((line) => `${CONTINUED}${colour(line)}`);
 }
 
-/** All of an item, opened: its text, its acceptance tests, the pulse that brings it, its tests, what uses it. */
-function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, jobs: Job[], now: number): string[] {
+/** All of an item, opened: its text against the code's, its acceptance tests, and why it is not growing when it is not. */
+function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle): string[] {
   const lines: string[] = [];
   // The rest of its text - its first line is the row - against the record's, for a change.
   const rest = item.state === "changed" ? lineDiff(item.was ?? "", item.text).slice(1) : item.text.split("\n").slice(1).map((line) => ({ was: line, now: line }));
@@ -285,25 +285,19 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
     lines.push(`${CONTINUED}${style.muted("acceptance tests:")}`);
     for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `  ${highlighted(line, style)}`).join("\n"), width));
   }
-  // Where it stands, when its mark alone does not say: growing, planned, or why it is neither. Built, the ✓ says it.
-  const elapsed = elapsedOf(item, jobs);
-  const pulse = item.pulse;
+  // Why it is not growing, when it is not and should be: built, growing or planned, its mark says it all.
   const where =
-    item.mark === "built" || item.mark === "none"
+    item.mark === "built" || item.mark === "none" || item.pulse !== undefined
       ? undefined
       : item.state === "test"
-        ? pulse !== undefined
-          ? `a test req: conformance pulse ${pulse.number} writes the conformance tests to follow it${pulse.running ? `, now${elapsed !== undefined ? ` · ${elapsed}` : ""}` : ""}`
-          : "a test req: the conformance tests do not follow it yet - they are written once the code is built"
-        : pulse !== undefined
-          ? `${item.state === "removed" ? "taken out" : "grown"} by pulse ${pulse.number}${pulse.running ? `, growing now${elapsed !== undefined ? ` · ${elapsed}` : ""}` : " (planned - the number moves when the plan is made again)"}: ${pulse.title}`
-          : item.mark === "planning"
-            ? "being planned into pulses now"
-            : item.rolledBack !== undefined
-              ? `pulse ${item.rolledBack} was growing it, and was rolled back: ${page.codebase?.stuck?.why ?? ""}`
-              : item.mark === "stuck"
-                ? `not growing: ${page.codebase?.stuck?.why ?? page.status}`
-                : `not planned yet: ${page.status}`;
+        ? "a test req: the conformance tests do not follow it yet - they are written once the code is built"
+        : item.mark === "planning"
+          ? "being planned into pulses now"
+          : item.rolledBack !== undefined
+            ? `pulse ${item.rolledBack} was growing it, and was rolled back: ${page.codebase?.stuck?.why ?? ""}`
+            : item.mark === "stuck"
+              ? `not growing: ${page.codebase?.stuck?.why ?? page.status}`
+              : `not planned yet: ${page.status}`;
   if (where !== undefined) lines.push(...wrapped(where, width, item.mark === "stuck" ? style.error : style.muted));
   return lines;
 }
@@ -466,7 +460,7 @@ export function specMapLines(
     const line = `${gutter}${text}${note === "" ? "" : `${" ".repeat(Math.max(1, room - visibleWidth(text) + 3))}${note}`}`;
     add(line, mark);
     if (state.open.has(row.key)) {
-      for (const detail of detailLines(item, page, width, style, jobs, now)) add(detail, mark);
+      for (const detail of detailLines(item, page, width, style)) add(detail, mark);
       return;
     }
     // A changed item shows what changed in it, closed too: its changed sub-bullets, word by word.

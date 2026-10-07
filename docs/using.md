@@ -144,8 +144,7 @@ come waits for a free slot, and says so.
   `not asked to build - regrow plans it` (turri was just opened, or nothing has asked for the module: the
   plan lives in memory and is made again on the next regrow), `planning`, `waits for backend`, and in red
   `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: all of
-  its text against the code's, its acceptance tests and - not built - the pulse that grows it, or why there is
-  none.
+  its text against the code's and its acceptance tests - and, when nothing grows it yet, why not.
 
   Each module mapped is a row of its own, `▾ backend.plain ████░░ 5/12 built · pulse 3 of 8 growing`, with
   its items under it. Only the module in focus starts open - the one growing now, else the one asked for, else

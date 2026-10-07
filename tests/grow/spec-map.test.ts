@@ -289,7 +289,7 @@ describe("the regeneration drawn", () => {
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
   });
 
-  it("opens an item to all of it and the pulse that grows it - and a built one to its text alone, its marks saying the rest", () => {
+  it("opens an item to its text and acceptance tests alone - built, growing or planned, its marks say the rest", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201."] }),
       tree({ [DEFINITIONS]: ["- :User: is a person."] }),
@@ -300,7 +300,7 @@ describe("the regeneration drawn", () => {
     for (const entry of marked!.items) state.open.add(`${marked!.plainFile}\n${entry.key}`);
     const text = specMapLines([marked!], state, 120, style).lines.join("\n");
     expect(text).toContain("  - The response is 201.");
-    expect(text).toContain("grown by pulse 2 (planned - the number moves when the plan is made again): registration");
+    expect(text).not.toContain("grown by pulse");
     expect(text).not.toContain("built: the code record");
     expect(text).not.toContain("conformance tests:");
     expect(text).not.toContain("used by");
