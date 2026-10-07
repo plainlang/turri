@@ -13,7 +13,7 @@ import {
   type Specifications,
 } from "../plain/spec.ts";
 import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
-import { reportActivity, reportStage, unitOf } from "./activity.ts";
+import { reportActivity, reportLogNote, reportStage, unitOf } from "./activity.ts";
 import { codebaseMap, diffFiles, digestFiles, wroteNothing } from "./codebase.ts";
 import { confinedTools } from "./confine.ts";
 import { buildSpecDiffPrompt, describeSpecChange, reviewedSpec, sectionModules } from "./prompt.ts";
@@ -309,7 +309,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // The code is judged by its unit tests alone: the conformance testing script is the conformance job's.
   const scripts = withoutConformance(findTestScripts(root, tip.plainFile, tip.buildDir));
   requireTestScripts(moduleName, scripts, { conformance: false });
-  reportActivity(`  unit testing script: ${relative(root, scripts.unit)}`);
+  reportLogNote(`  unit testing script: ${relative(root, scripts.unit)}`);
   const lastFrid = [...getFrids(tree)].at(-1);
   const buildDir = tip.buildDir;
   // From scratch there is no build directory yet, and everything the agent runs runs in it.

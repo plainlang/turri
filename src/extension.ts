@@ -31,7 +31,7 @@ import { plainFileParser } from "./plain/parser.ts";
 import { TEST_REQUIREMENTS } from "./plain/spec.ts";
 import { sectionsOf } from "./grow/state.ts";
 import { runningDeployed, stopDeployed } from "./grow/release.ts";
-import { APPROVALS, createDeployState, createDeployTools, refuseInstall } from "./release-tools.ts";
+import { createDeployState, createDeployTools } from "./release-tools.ts";
 import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./grow/steer.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
@@ -40,7 +40,7 @@ import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { plainPaint } from "./grow/plain-palette.ts";
 import { createJobPanel, PANEL_KEY } from "./grow/job-panel.ts";
-import { createSidePanel, type PanelView } from "./grow/side-panel.ts";
+import { createSidePanel } from "./grow/side-panel.ts";
 import { createJobsTreeState } from "./grow/jobs-tree.ts";
 import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./grow/lineage.ts";
@@ -1332,16 +1332,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // The side panel: the job queue and the agents' traces - on the right,
+  // The side panel: the job queue - on the right,
   // beside the conversation. Its key (PANEL_KEY) opens it with the keyboard in it; esc goes back to the chat and
   // leaves it open and live; the key again takes the keyboard back to it, and closes it from there.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
   // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
   const jobsTree = createJobsTreeState();
 
-  const openPanel = (ctx: ExtensionContext, show?: { jobId?: string; view?: PanelView }) => {
+  const openPanel = (ctx: ExtensionContext) => {
     if (panel !== undefined) {
-      if (show !== undefined) panel.view.show(show);
       panel.handle?.setHidden(false);
       panel.handle?.focus();
       return;
@@ -1351,7 +1350,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       (tui, theme, _keybindings, done) => {
         const view = createSidePanel({
           jobs: () => shownJobs(jobs),
-          jobId: show?.jobId,
           tree: jobsTree,
           rows: () => tui.terminal.rows,
           key: PANEL_KEY,
@@ -1360,6 +1358,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             muted: (text) => theme.fg("muted", text),
             accent: (text) => theme.fg("accent", text),
             error: (text) => theme.fg("error", text),
+            success: (text) => theme.fg("success", text),
+            warning: (text) => theme.fg("warning", text),
             added: (text) => theme.fg("toolDiffAdded", text),
             removed: (text) => theme.fg("toolDiffRemoved", text),
             // A spec diff's ***plain highlighted as plyn highlights it, and its added and removed lines filled.
@@ -1371,7 +1371,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           },
           close: () => done(undefined),
         });
-        if (show?.view !== undefined) view.show(show);
         const entry: NonNullable<typeof panel> = { view, close: () => done(undefined) };
         panel = entry;
         // Jobs keep writing; redraw so the panel follows them while it shows.
@@ -1405,19 +1404,10 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     );
   };
 
-  pi.registerCommand("watch", {
-    description: `Read a pulse's agents at work, in the side panel: /watch [pulse id]. ${PANEL_KEY} opens the panel; esc goes back to the chat.`,
-    handler: async (args, ctx) => {
-      if (!ctx.hasUI) return;
-      const job = await chooseJob(jobs, args.trim(), ctx.ui);
-      if (job !== undefined) openPanel(ctx, { jobId: job.id, view: "trace" });
-    },
-  });
-
-  // The regeneration: every pulse - growing, planned and finished - what each grows, and its agents' traces. /regen is
-  // its short form, and /growth, which once listed the pulses in the chat, opens it too.
+  // The regeneration: every pulse - growing, planned and finished - and what each grows. /regen is its short form, and
+  // /growth, which once listed the pulses in the chat, opens it too. What the agents did is in each pulse's log.
   for (const [name, description] of [
-    ["regeneration", `The regeneration, in the side panel - every pulse, growing, planned and finished: what each grows, and its agents' traces. ${PANEL_KEY} opens it too.`],
+    ["regeneration", `The regeneration, in the side panel - every pulse, growing, planned and finished, and what each grows. ${PANEL_KEY} opens it too.`],
     ["regen", "The regeneration, in the side panel: the short form of /regeneration."],
     ["growth", "The regeneration, in the side panel: the same as /regeneration."],
   ] as const) {
@@ -1425,13 +1415,13 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       description,
       handler: async (_args, ctx) => {
         if (!ctx.hasUI) return;
-        openPanel(ctx, { view: "jobs" });
+        openPanel(ctx);
       },
     });
   }
 
   pi.registerShortcut(PANEL_KEY, {
-    description: "Open the side panel - the regeneration and the agents' traces - or go back to it",
+    description: "Open the side panel - the regeneration - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
       openPanel(ctx);
@@ -1466,31 +1456,6 @@ function modulesWithHistory(cwd: string): string[] {
 }
 
 /** Stop a job by id or id prefix, and say what that means for the queue. */
-/**
- * The job to watch: the one named, or the only one running, or the one picked from a list.
- */
-async function chooseJob(
-  jobs: JobRegistry,
-  named: string,
-  ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(message: string, type?: "info" | "warning" | "error"): void },
-): Promise<Job | undefined> {
-  const all = jobs.list();
-  if (named !== "") {
-    const found = all.find((job) => job.id.startsWith(named));
-    if (found === undefined) ui.notify(`No pulse ${named}. /regeneration shows them.`, "warning");
-    return found;
-  }
-  if (all.length === 0) {
-    ui.notify("No pulses have been started.", "info");
-    return undefined;
-  }
-  const running = all.filter((job) => job.status === "running");
-  if (running.length === 1) return running[0];
-  const label = (job: Job) => `${job.id}  ${job.status.padEnd(9)} ${job.summary}`;
-  const picked = await ui.select("Watch which pulse?", all.map(label));
-  return all.find((job) => picked !== undefined && label(job) === picked);
-}
-
 /** Every job, in the order it was started, with what a queued one is waiting for. */
 /** What deploy started, as /halt offers it. */
 function deployedLabel(name: string, what: string): string {
@@ -1598,9 +1563,8 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
 
 /**
  * Deploy: the conversation puts what is built out in dist/<module> and starts it on this machine (see
- * render/deploy.ts). Once something is deployed, the conversation's shell installs nothing: a command
- * that would is refused, and goes to the person through propose_setup instead. What it started is
- * stopped when the session ends.
+ * grow/release.ts), installing what it needs in its own shell - nothing is put to the person. What it
+ * started is stopped when the session ends.
  */
 function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   const state = createDeployState();
@@ -1608,22 +1572,9 @@ function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
     cwd,
     state,
     jobs,
-    // Once, for the session, always, or not: what the commands are, then the four answers.
-    approve: async (title, body, ctx) => {
-      const ui = ctx as { hasUI?: boolean; ui?: { select(title: string, options: string[]): Promise<string | undefined> } } | undefined;
-      if (ui?.hasUI !== true || ui.ui === undefined) return undefined;
-      const picked = await ui.ui.select(`${title}\n\n${body}`, APPROVALS.map((approval) => approval.label));
-      return APPROVALS.find((approval) => approval.label === picked)?.answer ?? "no";
-    },
     defaultPlainFile: () => readProjectConfig(cwd).module,
   });
   for (const tool of tools) pi.registerTool(tool);
-  pi.on("tool_call", (event) => {
-    if (state.current === undefined || event.toolName !== "bash") return undefined;
-    const command = (event.input as { command?: unknown }).command;
-    const refused = typeof command === "string" ? refuseInstall(command) : undefined;
-    return refused !== undefined ? { block: true, reason: refused } : undefined;
-  });
   pi.on("session_shutdown", async () => {
     await stopDeployed();
   });

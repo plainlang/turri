@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createJobRegistry } from "../../src/grow/jobs.ts";
 import { jobPanelLines, summarizeDiff } from "../../src/grow/job-panel.ts";
-import { transcriptLines } from "../../src/grow/transcript-view.ts";
 
 const diff = [
   "diff --git a/backend.plain b/backend.plain",
@@ -42,18 +41,6 @@ describe("showing a spec change", () => {
     expect(expanded.map((line) => line.trimEnd())).toContain("      │ + - :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
     expect(expanded.filter((line) => line.includes("backend.plain +3 −1"))).toHaveLength(2);
     release();
-  });
-
-  it("leads the transcript in /watch, even before the job has started", () => {
-    const jobs = createJobRegistry();
-    const { opened } = gate();
-    jobs.start({ kind: "render", summary: "a", lanes: ["m"], run: async () => (await opened, { report: "" }) });
-    const queued = jobs.start({ kind: "regrow", summary: "b", diff, lanes: ["m"], run: async () => ({ report: "" }) });
-
-    const lines = transcriptLines(queued, 100);
-    expect(lines[0]).toBe("── the spec change");
-    expect(lines.map((line) => line.trimEnd())).toContain("+ - :Kudo: is a unit of appreciation a :User: gives to a :StudySession:.");
-    expect(lines.at(-1)).toBe("(queued - not started yet)");
   });
 });
 

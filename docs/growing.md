@@ -180,6 +180,9 @@ anything - the unit testing script, run by the harness, still does - and its tas
   path, or where it says inside its folder. A resource is shown in the prompt cut at 8,000 characters, saying how long
   it is whole, and the file itself is outside the agent's walls: it copies the resource the code or the tests need as
   a file, or one it has to read whole, rather than type it out. The conformance agent has it too, into the tests folder.
+  A resource that is code - a source file or a build manifest (`requirements.txt`, `package.json`, `pom.xml`, ...) - is
+  never copied: it is code that lives elsewhere, a host's module the code plugs into, linked so the agent knows what it
+  builds on. The prompt marks it `kind="code"`, with no code-copy, and `copy_resource` refuses it.
 - **`my_diff`**: the diff of the code folder from the commit the job started from, new files whole - exactly
   what the reviewer is shown. Read before handing the work in: every part of the change in it, and nothing else.
 - **`can_it_fail`**: whether the unit tests catch a bug. The agent gives one change to a code file - a

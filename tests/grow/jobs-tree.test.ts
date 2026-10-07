@@ -50,24 +50,27 @@ describe("the jobs tree", () => {
     expect(rowsOf(jobs, state)).toEqual(["[running 1]", "[queued 1]", "[finished 0]"]);
   });
 
-  it("shows a job in a line - what it changes - and all of its diff once opened", () => {
-    const jobs = [job("c", "queued", { diff: diff("Users give kudos."), waitingOn: ["b"] })];
+  it("shows a job in a line - its module, time and cost - and all of its diff once opened", () => {
+    const usage = { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.5 };
+    const jobs = [job("c", "queued", { module: "app", diff: diff("Users give kudos."), waitingOn: ["b"], usage })];
     const state = createJobsTreeState();
     const closed = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(closed).toMatch(/▸ · app\.plain c · .*app\.plain/);
+    expect(closed).toMatch(/▸ · app · .+ · \$0\.50$/m);
+    expect(closed).not.toContain("app.plain");
     expect(closed).not.toContain("+ - Users give kudos.");
     state.cursor = 2; // [running], [queued], c
     treeKey(state, jobsTreeRows(jobs, state), "open");
     const open = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(open).toContain("▾ · app.plain c");
+    expect(open).toMatch(/▾ · app · /);
+    expect(open).not.toContain("app.plain c");
     expect(open).toContain("+ - Users give kudos.");
     expect(open).toContain("waits for pulse b");
   });
 
-  it("shows a running job's stage under it, and - opened - what it is doing", () => {
+  it("shows a running job as its line alone, and - opened - what it is doing", () => {
     const jobs = [job("b", "running", { stage: "running the unit testing script", activity: ["▶ unit tests: the project's script"] })];
     const state = createJobsTreeState();
-    expect(jobsTreeLines(jobs, state, 120, PLAIN).lines).toContain("        running the unit testing script");
+    expect(jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n")).not.toContain("running the unit testing script");
     state.cursor = 1;
     treeKey(state, jobsTreeRows(jobs, state), "toggle");
     expect(jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n")).toContain("▶ unit tests: the project's script");
@@ -111,7 +114,7 @@ describe("the jobs tree", () => {
     expect(state.cursor).toBe(jobsTreeRows(jobs, state).length - 1);
   });
 
-  it("goes from a closed job to its section with ←, opens or closes a whole section's jobs, and names a job's trace", () => {
+  it("goes from a closed job to its section with ←, opens or closes a whole section's jobs", () => {
     const jobs = [job("c", "queued"), job("f", "queued")];
     const state = createJobsTreeState();
     const rows = jobsTreeRows(jobs, state);
@@ -122,10 +125,6 @@ describe("the jobs tree", () => {
     expect([...state.openJobs.keys()].sort()).toEqual(["c", "f"]);
     treeKey(state, rows, "closeAll");
     expect(state.openJobs.size).toBe(0);
-    state.cursor = 2;
-    expect(treeKey(state, rows, "trace")).toEqual({ kind: "trace", jobId: "c" });
-    state.cursor = 1;
-    expect(treeKey(state, rows, "trace")).toEqual({ kind: "none" });
   });
 
   it("scrolls only to keep the cursor in sight, and lets a long open job be read a page at a time", () => {
@@ -204,5 +203,61 @@ describe("the jobs tree", () => {
       treeKey(state, jobsTreeRows(jobs, state), "close");
       expect(state.cursor).toBe(2);
     });
+  });
+  it("lists a finished pulse as its module, time and cost alone, marked in the colour of how it ended", () => {
+    const style = { ...PLAIN, success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}` };
+    const usage = { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, cost: 1.5 };
+    const jobs = [
+      job("a", "succeeded", { module: "hubspot", startedAt: 0, finishedAt: 42_000, usage, diff: diff("HubSpotClient reads contacts.") }),
+      job("b", "succeeded", { module: "hubspot", kind: "bind", startedAt: 0, finishedAt: 1000, details: { passed: false } }),
+      job("c", "failed", { module: "crm", startedAt: 0, finishedAt: 2000 }),
+    ];
+    const state = createJobsTreeState();
+    state.open.finished = true;
+    const lines = jobsTreeLines(jobs, state, 200, style).lines.map((line) => line.trim());
+    expect(lines).toContain("▸ <ok>✓ hubspot · 42s · $1.50");
+    expect(lines).toContain("▸ <bad>✗ hubspot conformance · 1s");
+    expect(lines).toContain("▸ <bad>✗ crm · 2s");
+    expect(lines.join("\n")).not.toContain("HubSpotClient");
+  });
+
+  it("opens a finished pulse onto its agents and what they spent - not its stages or its report", () => {
+    const usage = { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.25 };
+    const jobs = [
+      job("a", "succeeded", {
+        module: "hubspot",
+        summary: "hubspot.plain HubSpotClient reading and mapping contacts",
+        finishedAt: 1,
+        usage,
+        report: "Built fs 1 and its unit tests pass.",
+        transcript: [
+          { kind: "stage", text: "coding fs 1" },
+          { kind: "stage", text: "running the unit testing script" },
+          { kind: "stage", text: "running the unit testing script" },
+          { kind: "text", text: "thinking aloud" },
+        ],
+        agents: [{ label: "coder", turns: 3, compactions: 0, usage }],
+      }),
+    ];
+    const state = createJobsTreeState();
+    state.open.finished = true;
+    state.cursor = 3; // [running], [queued], [finished], a
+    treeKey(state, jobsTreeRows(jobs, state), "open");
+    const open = jobsTreeLines(jobs, state, 200, PLAIN).lines.join("\n");
+    expect(open).not.toContain("HubSpotClient reading and mapping contacts");
+    expect(open).not.toContain("coding fs 1");
+    expect(open).not.toContain("running the unit testing script");
+    expect(open).not.toContain("thinking aloud");
+    expect(open).toContain("· coder · 3 turns · 1.0k tok · $0.25");
+    expect(open).not.toContain("Built fs 1 and its unit tests pass.");
+    expect(open).not.toContain("trace");
+  });
+  it("says what a pulse without a module is once - on its line, not again opened", () => {
+    const jobs = [job("p", "queued", { summary: "hubspot.plain the work", note: "Being planned into pulses now." })];
+    const state = createJobsTreeState();
+    state.cursor = 2; // [running], [queued], p
+    treeKey(state, jobsTreeRows(jobs, state), "open");
+    const open = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
+    expect(open.match(/hubspot\.plain the work/g)).toHaveLength(1);
   });
 });

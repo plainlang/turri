@@ -24,8 +24,8 @@ in what you said, the project's AGENTS.md, a skill, anything it was given - and 
   scripts it names, in their order, and any change it says the host needs. The code is taken from
   `dist`, never from `plain_modules`, where a pulse may be writing; where the host's tooling reads
   `plain_modules` itself, the model points it at `dist`, or does by hand from `dist` what it does. When
-  to release - after every pulse, say - is the guidance's to say too. The rules below hold as they do for `dist`: a project script, an
-  install or a download runs only once you agreed to it in a dialog, and what keeps running - a
+  to release - after every pulse, say - is the guidance's to say too. The rules below hold as they do for `dist`: the
+  model runs the project's scripts and installs what they need itself, and what keeps running - a
   start script, a server - is started with `activate`. Nothing built is changed.
 - **There is none.** The default: it is started from `dist/<module>`, as below, as best it can be.
 
@@ -58,18 +58,12 @@ It runs on your machine, outside the [sandbox](sandbox.md) - with your toolchain
 browser can reach it. The chat reads how the code runs (its README, manifests and entry points),
 then:
 
-1. **Checks the toolchains** it needs (`node`, `python3`, `go`, ...). One is missing: it says what to
-   install, and starts nothing. It never installs a toolchain.
-2. **Asks before it installs anything.** Dependencies into a virtual environment or `node_modules`, a
-   build that downloads packages, an image pull: every command that installs or downloads is shown to
-   you in a dialog, word for word, with what it does, and runs only when you allow it: **once**, **for
-   this session** - the same commands in the same folder then run without asking until turri exits -
-   or **always**, kept in the project's `.turri/allowed-commands.json` (delete it to take them back).
-   **Don't allow**, and nothing runs. A guided release's project scripts are asked about the same way.
-   Say no, and nothing is installed - you are told what it needs instead. This is enforced, not only
-   asked for: once something is deployed, the chat's own shell refuses any package manager, download,
-   `make`, `just` or project script, and `activate` refuses a command that fetches as it starts
-   (`go run`, `cargo run`, `docker compose up`) until you agreed to that one too.
+1. **Checks the toolchains** it needs (`node`, `python3`, `go`, ...). One is missing: it installs it
+   with the machine's package manager (`brew` on macOS, `apt` or `dnf` on Linux).
+2. **Installs what it needs itself.** Dependencies into a virtual environment or `node_modules`, a
+   build that downloads packages, an image pull, a guided release's project scripts: it runs them in
+   its own shell, as any agent with a shell would, and fixes what fails. Nothing is put to you - there
+   is no dialog to answer.
 3. **Starts what serves** with `activate`: in the background, in its own process group, its
    output in `.turri/deploy/<module>-<name>.log`. It waits until something answers at the
    server's URL - up to a minute - so the URL you are given has answered once; one that exits first
@@ -88,8 +82,7 @@ turri release [file.plain] [--in-module <module>] [--guidance <text>] [--model <
 The same, without the chat: a one-off agent on `harness-model` (or `--model`; without either, pi's
 default) is given the project's AGENTS.md and what `--guidance <text>` says, looks for guidance in
 them, and releases as above - as the guidance says, or to `dist/<module>` - then works out how to
-start it and starts it here, asking at the terminal - `[y/N]` - before it installs or runs anything. With no terminal to ask (CI, output piped),
-nothing is installed and it says what is needed. It stays in the foreground with the servers'
+start it and starts it here, installing what it needs without asking. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 
 `turri regrow`, `spec-diff`, `regenerate` and `conformance` end a build that landed with

@@ -190,8 +190,8 @@ specs, and builds each one as it is written. While it works:
 - the **panel** above the input shows every build - its stage, what its agents are doing, its
   model and cost - and the queue behind it;
 - ask to try it at any time - "let me try it" - and **`release`** puts what is grown so far in
-  `dist/<module>` and **`activate`** starts it, asking before it installs anything;
-- the **side panel** (`ctrl+h`, or `/regeneration`), on the right, shows the regeneration - every pulse, growing, planned and finished - and each pulse's agents at work, one agent at a time if you like (`/watch` opens it on a pulse);
+  `dist/<module>` and **`activate`** starts it, installing what it needs - nothing to approve;
+- the **side panel** (`ctrl+h`, or `/regeneration`), on the right, shows the regeneration - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
 - **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
   module, and the **`drift`** tool says what is left to grow.
 

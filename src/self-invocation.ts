@@ -3,7 +3,7 @@
  *
  * The agent has a shell, and turri has a command line - so it can build a module by
  * running `turri regrow` through bash, or start another pi with `pi -p`. That run is a
- * second, headless turri: outside this conversation's job queue, its panel, `/watch` and
+ * second, headless turri: outside this conversation's job queue, its panel and
  * `/halt`, on whatever model the command line picks, fighting the conversation's own jobs for
  * the same build directories. It is never the right call unless the person asked for the
  * command line, so the harness refuses it and names the tool to use instead.
@@ -100,7 +100,7 @@ export function refusal(what: string): string {
       : `Use ${TOOL_FOR[what] ?? "the matching turri tool"} instead.`;
   return (
     `Not run: that starts turri${what === "pi" ? "'s agent" : ` ${what}`} again from the shell - a separate, headless ` +
-    "run outside this conversation, its jobs, the panel, /watch and /halt. " +
+    "run outside this conversation, its jobs, the panel and /halt. " +
     `${instead} Run turri from the command line only when the user asks for that.`
   );
 }

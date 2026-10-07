@@ -5,7 +5,7 @@ import type { TranscriptEntry } from "./activity.ts";
 import { ensureInScratch, MODULES_DIR, projectRootOf, scratchDir } from "./paths.ts";
 
 /**
- * A job's whole transcript - what `/watch` shows - streamed to a file as it happens: the harness's
+ * A job's whole transcript streamed to a file as it happens: the harness's
  * stages, the functional spec or the diff it builds, and every one of its agents, in order - what it
  * was asked, what it thought and wrote, each tool call and its result, whole, not clipped as the
  * screen clips them - and how the job ended.

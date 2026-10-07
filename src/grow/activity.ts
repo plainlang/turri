@@ -226,6 +226,11 @@ export function reportNote(line: string): void {
   sink?.note?.(line);
 }
 
+/** Say something for the job's log alone: the machinery, not what its agents are doing. */
+export function reportLogNote(line: string): void {
+  store.getStore()?.note?.(line);
+}
+
 export function reportNow(label: string | undefined, options?: { keepSince?: boolean }): void {
   store.getStore()?.now(label, options);
 }

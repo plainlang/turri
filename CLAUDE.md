@@ -144,8 +144,7 @@ first looks for guidance on how the project is released (what the person said, A
 passes it to `release` - then it is followed from the host codebase (`releaseInPlace`, nothing
 exported); without guidance `release` exports the tip module's last `.plaingit` commit (`git archive`
 of `code/`) to `<project>/dist/<module>`. The chat model - or `turri release`'s one-off agent on
-`harness-model` - starts it on the host. `installsSoftware` tells installs apart; they run only through `propose_setup`, which asks the
-person, and the chat's `bash` refuses them once something is released. `activate` owns what
+`harness-model` - starts it on the host, installing what it needs in its own shell: nothing is put to the person. `activate` owns what
 keeps running, stopped on redeploy, `/halt activated <name>` and exit.
 
 **Jobs and progress.** In the TUI, the tools that grow start background jobs (`loop.ts`, `jobs.ts`).
@@ -153,7 +152,7 @@ keeps running, stopped on redeploy, `/halt activated <name>` and exit.
 wait for each other and the rest run side by side - up to `parallel-jobs` at once (the registry's `maxRunning`). In pi's
 print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and transcripts flow
 through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportStage`, ...) to
-`job-panel.ts` and `transcript-view.ts` (`/watch`).
+`job-panel.ts` and the side panel (`jobs-tree.ts`), and to each pulse's log (`job-log.ts`).
 
 **Projects.** A spec is built in its project: the nearest folder upwards holding `config.yaml`, a
 `config.<module>.yaml` or `plain_modules/` (`projectDirOf` in `paths.ts`). `config.yaml`

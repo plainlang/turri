@@ -47,7 +47,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/grow/release.ts`, `src/release-tools.ts`, `src/release-cli.ts` | deploy: the last commit to `dist/<module>`, what installs software, what it starts on the host - see [deploy](deploy.md) |
 | `src/grow/confine.ts`, `src/grow/agent-shell.ts`, `src/grow/command-check.ts`, `src/grow/os-sandbox.ts`, `src/grow/audit.ts`, `src/grow/agent-env.ts`, `src/grow/shell.ts` | the file-tool fence and the walls around every agent command: the check, the OS sandbox, the audit, the module's environment, the host runner - see [sandbox](sandbox.md) |
 | `src/grow/engine.ts` | choosing and resolving render models |
-| `src/grow/job-panel.ts`, `src/grow/transcript-view.ts`, `src/grow/diff-view.ts` | the job panel, `/watch`, and a spec diff as they show it - highlighted and banded |
+| `src/grow/job-panel.ts`, `src/grow/transcript-view.ts`, `src/grow/diff-view.ts` | the job panel, the side panel's colours, and a spec diff as they show it - highlighted and banded |
 | `src/grow/debug-log.ts` | each render agent's whole conversation, always streamed to `.turri/debug/` |
 | `genome/` | what turri knows and can do: `genome/skills/`, the skill library, and `genome/rules/`, the \*\*\*plain authoring rules |
 

@@ -48,7 +48,7 @@ where it stopped.
 | `diagnose` | why a pulse did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
 | `lineage` | a module's lineage: what each regrowth and conformance run changed in it, and what it grew from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
-| `release`, `activate`, `propose_setup` | try what is grown: release it to `dist/<module>`, activate it on this machine, ask before installing anything - see [deploy](deploy.md) |
+| `release`, `activate` | try what is grown: release it to `dist/<module>` and activate it on this machine, installing what it needs - see [deploy](deploy.md) |
 | `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |
 | `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
 
@@ -61,8 +61,8 @@ start says how many stacks there are, and **`/stdlib`** lists them, each with wh
 [the standard library](authoring-plain.md#the-standard-library)).
 
 The agent does this work with these tools, never by running turri's command line - or
-another pi - through its shell: that would be a separate, headless run outside the regeneration,
-`/watch` and `/halt`. The harness refuses such a command unless your message asks for the
+another pi - through its shell: that would be a separate, headless run outside the regeneration
+and `/halt`. The harness refuses such a command unless your message asks for the
 command line ("run it headless", "use the CLI", or the command itself). pi configuring itself -
 `pi install`, `update`, `list`, `config`, `auth`, its settings - is not affected.
 
@@ -82,8 +82,8 @@ modules or ten. How many run at once is capped by what the machine has room for:
 `parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a pulse whose turn has
 come waits for a free slot, and says so.
 
-- **The panel** above the input shows each running pulse - its stage, what its agents are doing,
-  its model, time and cost - and the queue. `ctrl+o` expands it.
+- **The panel** above the input shows each running pulse - its module, time and cost, and what its
+  agents are doing - and the queue, by module. `ctrl+o` expands it.
 - **A pulse's change** is what its agent works from, not a text diff of the module's file: the items
   `<spec change>` gives the agent - only what the pulse's functional specs use, an import's items as
   well as the module's own, a code pulse's without the test reqs - each in the file it is written in,
@@ -105,26 +105,23 @@ come waits for a free slot, and says so.
 - **The side panel** (`ctrl+h`, or **`/regeneration`** - `/regen` for short, `/growth` too - not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
-  terminal set to send `^H` for its Backspace key would open the panel on it) opens on the right, beside the chat, with two views - `tab`
-  switches between them:
-  - **Regeneration** - every pulse as three sections - running, queued, finished - each opened and closed on
-    its own (running and queued start open). A pulse is one line: what it is and what it changes, with time
-    and cost - a running one adds its stage. Opened, it shows what it is doing, running, and under it a row
+  terminal set to send `^H` for its Backspace key would open the panel on it) opens on the right, beside the chat:
+  the **regeneration** - every pulse as three sections - running, queued, finished - each opened and closed on
+    its own (running and queued start open). A pulse is one line: its module, its time and its cost - a
+    finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
+    Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
+    and what each spent, and whether it did not pass. Under it is a row
     for each file its spec diff changes - the file of the module being rendered first and open, the rest by
     name and closed - each opening onto that file's lines. A file with nothing added or taken out is not
     listed. `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
     (`←` on a closed pulse goes to its section, on a closed file to its pulse), `o` and `c` open or close every
-    pulse of the section - or, on a file, every file of its pulse - `t`
-    opens a pulse's trace, `pgup` `pgdn` and the wheel scroll. The cursor stays on its row when the pulse under
-    it moves on; a pulse opened closes when it moves to another section. What is open is kept while the
-    panel is closed;
-  - **Trace** - a pulse's agents at work: every prompt, reply, thought and tool call, each agent's
-    turn headed by who it is and the model it runs on. `a` follows one agent at a time, `j` switches
-    pulse.
+    pulse of the section - or, on a file, every file of its pulse - `pgup` `pgdn` and the wheel scroll, `g`/`G`
+    go to the top and the bottom. The cursor stays on its row when the pulse under it moves on; a pulse opened
+    closes when it moves to another section. What is open is kept while the panel is closed. What the agents
+    said and did is not shown - it is in each pulse's log (see [Agent logs](#agent-logs)).
 
-  It scrolls with the arrows, PgUp/PgDn and the wheel, and follows the newest line at the bottom
-  (`g`/`G` top and bottom). `esc` goes back to the chat and leaves it open and live; `ctrl+h` takes
-  the keys back to it, and closes it from there. **`/watch [pulse]`** opens it on a pulse's trace.
+  `esc` goes back to the chat and leaves it open and live; `ctrl+h` takes the keys back to it, and closes it
+  from there.
 - `turri chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the pulses redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
@@ -276,8 +273,8 @@ git --git-dir=plain_modules/<module>/.plaingit --work-tree=plain_modules/<module
 
 ## Agent logs
 
-When an agent does something you cannot explain, `/watch` is not always enough: it clips a tool
-call's arguments and results, and it is gone when pi exits. So every agent a render starts - the
+When an agent does something you cannot explain, its logs are where to look: the chat shows what
+its pulse is doing, not what its agents said. Every agent a render starts - the
 coding agent, the conformance agent, the repair agent, the spec-steps planner - also streams its
 whole conversation to a file of its own, always.
 
@@ -290,14 +287,14 @@ sent, whole; its thinking and replies as they stream; every tool call with its a
 together run at once and finish in any order; a tool call a response was cut off in, marked as
 never run; each response's stop reason, tokens and cost; the provider's
 retries and errors; and how each turn ended. Every line is on disk as it happens, so
-`tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The pulse
-panel names each agent's log as it starts.
+`tail -f` follows an agent live and a run that crashed leaves its log up to that moment. The pulse's
+own log names each agent's log as it starts.
 
 Beside them, each pulse has a log of its own in `.turri/jobs/` - `<time>-<pulse id>-<kind>.log`:
-what `/watch` shows for it, written as it happens. The harness's stages, the functional spec or the
+its whole transcript, written as it happens. The harness's stages, the functional spec or the
 diff it builds, and every one of its agents in turn - each prompt, its thinking and replies, every
-tool call and its result, whole where the screen clips them - and how the pulse ended. The panel names
-it when the pulse starts. It is the one to read for a pulse as a whole; an agent's own log has its system
+tool call and its result, whole where the screen clips them - and how the pulse ended. A finished pulse,
+opened in the side panel, names it. It is the one to read for a pulse as a whole; an agent's own log has its system
 prompt, tokens and retries besides.
 
 No agent can read the logs: they are outside `plain_modules` - or, for a `--build-dir` outside it,

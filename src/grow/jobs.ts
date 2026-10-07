@@ -21,6 +21,8 @@ export interface Job {
   kind: string;
   /** One line describing what was asked for. */
   summary: string;
+  /** The module it works in, for a job that grows one: what a finished job is listed as. */
+  module?: string;
   /** The spec change a render spec diff job renders, as its diff. Shown while it waits and runs. */
   diff?: string;
   /** Where its diff's lines are in the .plain files - their files and line numbers there - when they could be placed. */
@@ -92,6 +94,8 @@ export interface JobOutcome {
 export interface StartJobInput {
   kind: string;
   summary: string;
+  /** The module it works in, for a job that grows one. */
+  module?: string;
   /** For a render spec diff job: the diff, to show in the panel and the transcript. */
   diff?: string;
   /** "provider/model-id" its agents run on, to show where the job is shown. */
@@ -125,7 +129,7 @@ export interface JobRegistry {
 
 const DEFAULT_TAIL_CHARS = 4000;
 
-const ACTIVITY_LINES = 6;
+const ACTIVITY_LINES = 10;
 /** A long render's full transcript is kept, up to about this much text. */
 const MAX_TRANSCRIPT_CHARS = 600_000;
 
@@ -202,6 +206,7 @@ export function createJobRegistry(options?: {
         id,
         kind: input.kind,
         summary: input.summary,
+        ...(input.module !== undefined ? { module: input.module } : {}),
         diff: input.diff,
         model: input.model,
         ...(input.follows !== undefined ? { follows: input.follows } : {}),
@@ -410,10 +415,7 @@ export function createJobRegistry(options?: {
             changed();
           }
           log = startJobLog(job, claimed);
-          if (log !== undefined) {
-            job.logFile = log.file;
-            sink.activity(`pulse log: ${log.file}`);
-          }
+          if (log !== undefined) job.logFile = log.file;
           // What the job's agents start runs until it ends, and no longer (withPulse).
           return guarded ? runGuarded() : runOnce();
         })

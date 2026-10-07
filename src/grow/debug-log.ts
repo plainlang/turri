@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { maskSecrets } from "./masking.ts";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { currentJob, reportActivity, reportTranscript } from "./activity.ts";
 import { ensureInScratch, MODULES_DIR, projectRootOf, scratchDir } from "./paths.ts";
@@ -8,8 +8,8 @@ import { ensureInScratch, MODULES_DIR, projectRootOf, scratchDir } from "./paths
 /**
  * Every render agent's whole conversation, streamed to a file of its own as it happens - always.
  *
- * `/watch` shows a job's transcript, but clipped - a tool call's arguments to 600 characters, its
- * result to 2000 - and only while pi is running. When an agent goes wrong, what it was actually
+ * A job's transcript keeps a tool call's arguments to 600 characters and its result to 2000, and only while pi is
+ * running. When an agent goes wrong, what it was actually
  * given and what actually came back is what there is to go on. So each agent a render starts -
  * coding, conformance, repair, the spec-steps planner - writes everything to `.turri/debug/`
  * in the project: the system prompt, every prompt, its replies and thinking as they stream, every
@@ -197,8 +197,7 @@ export function startDebugLog(
   };
   logs.set(session, log);
 
-  const shown = relative(projectRootOf(options.cwd), file);
-  reportActivity(`debug log: ${shown}`);
+  // In the transcript, not the activity: where to look, not something an agent did.
   reportTranscript({ kind: "stage", text: `debug log: ${file}` });
   return log;
 }

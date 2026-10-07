@@ -14,7 +14,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import { reportActivity, reportSpec, reportStage, unitOf, type BuildingSpec } from "./activity.ts";
+import { reportActivity, reportLogNote, reportSpec, reportStage, type BuildingSpec, unitOf } from "./activity.ts";
 import { confinedTools } from "./confine.ts";
 import { abandonWork, diffSinceSnapshot, moduleDirOf, recordHistory, startWork, workDiff, workSnapshot, type WorkStart } from "./lineage.ts";
 import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unansweredPrompt } from "./submit-work.ts";
@@ -290,7 +290,7 @@ export async function renderConformanceTests(
   }
 
   mkdirSync(conformanceDir, { recursive: true });
-  reportActivity(`  conformance testing script: ${relative(root, scripts.conformance!)}`);
+  reportLogNote(`  conformance testing script: ${relative(root, scripts.conformance!)}`);
   reportActivity(`  the suite so far: ${listFiles(conformanceDir).length} files in ${relative(root, conformanceDir)}`);
 
   const runs: TestRun[] = [];

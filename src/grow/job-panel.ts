@@ -1,7 +1,6 @@
 import { diffView, PLAIN_PAINT, type DiffPaint } from "./diff-view.ts";
 import { plainPaint } from "./plain-palette.ts";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { describeUsage } from "./activity.ts";
 import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
 
 /**
@@ -31,7 +30,7 @@ export const PANEL_KEY = "ctrl+h";
 
 /** How the side panel is found your way around, as the job panel says it. */
 export const PANEL_HELP =
-  `in the side panel: ↑↓ move over the pulses · enter opens one - what it builds, whole · o/c open or close them all · t its trace · tab switches pulses · trace · esc back to the chat · ${PANEL_KEY} closes it`;
+  `in the side panel: ↑↓ move over the pulses · enter opens one - what it builds, whole · o/c open or close them all · esc back to the chat · ${PANEL_KEY} closes it`;
 const TICK_MS = 1000;
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
@@ -46,6 +45,17 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 
 export function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
+}
+
+/** What a pulse is listed as: its module - and that it writes the conformance tests, when it does - or what was asked for. */
+export function pulseName(job: Job): string {
+  if (job.module === undefined) return job.summary;
+  return job.kind === "bind" ? `${job.module} conformance` : job.module;
+}
+
+/** What a pulse cost, as its line says it: " · $0.12", or nothing when the price is not known. */
+export function pulseCost(job: Job): string {
+  return job.usage.cost > 0 ? ` · $${job.usage.cost.toFixed(2)}` : "";
 }
 
 /**
@@ -146,15 +156,14 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
 
   for (const job of running) {
     if (lines.length > 0) lines.push("");
-    const spent = describeUsage(job.usage);
-    const model = job.model ? ` · ${shortModel(job.model)}` : "";
-    lines.push(`${spinner(now)} ${job.summary}${model} · ${formatDuration(job)}${spent ? ` · ${spent}` : ""}  (pulse ${job.id})`);
+    // Its module, how long and what it has cost: what it is doing follows.
+    lines.push(`${spinner(now)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`);
     if (job.diff !== undefined) {
       lines.push(`    ${summarizeDiff(job.diff, diffStyle)}`);
       if (expanded) {
         const body = diffView(job.diff, Math.max(10, (options.width ?? 100) - 8), options.diffPaint ?? paintOf(diffStyle), job.diffWhere);
         for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${line}`);
-        if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - /watch ${job.id} shows it all`);
+        if (body.length > EXPANDED_DIFF_LINES) lines.push(`      │ … ${body.length - EXPANDED_DIFF_LINES} more lines - ${PANEL_KEY} shows it all`);
       }
     }
     // What it is on now, and for how long - beside the job's own time, which is the whole of it.
@@ -171,10 +180,9 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
       } else {
         lines.push(`    ${job.building.label}${onIt}:`);
         for (const line of text.slice(0, EXPANDED_SPEC_LINES)) lines.push(`      │ ${line}`);
-        if (text.length > EXPANDED_SPEC_LINES) lines.push(`      │ … ${text.length - EXPANDED_SPEC_LINES} more lines - /watch ${job.id} shows it all`);
+        if (text.length > EXPANDED_SPEC_LINES) lines.push(`      │ … ${text.length - EXPANDED_SPEC_LINES} more lines - ${PANEL_KEY} shows it all`);
       }
     }
-    lines.push(`    ${job.stage ?? "starting"}`);
     const activity = expanded ? job.activity : job.activity.slice(-COMPACT_ACTIVITY);
     if (activity.length < job.activity.length) hidden = true;
     for (const line of activity) lines.push(`      ${line}`);
@@ -188,13 +196,13 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (lines.length > 0) lines.push("");
     if (expanded || queued.length === 1) {
       for (const job of queued) {
-        lines.push(`  queued  ${job.summary}  (pulse ${job.id}, after ${job.waitingOn.join(", ")})`);
+        lines.push(`  queued  ${pulseName(job)}`);
         if (job.diff !== undefined) lines.push(`          ${summarizeDiff(job.diff, diffStyle)}`);
         if (job.note !== undefined) lines.push(`          ${job.note}`);
       }
     } else {
       // Counted, then named in order - so however narrow the line gets, the number is there.
-      lines.push(`  queued (${queued.length}): ${queued.map((job) => job.summary).join(" → ")}`);
+      lines.push(`  queued (${queued.length}): ${queued.map(pulseName).join(" → ")}`);
       hidden = true;
     }
   }
@@ -203,7 +211,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
   } else if (expanded) {
-    lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each pulse builds, and the agents' traces`);
+    lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each pulse builds`);
     lines.push(`  ${PANEL_HELP}`);
   } else {
     lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ${PANEL_KEY} to see what each pulse builds`);
@@ -322,10 +330,4 @@ export function createJobPanel(list: () => Job[]): JobPanel {
       pending.unref?.();
     },
   };
-}
-
-/** A model as the panel shows it: its id without the provider - "gemini-3.1-flash-lite". */
-export function shortModel(model: string): string {
-  const slash = model.indexOf("/");
-  return slash === -1 ? model : model.slice(slash + 1);
 }
