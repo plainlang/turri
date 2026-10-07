@@ -47,10 +47,9 @@ export function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
 }
 
-/** What a pulse is listed as: its module - and that it writes the conformance tests, when it does - or what was asked for. */
+/** What a pulse is listed as: its module and its kind - "hubspot regrow", "hubspot bind" - or what was asked for. */
 export function pulseName(job: Job): string {
-  if (job.module === undefined) return job.summary;
-  return job.kind === "bind" ? `${job.module} conformance` : job.module;
+  return job.module === undefined ? job.summary : `${job.module} ${job.kind}`;
 }
 
 /** What a pulse cost, as its line says it: " · $0.12", or nothing when the price is not known. */
@@ -158,8 +157,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (lines.length > 0) lines.push("");
     // Its module, how long and what it has cost: what it is doing follows.
     lines.push(`${spinner(now)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`);
+    // Its spec change: whole with ctrl+o, not summed up in a line - the line above already says which module.
     if (job.diff !== undefined) {
-      lines.push(`    ${summarizeDiff(job.diff, diffStyle)}`);
       if (expanded) {
         const body = diffView(job.diff, Math.max(10, (options.width ?? 100) - 8), options.diffPaint ?? paintOf(diffStyle), job.diffWhere);
         for (const line of body.slice(0, EXPANDED_DIFF_LINES)) lines.push(`      │ ${line}`);
@@ -197,7 +196,6 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     if (expanded || queued.length === 1) {
       for (const job of queued) {
         lines.push(`  queued  ${pulseName(job)}`);
-        if (job.diff !== undefined) lines.push(`          ${summarizeDiff(job.diff, diffStyle)}`);
         if (job.note !== undefined) lines.push(`          ${job.note}`);
       }
     } else {

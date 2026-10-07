@@ -1,5 +1,5 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { describeAgents, describeUsage } from "./activity.ts";
+import { describeAgents } from "./activity.ts";
 import { pulseCost, pulseName, spinner } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 import { diffFiles, fileHeader, PLAIN_PAINT } from "./diff-view.ts";
@@ -172,9 +172,8 @@ function detailLines(job: Job, jobs: Job[], width: number, style: TranscriptStyl
 function whatWentOn(job: Job, width: number, style: TranscriptStyle): string[] {
   const indent = "        ";
   const lines: string[] = [];
-  for (const agent of describeAgents(job.agents)) lines.push(...wrap(`· ${agent}`, width, indent, style.muted));
-  const spent = describeUsage(job.usage);
-  if (spent !== "") lines.push(style.muted(`${indent}spent ${spent}`));
+  // Each agent's turns, tokens, cost and model - without its label, which says again what the pulse's line says.
+  for (const agent of describeAgents(job.agents.map((tally) => ({ ...tally, label: "" })))) lines.push(...wrap(agent.replace(/^ · /, ""), width, indent, style.muted));
   if (didNotPass(job)) lines.push(style.error(`${indent}did not pass`));
   if (job.logFile !== undefined) lines.push(style.muted(`${indent}log: ${job.logFile}`));
   return lines;

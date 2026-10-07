@@ -22,6 +22,7 @@ import { projectDirOf } from "./grow/paths.ts";
  * conformance-budget: 30%                                   # under chosen: how many functional specs a module may have chosen, beside those with acceptance tests - a count or a share (default: no limit)
  * review: false                                             # review the code and its tests once they pass (default: true)
  * allow-to-stop-jobs: false                                 # stop a running job the spec moved on from (default: true)
+ * release-after-pulse: true                                 # release what each pulse lands, as its last stage, before the next pulse (default: false)
  * rules-off: [integrations]                                 # ***plain rules to leave out of the prompts, by name (default: none)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
@@ -258,6 +259,11 @@ export interface ProjectConfig {
    * job by job. The person's own halt stops a job either way. Unset: true.
    */
   allowToStopJobs?: boolean;
+  /**
+   * Whether every pulse that lands code releases it as its last stage, before the module's next pulse starts - an agent
+   * looking for the project's release guidance as the chat does, and doing what it says. Unset: false.
+   */
+  releaseAfterPulse?: boolean;
   /** Path from the root to the unit testing script. */
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
@@ -308,6 +314,7 @@ export const CONFIG_KEYS = {
   conformanceBudget: "conformance-budget",
   review: "review",
   allowToStopJobs: "allow-to-stop-jobs",
+  releaseAfterPulse: "release-after-pulse",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
   staticChecksScript: "static-checks-script",
@@ -478,6 +485,7 @@ function readConfigFile(path: string): ProjectConfig {
     conformanceBudget: budgetSetting(raw[CONFIG_KEYS.conformanceBudget]),
     review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
     allowToStopJobs: typeof raw[CONFIG_KEYS.allowToStopJobs] === "boolean" ? (raw[CONFIG_KEYS.allowToStopJobs] as boolean) : undefined,
+    releaseAfterPulse: typeof raw[CONFIG_KEYS.releaseAfterPulse] === "boolean" ? (raw[CONFIG_KEYS.releaseAfterPulse] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),

@@ -51,6 +51,66 @@ function runner() {
   return { ran, gate, holdNext, run };
 }
 
+describe("releasing after each pulse", () => {
+  it("releases what each pulse landed as its last stage, under release-after-pulse - before the next pulse starts", async () => {
+    writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\nrelease-after-pulse: true\n");
+    writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Count to ten."]));
+    const { ran, run } = runner();
+    const events: string[] = [];
+    const tracked: JobRunner = async (job, onDelta) => {
+      events.push(`build ${job.planned.title}`);
+      return run(job, onDelta);
+    };
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({
+      registry,
+      cwd: dir,
+      planner: false,
+      run: tracked,
+      release: async ({ moduleName, title }) => {
+        events.push(`release ${title}`);
+        return `${moduleName} is running`;
+      },
+    });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(ran).toHaveLength(3);
+    // One release a pulse, each before the next pulse builds.
+    expect(events).toEqual(["build Say hello.", "release Say hello.", "build Say goodbye.", "release Say goodbye.", "build Count to ten.", "release Count to ten."]);
+    expect(registry.list().every((job) => job.report?.includes("Released after the pulse: app is running"))).toBe(true);
+  });
+
+  it("releases nothing when release-after-pulse is off - the default - or the pulse did not land", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { gate, run } = runner();
+    const release = vi.fn(async () => "released");
+    let loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run, release });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(release).not.toHaveBeenCalled();
+
+    rmSync(join(dir, "plain_modules"), { recursive: true, force: true });
+    writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\nrelease-after-pulse: true\n");
+    gate.land = false;
+    loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run, release });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it("keeps what a pulse landed when its release fails, and says so", async () => {
+    writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\nrelease-after-pulse: true\n");
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { run } = runner();
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false, run, release: async () => { throw new Error("port 8000 is taken"); } });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(registry.list()[0]).toMatchObject({ status: "succeeded", details: { landed: true } });
+    expect(registry.list()[0]!.report).toContain("The release after the pulse failed: port 8000 is taken");
+  });
+});
+
 describe("the work loop", () => {
   it("builds a module nothing is built of, job by job, until its code record is the spec as the code sees it - its first job fresh", async () => {
     writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Count to ten."]));

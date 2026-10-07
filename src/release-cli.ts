@@ -1,20 +1,9 @@
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
-import {
-  createBashToolDefinition,
-  createEditToolDefinition,
-  createFindToolDefinition,
-  createGrepToolDefinition,
-  createLsToolDefinition,
-  createReadToolDefinition,
-  createWriteToolDefinition,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
-import { createDeployState, createDeployTools, DEPLOY_TOOLS } from "./release-tools.ts";
-import { hostDirOf, listDeployed, runningDeployed, shortPath, stopDeployed } from "./grow/release.ts";
-import { projectDirOf } from "./grow/paths.ts";
-import { ask, BEGIN, createExecutor } from "./pi.ts";
+import { createDeployState } from "./release-tools.ts";
+import { runReleaseAgent } from "./release-agent.ts";
+import { listDeployed, runningDeployed, stopDeployed } from "./grow/release.ts";
 
 const USAGE = `usage: turri release [file.plain] [options]
 
@@ -40,8 +29,6 @@ const c = {
   cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
 };
 
-type AnyTool = ToolDefinition<any, any, any>;
-
 const PROBLEMS = "If you are having problems, use chat mode to deploy: run turri chat and ask to try it.";
 
 function parseArgs(argv: string[]) {
@@ -63,39 +50,6 @@ function parseArgs(argv: string[]) {
     } else positional.push(arg);
   }
   return { plainFile: positional[0], model, inModule, guidance };
-}
-
-/** The person's own shell, in the deployed folder: it installs and runs what the release needs. */
-function hostBash(dir: string): AnyTool {
-  const bash: AnyTool = createBashToolDefinition(dir);
-  return {
-    ...bash,
-    description: `${bash.description}\n\nIt runs on the person's own machine, in ${shortPath(dir)}. Never start a server here: activate does.`,
-  };
-}
-
-/** A file tool that writes, refused inside plain_modules: the built code is the spec's to change, never a release's. */
-function outsideBuiltCode(tool: AnyTool, dir: string): AnyTool {
-  return {
-    ...tool,
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const path = resolve(dir, String((params as { path?: unknown }).path ?? ""));
-      if (relative(dir, path).split(sep).includes("plain_modules")) {
-        throw new Error(`Not written: ${shortPath(path)} is built code. A release never changes it - a fix belongs in the spec.`);
-      }
-      return tool.execute(toolCallId, params, signal, onUpdate, ctx);
-    },
-  };
-}
-
-/** What the project says of itself, for the agent to find release guidance in: its AGENTS.md, where turri runs and in the host codebase - once each, whole. */
-function projectNotes(dirs: string[]): string[] {
-  const files = [...new Set(dirs.map((dir) => join(dir, "AGENTS.md")))].filter((file) => existsSync(file));
-  return files.map((file) => {
-    const text = readFileSync(file, "utf8");
-    const shown = text.length > 40_000 ? `${text.slice(0, 40_000)}\n… [the rest of ${shortPath(file)} is not shown]` : text;
-    return `<file path="${shortPath(file)}">\n${shown.trimEnd()}\n</file>`;
-  });
 }
 
 /** Follow every running server's output, prefixed with its name, until Ctrl-C or they have all ended. */
@@ -141,11 +95,6 @@ async function main() {
   const model = args.model ?? modelSpec(projectModels(configForSpec(plainFile)).harness);
 
   const state = createDeployState();
-  const tools = createDeployTools({ cwd: process.cwd(), state, defaultPlainFile: () => plainFile });
-  // It decides itself whether there is guidance, and releases: from the host codebase, which holds dist too.
-  const dir = hostDirOf(plainFile, process.cwd());
-  const notes = projectNotes([process.cwd(), dir, projectDirOf(plainFile)]);
-
   const stopAll = async () => {
     const stopped = await stopDeployed();
     if (stopped.length > 0) console.log(c.dim(`\nStopped ${stopped.join(", ")}.`));
@@ -154,47 +103,16 @@ async function main() {
     void stopAll().then(() => process.exit(0));
   });
 
-  const fileTools: AnyTool[] = [
-    createReadToolDefinition(dir),
-    createLsToolDefinition(dir),
-    createGrepToolDefinition(dir),
-    createFindToolDefinition(dir),
-    // A guided release may say to change the host - a registration, an import.
-    outsideBuiltCode(createEditToolDefinition(dir), dir),
-    outsideBuiltCode(createWriteToolDefinition(dir), dir),
-  ];
-  const allTools: AnyTool[] = [...fileTools, hostBash(dir), ...tools];
-  const executor = await createExecutor({
-    // Its sessions are kept in the project, not in the folder it deploys.
-    cwd: projectDirOf(plainFile),
-    customTools: allTools,
-    tools: [...fileTools.map((tool) => tool.name), "bash", ...DEPLOY_TOOLS],
-    model,
-    role: "release",
-    system: [
-      "You get software that was just built running on the person's own machine, so they can try it. They are at this terminal.",
-      `Your file tools and your shell start in ${dir}. Your shell is the person's own - not a sandbox.`,
-    ].join("\n"),
-    task: [
-      `Release ${shortPath(plainFile)} for the person to try, with the release tool, then do what it says.`,
-      "",
-      "First ask yourself: is there guidance for how this project releases it - what the person said below, the project's",
-      "notes below, or anything else you find? If there is, call release with it as guidance, in full: the code is put in",
-      "dist/<module>, and the guidance takes it on from there. If there is none, call release without guidance: the code is",
-      "put in dist/<module> and started from there, as best it can be.",
-      ...(args.inModule !== undefined ? ["", `Release the codebase of module ${args.inModule}: pass in_module.`] : []),
-      ...(args.guidance !== undefined ? ["", "What the person said of how to release it:", args.guidance] : []),
-      ...(notes.length > 0 ? ["", "The project's notes:", ...notes] : []),
-      "",
-      "The person is at the terminal, and reads what you say last.",
-    ].join("\n"),
+  console.log(c.dim(`\nworking out how to start it${model !== undefined ? ` (${model})` : ""}…\n`));
+  await runReleaseAgent({
+    plainFile,
+    cwd: process.cwd(),
+    state,
+    ...(model !== undefined ? { model } : {}),
+    ...(args.inModule !== undefined ? { inModule: args.inModule } : {}),
+    ...(args.guidance !== undefined ? { guidance: args.guidance } : {}),
+    onDelta: (delta) => process.stdout.write(delta),
   });
-  try {
-    console.log(c.dim(`\nworking out how to start it${model !== undefined ? ` (${model})` : ""}…\n`));
-    await ask(executor, BEGIN, (delta) => process.stdout.write(delta));
-  } finally {
-    executor.dispose();
-  }
   console.log(`\n\n${c.dim(PROBLEMS)}`);
 
   if (runningDeployed().length === 0) process.exit(0);
