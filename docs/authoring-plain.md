@@ -164,7 +164,7 @@ The ones that shape a spec most:
 
 ## Writing specs with turri
 
-In a conversation (`turri chat`), say what you want and the matching skill runs. Two build a
+In a conversation (`turri`), say what you want and the matching skill runs. Two build a
 project from scratch, and write each spec change as a git diff that is built in the background the
 moment it is written. `brood` interviews you one question at a time and writes the specs as
 you answer; `spawn`, its quick twin, asks only what you want to build and writes the rest on

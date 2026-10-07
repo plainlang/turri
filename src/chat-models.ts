@@ -1,7 +1,7 @@
 import { modelSpec, projectModels, type ProjectConfig } from "./config.ts";
 
 /**
- * The two models of `turri chat`, from its arguments and the project's config.yaml.
+ * The two models of `turri`, from its arguments and the project's config.yaml.
  *
  * The harness model is the one the person talks to: pi's own `--model`, which `--harness-model`
  * is another name for, or else `harness-model:` in config.yaml. The coding model is the one

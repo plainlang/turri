@@ -10,7 +10,7 @@ import { projectDirOf } from "./grow/paths.ts";
  *
  * ```yaml
  * module: prism_cli.plain                                   # what `turri regrow` builds by default
- * harness-model:                                            # the model you chat with in `turri chat`
+ * harness-model:                                            # the model you chat with in `turri`
  *   model: anthropic/claude-opus-5-5
  *   thinking: high
  * coding-model:                                             # the rendering agents (default: harness-model)
@@ -228,7 +228,7 @@ function modelsSetting(value: unknown): ProjectConfig["models"] {
 export interface ProjectConfig {
   /** The .plain file the module command builds when it is given none. */
   module?: string;
-  /** The model `turri chat` starts with: the one the person talks to. */
+  /** The model `turri` starts with: the one the person talks to. */
   harnessModel?: ModelChoice;
   /** The model the rendering agents run on - every render, conformance, repair and spec change. Unset: the harness model. */
   codingModel?: ModelChoice;

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { IMPORT_DIRECTIVE, plainFileParser, readPlainSourceMetadata, withParseCache } from "../plain/parser.ts";
+import { isStdlibModule, STDLIB_ROOT } from "../plain/stdlib.ts";
 import {
   FUNCTIONAL_REQUIREMENTS,
   getFrids,
@@ -146,7 +147,9 @@ export function specFilesOf(plainFile: string, templateDirs: string[] = []): str
     files.push(path);
     const imports = (readPlainSourceMetadata(readFileSync(path, "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined) ?? [];
     for (const name of imports) {
-      const found = [dirname(path), ...dirs].map((dir) => join(dir, `${name}.plain`)).find((candidate) => existsSync(candidate));
+      // A standard library template is turri's own, wherever the spec is (see plain/stdlib.ts).
+      const from = isStdlibModule(name) ? [STDLIB_ROOT] : [dirname(path), ...dirs];
+      const found = from.map((dir) => join(dir, `${name.replace(/^\.\//, "")}.plain`)).find((candidate) => existsSync(candidate));
       if (found !== undefined) visit(resolve(found));
     }
   };

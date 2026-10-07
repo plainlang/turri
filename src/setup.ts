@@ -148,7 +148,7 @@ function checkGlobal(): Check {
   return {
     level: "info",
     name: "In every pi",
-    detail: "no - `turri chat` loads it; a plain `pi` does not",
+    detail: "no - `turri` loads it; a plain `pi` does not",
     fix: "turri setup can install it",
   };
 }

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { plainFileParser, withParseCache } from "../plain/parser.ts";
+import { STDLIB_ROOT } from "../plain/stdlib.ts";
 import { ACCEPTANCE_TESTS, FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { llmChunkAgents, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
@@ -131,6 +132,8 @@ interface ModuleState {
   conformancePlan?: { specKey: string; from: string; jobs: PlannedJob[] };
   running?: {
     jobId: string;
+    /** Its number among the module's pulses this session, from 1: what the regeneration calls it. */
+    number: number;
     planned: PlannedJob;
     from: MarshalledPlainSource;
     after: MarshalledPlainSource;
@@ -159,8 +162,13 @@ interface ModuleState {
   planning?: Track;
   /** The conformance tests halted, the code going on: until the spec or the code changes from `key`, or they are asked for again. */
   conformanceHalted?: { why: string; key: string };
-  /** Nothing runs here until the spec changes from `specKey`, or it is asked for again. */
-  halted?: { why: string; specKey: string };
+  /**
+   * Nothing runs here until the spec changes from `specKey`, or it is asked for again. `pulse`: the one that did not
+   * land - its number, and the trees it went between - for the regeneration to say which items it was growing.
+   */
+  halted?: { why: string; specKey: string; pulse?: { number: number; before: string; after: string } };
+  /** How many pulses have started here this session: the next is numbered one more. */
+  pulses?: number;
   /** The spec as the last look read it. */
   seen?: SpecSnapshot;
   /** Why the last look started nothing here. */
@@ -254,10 +262,52 @@ export interface WorkLoop {
    * for the job panel and growth. Not started, they are not the registry's: planned again, they change.
    */
   planned(): Job[];
+  /**
+   * What the regeneration draws on top of the files: the .plain files asked for, and each codebase's pulses - running and
+   * planned, numbered, with the trees each goes between - and why nothing moves there, when nothing does.
+   */
+  mapPlan(): MapPlan;
   /** Resolves once nothing runs and nothing more can start. */
   drain(): Promise<void>;
   /** In a dry run: the job each codebase would start, with the spec it would be given. */
   firsts(): Array<{ module: string; plainFile: string; buildDir: string; spec: SpecSnapshot; planned: PlannedJob }>;
+}
+
+/** A pulse as the regeneration places it: by the items its trees differ in. */
+export interface MapPulse {
+  /** Its number among the module's pulses this session - planned ones' provisional. */
+  number: number;
+  title: string;
+  track: Track;
+  running: boolean;
+  /** Its id in the jobs listed - the running job's, or the planned row's - for the pulse list to go to. */
+  rowId: string;
+  /** The trees it goes between, serialized. */
+  before: string;
+  after: string;
+}
+
+/** A codebase as the regeneration reads the loop. */
+export interface MapCodebase {
+  module: string;
+  plainFile: string;
+  buildDir: string;
+  /** The pulses running and planned, in order. */
+  pulses: MapPulse[];
+  /** The track the planner is cutting now. */
+  planning?: Track;
+  /** The module below it that it waits for. */
+  waitsFor?: string;
+  /** Why nothing runs there, when nothing does. */
+  why?: string;
+  /** Halted, or the planner found no plan: it needs the person. `pulse`, the pulse that did not land. */
+  stuck?: { why: string; pulse?: { number: number; before: string; after: string } };
+}
+
+export interface MapPlan {
+  /** The .plain files asked for, in the order they were. */
+  files: string[];
+  codebases: MapCodebase[];
 }
 
 const tipOf = (chain: ChainEntry[]): ChainEntry => chain.at(-1)!;
@@ -597,7 +647,7 @@ export function createWorkLoop(options: {
     });
   };
 
-  /** Plan a track with nothing running: while the planner works, the codebase says so rather than showing nothing. */
+  /** Plan a track: while the planner works, the codebase says so rather than showing nothing - or, a job running, the old plan. */
   const planIdle = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track): Promise<PlannedJob[]> => {
     state.planning = track;
     try {
@@ -714,12 +764,16 @@ export function createWorkLoop(options: {
     });
     // Its lines where they are written: the module's .plain file, those it imports, and those of the modules below it.
     job.diffWhere = shown.where;
-    state.running = { jobId: job.id, planned, from, after: planned.step.tree, ...(steering !== undefined ? { steering } : {}) };
+    state.pulses = (state.pulses ?? 0) + 1;
+    state.running = { jobId: job.id, number: state.pulses, planned, from, after: planned.step.tree, ...(steering !== undefined ? { steering } : {}) };
     void options.registry.wait(job.id).then(
       (settled) => settle(state, settled),
       () => settle(state, undefined),
     );
   };
+
+  /** A pulse as a halt keeps it: its number, and the trees it went between. */
+  const pulseOf = (running: NonNullable<ModuleState["running"]>) => ({ number: running.number, before: serializeTree(running.from), after: serializeTree(running.after) });
 
   const settle = (state: ModuleState, settled: Job | undefined) => {
     const running = state.running;
@@ -745,7 +799,7 @@ export function createWorkLoop(options: {
         } catch {
           /* a spec that does not parse halts it all the same */
         }
-        state.halted = { why: `${why} - nothing more is built on it until its conformance tests pass`, specKey: key };
+        state.halted = { why: `${why} - nothing more is built on it until its conformance tests pass`, specKey: key, pulse: pulseOf(running) };
       }
     } else if (running !== undefined && !landed) {
       // What it wrote and never committed is gone: code, tests and record agree again.
@@ -759,7 +813,7 @@ export function createWorkLoop(options: {
           /* a spec that does not parse halts it all the same */
         }
         const why = settled?.status === "stopped" ? `pulse ${running.jobId} was stopped` : `pulse ${running.jobId} ("${running.planned.title}") did not land`;
-        state.halted = { why: `${why} - it runs again once the spec changes, or the module is asked for again`, specKey: key };
+        state.halted = { why: `${why} - it runs again once the spec changes, or the module is asked for again`, specKey: key, pulse: pulseOf(running) };
       }
     } else {
       const own = running?.planned.track === "conformance" ? state.conformancePlan : state.plan;
@@ -879,7 +933,8 @@ export function createWorkLoop(options: {
       const planOf = track === "code" ? state.plan : state.conformancePlan;
       if (planOf === undefined || planOf.specKey !== specKey) {
         const running = state.running;
-        const rest = workOf(track, running.after, state, spec).length === 0 ? [] : await plan(state, spec, running.after, track);
+        // Shown as being planned on the regeneration; the status goes on showing the running job.
+        const rest = workOf(track, running.after, state, spec).length === 0 ? [] : await planIdle(state, spec, running.after, track);
         const next = { specKey, from: serializeTree(running.from), jobs: [running.planned, ...rest] };
         if (state.running === running) {
           if (track === "code") state.plan = next;
@@ -946,7 +1001,7 @@ export function createWorkLoop(options: {
       const jobs = await planIdle(state, spec, from, "code");
       state.plan = { specKey, from: fromKey, jobs };
       if (jobs.length === 0) {
-        state.why = "the planner found no way to cut the work into pulses that hold together";
+        state.why = NO_PLAN;
         return;
       }
     }
@@ -954,7 +1009,10 @@ export function createWorkLoop(options: {
     startJob(state, spec, from, state.plan.jobs[0]!);
   };
 
-  const statusOf = (state: ModuleState): ModuleStatus => {
+  const statusOf = (state: ModuleState): ModuleStatus => describe(state).status;
+
+  /** A codebase's status, and beside each job it lists as planned, the planned job it is - none for one being planned or scheduled. */
+  const describe = (state: ModuleState): { status: ModuleStatus; jobs: Array<PlannedJob | undefined> } => {
     // What runs next: the code's jobs, then the conformance tests' - the module's, once its code is built - the running job first.
     const running = state.running?.planned;
     const own = (jobs: PlannedJob[] | undefined) => (jobs ?? []).filter((job) => job !== running);
@@ -987,15 +1045,16 @@ export function createWorkLoop(options: {
             },
           ]
         : [];
-    const planned: ModuleStatus["planned"] = [
-      ...planningNow,
-      ...jobs.flatMap((job, index) => [{ title: job.title, cases: job.cases, track: job.track }, ...scheduledAt(index)]),
-      ...scheduledAt(-1),
+    const listed: Array<{ entry: ModuleStatus["planned"][number]; job?: PlannedJob }> = [
+      ...planningNow.map((entry) => ({ entry })),
+      ...jobs.flatMap((job, index) => [{ entry: { title: job.title, cases: job.cases, track: job.track }, job }, ...scheduledAt(index).map((entry) => ({ entry }))]),
+      ...scheduledAt(-1).map((entry) => ({ entry })),
     ];
+    const planned = listed.map((item) => item.entry);
     const choose = new Map<string, TouchedSpec>();
     if (state.seen !== undefined) for (const job of jobs) for (const touched of toChoose(state, job, state.seen)) choose.set(touched.frid, touched);
     const tip = tipEntry(state);
-    return {
+    const status: ModuleStatus = {
       module: tip.moduleName,
       plainFile: tip.plainFile,
       ...(state.running !== undefined
@@ -1013,6 +1072,7 @@ export function createWorkLoop(options: {
       ...(state.running === undefined && state.why !== undefined ? { why: state.why } : {}),
       ...(state.running === undefined && state.startOver !== undefined ? { startOver: state.startOver } : {}),
     };
+    return { status, jobs: (state.running !== undefined ? listed.slice(1) : listed).map((item) => item.job) };
   };
 
   /** Look after a codebase - its chain up to it - from now on; says its state. */
@@ -1239,6 +1299,40 @@ export function createWorkLoop(options: {
         return first === undefined ? [] : [{ module: tip.moduleName, plainFile: tip.plainFile, buildDir: tip.buildDir, ...first }];
       });
     },
+    mapPlan() {
+      return {
+        files: [...asked.keys()],
+        codebases: order.map((key): MapCodebase => {
+          const state = modules.get(key)!;
+          const tip = tipEntry(state);
+          const { jobs } = describe(state);
+          const running = state.running;
+          let next = running?.number ?? state.pulses ?? 0;
+          const pulses: MapPulse[] = [
+            ...(running !== undefined
+              ? [{ number: running.number, title: running.planned.title, track: running.planned.track, running: true, rowId: running.jobId, before: serializeTree(running.from), after: serializeTree(running.after) }]
+              : []),
+            ...jobs.flatMap((job, index) =>
+              job === undefined
+                ? []
+                : [{ number: (next += 1), title: job.title, track: job.track, running: false, rowId: `planned-${tip.moduleName}-${index + 1}`, before: job.step.before, after: job.step.after }],
+            ),
+          ];
+          const gaveUp = running === undefined && state.why === NO_PLAN ? { why: NO_PLAN } : undefined;
+          const stuck = running === undefined && state.halted !== undefined ? { why: state.halted.why, ...(state.halted.pulse !== undefined ? { pulse: state.halted.pulse } : {}) } : gaveUp;
+          return {
+            module: tip.moduleName,
+            plainFile: tip.plainFile,
+            buildDir: tip.buildDir,
+            pulses,
+            ...(state.planning !== undefined ? { planning: state.planning } : {}),
+            ...(running === undefined && state.waitsFor !== undefined ? { waitsFor: state.waitsFor } : {}),
+            ...(running === undefined && state.why !== undefined ? { why: state.why } : {}),
+            ...(stuck !== undefined ? { stuck } : {}),
+          };
+        }),
+      };
+    },
     async drain() {
       for (;;) {
         await ticking;
@@ -1253,11 +1347,16 @@ export function createWorkLoop(options: {
   return loop;
 }
 
+/** Why a codebase with work left has no plan: the planner found none. */
+const NO_PLAN = "the planner found no way to cut the work into pulses that hold together";
+
 /** A diff's lines placed in the .plain files of a chain - the tip's first - named as they are from the project. */
 function whereInFiles(diff: string, chain: ChainEntry[]): DiffWhere {
   try {
     const files = [...chain].reverse().flatMap((entry) => specFilesOf(entry.plainFile));
-    const unique = [...new Set(files)].map((path) => ({ name: relative(projectDirOf(chain.at(-1)!.plainFile), path) || basename(path), text: readFileSync(path, "utf8") }));
+    // A standard library template by its import path, not by where turri happens to be.
+    const nameOf = (path: string) => (path.startsWith(`${STDLIB_ROOT}/stdlib/`) ? relative(STDLIB_ROOT, path) : relative(projectDirOf(chain.at(-1)!.plainFile), path) || basename(path));
+    const unique = [...new Set(files)].map((path) => ({ name: nameOf(path), text: readFileSync(path, "utf8") }));
     return locateDiffLines(diff, unique);
   } catch {
     return {};

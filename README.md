@@ -29,7 +29,7 @@ writes the code:
 cd ~/my-project
 export ANTHROPIC_API_KEY=...   # a key for each provider you use - or skip these,
 export OPENAI_API_KEY=...      # and type /login in turri once it has started
-turri chat --harness-model anthropic/claude-opus-5-5 --coding-model openai/gpt-6-luna
+turri --harness-model anthropic/claude-opus-5-5 --coding-model openai/gpt-6-luna
 ```
 
 Then say: *Let's start a new project: a small API where people can register and sign in.*
@@ -153,12 +153,12 @@ Details, and what each check means: [installation](docs/installation.md).
 ## Models
 
 **turri** is built on [pi](https://github.com/earendil-works/pi), so a model is reached as pi
-reaches it - `/login`, in `turri chat` as in `pi`, or the provider's API key in the environment (`ANTHROPIC_API_KEY`,
+reaches it - `/login`, in `turri` as in `pi`, or the provider's API key in the environment (`ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) - and named as pi names it, `provider/model-id`, with
 `:high`, `:low` and so on for how hard it thinks. It uses three: the **harness** model you talk
 to, which writes the specs and plans the work - worth a capable one - and the **coding** and
 **judge** models its agents build and judge with, which can be smaller and cheaper, such as GPT-6
-Luna or Gemini 3.1 Flash Lite. `turri chat --harness-model` and `--coding-model` choose them for a
+Luna or Gemini 3.1 Flash Lite. `turri --harness-model` and `--coding-model` choose them for a
 session, and pi's `/model` switches the one you talk to as you go; to keep them for the project,
 write them in its `config.yaml`:
 
@@ -177,7 +177,7 @@ In the project where your specs live:
 
 ```bash
 cd ~/my-project
-turri chat
+turri
 ```
 
 Then talk to it:
@@ -191,7 +191,7 @@ specs, and builds each one as it is written. While it works:
   model and cost - and the queue behind it;
 - ask to try it at any time - "let me try it" - and **`release`** puts what is grown so far in
   `dist/<module>` and **`activate`** starts it, installing what it needs - nothing to approve;
-- the **side panel** (`ctrl+h`, or `/regeneration`), on the right, shows the regeneration - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
+- the **side panel** (`ctrl+h`) takes the screen and opens on the **regeneration** (`/regeneration`) - the spec, every item marked built, growing, planned or waiting - and `p` turns it to the **pulses** (`/pulses`) - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
 - **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
   module, and the **`drift`** tool says what is left to grow.
 

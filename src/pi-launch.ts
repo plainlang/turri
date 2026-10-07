@@ -5,7 +5,7 @@ import { PACKAGE_ROOT } from "./environment.ts";
 import "./terminal-images.ts";
 
 /**
- * pi, started the way its own CLI starts it, for `turri chat`.
+ * pi, started the way its own CLI starts it, for `turri`.
  *
  * The one difference: pi's startup header - its version, key hints and the list of every
  * loaded skill, extension and theme - is left out, because turri shows its own. pi only
