@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordHistory } from "../../src/grow/lineage.ts";
 import { exportModule, listDeployed, runningDeployed, startDeployed, stopDeployed } from "../../src/grow/release.ts";
 import { createDeployState, createDeployTools } from "../../src/release-tools.ts";
+import { projectNotes } from "../../src/release-agent.ts";
 import { NOTES_FILE } from "../../src/grow/notes.ts";
 import { RECORD_FILE } from "../../src/grow/records.ts";
 
@@ -201,6 +202,28 @@ describe("the deploy tools", () => {
     expect(text).toContain("app is running");
   }, 30_000);
 
+  it("does nothing for a module whose last commit it already shipped - leaving what runs running - and releases again once a pulse lands", async () => {
+    const code = built("app", { "app.py": "print('hello')\n" });
+    spec("app");
+    const { deploy, start } = tools();
+    await call(deploy, {});
+    await call(start, { name: "sleeper", command: "sleep 30" });
+    // Called again with nothing new: nothing exported, nothing stopped.
+    const again = await call(deploy, {});
+    expect(again).toContain("Already released");
+    expect(again).toContain("Nothing to do");
+    expect(runningDeployed().map((item) => item.name)).toEqual(["sleeper"]);
+    // A pulse lands: released again, what ran stopped first.
+    writeFileSync(join(code, "app.py"), "print('hello again')\n");
+    recordHistory(code, "spec diff: app greets again");
+    const after = await call(deploy, {});
+    expect(after).toContain("Deployed app to");
+    expect(after).toContain("Stopped what the last release started: sleeper.");
+    expect(readFileSync(join(dir, "dist", "app", "app.py"), "utf8")).toBe("print('hello again')\n");
+    // Asked to, it releases again even with nothing new.
+    expect(await call(deploy, { again: true })).toContain("Deployed app to");
+  }, 30_000);
+
   it("stops what the last deploy of the module started before it deploys it again", async () => {
     built("app", { "app.py": "print('hello')\n" });
     spec("app");
@@ -208,8 +231,20 @@ describe("the deploy tools", () => {
     await call(deploy, {});
     const started = await call(start, { name: "sleeper", command: "sleep 30" });
     expect(started).toContain("sleeper is running");
-    const again = await call(deploy, {});
+    const again = await call(deploy, { again: true });
     expect(again).toContain("Stopped what the last release started: sleeper.");
     expect(runningDeployed()).toEqual([]);
   }, 30_000);
+});
+
+describe("what the release agent finds guidance in", () => {
+  it("reads the project's AGENTS.md and its skills, once each", () => {
+    writeFileSync(join(dir, "AGENTS.md"), "Release with scripts/deploy.sh.\n");
+    mkdirSync(join(dir, ".agents", "skills", "ship"), { recursive: true });
+    writeFileSync(join(dir, ".agents", "skills", "ship", "SKILL.md"), "Then start scripts/start.sh with activate.\n");
+    const notes = projectNotes([dir, dir]).join("\n");
+    expect(notes).toContain("Release with scripts/deploy.sh.");
+    expect(notes).toContain("Then start scripts/start.sh with activate.");
+    expect(notes.match(/Release with scripts\/deploy\.sh\./g)).toHaveLength(1);
+  });
 });

@@ -109,7 +109,7 @@ describe("the panel", () => {
     await jobs.wait(finished.id);
 
     const lines = jobPanelLines(jobs.list());
-    expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app · \d+s$/);
+    expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app render · \d+s$/);
     expect(lines.join("\n")).not.toContain("app 3: writing code and unit tests");
     expect(lines).toContain("      ✎ write app.py");
     expect(lines.join("\n")).not.toContain("done already");

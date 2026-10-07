@@ -35,6 +35,10 @@ same said in the chat.
 
 The chat reacts to every pulse that finishes as it finishes, without waiting for you to speak: guidance
 that says to release after a build - *release each integration once it is grown* - is followed then.
+It never has to work out whether what a pulse landed is already out: `release` does. When the module's
+last commit is what its last release in this conversation shipped, it does nothing - nothing exported,
+nothing stopped, what runs left running - and says so; `again: true` releases it anyway, for when what
+that release said to do was not done.
 
 ## What goes in dist
 
@@ -72,6 +76,21 @@ then:
 
 What it started is listed by the `growth` tool and by **`/halt`**, and stopped by **`/halt activated <name>`**, by
 `halt`, by the next deploy of the module, and when the chat exits.
+
+## After every pulse
+
+With `release-after-pulse: true` in `config.yaml`, turri releases what each pulse lands itself, as the
+pulse's last stage (`releasing what this pulse landed`): the pulse ends once it is released, so the
+module's next pulse starts on what is out, and the chat - waiting on your answer to a question, say - has
+no part in it. One release a pulse that lands, in order.
+
+The release is done by an agent on the chat's model, the same one `turri release` runs, and it finds
+the guidance as the chat would: what was passed to `release` earlier in the conversation, the project's
+AGENTS.md and its skills. When nothing there says to release after a build, it releases nothing and says
+so. Its last words go in the pulse's report - "Released after the pulse: ..." - and the chat, seeing them,
+does not release it again. A release that fails is said there too; what the pulse landed stays.
+
+Off by default: without the key, releasing after a pulse is the chat's, when its guidance says so.
 
 ## On the command line
 

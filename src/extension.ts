@@ -31,7 +31,8 @@ import { plainFileParser } from "./plain/parser.ts";
 import { TEST_REQUIREMENTS } from "./plain/spec.ts";
 import { sectionsOf } from "./grow/state.ts";
 import { runningDeployed, stopDeployed } from "./grow/release.ts";
-import { createDeployState, createDeployTools } from "./release-tools.ts";
+import { createDeployState, createDeployTools, type DeployState } from "./release-tools.ts";
+import { runReleaseAgent } from "./release-agent.ts";
 import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./grow/steer.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
@@ -175,6 +176,8 @@ export default function (pi: ExtensionAPI) {
   // interview) - so it reacts to every job that ends without waiting for the person to speak:
   // does what the project's guidance says to do then (release what was built, say), or says
   // what finished.
+  // What release has shipped, module by module: release does nothing for a module whose last commit it already shipped.
+  const deployState = createDeployState();
   const jobs: JobRegistry = createJobRegistry({
     // A job that fails is run once more; failing again, it and every job behind it fail, and the
     // harness - which can read the skills, the rules, the code, the tests and turri itself -
@@ -215,7 +218,8 @@ export default function (pi: ExtensionAPI) {
               ? `Pulse ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
               : job.status === "stopped"
                 ? `Pulse ${job.id} (${job.kind}) was stopped after ${formatDuration(job)}. ${job.error ?? STOPPED_ON_REQUEST}${job.error === undefined || job.error === STOPPED_ON_REQUEST ? " The person stopped it; what it was building counts as not built." : ""}`
-                : `Pulse ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`) + `\n\n${JOB_FINISHED_REACTION}`,
+                : `Pulse ${job.id} (${job.kind}) failed after ${formatDuration(job)}.\n\n${job.error ?? ""}`) +
+            `\n\n${JOB_FINISHED_REACTION}`,
           display: false,
           details: { jobId: job.id, status: job.status },
         },
@@ -325,7 +329,8 @@ export default function (pi: ExtensionAPI) {
   registerGlimpse(pi, cwd, jobs);
   registerBind(pi, cwd, jobs);
   registerRenderModels(pi);
-  registerDeploy(pi, cwd, jobs);
+  deployStates.set(jobs, deployState);
+  registerDeploy(pi, cwd, jobs, deployState);
   registerSteering(pi, cwd);
 
   const { skills, pending } = discoveredSkills;
@@ -1110,6 +1115,9 @@ const workLoops = new WeakMap<JobRegistry, { loop: WorkLoop; from: { ctx: Extens
 /** How the conversation wants the work planned, for the session - set with steer. */
 const steeringStore = createSteeringStore();
 
+/** What release has shipped in a conversation, by its jobs: shared by the chat's release and a pulse's own. */
+const deployStates = new WeakMap<JobRegistry, DeployState>();
+
 function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): WorkLoop {
   let shared = workLoops.get(jobs);
   if (shared === undefined) {
@@ -1122,6 +1130,16 @@ function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): Wor
       plannerModel: () => chatModelOf(from.ctx),
       // How the work is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
       steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
+      // Under release-after-pulse, a pulse releases what it landed itself, on the chat's model, before the next starts.
+      release: ({ plainFile, moduleName, title, onDelta }) =>
+        runReleaseAgent({
+          plainFile,
+          cwd,
+          state: deployStates.get(jobs) ?? createDeployState(),
+          afterPulse: { moduleName, subject: title },
+          onDelta,
+          ...(chatModelOf(from.ctx) !== undefined ? { model: chatModelOf(from.ctx)! } : {}),
+        }),
     });
     shared = { loop, from };
     workLoops.set(jobs, shared);
@@ -1441,6 +1459,8 @@ const JOB_FINISHED_REACTION = [
   "what the person said earlier - says what to do when a pulse finishes (release what was built, run something, tell",
   "someone), do that, as it says. Otherwise say in a line or two what finished and what it means for the person - the",
   "report is theirs to read in full; do not repeat it - and, when it failed, what they can do. Start no other work.",
+  "A report that says \"Released after the pulse\" was released by turri itself, as the pulse's last stage: do not call",
+  "release for it - say in a line what was released, or why nothing was.",
 ].join("\n");
 
 /** Opens the side panel, and goes back to it from the conversation. */
@@ -1566,8 +1586,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
  * grow/release.ts), installing what it needs in its own shell - nothing is put to the person. What it
  * started is stopped when the session ends.
  */
-function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  const state = createDeployState();
+function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry, state: DeployState) {
   const tools = createDeployTools({
     cwd,
     state,

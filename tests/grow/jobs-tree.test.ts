@@ -55,13 +55,13 @@ describe("the jobs tree", () => {
     const jobs = [job("c", "queued", { module: "app", diff: diff("Users give kudos."), waitingOn: ["b"], usage })];
     const state = createJobsTreeState();
     const closed = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(closed).toMatch(/▸ · app · .+ · \$0\.50$/m);
+    expect(closed).toMatch(/▸ · app regrow · .+ · \$0\.50$/m);
     expect(closed).not.toContain("app.plain");
     expect(closed).not.toContain("+ - Users give kudos.");
     state.cursor = 2; // [running], [queued], c
     treeKey(state, jobsTreeRows(jobs, state), "open");
     const open = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(open).toMatch(/▾ · app · /);
+    expect(open).toMatch(/▾ · app regrow · /);
     expect(open).not.toContain("app.plain c");
     expect(open).toContain("+ - Users give kudos.");
     expect(open).toContain("waits for pulse b");
@@ -215,9 +215,9 @@ describe("the jobs tree", () => {
     const state = createJobsTreeState();
     state.open.finished = true;
     const lines = jobsTreeLines(jobs, state, 200, style).lines.map((line) => line.trim());
-    expect(lines).toContain("▸ <ok>✓ hubspot · 42s · $1.50");
-    expect(lines).toContain("▸ <bad>✗ hubspot conformance · 1s");
-    expect(lines).toContain("▸ <bad>✗ crm · 2s");
+    expect(lines).toContain("▸ <ok>✓ hubspot regrow · 42s · $1.50");
+    expect(lines).toContain("▸ <bad>✗ hubspot bind · 1s");
+    expect(lines).toContain("▸ <bad>✗ crm regrow · 2s");
     expect(lines.join("\n")).not.toContain("HubSpotClient");
   });
 
@@ -248,7 +248,10 @@ describe("the jobs tree", () => {
     expect(open).not.toContain("coding fs 1");
     expect(open).not.toContain("running the unit testing script");
     expect(open).not.toContain("thinking aloud");
-    expect(open).toContain("· coder · 3 turns · 1.0k tok · $0.25");
+    // Its agents by what they did, not their labels: the pulse's line already says which module.
+    expect(open).toContain("        3 turns · 1.0k tok · $0.25");
+    expect(open).not.toContain("coder");
+    expect(open).not.toContain("spent");
     expect(open).not.toContain("Built fs 1 and its unit tests pass.");
     expect(open).not.toContain("trace");
   });

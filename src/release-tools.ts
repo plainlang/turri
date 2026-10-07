@@ -27,10 +27,14 @@ import { haltTool } from "./loop-tools.ts";
 export interface DeployState {
   /** The last deploy: where what is started runs from. */
   current?: Deployment;
+  /** The last release of each module in this conversation, by module: the commit it shipped. */
+  released: Map<string, Deployment>;
+  /** The guidance each module was last released with, by module: what a release after a pulse is told the person said. */
+  guidance: Map<string, string>;
 }
 
 export function createDeployState(): DeployState {
-  return {};
+  return { released: new Map(), guidance: new Map() };
 }
 
 /** What the agent is to do once the code is in dist - in the deploy tool's answer, and the CLI agent's prompt. */
@@ -110,11 +114,14 @@ export function createDeployTools(options: {
       "is, pass it as guidance, in full. Either way its last commit - what last landed whole - is exported to dist/<module> " +
       "first; with guidance it is taken on from there as the guidance says, in the host codebase; without, it is started " +
       "from there, as best it can be. Call it when the " +
-      "person wants to try, run, see or use what was built. It says what to do next.",
+      "person wants to try, run, see or use what was built, and whenever guidance says to release after a pulse: when " +
+      "the module's last commit is already released it does nothing and says so, so never decide that yourself. It says " +
+      "what to do next.",
     promptSnippet: "release the grown code for the person to try - as the project's release guidance says, or to dist/<module> - then activate it",
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "A .plain file of the module. Default: the project's module from config.yaml." })),
       in_module: Type.Optional(Type.String({ description: "The codebase to take, when modules built on this one branch" })),
+      again: Type.Optional(Type.Boolean({ description: "Release even when the module's last commit is already released - only when what the last release said to do was not done." })),
       guidance: Type.Optional(
         Type.String({ description: "The guidance for releasing this project, whole, from wherever it is - the person, AGENTS.md, a skill: the scripts to run and in which order, where the code goes. Omit when there is none." }),
       ),
@@ -125,12 +132,24 @@ export function createDeployTools(options: {
       const plainFile = resolve(options.cwd, named);
       const target = deployTarget(plainFile, params.in_module);
       const guidance = params.guidance?.trim() || undefined;
+      // Released already: the module's last commit is what the last release shipped. Nothing is exported or stopped -
+      // releasing it again would only restart what runs - so it is safe to call after every pulse.
+      const last = state.released.get(target.entry.moduleName);
+      if (last !== undefined && !params.again && target.commit.startsWith(last.commit) && last.way === (guidance === undefined ? "dist" : "guided")) {
+        state.current = last;
+        return text(
+          `Already released: ${target.entry.moduleName}'s last commit, ${last.commit} (${last.subject}), is what the last release shipped, and what that release said to do was done then. Nothing to do - what runs is left running. Say so in a line.`,
+          { module: last.moduleName, commit: last.commit, already: true },
+        );
+      }
       // What the last release started runs from what is about to be replaced.
       const stopped = await stopDeployed({ moduleName: target.entry.moduleName });
       // Always the last commit, clean, in dist first; guidance takes it on from there.
       const exported = exportModule(plainFile, params.in_module);
       const deployment: Deployment = guidance === undefined ? exported : { ...exported, way: "guided", hostDir: hostDirOf(plainFile, options.cwd) };
       state.current = deployment;
+      state.released.set(deployment.moduleName, deployment);
+      if (guidance !== undefined) state.guidance.set(deployment.moduleName, guidance);
       return text(
         [
           describeDeployment(deployment),

@@ -107,7 +107,7 @@ come waits for a free slot, and says so.
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) opens on the right, beside the chat:
   the **regeneration** - every pulse as three sections - running, queued, finished - each opened and closed on
-    its own (running and queued start open). A pulse is one line: its module, its time and its cost - a
+    its own (running and queued start open). A pulse is one line: its module and kind (`hubspot regrow`, `hubspot bind`), its time and its cost - a
     finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
     Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
     and what each spent, and whether it did not pass. Under it is a row

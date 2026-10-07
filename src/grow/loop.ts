@@ -324,6 +324,11 @@ export function createWorkLoop(options: {
    * names are scheduled as bind schedules them. The conversation is told in the job's report instead.
    */
   onChoose?: (plainFile: string, specs: TouchedSpec[], budget?: number) => Promise<string[] | undefined>;
+  /**
+   * Under `release-after-pulse: true`, what releases a pulse that landed, as its last stage - before the pulse ends, so
+   * the module's next pulse starts on what is released. Its last reply goes in the pulse's report. Not given: nothing is.
+   */
+  release?: (input: { plainFile: string; moduleName: string; title: string; onDelta: (delta: string) => void }) => Promise<string>;
   /** Plan, and keep the job each codebase would start (`firsts`) - but start none. */
   dryRun?: boolean;
 }): WorkLoop {
@@ -689,7 +694,22 @@ export function createWorkLoop(options: {
           choose.length > 0
             ? `${result.report}\n\n${chooseNote(tip.plainFile, choose, budgetLeft(state, spec))}`
             : result.report;
-        return { report, details: { passed: result.landed, landed: result.landed } };
+        // Released as its last stage, when the config says so: the module's next pulse starts on what is released.
+        let released: string | undefined;
+        if (result.landed && options.release !== undefined && configForSpec(tip.plainFile).releaseAfterPulse === true) {
+          reportStage(`module ${tip.moduleName}: releasing what this pulse landed (release-after-pulse)`);
+          try {
+            released = `Released after the pulse: ${(await options.release({ plainFile: tip.plainFile, moduleName: tip.moduleName, title: planned.title, onDelta })).trim()}`;
+          } catch (error) {
+            // What landed stays landed: a release that fails is said, and the next pulse goes on.
+            released = `The release after the pulse failed: ${error instanceof Error ? error.message : String(error)}`;
+          }
+          reportActivity(`  ${released.split("\n")[0]}`);
+        }
+        return {
+          report: released !== undefined ? `${report}\n\n${released}` : report,
+          details: { passed: result.landed, landed: result.landed, ...(released !== undefined ? { released: true } : {}) },
+        };
       },
     });
     // Its lines where they are written: the module's .plain file, those it imports, and those of the modules below it.
