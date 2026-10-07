@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffFiles, diffView, locateDiffLines, NOT_FOUND, type DiffPaint } from "../../src/grow/diff-view.ts";
-import { plainPaint } from "../../src/grow/plain-palette.ts";
+import { brandBlue, plainPaint } from "../../src/grow/plain-palette.ts";
 
 /**
  * Colours and fills as a terminal gets them - escape codes, which take no width - each its own code, so
@@ -242,5 +242,12 @@ describe("placing a removed line", () => {
     const diff = ["--- a/hubspot.plain", "+++ b/hubspot.plain", "@@ -1,3 +1,2 @@", "-- :HubSpotStatus: is gone from every file.", " ***implementation reqs***", ""].join("\n");
     const files = diffFiles(diff, 60, undefined, locateDiffLines(diff, [own, common]));
     expect(files.map((file) => [file.file, file.removed])).toEqual([["hubspot.plain", 1]]);
+  });
+});
+
+describe("brand blue", () => {
+  it("paints in brand blue on a light theme, and in its legible tint on a dark one, where brand blue is not", () => {
+    expect(brandBlue({ appearance: "light" })("⊨")).toContain("38;2;10;31;212");
+    expect(brandBlue({ appearance: "dark" })("⊨")).toContain("38;2;145;154;236");
   });
 });

@@ -12,7 +12,7 @@ A spec belongs to its **project**: the nearest folder, from the spec's own folde
 spec's own folder is the project. That folder's config is the one read, and its `plain_modules/` is
 where the code is built, wherever turri was started. So a project that keeps its specs in
 `plain/`, with `plain/config.yaml`, builds `plain/app.plain` by `plain/config.yaml` even when
-`turri chat` runs in the folder above.
+`turri` runs in the folder above.
 
 When it is read:
 
@@ -50,7 +50,7 @@ models:                              # each agent role's model, thinking and tur
 | key | what it sets | unset |
 | --- | --- | --- |
 | `module` | the `.plain` file `turri regrow` and `regrow` build when none is named, from the project root | a file has to be named |
-| `harness-model` | the model `turri chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regrow`, the planner too | pi's configured model |
+| `harness-model` | the model `turri` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regrow`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
@@ -83,7 +83,7 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 | role | the agents |
 | --- | --- |
 | `default` | every role not named below - but the conversation's side |
-| `chat` | `turri chat`'s model - the same as `harness-model`, which it wins over |
+| `chat` | `turri`'s model - the same as `harness-model`, which it wins over |
 | `chooser`, `planner`, `diagnosis`, `release` | the conversation's side: the conformance chooser of `turri regrow`, the planner's agents, the diagnosis of a failed job, `turri release`'s agent. Unnamed, the chat's model |
 | `coding` | the coding agent, the code fixer of a conformance run and the repair agent - the same as `coding-model`, which it wins over. `--model` on the command line, or a model chosen in the conversation (`engine`), wins over both |
 | `conformance` | the conformance agent |
@@ -136,8 +136,8 @@ They are defaults. What is asked for wins over them:
 
 | model | wins over the config |
 | --- | --- |
-| harness | `turri chat --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
-| coding | `turri chat --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regrow`, `render`, `regenerate`, `conformance` and `spec-diff` |
+| harness | `turri --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
+| coding | `turri --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regrow`, `render`, `regenerate`, `conformance` and `spec-diff` |
 | judge | `--judge-model` on `turri bind` |
 
 A job keeps the model it was queued with: choosing another holds for what is queued after.

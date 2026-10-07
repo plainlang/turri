@@ -25,7 +25,7 @@ import { dropNoise } from "./quiet.ts";
  * Saves both a global pi install and the `-e <absolute path>` that a project-local
  * extension otherwise needs before the project is trusted.
  */
-/** The theme `turri chat` starts in. */
+/** The theme `turri` starts in. */
 const DEFAULT_THEME = "turri-dark";
 
 /** A --use-theme value with the themes' old names - forge, forge-light - as they are called now. */
@@ -97,11 +97,13 @@ const SETUP_COMMANDS: Record<string, string> = {
 };
 
 const USAGE = [
-  "usage: turri <command> [args]",
+  "usage: turri [options]          open the conversation here: pi, with turri's tools and themes loaded",
+  "       turri <command> [args]",
+  "",
+  `  ${"options".padEnd(12)} --harness-model <m>  the model you chat with   --coding-model <m>  the model renders run on`,
+  `  ${"".padEnd(12)} --use-theme <t>  another theme than turri-dark - and every option of pi's own`,
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
-  `  ${"chat".padEnd(12)} open pi here, with these tools and themes loaded (theme turri-dark; --use-theme picks another)`,
-  `  ${"".padEnd(12)} --harness-model <m>  the model you chat with   --coding-model <m>  the model renders run on`,
   "",
   ...Object.entries(SETUP_COMMANDS).map(([name, blurb]) => `  ${name.padEnd(12)} ${blurb}`),
   "",
@@ -114,12 +116,14 @@ const USAGE = [
 dropNoise();
 const [command, ...rest] = process.argv.slice(2);
 
-if (command === undefined || command === "-h" || command === "--help") {
+if (command === "-h" || command === "--help") {
   console.log(USAGE);
-  process.exit(command === undefined ? 1 : 0);
+  process.exit(0);
 }
 
-
+// turri alone is the conversation, and so is turri with pi's options - `turri -c`, `turri --harness-model <m>`. It was
+// `turri chat`, which still opens it. A word turri does not know is an error below, not a conversation started on it.
+if (command === undefined || command.startsWith("-")) chat(process.argv.slice(2));
 if (command === "chat") chat(rest);
 
 if (command in SETUP_COMMANDS) {

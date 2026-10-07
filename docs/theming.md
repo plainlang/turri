@@ -1,16 +1,16 @@
 # Theming
 
-Two brand themes ship in `.pi/themes/`, built from the brand tokens. `turri chat` starts in
+Two brand themes ship in `.pi/themes/`, built from the brand tokens. `turri` starts in
 `turri-dark`, the dark one; `--use-theme` picks another for that run:
 
 ```bash
-turri chat                                       # turri-dark
-turri chat --use-theme turri-light/turri-dark    # follows terminal appearance
-turri chat --use-theme dark                 # pi's own
+turri                                       # turri-dark
+turri --use-theme turri-light/turri-dark    # follows terminal appearance
+turri --use-theme dark                      # pi's own
 ```
 
 The second form follows your terminal's light/dark appearance. The default is for
-`turri chat` only: pi's settings are left alone, so a plain `pi` keeps its theme. With the
+`turri` only: pi's settings are left alone, so a plain `pi` keeps its theme. With the
 themes installed globally (`turri setup` offers to), `{"theme": "turri-dark"}` in
 `~/.pi/agent/settings.json` gives a plain `pi` the same one.
 
@@ -34,7 +34,10 @@ white:
 So `turri-dark` carries yellow, green and green-light, and `turri-light` carries blue and
 green-dark. **Brand blue never appears as text in the dark theme** - at 1.97:1 on brand black it is
 illegible - so the dark theme's accent is brand yellow, and blue appears only in the light theme
-and in both themes' HTML-export backgrounds.
+and in both themes' HTML-export backgrounds. The one place blue stands for something in both is the spec
+map's `⊨` - a functional spec its conformance tests pass for: brand blue in a light theme, and in a dark
+one its tint 55% of the way to white, `#919aec`, 7.34:1 on brand black (`brandBlue` in
+`src/grow/plain-palette.ts`).
 
 `--color-brand-status-warning` on white is 3.49:1, under the 4.5:1 bar for body text, so it is used
 only for accents in the light theme, never for prose.

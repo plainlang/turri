@@ -133,7 +133,7 @@ pi's print mode runs one request and exits, with the render tools waiting for th
 than starting background jobs:
 
 ```bash
-nohup turri chat -p "Render app.plain as a whole module, with conformance tests" > render.log 2>&1 &
+nohup turri -p "Render app.plain as a whole module, with conformance tests" > render.log 2>&1 &
 ```
 
 It reports what it did at the end, and nothing streams in between, so for long runs

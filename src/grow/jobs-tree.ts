@@ -217,7 +217,7 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
 const FILE_INDENT = "        ";
 
 /** Keep the cursor's row in sight: scroll only as far as that takes. */
-export function keepCursorInView(state: JobsTreeState, rowStarts: number[], lineCount: number, height: number): void {
+export function keepCursorInView(state: { cursor: number; top: number }, rowStarts: number[], lineCount: number, height: number): void {
   const start = rowStarts[state.cursor] ?? 0;
   const end = rowStarts[state.cursor + 1] ?? lineCount;
   // A line of its row in sight is enough: a job opened longer than the screen is read by scrolling through it.
@@ -228,7 +228,7 @@ export function keepCursorInView(state: JobsTreeState, rowStarts: number[], line
 }
 
 /** Scroll the view by lines, the cursor coming along to the first row in sight. */
-export function scrollTree(state: JobsTreeState, by: number, rowStarts: number[], lineCount: number, height: number): void {
+export function scrollTree(state: { cursor: number; top: number }, by: number, rowStarts: number[], lineCount: number, height: number): void {
   state.top = Math.max(0, Math.min(state.top + by, Math.max(0, lineCount - height)));
   const end = (row: number) => rowStarts[row + 1] ?? lineCount;
   // The cursor's row still has a line in sight - a job opened longer than the screen, read as it scrolls by: it stays.

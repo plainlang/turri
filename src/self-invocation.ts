@@ -59,6 +59,11 @@ export function selfInvocation(command: string): string | undefined {
   if (cli) return cli[1];
   const launcher = new RegExp(`(?:bin/turri\\.mjs|src/cli\\.ts)\\s+(regrow|glimpse|bind|cultivate|release|spec-diff|render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
   if (launcher) return launcher[1];
+  // turri alone, or with options, is the conversation - where a command starts, not a word an argument names (`which turri`).
+  const bare =
+    /(?:^|[;&|()\x60$]\s*|\bnohup\s+|\bnpx\s+)turri(?=\s+-|\s*$|\s*[;&|)>])(?:\s+(-\S+))?/.exec(command) ??
+    /(?:bin\/turri\.mjs|src\/cli\.ts)(?=\s+-|\s*$|\s*[;&|)>])(?:\s+(-\S+))?/.exec(command);
+  if (bare && !["-h", "--help"].includes(bare[1] ?? "")) return "chat";
   const npm = new RegExp(`${AT_COMMAND}npm\\s+run\\s+(${Object.values(NPM_SCRIPT).join("|")})\\b`).exec(command);
   if (npm) return npm[1];
   const entry = new RegExp(`src/(${Object.keys(ENTRY).join("|")})\\.ts\\b`).exec(command);
@@ -88,6 +93,7 @@ export function askedForCommandLine(message: string): boolean {
   return (
     /\b(headless|command[ -]line|cli|terminal|shell|in bash|via bash|through bash|npm run|nohup)\b/.test(text) ||
     /\bturri\s+(regrow|glimpse|bind|spec-diff|cultivate|release|render|module|regenerate|conformance|skill|chat|deploy)\b/.test(text) ||
+    /(^|\s)turri\s+-p\b/.test(text) ||
     /(^|\s)pi\s+-p\b/.test(text)
   );
 }
@@ -110,7 +116,7 @@ export const TOOLS_NOT_CLI = [
   "<turri-tools>",
   "In this conversation, turri's work is done with its tools - regrow, bind, cultivate and the rest - which run as",
   "background jobs the user can watch and halt. To try what is grown, release it - never by hand in plain_modules. Never",
-  "run turri's command line (turri regrow, glimpse, bind, spec-diff, cultivate, release, chat; npm run",
+  "run turri's command line (turri regrow, glimpse, bind, spec-diff, cultivate, release, turri itself; npm run",
   "regrow and the like) or start another pi through bash:",
   "that is a separate headless run the user cannot see or stop. Only when the user explicitly asks for the",
   "command line, run it. Configuring pi itself - pi install, update, list, config, auth, or its settings files -",

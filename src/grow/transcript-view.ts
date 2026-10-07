@@ -17,4 +17,6 @@ export interface TranscriptStyle extends DiffStyle {
   warning?(text: string): string;
   /** How a spec diff is painted - ***plain highlighted, added and removed lines filled (`plain-palette.ts`). Not given: the +/- coloured alone. */
   diff?: DiffPaint;
+  /** A functional spec its conformance tests pass for - the regeneration's ⊨: brand blue. */
+  conforms?: (text: string) => string;
 }

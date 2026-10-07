@@ -29,7 +29,7 @@ const c = {
   cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
 };
 
-const PROBLEMS = "If you are having problems, use chat mode to deploy: run turri chat and ask to try it.";
+const PROBLEMS = "If you are having problems, use chat mode to deploy: run turri and ask to try it.";
 
 function parseArgs(argv: string[]) {
   const positional: string[] = [];

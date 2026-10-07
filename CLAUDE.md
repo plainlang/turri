@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 turri is a harness that builds code from \*\*\*plain specs (`.plain` files). The harness, not the
 agent, decides what runs next and when work is done. It runs as a [pi](https://github.com/earendil-works/pi)
-extension (`turri chat`) and as a CLI for unattended runs. `docs/` describes the behaviour in
+extension (`turri`) and as a CLI for unattended runs. `docs/` describes the behaviour in
 detail. `docs/growing.md`, `docs/sandbox.md` and `docs/skills-and-gates.md` are the ones to read
 before changing the harness.
 
@@ -50,7 +50,7 @@ committing the renames alone. `plain_modules` and `.plaingit` are the ***plain l
 `drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
 which drives the work loop as the chat does. The old names (`module`, `regenerate`, `conformance`, `check`,
-`deploy`, `skill`) are aliases. `setup` and `doctor` go to `setup.ts`. `chat` spawns pi through
+`deploy`, `skill`) are aliases. `setup` and `doctor` go to `setup.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
 `cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/lineage`, `/engine`, ...).

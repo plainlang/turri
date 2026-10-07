@@ -19,7 +19,7 @@ Then, in the project that holds your specs:
 
 ```bash
 cd ~/my-project
-turri chat      # pi, with turri's tools, skills and themes loaded
+turri      # pi, with turri's tools, skills and themes loaded
 ```
 
 `npm link` has to be a link, not `npm install -g`: Node will not run `.ts` files from inside a
@@ -37,7 +37,7 @@ It checks, in order, and says exactly what to run for anything missing:
 | the OS sandbox | the wall under the command check and the audit | macOS has Seatbelt; on Linux, `apt install bubblewrap`. Where it does not start it says why and how to give it one - user namespaces off (Docker: `--security-opt seccomp=unconfined`), AppArmor in the way (Docker: `--security-opt apparmor=unconfined`; Ubuntu 24.04: `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), Docker's masked `/proc` (`--security-opt systempaths=unconfined`, or nothing: turri binds the host's `/proc` instead). Without one, the check and the audit hold alone |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
 | `turri` on PATH | so it runs from any project | `npm link` in this clone |
-| in every `pi` (optional) | a plain `pi` gets the tools too, not only `turri chat` | `setup` offers to write the one-line extension and copy the themes |
+| in every `pi` (optional) | a plain `pi` gets the tools too, not only `turri` | `setup` offers to write the one-line extension and copy the themes |
 
 In a project - a folder with `config.yaml` or `plain_modules` - it checks what the project needs of this machine too:
 
@@ -60,7 +60,7 @@ The chat is told every turn which wall is up and what the project's modules need
 
 ## turri in every `pi`
 
-`turri chat` runs pi from this project's `node_modules`, so no global pi install is needed.
+`turri` runs pi from this project's `node_modules`, so no global pi install is needed.
 To get the tools in a plain `pi` instead, let `turri setup` install a one-line global
 extension (`~/.pi/agent/extensions/turri.ts`) and copy the themes to `~/.pi/agent/themes/`.
 By hand, it is:
@@ -74,10 +74,10 @@ cp .pi/themes/*.json ~/.pi/agent/themes/
 ```
 
 That is the only absolute path in the setup, and deleting the file removes the tools. pi treats a
-tool registered twice as an error, so `turri chat` checks for the global extension and
+tool registered twice as an error, so `turri` checks for the global extension and
 themes and skips its own `-e` / `--theme` when it finds them.
 
-`turri chat` starts in the `turri-dark` theme. A plain `pi` keeps its own theme; to give it
+`turri` starts in the `turri-dark` theme. A plain `pi` keeps its own theme; to give it
 `turri-dark` too, in `~/.pi/agent/settings.json`:
 
 ```json

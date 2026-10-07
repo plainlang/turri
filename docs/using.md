@@ -4,16 +4,17 @@
 
 ```bash
 cd ~/my-project
-turri chat
+turri
 ```
 
-That is pi, with turri's tools, skills and themes loaded. It opens with turri's own
+That is pi, with turri's tools, skills and themes loaded - `turri` alone, or with pi's options
+(`turri -c`, `turri --harness-model <m>`); `turri chat`, its old name, still opens it. It opens with turri's own
 banner - the jellyfish it is named after, swimming until the conversation fills the screen: a picture in a
 terminal that shows images (Kitty, Ghostty, WezTerm, Warp, iTerm2), and drawn in text in any other, tmux
 included - swimming a stroke a loop, its tentacles following its bell, frames `scripts/jellyfish-frames.mjs`
 writes -
 where commands will run, the rules and skills loaded - rather than pi's startup header
-and resource list; `turri chat --verbose` shows those too. Talk to it: ask it to start a
+and resource list; `turri --verbose` shows those too. Talk to it: ask it to start a
 project, add a feature, render a module, fix a spec. It decides which skill or tool applies - but
 not *how* a skill runs: `cultivate` hands the work to the gated runner, which owns the steps, the
 gates and the judges (see [skills and gates](skills-and-gates.md)).
@@ -103,29 +104,82 @@ come waits for a free slot, and says so.
   the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
   the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
   as GitHub names a hunk's function: each section is named once.
-- **The side panel** (`ctrl+h`, or **`/regeneration`** - `/regen` for short, `/growth` too - not `ctrl+j`, which a terminal without the Kitty
+- **The side panel** (`ctrl+h`, as it was left; **`/regeneration`** on the regeneration - `/regen` for short, `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
-  terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time:
-  the **regeneration** - every pulse as three sections - running, queued, finished - each opened and closed on
-    its own (running and queued start open). A pulse is one line: its module and kind (`hubspot regrow`, `hubspot bind`), its time and its cost - a
-    finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
-    Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
-    and what each spent, and whether it did not pass. Under it is a row
-    for each file its spec diff changes - the file of the module being rendered first and open, the rest by
-    name and closed - each opening onto that file's lines. A file with nothing added or taken out is not
-    listed. `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
-    (`←` on a closed pulse goes to its section, on a closed file to its pulse), `o` and `c` open or close every
-    pulse of the section - or, on a file, every file of its pulse - `pgup` `pgdn` and the wheel scroll, `g`/`G`
-    go to the top and the bottom. The cursor stays on its row when the pulse under it moves on; a pulse opened
-    closes when it moves to another section. What is open is kept while the panel is closed. What the agents
-    said and did is not shown - it is in each pulse's log (see [Agent logs](#agent-logs)).
+  terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time.
+  It opens on the **regeneration**: the spec itself, in full, with how far the code has grown into it drawn
+  onto it.
+
+  Every item of the spec - a definition, a req, a functional spec with its sub-bullets and acceptance tests,
+  what turri plans and diffs by - is a row in the file's order, its \*\*\*plain highlighted as plyn highlights it
+  (as a spec diff is), and has one mark in the gutter:
+
+  | Mark | Means |
+  | --- | --- |
+  | `✓` | built: the code record has it as the spec does |
+  | `⠋` | growing now, in the running pulse - with how long it has run |
+  | `4` | planned, in that pulse - dimmer than the one growing: the numbers move whenever the plan is made again |
+  | `·` | differs from the code, with no plan behind it - the top line says why |
+  | `…` | the planner is cutting it into pulses now |
+  | `!` | stuck: in the pulse that did not land and halted the module ("rolled back · was pulse 3"), or the planner found no plan |
+  | `−` | taken out of the spec, still in the code: a struck-through red ghost, with the code record's text, until the pulse that takes it out lands |
+
+  Pulses are numbered as they start in a module, from 1 each session; a halt names the one that did not
+  land. The column beside the mark is `⊨` - satisfies - in brand blue when the functional spec is conformance tested as it
+  reads now: more than tested, its code is shown end to end to do what the spec says. It is dimmed when the
+  conformance tests were written for an earlier text, struck through for a spec taken out, and a spinner while
+  a conformance pulse writes them. Under `conformance-tests: chosen` a functional spec not chosen has none, and
+  shows none. Test reqs get no mark: they are the conformance tests', never built.
+
+  A changed item shows what changed in it: its first line word by word - what is gone struck through in red,
+  what is new in green, what is kept highlighted as it reads now - and, under it, only the sub-bullets that changed. A spec never built that is taken
+  out is simply gone. The top line has the file, a strip of its functional specs - built, growing, planned,
+  waiting - and how many are built, then what is happening: `pulse 3 of 8 growing`, or why nothing is -
+  `not asked to build - regrow plans it` (turri was just opened, or nothing has asked for the module: the
+  plan lives in memory and is made again on the next regrow), `planning`, `waits for backend`, and in red
+  `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: all of
+  its text against the code's, its acceptance tests, the pulse that grows it or why there is none, its
+  conformance tests - and, for a definition, every functional spec that uses its concept and how far each is
+  built: what a change to it can break.
+
+  Each module mapped is a row of its own, `▾ backend.plain ████░░ 5/12 built · pulse 3 of 8 growing`, with
+  its items under it. Only the module in focus starts open - the one growing now, else the one asked for, else
+  the first - the rest closed until opened; the top line is the module the cursor is in. Under a module opened,
+  after its own text, is what it is built from, in two groups, each closed until opened: **imported** - a
+  folded block a file it imports, `▸ from stdlib/backend/python-fastapi · 7 reqs · all built` - and
+  **required** - the modules it requires, down its chain, nearest first, each a module row of its own, read from
+  the codebase built on it, whose record has every module's items. A module another one requires is shown
+  there, under it, not at the top. A map longer than the screen has a minimap down its right edge, a cell a slice in the colour of
+  its most pressing mark, the slice shown solid. The map is read from the files - the code record, the
+  `.plain` files, the tests record - so it is right the moment turri opens a project, before anything runs;
+  the work loop's plan adds the pulses on top. It maps the files asked to build this conversation, else
+  `module:` in `config.yaml`, else the `.plain` files of the folder that no other one there imports or
+  requires. `↑` `↓` move row by row, `enter` or `space` open and close a module, an item or an import block,
+  `→` `←` open and close it (`←` on a closed one goes up to its module), `o` and `c` open or close everything
+  shown, `pgup` `pgdn` and the
+  wheel scroll, `g`/`G` go to the top and the bottom.
+
+  `p` goes to the **pulses** - and back - onto the pulse that grows the item under the cursor, and
+  back onto the first item the pulse under the cursor grows. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
+  its own (running and queued start open). A pulse is one line: its module and kind (`hubspot regrow`, `hubspot bind`), its time and its cost - a
+  finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
+  Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
+  and what each spent, and whether it did not pass. Under it is a row
+  for each file its spec diff changes - the file of the module being rendered first and open, the rest by
+  name and closed - each opening onto that file's lines. A file with nothing added or taken out is not
+  listed. `↑` `↓` move, `enter` or `space` open and close what is under the cursor, `→` `←` open and close
+  (`←` on a closed pulse goes to its section, on a closed file to its pulse), `o` and `c` open or close every
+  pulse of the section - or, on a file, every file of its pulse - `pgup` `pgdn` and the wheel scroll, `g`/`G`
+  go to the top and the bottom. The cursor stays on its row when the pulse under it moves on; a pulse opened
+  closes when it moves to another section. What is open is kept while the panel is closed. What the agents
+  said and did is not shown - it is in each pulse's log (see [Agent logs](#agent-logs)).
 
   `ctrl+h` again, or `esc`, closes it and goes back to the chat. While it shows, every key is the panel's,
   whatever else happens: a question the chat model asks in the background (`ask_user`) waits in the chat,
   unanswered - an `enter` in the panel never answers it - and the panel's top line says "the chat is waiting
   for your answer". Back in the chat, the question is there, with the keys.
-- `turri chat` runs pi in fullscreen mode, so the conversation stays where you scroll it while
+- `turri` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the pulses redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
@@ -180,7 +234,7 @@ The chat reads the project's `config.yaml` afresh every turn and follows it: its
 it sets, and the render tools default to it - `module` when you ask to build without naming one,
 `conformance-tests: false` to render without conformance tests (none written, none of the existing
 ones run) unless you ask for them, `coding-model` for what renders run on, and the testing scripts.
-`harness-model` is what `turri chat` starts on. What you ask for in the conversation wins.
+`harness-model` is what `turri` starts on. What you ask for in the conversation wins.
 Every key, what happens without it, and how the models inherit: [the project config](config.md).
 
 A project whose modules are on different stacks gives each its own `config.<module>.yaml` beside
@@ -212,7 +266,7 @@ Each may leave out either part, and a bare string (`coding-model: provider/id`, 
 the judge model from the coding model, the coding model from the harness model - so with only a
 harness model, everything runs on it.
 
-On the command line, `turri chat --harness-model <m> --coding-model <m>` wins over them
+On the command line, `turri --harness-model <m> --coding-model <m>` wins over them
 (pi's own `--model` works for the harness model too), and in the conversation pi's `/model`
 changes the harness model and `engine`, below, the coding model. `model:`, from before
 there were two, is read as `coding-model`. With neither, renders run on the conversation's model.

@@ -65,7 +65,8 @@ scripts, models and conformance in its own `config.<module>.yaml`, laid over `co
 ## One job
 
 Every piece of work on the code is a job of the work loop (see [a whole module](#a-whole-module)) - in the chat, a
-**pulse**, and the side panel that shows them all the **regeneration**, while the code and this page call it a job: a
+**pulse** - the side panel's **regeneration** is the spec with how far the code has grown into it (`spec-map.ts`),
+and its pulses every one of them - while the code and this page call it a job: a
 spec diff that takes the code from the spec it is built from to the spec the job ends on. To see what
 the first jobs would be told:
 

@@ -16,6 +16,10 @@ describe("a shell command that runs turri again", () => {
     expect(selfInvocation("turri release app.plain")).toBe("release");
     expect(selfInvocation('pi -p "build it"')).toBe("pi");
     expect(selfInvocation("turri chat -p 'render the module'")).toBe("chat");
+    expect(selfInvocation("turri -p 'render the module'")).toBe("chat");
+    expect(selfInvocation("cd ~/proj && turri")).toBe("chat");
+    expect(selfInvocation("nohup turri --harness-model x -p go > log 2>&1 &")).toBe("chat");
+    expect(selfInvocation("node bin/turri.mjs -c")).toBe("chat");
     expect(selfInvocation("turri deploy app.plain")).toBe("deploy");
   });
 
@@ -33,6 +37,9 @@ describe("a shell command that runs turri again", () => {
     expect(selfInvocation("turri validate app.plain")).toBeUndefined();
     expect(selfInvocation("turri drift app.plain")).toBeUndefined();
     expect(selfInvocation("turri doctor")).toBeUndefined();
+    expect(selfInvocation("turri --help")).toBeUndefined();
+    expect(selfInvocation("which turri")).toBeUndefined();
+    expect(selfInvocation("ls ~/.turri")).toBeUndefined();
     expect(selfInvocation("pip install requests")).toBeUndefined();
     expect(selfInvocation("python3 -m pytest")).toBeUndefined();
     expect(selfInvocation("grep -rn turri README.md")).toBeUndefined();

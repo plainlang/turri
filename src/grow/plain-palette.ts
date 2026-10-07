@@ -90,6 +90,20 @@ const fillWith = (hex: string, text: string, truecolor: boolean): string => {
   return `${on}${text.replace(/\x1b\[(?:0|49)?m/g, (reset) => `${reset}${on}`)}\x1b[49m`;
 };
 
+/**
+ * Brand blue, for what is shown to do what its spec says - the regeneration's ⊨. Brand blue itself on a light surface, 9.72:1
+ * on white; on a dark one, where it is illegible (1.97:1 on brand black - see docs/theming.md), its tint 55% of the way
+ * to white, 7.34:1 on brand black.
+ */
+export const BRAND_BLUE = { light: "#0a1fd4", dark: "#919aec" };
+
+/** Text in brand blue on a theme - its tint on a dark one - in as many colours as the terminal has. */
+export function brandBlue(theme: { appearance?: "dark" | "light"; getColorMode?(): string }): (text: string) => string {
+  const colour = theme.appearance === "light" ? BRAND_BLUE.light : BRAND_BLUE.dark;
+  const truecolor = (theme.getColorMode?.() ?? "truecolor") === "truecolor";
+  return (text) => paintWith({ colour, bold: true }, text, truecolor);
+}
+
 /** How a spec diff is painted on a theme: its palette by whether the theme is dark or light, in as many colours as the terminal has. */
 export function plainPaint(theme: { appearance?: "dark" | "light"; getColorMode?(): string }): DiffPaint {
   const palette = theme.appearance === "light" ? LIGHT : DARK;

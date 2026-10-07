@@ -10,7 +10,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
-import { allocateImageId, Box, type Component, compositeTuiLine, getCapabilities, getPngDimensions, type ImageDimensions, matchesKey, renderImage, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { allocateImageId, Box, type Component, compositeTuiLine, getCapabilities, getPngDimensions, type ImageDimensions, isKeyRelease, isKeyRepeat, matchesKey, renderImage, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
@@ -39,9 +39,11 @@ import { describeChoices, describeResolution, type ModelChoices, modelFor, type 
 import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
-import { plainPaint } from "./grow/plain-palette.ts";
+import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
 import { createJobPanel, PANEL_KEY } from "./grow/job-panel.ts";
 import { createSidePanel } from "./grow/side-panel.ts";
+import { createSpecMapSource, defaultMapFiles } from "./grow/spec-map.ts";
+import { createSpecMapState } from "./grow/spec-map-view.ts";
 import { createJobsTreeState } from "./grow/jobs-tree.ts";
 import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./grow/lineage.ts";
@@ -894,7 +896,7 @@ export function projectConfigBlock(root: string): string {
           return [
             models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless engine chose another in this session.` : undefined,
             models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
-            models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model turri chat starts with.` : undefined,
+            models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model turri starts with.` : undefined,
             // The other roles' own, where models: names them.
             ...AGENT_ROLES.filter((role) => role !== "coding" && role !== "chat").flatMap((role) => {
               const own = roleModel(config, role);
@@ -979,7 +981,7 @@ function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string, plain
 }
 
 /**
- * The coding model this session starts from, and where it was given: `turri chat
+ * The coding model this session starts from, and where it was given: `turri
  * --coding-model`, or `coding-model:` in the project's config.yaml - read afresh, so an edit to the
  * file holds for the next render.
  */
@@ -1350,13 +1352,24 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // The side panel: the job queue, over the whole screen. Its key (PANEL_KEY) opens it; the key again, or esc, closes it
-  // and goes back to the chat. While it shows, every key is its own.
+  // The side panel: the regeneration - and the pulses behind p - over the whole screen. Its key (PANEL_KEY) opens it; the
+  // key again, or esc, closes it and goes back to the chat. While it shows, every key is its own.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
-  // What is open in the Jobs view, and where its cursor is: the conversation's, as it was left each time it opens.
+  // What is open in the pulse list and the map, and where their cursors are: the conversation's, as left each time it opens.
   const jobsTree = createJobsTreeState();
+  const mapState = createSpecMapState();
+  // The map from the files - the .plain files asked for, else the project's - with the work loop's plan laid over them.
+  const specMap = createSpecMapSource({
+    files: () => {
+      const asked = workLoops.get(jobs)?.loop.mapPlan().files ?? [];
+      return asked.length > 0 ? asked : defaultMapFiles(cwd);
+    },
+    plan: () => workLoops.get(jobs)?.loop.mapPlan() ?? { files: [], codebases: [] },
+  });
 
-  const openPanel = (ctx: ExtensionContext) => {
+  /** Open the side panel - on the view named, or as it was left. */
+  const openPanel = (ctx: ExtensionContext, view?: "map" | "pulses") => {
+    if (view !== undefined) mapState.view = view;
     if (panel !== undefined) {
       panel.handle?.setHidden(false);
       panel.handle?.focus();
@@ -1366,10 +1379,14 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     void ctx.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
         const close = () => done(undefined);
-        let component: { render(width: number): string[] } | undefined;
+        let component: { render(width: number): string[]; dispose?(): void } | undefined;
+        // Opened, it reads the files again at once: they may have changed while it was closed.
+        specMap.refresh();
         const view = createSidePanel({
           jobs: () => shownJobs(jobs),
           tree: jobsTree,
+          map: () => specMap.read(),
+          mapState,
           rows: () => tui.terminal.rows,
           key: PANEL_KEY,
           style: {
@@ -1383,6 +1400,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             removed: (text) => theme.fg("toolDiffRemoved", text),
             // A spec diff's ***plain highlighted as plyn highlights it, and its added and removed lines filled.
             diff: plainPaint(theme),
+            // What conformance tests show does what its spec says: brand blue.
+            conforms: brandBlue(theme),
           },
           back: close,
           close,
@@ -1397,10 +1416,34 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         // Every key goes to the panel while it shows, whatever has the focus: a question the chat model asks in the
         // background takes the focus, but no key reaches it - an enter never answers it unseen. It waits in the chat
         // until the panel closes, and has the keys then. Mouse events are the screen's, before this sees them.
+        // Only while it is on the screen: up in the TUI's overlays and not hidden. An overlay taken off without the panel
+        // being disposed - another one closed over it - leaves no panel to take keys for: it lets them go, and goes.
+        const shown = (): boolean | "gone" => {
+          const overlays = (tui as unknown as { overlayStack?: Array<{ component: unknown }> }).overlayStack;
+          if (entry.handle === undefined || component === undefined) return false;
+          if (overlays !== undefined && !overlays.some((overlay) => overlay.component === component)) return "gone";
+          return entry.handle.isHidden() !== true;
+        };
         const unlisten = tui.addInputListener((data) => {
-          if (entry.handle?.isHidden() === true) return undefined;
-          if (matchesKey(data, PANEL_KEY)) close();
-          else view.handleInput(data);
+          const state = shown();
+          if (state === "gone") {
+            component?.dispose?.();
+            return undefined;
+          }
+          if (!state) return undefined;
+          // A terminal on the Kitty keyboard protocol reports a key's release, and listeners are given it: the release of
+          // the ctrl+h that opened the panel would close it again at once, and every arrow would move twice. Only
+          // presses count - and ctrl+h held down, repeating, does not open and close it over and over.
+          if (isKeyRelease(data) || (isKeyRepeat(data) && matchesKey(data, PANEL_KEY))) return { consume: true };
+          // ctrl+c closes it too: whatever else goes wrong, a key always leads back to the chat.
+          if (matchesKey(data, PANEL_KEY) || matchesKey(data, "ctrl+c")) close();
+          else {
+            try {
+              view.handleInput(data);
+            } catch {
+              /* a key the panel fails on is dropped, never the panel's hold on the keys */
+            }
+          }
           tui.requestRender();
           return { consume: true };
         });
@@ -1413,6 +1456,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           render: (width: number) => view.render(width),
           // Reached only if the listener above is gone: the same, so the panel never passes a key on.
           handleInput: (data: string) => {
+            if (isKeyRepeat(data) && matchesKey(data, PANEL_KEY)) return;
             if (matchesKey(data, PANEL_KEY)) close();
             else view.handleInput(data);
             tui.requestRender();
@@ -1424,7 +1468,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             clearInterval(timer);
             if (panel === entry) panel = undefined;
           },
-        } as { render(width: number): string[] };
+        } as { render(width: number): string[]; dispose?(): void };
         return component as never;
       },
       {
@@ -1438,24 +1482,26 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     );
   };
 
-  // The regeneration: every pulse - growing, planned and finished - and what each grows. /regen is its short form, and
-  // /growth, which once listed the pulses in the chat, opens it too. What the agents did is in each pulse's log.
-  for (const [name, description] of [
-    ["regeneration", `The regeneration, in the side panel - every pulse, growing, planned and finished, and what each grows. ${PANEL_KEY} opens it too.`],
-    ["regen", "The regeneration, in the side panel: the short form of /regeneration."],
-    ["growth", "The regeneration, in the side panel: the same as /regeneration."],
+  // The side panel's two views: /regeneration opens it on the regeneration - the spec, with how far the code has grown
+  // into it - and /pulses on every pulse, growing, planned and finished, and what each grows. /regen is its short form,
+  // and /growth, which once listed the pulses in the chat, opens it too. What the agents did is in each pulse's log.
+  for (const [name, description, view] of [
+    ["regeneration", `The regeneration, in the side panel: every item of the spec, built, growing, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
+    ["regen", "The regeneration, in the side panel: the short form of /regeneration.", "map"],
+    ["growth", "The regeneration, in the side panel: the same as /regeneration.", "map"],
+    ["pulses", `The pulses, in the side panel: every pulse, growing, planned and finished, and what each grows. ${PANEL_KEY} opens the panel too.`, "pulses"],
   ] as const) {
     pi.registerCommand(name, {
       description,
       handler: async (_args, ctx) => {
         if (!ctx.hasUI) return;
-        openPanel(ctx);
+        openPanel(ctx, view);
       },
     });
   }
 
   pi.registerShortcut(PANEL_KEY, {
-    description: "Open the side panel - the regeneration - or go back to it",
+    description: "Open the side panel - the regeneration and the pulses - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
       openPanel(ctx);
@@ -1870,7 +1916,7 @@ const BANNER_ENTRY = "turri_banner";
  * The name on the door.
  *
  * Pi's own startup header is a built-in component an extension cannot replace, so this
- * adds a wordmark of its own at the top of the session. `turri chat` starts pi without
+ * adds a wordmark of its own at the top of the session. `turri` starts pi without
  * its header (see pi-launch.ts), leaving only this one.
  */
 /**
@@ -1896,8 +1942,9 @@ export const TURRI_IDENTITY = [
   "- A pulse is one unit of work growing the code - a spec diff grown in a codebase, or its conformance tests. It was",
   "  called a job, and still is in places: the job_id a tool takes is a pulse's id, and parallel-jobs and",
   "  allow-to-stop-jobs in config.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
-  "- The regeneration is the side panel that shows every pulse - growing, planned and finished (/regeneration, or",
-  "  ctrl+h). It was the job queue, or the job panel.",
+  "- The regeneration is the side panel (/regeneration, or ctrl+h): the spec with each item marked built, growing,",
+  "  planned or waiting - and behind it the pulses (/pulses), every pulse growing, planned and finished.",
+  "  It was the job queue, or the job panel.",
   "- mutate, in a skill's activity, is write_spec_diff: a spec change written and grown in one step.",
   "</turri>",
 ].join("\n");

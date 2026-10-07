@@ -87,7 +87,7 @@ describe("the side panel", () => {
     const text = () => panel.render(100).join("\n");
 
     // Jobs first: the queue, with what finished - and, opened, what each was about.
-    expect(text()).toContain("Regeneration");
+    expect(text()).toContain("Pulses");
     expect(text()).toContain("▸ finished (1)");
     openFinished(panel);
     expect(text()).toContain("▾ finished (1)");
