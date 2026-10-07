@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createCopyResourceTool, loadLinkedResources } from "../../src/grow/resources.ts";
+import { createCopyResourceTool, isCodeResource, loadLinkedResources } from "../../src/grow/resources.ts";
 
 let project: string;
 let code: string;
@@ -39,5 +39,28 @@ describe("a linked resource longer than the prompt shows", () => {
     expect(readFileSync(join(code, "src", "test", "resources", "list.txt"), "utf8")).toBe(fixture);
     expect(await call(tool, { path: "resources/batch/list_response.txt", to: "../../escape.txt" })).toMatch(/^Not copied: .* is not inside your folder/);
     expect(await call(tool, { path: "resources/other.txt" })).toContain("No linked resource resources/other.txt");
+  });
+});
+
+describe("a linked resource that is code", () => {
+  it("is told apart from data by its name - a source file or a build manifest - and a fixture, a schema or a sample is data", () => {
+    for (const code of ["../src/services/ingest.py", "lib/client.ts", "Main.java", "../requirements.txt", "package.json", "pom.xml", "build.gradle.kts", "go.mod"]) expect(isCodeResource(code), code).toBe(true);
+    for (const data of ["resources/batch/list_response.txt", "openapi.yaml", "schema.json", "samples/contacts.csv", "mapping.md"]) expect(isCodeResource(data), data).toBe(false);
+  });
+
+  it("is never copied in - as a host's ingest.py and requirements.txt were, and a host built around them - and data still is", async () => {
+    mkdirSync(join(project, "src", "services"), { recursive: true });
+    writeFileSync(join(project, "src", "services", "ingest.py"), "def discover_integrations(): ...\n");
+    writeFileSync(join(project, "requirements.txt"), "fastapi\n");
+    const loaded = loadLinkedResources(
+      { "functional specs": [{ markdown: "- Plug in.", linked_resources: [{ text: "ingest", target: "src/services/ingest.py" }, { text: "manifest", target: "requirements.txt" }, { text: "the LIST response", target: "resources/batch/list_response.txt" }] }] } as never,
+      null,
+      [project],
+    );
+    const tool = createCopyResourceTool({ resources: loaded, dir: code });
+    expect(await call(tool, { path: "src/services/ingest.py" })).toMatch(/^Not copied: src\/services\/ingest\.py is code .* never copy it, nor recreate it/);
+    expect(await call(tool, { path: "requirements.txt" })).toMatch(/^Not copied: requirements\.txt is code/);
+    expect(await call(tool, { path: "resources/batch/list_response.txt" })).toContain("Copied");
+    expect(readdirSync(code).sort()).toEqual(["resources"]);
   });
 });

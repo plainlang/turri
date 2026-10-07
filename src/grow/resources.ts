@@ -74,7 +74,9 @@ export function loadLinkedResources(
     let content = readFileSync(source, "utf8");
     const whole = content.length;
     if (whole > MAX_RESOURCE_CHARS) {
-      content = `${content.slice(0, MAX_RESOURCE_CHARS)}\n... [cut here: ${whole} characters whole - copy_resource puts the whole file at its code-copy path, to read it there]`;
+      content = isCodeResource(resource.target)
+        ? `${content.slice(0, MAX_RESOURCE_CHARS)}\n... [cut here: ${whole} characters whole - code that lives outside your codebase: build on it as the specification says, never copy it]`
+        : `${content.slice(0, MAX_RESOURCE_CHARS)}\n... [cut here: ${whole} characters whole - copy_resource puts the whole file at its code-copy path, to read it there]`;
     }
     loaded.push({ text: resource.text, target: resource.target, content, source: resolve(source), ...(whole > MAX_RESOURCE_CHARS ? { cutFrom: whole } : {}) });
   }
@@ -87,6 +89,26 @@ function isFileAt(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Source files, by extension: a linked resource that is one is code that lives elsewhere, never copied in. */
+const CODE_EXTENSIONS = new Set([
+  ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".java", ".kt", ".kts", ".scala", ".groovy", ".go", ".rs", ".rb",
+  ".php", ".cs", ".fs", ".vb", ".swift", ".m", ".mm", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".dart", ".lua", ".ex",
+  ".exs", ".erl", ".clj", ".hs", ".ml", ".r", ".jl", ".sh", ".bash", ".zsh", ".ps1", ".vue", ".svelte",
+]);
+
+/** Build manifests and lock files, by name: the dependencies of a codebase that is not this one. */
+const MANIFESTS = /^(requirements[\w.-]*\.txt|pyproject\.toml|setup\.cfg|pipfile(\.lock)?|poetry\.lock|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|pom\.xml|build\.gradle(\.kts)?|settings\.gradle(\.kts)?|go\.(mod|sum)|cargo\.(toml|lock)|gemfile(\.lock)?|composer\.(json|lock)|[\w.-]+\.csproj|makefile|dockerfile)$/i;
+
+/**
+ * A linked resource that is code - a source file, or a build manifest: the specification points at code that lives
+ * elsewhere, a host's module the code plugs into, for the code to build on as it says. It is never copied into the
+ * codebase, nor recreated there; a resource that is data - a fixture, a schema, a sample - is.
+ */
+export function isCodeResource(target: string): boolean {
+  const name = target.split(/[\\/]/).pop() ?? target;
+  return CODE_EXTENSIONS.has(extname(name).toLowerCase()) || MANIFESTS.test(name);
 }
 
 /** Where in a codebase a linked resource's one copy goes: its path, without the steps up and the leading `./`. */
@@ -109,8 +131,9 @@ export function createCopyResourceTool(options: { resources: LoadedResource[]; d
     name: "copy_resource",
     label: "Copy a linked resource",
     description:
-      "Copy a linked resource whole into your folder - at its code-copy path unless you give another, inside your folder - " +
-      "byte for byte. Use it for a resource the code or the tests need as a file, and to read one the prompt shows cut short.",
+      "Copy a linked resource that is data - a fixture, a schema, a sample - whole into your folder, at its code-copy path " +
+      "unless you give another inside your folder, byte for byte: for a file the code or the tests read, or to read one the " +
+      "prompt shows cut short. A resource that is code - a source file, a build manifest - is never copied: it lives elsewhere.",
     promptSnippet: "copy_resource: a linked resource copied whole into your folder, at its code-copy path",
     parameters: Type.Object({
       path: Type.String({ description: "The resource's path, as <linked resources> gives it" }),
@@ -122,6 +145,20 @@ export function createCopyResourceTool(options: { resources: LoadedResource[]; d
       if (resource === undefined) {
         const known = copyable.map((candidate) => candidate.target).join(", ");
         return { content: [{ type: "text" as const, text: `No linked resource ${path}. ${known !== "" ? `The ones you have: ${known}.` : "You have none to copy."}` }], details: {} };
+      }
+      if (isCodeResource(resource.target)) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Not copied: ${resource.target} is code - a source file or a build manifest that lives outside your codebase, linked ` +
+                "so you know what your code plugs into. Build on it as the specification says - import it, call it, depend on " +
+                "what it lists - and never copy it, nor recreate it or what it belongs to in your codebase.",
+            },
+          ],
+          details: {},
+        };
       }
       const target = resolve(root, to ?? codeCopyOf(resource.target));
       const inside = relative(root, target);

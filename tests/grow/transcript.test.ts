@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { describeUsage, reportSpec, reportStage, reportTranscript, reportUsage } from "../../src/grow/activity.ts";
 import { createJobRegistry, describeJob } from "../../src/grow/jobs.ts";
 import { jobPanelLines } from "../../src/grow/job-panel.ts";
-import { transcriptLines } from "../../src/grow/transcript-view.ts";
 
 async function jobWith(run: () => void) {
   const jobs = createJobRegistry();
@@ -58,52 +57,6 @@ describe("a job's transcript", () => {
   });
 });
 
-describe("the transcript viewer", () => {
-  it("shows everything, labelled by who said it", async () => {
-    const job = await jobWith(() => {
-      reportTranscript({ kind: "prompt", text: "Implement functionality 1." });
-      reportTranscript({ kind: "tool", text: "run_unit_tests pytest" });
-      reportTranscript({ kind: "result", text: "exit code: 1", error: true });
-      reportTranscript({ kind: "text", text: "Fixed it." });
-    });
-    const lines = transcriptLines(job, 80);
-    expect(lines).toContain("harness ▸");
-    expect(lines).toContain("  Implement functionality 1.");
-    expect(lines).toContain("  ⚙ run_unit_tests pytest");
-    expect(lines).toContain("    exit code: 1");
-    expect(lines).toContain("agent ▸");
-  });
-
-  it("shows a spec change a job renders where it comes, coloured, as the change a render spec diff job leads with", async () => {
-    const job = await jobWith(() => {
-      reportTranscript({ kind: "stage", text: "cognio: spec diff 2 of 3 - Reject duplicate registrations" });
-      reportTranscript({ kind: "diff", text: "--- a/cognio.plain\n+++ b/cognio.plain\n@@ -3 +3,2 @@\n - A student can register.\n+  - Duplicates return 409.\n-  - Old line." });
-      reportTranscript({ kind: "prompt", text: "Make the code match the spec change." });
-    });
-    const style = { heading: (t: string) => t, muted: (t: string) => `~${t}`, accent: (t: string) => t, error: (t: string) => t, added: (t: string) => `+${t}`, removed: (t: string) => `-${t}` };
-    const lines = transcriptLines(job, 80, style);
-    const at = lines.indexOf("── the spec change");
-    expect(at).toBeGreaterThan(lines.indexOf("── harness · cognio: spec diff 2 of 3 - Reject duplicate registrations"));
-    // The file named once, quietly; each line after its sign, added and removed ones padded out for their band.
-    expect(lines.slice(at + 1, at + 5).map((line) => line.trimEnd())).toEqual([
-      "~cognio.plain  ++1 -−1",
-      "  - A student can register.",
-      "++   - Duplicates return 409.",
-      "--   - Old line.",
-    ]);
-    expect(lines.indexOf("~harness ▸")).toBeGreaterThan(at);
-  });
-
-  it("wraps a spec diff line wider than the screen, so a change near its end is still there", async () => {
-    const long = `+- A student can register with an email and a handle, and a request whose email or handle already exists returns 409 Conflict`;
-    const job = await jobWith(() => reportTranscript({ kind: "diff", text: long }));
-    const lines = transcriptLines(job, 60);
-    expect(lines.every((line) => line.length <= 60)).toBe(true);
-    expect(lines.join(" ").replace(/\s+/g, " ")).toContain("already exists returns 409 Conflict");
-  });
-
-});
-
 /** Open the finished section and the first job in it, with the keys: it starts collapsed. */
 function openFinished(panel: { render(width: number): string[]; handleInput(data: string): void }, width = 100): void {
   const down = "\x1b[B";
@@ -118,7 +71,7 @@ describe("the side panel", () => {
   const judge = { label: "app 1 judge", model: "bedrock/sonnet-5:medium" };
   const coder = { label: "app 1 coding agent", model: "bedrock/sonnet-5:low" };
 
-  it("shows the queue and the agents' traces - each agent's turn headed by who it is, one agent at a time when asked", async () => {
+  it("shows the queue alone - not the agents' traces, which are in each pulse's log", async () => {
     const { createSidePanel } = await import("../../src/grow/side-panel.ts");
     const job = await jobWith(() => {
       reportSpec({ label: "app 1 of 1", text: "The app prints hello.\n\nMore of it." });
@@ -134,7 +87,7 @@ describe("the side panel", () => {
     const text = () => panel.render(100).join("\n");
 
     // Jobs first: the queue, with what finished - and, opened, what each was about.
-    expect(text()).toContain("[Regeneration]");
+    expect(text()).toContain("Regeneration");
     expect(text()).toContain("▸ finished (1)");
     openFinished(panel);
     expect(text()).toContain("▾ finished (1)");
@@ -147,26 +100,13 @@ describe("the side panel", () => {
     expect(text()).toContain("The app prints hello.");
     expect(text()).toContain("More of it.");
 
+    // What the agents said and did is in the pulse's log, not here: there is no trace to switch to.
     panel.handleInput("\t");
-    expect(text()).toContain("[Trace]");
-    // The harness's own steps are labelled as the harness's; each agent's turn as that agent's.
-    expect(text()).toContain("── harness · conformance tests failing - working out whether");
-    expect(text()).toContain("── agent · app 1 judge · bedrock/sonnet-5:medium");
-    expect(text()).toContain("judge ▸");
-    expect(text()).toContain("── agent · app 1 coding agent · bedrock/sonnet-5:low");
-
-    // One agent at a time: every agent, then each in the order they spoke, then every agent again.
-    panel.handleInput("a");
-    expect(text()).toContain("The code drops the /api/v2 prefix.");
-    expect(text()).not.toContain("edit StorageServiceClient.java");
-    panel.handleInput("a");
-    expect(text()).toContain("edit StorageServiceClient.java");
+    expect(text()).not.toContain("Trace");
     expect(text()).not.toContain("The code drops the /api/v2 prefix.");
-    panel.handleInput("a");
-    expect(text()).toContain("every agent");
+    expect(text()).not.toContain("edit StorageServiceClient.java");
 
-    // Scrolled by keys and by the wheel, following the newest line at the bottom.
-    expect(text()).toContain("following");
+    // Scrolled by keys and by the wheel.
     panel.handleMouse({ type: "wheel", button: "none", x: 0, y: 0, screenX: 0, screenY: 0, width: 100, height: 40, shift: false, alt: false, ctrl: false, wheelDelta: -1 });
 
     panel.handleInput("\x1b");
@@ -223,29 +163,6 @@ describe("the side panel", () => {
   });
 });
 
-describe("a job that is over, in /watch", () => {
-  it("ends with how it ended, so it does not look stuck at its last stage", async () => {
-    const jobs = createJobRegistry();
-    const failed = jobs.start({
-      kind: "render",
-      summary: "rt_tuples fs 2",
-      run: async () => {
-        reportStage("rt_tuples 2: checking the unit tests");
-        throw new Error("Stopped at rt_tuples functionality 2: after 20 attempts it still could not be built.");
-      },
-    });
-    await jobs.wait(failed.id);
-    const lines = transcriptLines(failed, 80);
-    const at = lines.indexOf("── finished - failed");
-    expect(at).toBeGreaterThan(lines.findIndex((line) => line.includes("checking the unit tests")));
-    expect(lines.slice(at + 1).join(" ")).toContain("Stopped at rt_tuples functionality 2: after 20 attempts");
-
-    const running = jobs.start({ kind: "render", summary: "still going", run: () => new Promise(() => {}) });
-    reportStage("unused");
-    expect(transcriptLines(running, 80).join("\n")).not.toContain("── finished");
-  });
-});
-
 describe("the functional spec a job is building", () => {
   const spec = {
     label: "rt_tuples functionality 2 of 5",
@@ -290,12 +207,12 @@ describe("the functional spec a job is building", () => {
     });
     await new Promise((done) => setTimeout(done, 10));
     expect(jobPanelLines([module], { expanded: true }).join("\n")).not.toContain("supports arithmetic");
-    expect(transcriptLines(module, 80)).toContain("── building rt_tuples functionality 2 of 5");
+    expect(module.transcript.some((entry) => entry.kind === "spec" && entry.text.startsWith("rt_tuples functionality 2 of 5"))).toBe(true);
 
-    // And whole in /watch, where it began.
-    const lines = transcriptLines(job, 80);
-    expect(lines).toContain("── building rt_tuples functionality 2 of 5");
-    expect(lines.join("\n")).toContain("Adding two tuples adds each component.");
+    // And whole in its transcript - what its log streams - where it began.
+    const built = job.transcript.find((entry) => entry.kind === "spec");
+    expect(built?.text.startsWith("rt_tuples functionality 2 of 5")).toBe(true);
+    expect(built?.text).toContain("Adding two tuples adds each component.");
     expect(describeJob(job)).toContain("building rt_tuples functionality 2 of 5:");
     release();
     await jobs.wait(job.id);

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import { CONFIG_FILE, CONFIG_KEYS, configModuleOf, configModuleOfBuild, moduleConfigFile, readProjectConfig } from "../config.ts";
-import { reportActivity, reportNote } from "./activity.ts";
+import { reportActivity, reportLogNote, reportNote } from "./activity.ts";
 import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -373,7 +373,8 @@ function scriptEnv(): NodeJS.ProcessEnv {
 async function runScript(cwd: string, script: string, args: string[], logDir: string, options: { limitMs?: number; named?: string } = {}): Promise<ScriptRun> {
   const timeoutMs = options.limitMs ?? scriptTimeoutMs;
   const started = Date.now();
-  reportActivity(`  ▶ ${shown(script)} on this machine, ${options.named !== undefined ? "on a fresh copy of the code" : `in place, from ${cwd}`} (limit ${Math.round(timeoutMs / 1000)}s)`);
+  // Where and how it runs, for the log: how it ended is what the activity says.
+  reportLogNote(`  ▶ ${shown(script)} on this machine, ${options.named !== undefined ? "on a fresh copy of the code" : `in place, from ${cwd}`} (limit ${Math.round(timeoutMs / 1000)}s)`);
   const { exitCode, output, timedOut } = await runCommand(`bash ${[options.named ?? script, ...args].map(quote).join(" ")}`, {
     cwd,
     env: scriptEnv(),

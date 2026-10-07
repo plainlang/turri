@@ -9,7 +9,7 @@ import {
   type MarshalledPlainSource,
   type Specifications,
 } from "../plain/spec.ts";
-import { codeCopyOf, type LoadedResource } from "./resources.ts";
+import { codeCopyOf, isCodeResource, type LoadedResource } from "./resources.ts";
 import { acceptanceLabel, acceptanceText, conformanceLabel } from "./test-kinds.ts";
 import { codeCasesBlock, conformanceCasesBlock } from "./cases.ts";
 import { marksGrowAgain } from "./records.ts";
@@ -110,7 +110,9 @@ export function specPrimer(options: { testReqs: boolean }): string {
     "  validates against, a version it reports - it keeps exactly one copy, at the path its code-copy names in the",
     "  codebase (or where the <implementation reqs> put such files), and reads it from there; otherwise it copies none.",
     "  copy_resource makes that copy, whole and byte for byte - never type a resource out. A long one is shown cut",
-    "  short: copy it to read the whole of it.",
+    "  short: copy it to read the whole of it. A resource that is code - a source file or a build manifest, with no",
+    "  code-copy - is code that lives elsewhere, linked so you know what your code plugs into: build on it as the",
+    "  specification says, and never copy it, nor recreate it or what it belongs to.",
     "  An image among them is attached to your first message, numbered in the order they are listed: look at it.",
     "- <spec change>: a change to the specification, section by section, each section in its own tag - what it adds,",
     "  what it changes (before and now), and what it removes.",
@@ -233,7 +235,7 @@ function linkedResourcesSection(resources: LoadedResource[]): string | null {
   // A text resource has one home in the codebase, should the code need it: its path, made relative to the codebase.
   const rendered = resources.map(
     (resource) =>
-      `<resource name="${resource.text}" path="${resource.target}"${resource.image !== undefined ? ` type="${resource.image.mimeType}"` : ` code-copy="${codeCopyOf(resource.target)}"`}>\n${resource.content}\n</resource>`,
+      `<resource name="${resource.text}" path="${resource.target}"${resource.image !== undefined ? ` type="${resource.image.mimeType}"` : isCodeResource(resource.target) ? ' kind="code"' : ` code-copy="${codeCopyOf(resource.target)}"`}>\n${resource.content}\n</resource>`,
   );
   return `<linked resources>\n${rendered.join("\n\n")}\n</linked resources>`;
 }

@@ -74,7 +74,9 @@ describe("jobs that write the same module", () => {
     const a = jobs.start({ kind: "render", summary: "app 3", lanes: ["m"], run: run("a") });
     const b = jobs.start({ kind: "render", summary: "app 4", lanes: ["m"], run: run("b") });
     const lines = jobPanelLines(jobs.list());
-    expect(lines).toContain(`  queued  app 4  (pulse ${b.id}, after ${a.id})`);
+    expect(lines).toContain("  queued  app 4");
+    expect(lines.join("\n")).not.toContain(b.id);
+    expect(lines.join("\n")).not.toContain(`after ${a.id}`);
   });
 
   it("count the whole queue in one line while compact, so none of it goes missing", () => {
@@ -96,7 +98,8 @@ describe("jobs that write the same module", () => {
       (frid) => jobs.start({ kind: "render", summary: `app ${frid}`, lanes: ["m"], run: run(`${frid}`) }).id,
     );
     const lines = jobPanelLines(jobs.list(), { expanded: true });
-    expect(lines).toContain(`  queued  app 6  (pulse ${ids[3]}, after ${ids[2]})`);
+    expect(lines).toContain("  queued  app 6");
+    expect(lines.join("\n")).not.toContain(ids[3]!);
     expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(3);
     // Expanded, the help says how to collapse, and how to find your way around the side panel.
     expect(lines.at(-2)).toContain("ctrl+o collapse · ctrl+h to see what each pulse builds");

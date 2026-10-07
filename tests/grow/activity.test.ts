@@ -35,7 +35,7 @@ describe("what a background job is doing", () => {
       },
     });
     await jobs.wait(job.id);
-    expect(job.activity).toHaveLength(6);
+    expect(job.activity).toHaveLength(10);
     expect(job.activity.at(-1)).toBe("line 19");
   });
 
@@ -90,13 +90,14 @@ describe("tool calls as one line", () => {
 });
 
 describe("the panel", () => {
-  it("shows running jobs only, with their stage and activity", async () => {
+  it("shows running jobs only, by module, time and cost, with their activity and not their stage", async () => {
     const jobs = createJobRegistry();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     jobs.start({
       kind: "render",
       summary: "app.plain functionality 3",
+      module: "app",
       run: async () => {
         reportStage("app 3: writing code and unit tests");
         reportActivity("✎ write app.py");
@@ -108,8 +109,8 @@ describe("the panel", () => {
     await jobs.wait(finished.id);
 
     const lines = jobPanelLines(jobs.list());
-    expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app\.plain functionality 3 · \d+s/);
-    expect(lines).toContain("    app 3: writing code and unit tests");
+    expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app · \d+s$/);
+    expect(lines.join("\n")).not.toContain("app 3: writing code and unit tests");
     expect(lines).toContain("      ✎ write app.py");
     expect(lines.join("\n")).not.toContain("done already");
 

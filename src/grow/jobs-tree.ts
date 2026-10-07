@@ -1,6 +1,6 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { describeUsage } from "./activity.ts";
-import { spinner, summarizeDiff } from "./job-panel.ts";
+import { describeAgents, describeUsage } from "./activity.ts";
+import { pulseCost, pulseName, spinner } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 import { diffFiles, fileHeader, PLAIN_PAINT } from "./diff-view.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
@@ -9,8 +9,8 @@ import type { TranscriptStyle } from "./transcript-view.ts";
  * The side panel's Jobs view: the queue as a tree, read one job at a time.
  *
  * Three sections - running, queued, finished - each opened and closed on its own, and under them one line per job:
- * what it is and what it changes. A job opened shows all of what it builds - the diff, or the spec - and, running,
- * what it is doing. So what is planned can be read without every diff on the screen at once.
+ * its module, its time and its cost. A job opened shows all of what it builds - the diff, or the spec - and, running,
+ * what it is doing; finished, what went on in it. So what is planned can be read without every diff on the screen at once.
  *
  * A cursor moves over the sections and the jobs; it stays on its row, whatever moves under it - a job that finishes
  * leaves its row to the one after it. A job opened stays open while it stays where it is: moving to another section
@@ -105,12 +105,17 @@ export function jobsTreeRows(jobs: Job[], state: JobsTreeState): TreeRow[] {
  */
 const MARK: Record<string, (now: number) => string> = { running: spinner, queued: () => "·", succeeded: () => "✓", failed: () => "✗", stopped: () => "■" };
 
-/** What a job changes, in a line: its diff summed up, or what it builds. */
-export function changeLine(job: Job): string {
-  if (job.diff !== undefined && job.diff.trim() !== "") return summarizeDiff(job.diff);
-  if (job.building !== undefined) return `${job.building.label}: ${job.building.text.split("\n").find((line) => line.trim() !== "")?.trim() ?? ""}`;
-  if (job.follows !== undefined) return `the conformance tests of pulse ${job.follows}`;
-  return "";
+/** A pulse that ran to its end and whose build did not pass - stopped at a gate - is not a success. */
+function didNotPass(job: Job): boolean {
+  return job.status === "succeeded" && (job.details as { passed?: unknown } | undefined)?.passed === false;
+}
+
+/** A pulse's mark: running or queued as it is; finished, in the colour of how it ended - green it passed, red it failed or did not pass, stopped amber. */
+function markOf(job: Job, style: TranscriptStyle): string {
+  if (sectionOf(job) !== "finished") return MARK[job.status]?.(Date.now()) ?? "·";
+  if (didNotPass(job) || job.status === "failed") return style.error("✗");
+  if (job.status === "stopped") return (style.warning ?? style.accent)("■");
+  return (style.success ?? style.added)("✓");
 }
 
 function wrap(text: string, width: number, indent: string, colour: (text: string) => string = (t) => t): string[] {
@@ -156,7 +161,23 @@ function detailLines(job: Job, jobs: Job[], width: number, style: TranscriptStyl
     if (job.now !== undefined) lines.push(style.muted(`${indent}… ${job.now.label} · ${Math.max(0, Math.round((Date.now() - job.now.since) / 1000))}s`));
   }
   if (job.status === "failed" && job.error !== undefined) lines.push(...wrap(job.error.split("\n").slice(0, 6).join("\n"), width, indent, style.error));
-  return lines.length > 0 || filesOf(job).length > 0 ? lines : [style.muted(`${indent}(nothing more to show)`)];
+  if (sectionOf(job) === "finished") lines.push(...whatWentOn(job, width, style));
+  return lines;
+}
+
+/**
+ * What went on in a finished pulse, opened: its agents and what each spent, and whether it passed - its report is
+ * the chat's, and its log has the rest. Its diff follows, a file a row.
+ */
+function whatWentOn(job: Job, width: number, style: TranscriptStyle): string[] {
+  const indent = "        ";
+  const lines: string[] = [];
+  for (const agent of describeAgents(job.agents)) lines.push(...wrap(`· ${agent}`, width, indent, style.muted));
+  const spent = describeUsage(job.usage);
+  if (spent !== "") lines.push(style.muted(`${indent}spent ${spent}`));
+  if (didNotPass(job)) lines.push(style.error(`${indent}did not pass`));
+  if (job.logFile !== undefined) lines.push(style.muted(`${indent}log: ${job.logFile}`));
+  return lines;
 }
 
 /** The rows as lines, the cursor's marked, and where each row starts - for scrolling to it. */
@@ -191,13 +212,10 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
     }
     const { job } = row;
     const open = isOpen(state, job);
-    const spent = describeUsage(job.usage);
-    const change = changeLine(job);
-    const head = `${pointer}   ${open ? "▾" : "▸"} ${MARK[job.status]?.(Date.now()) ?? "·"} ${job.summary}${change !== "" ? ` · ${change}` : ""} · ${formatDuration(job)}${spent !== "" ? ` · ${spent}` : ""}  (pulse ${job.id})`;
+    // A line says which module, how long and what it cost - and the mark where it is, or how it ended; the rest is in it, opened.
+    const head = `${pointer}   ${open ? "▾" : "▸"} ${markOf(job, style)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`;
     const [first = "", ...rest] = wrapTextWithAnsi(head, Math.max(10, width));
     lines.push(here ? style.heading(first) : first, ...rest.map((line) => `        ${line}`));
-    // Running, its stage is the one thing wanted at a glance.
-    if (job.status === "running") lines.push(style.muted(`        ${job.stage ?? "starting"}`));
     if (open) lines.push(...detailLines(job, jobs, width, style));
   });
   return { lines, rowStarts, rows };
@@ -228,10 +246,10 @@ export function scrollTree(state: JobsTreeState, by: number, rowStarts: number[]
   state.cursor = Math.max(0, first);
 }
 
-export type TreeAction = { kind: "none" } | { kind: "handled" } | { kind: "trace"; jobId: string };
+export type TreeAction = { kind: "none" } | { kind: "handled" };
 
-/** A key in the Jobs view. What it does to the tree, or the job whose trace to open. */
-export function treeKey(state: JobsTreeState, rows: TreeRow[], key: "up" | "down" | "toggle" | "open" | "close" | "openAll" | "closeAll" | "trace"): TreeAction {
+/** A key in the Jobs view, and what it does to the tree. */
+export function treeKey(state: JobsTreeState, rows: TreeRow[], key: "up" | "down" | "toggle" | "open" | "close" | "openAll" | "closeAll"): TreeAction {
   const row = rows[state.cursor];
   switch (key) {
     case "up":
@@ -280,7 +298,5 @@ export function treeKey(state: JobsTreeState, rows: TreeRow[], key: "up" | "down
       }
       return { kind: "handled" };
     }
-    case "trace":
-      return row?.kind === "job" || row?.kind === "file" ? { kind: "trace", jobId: row.job.id } : { kind: "none" };
   }
 }

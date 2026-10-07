@@ -1,5 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -8,8 +7,6 @@ import {
   describeDeployment,
   exportModule,
   hostDirOf,
-  installsSoftware,
-  runHostCommand,
   shortPath,
   startDeployed,
   stopDeployed,
@@ -22,71 +19,18 @@ import { haltTool } from "./loop-tools.ts";
 /**
  * The tools that put a module out for the person to try, and start it: the conversation's, and the
  * one-off agent's of `turri release`. The harness does the parts that must hold - exporting the
- * last commit, asking before anything is installed, owning what it starts - and the agent the rest:
- * reading the code to see how it runs, what it needs, and what to tell the person.
+ * last commit, owning what it starts - and the agent the rest: reading the code to see how it runs,
+ * installing what it needs, starting it, and telling the person where to find it. Nothing is put to
+ * the person: a release does everything itself.
  */
 
 export interface DeployState {
-  /** The last deploy: where setup runs and what is started runs from. */
+  /** The last deploy: where what is started runs from. */
   current?: Deployment;
-  /** Commands that keep running the person agreed to start, word for word - ones that fetch as they start. */
-  approvedStarts: Set<string>;
-  /** Commands the person allowed for the rest of the session, with the folder each runs in. */
-  allowedThisSession: Set<string>;
 }
 
 export function createDeployState(): DeployState {
-  return { approvedStarts: new Set(), allowedThisSession: new Set() };
-}
-
-/**
- * How the person answered: allowed once, for the rest of the session, always - in this project, remembered - or not.
- * Undefined when there is no one to ask. A bare yes or no is once or not.
- */
-export type Approval = "once" | "session" | "always" | "no";
-
-/** Put a question to the person. `ctx` is the tool call's. */
-export type Approve = (title: string, body: string, ctx: unknown) => Promise<Approval | boolean | undefined>;
-
-/** The answers, as the person is offered them. */
-export const APPROVALS: Array<{ answer: Approval; label: string }> = [
-  { answer: "once", label: "Allow once" },
-  { answer: "session", label: "Allow for this session" },
-  { answer: "always", label: "Allow always" },
-  { answer: "no", label: "Don't allow" },
-];
-
-/** What allowing remembers: a command, word for word, and the folder it runs in. */
-function allowedKey(dir: string, command: string): string {
-  return `${dir}\n${command.trim()}`;
-}
-
-/** Where a project keeps the commands its person allowed always - delete it to take them back. */
-function allowedFile(plainFile: string): string {
-  return join(projectDirOf(plainFile), ".turri", "allowed-commands.json");
-}
-
-function allowedAlways(plainFile: string): Set<string> {
-  try {
-    const parsed = JSON.parse(readFileSync(allowedFile(plainFile), "utf8")) as { allowed?: Array<{ dir: string; command: string }> };
-    return new Set((parsed.allowed ?? []).map((entry) => allowedKey(entry.dir, entry.command)));
-  } catch {
-    return new Set();
-  }
-}
-
-function allowAlways(plainFile: string, dir: string, commands: string[]): void {
-  const file = allowedFile(plainFile);
-  let allowed: Array<{ dir: string; command: string }> = [];
-  try {
-    allowed = (JSON.parse(readFileSync(file, "utf8")) as { allowed?: typeof allowed }).allowed ?? [];
-  } catch {
-    /* none yet */
-  }
-  const have = new Set(allowed.map((entry) => allowedKey(entry.dir, entry.command)));
-  for (const command of commands) if (!have.has(allowedKey(dir, command))) allowed.push({ dir, command: command.trim() });
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify({ allowed }, null, 2)}\n`);
+  return {};
 }
 
 /** What the agent is to do once the code is in dist - in the deploy tool's answer, and the CLI agent's prompt. */
@@ -95,9 +39,9 @@ export function deployGuide(dir: string): string {
   return [
     `What to do now, to have the person try it - it runs on this machine, outside the sandbox, from ${where}:`,
     `1. Find out how it runs: its README, its manifests (package.json, pyproject.toml, requirements.txt, go.mod, Cargo.toml, pom.xml, build.gradle, docker-compose.yml) and entry points, in ${where}.`,
-    "2. Check the toolchains it needs are on this machine (`command -v node`, `python3 --version`, `go version`, ...). One missing: say plainly what to install, and start nothing. Never install a toolchain.",
-    "3. Anything that installs or downloads - dependencies into a virtual environment or node_modules, a build that fetches packages, an image pull - only through propose_setup, which asks the person first and runs them. The shell refuses such commands. Declined: install nothing, say what it needs, and stop.",
-    "4. Start anything that keeps running - a backend, a frontend's dev server - with activate, with the URL it serves at: never in the shell with & or nohup. An app with a backend and a frontend: start both, the backend first. A command that fetches as it starts (`go run`, `cargo run`, `docker compose up`) is put to the person in propose_setup's long_running first.",
+    "2. Check the toolchains it needs are on this machine (`command -v node`, `python3 --version`, `go version`, ...). One missing: install it with this machine's package manager (brew on macOS, apt or dnf on Linux), then go on.",
+    "3. Install what it needs yourself, in your shell - dependencies into a virtual environment or node_modules, a build that fetches packages, an image pull. Do not ask the person: do it, and fix what fails.",
+    "4. Start anything that keeps running - a backend, a frontend's dev server - with activate, with the URL it serves at: never in the shell with & or nohup. An app with a backend and a frontend: start both, the backend first.",
     "5. Then tell the person, briefly. Something that serves: only where to open it - the frontend's URL, and the API's in one line when there is one. A CLI or a library: a few commands to paste, run from the folder, with what they print. A port that is taken: say which and by what, and do not move the app to another.",
     `Do not change the code in ${where} - it is a copy of what was built, and a fix belongs in the spec. A config file it needs made from its example (a .env from .env.example) is fine.`,
   ].join("\n");
@@ -105,8 +49,8 @@ export function deployGuide(dir: string): string {
 
 /**
  * What the agent is to do on a guided release: the code is in dist, as on any release, and the guidance takes it on from
- * there. The rules of a release to dist hold here too: nothing run or installed that the person did not agree to, what
- * keeps running started with activate, and the built code never edited.
+ * there. The rules of a release to dist hold here too: what keeps running started with activate, and the built code never
+ * edited - and nothing put to the person.
  */
 export function guidedGuide(deployment: Deployment, guidance: string): string {
   const host = shortPath(deployment.hostDir ?? deployment.dir);
@@ -119,18 +63,14 @@ export function guidedGuide(deployment: Deployment, guidance: string): string {
     `What to do now - on this machine, outside the sandbox, from ${host}:`,
     `1. The code to release is in ${dist}: the last commit that landed whole. Take it from there, never from ${built}, where a pulse may be writing. Where the guidance's own tooling reads ${built}, point it at ${dist} if it can take another source; if it cannot, do by hand, from ${dist}, what it does.`,
     `2. Read what the guidance leaves open - the scripts, files and commands it names, in ${host} - then do what it says, in its order. Where it says to change the host - a registration, an import, a config entry - change it. Never change ${built} or ${dist}: a fix to the code belongs in the spec.`,
-    "3. A command that runs a project script, installs or downloads: only through propose_setup, which asks the person first and runs it - the shell refuses such commands. One that keeps running (a start script, a dev server) goes in propose_setup's long_running, and activate starts it.",
-    "4. Start what keeps running with activate, with the URL it serves at - never in the shell with & or nohup.",
+    "3. Run the project's scripts and install what it needs yourself, in your shell. Do not ask the person: do it, and fix what fails.",
+    "4. Start what keeps running - a start script, a dev server - with activate, with the URL it serves at - never in the shell with & or nohup.",
     `5. Then tell the person briefly: what was done, what you changed in ${host} if anything, and where to open it or how to try it. Where the guidance does not fit what you find, say so, and do not guess past it.`,
   ].join("\n");
 }
 
 function text(value: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text: value }], details };
-}
-
-function clip(output: string, max = 3000): string {
-  return output.length > max ? `…${output.slice(-max)}` : output;
 }
 
 /** The folder a command runs in: dist's, or - guided - the host codebase's, or one inside either. */
@@ -148,7 +88,6 @@ function inside(current: Deployment, dir: string | undefined): string {
 export function createDeployTools(options: {
   cwd: string;
   state: DeployState;
-  approve: Approve;
   /** The spec deploy takes when it is given none: the project's module. */
   defaultPlainFile: () => string | undefined;
   /** The pulses halt stops as well - the conversation's. */
@@ -192,7 +131,6 @@ export function createDeployTools(options: {
       const exported = exportModule(plainFile, params.in_module);
       const deployment: Deployment = guidance === undefined ? exported : { ...exported, way: "guided", hostDir: hostDirOf(plainFile, options.cwd) };
       state.current = deployment;
-      state.approvedStarts.clear();
       return text(
         [
           describeDeployment(deployment),
@@ -202,62 +140,6 @@ export function createDeployTools(options: {
         ].join("\n"),
         { module: deployment.moduleName, way: deployment.way, dir: deployment.dir, ...(deployment.hostDir !== undefined ? { host: deployment.hostDir } : {}), commit: deployment.commit },
       );
-    },
-  });
-
-  const proposeSetup = defineTool({
-    name: "propose_setup",
-    label: "Propose setup",
-    description:
-      "Ask the person to allow commands on this machine that the shell will not run on its own - what installs or " +
-      "downloads software (dependencies, a build that fetches packages, an image pull), and a project's own scripts - " +
-      "and, when they say yes, run them in the release's folder, in order, stopping at the first that fails. List every " +
-      "command it takes, as it will run; nothing runs unless they agree. `long_running` are commands to start later with " +
-      "activate (`scripts/start.sh`, `go run .`, `docker compose up`).",
-    promptSnippet: "ask the person before running scripts or installing anything, then run what they agreed to",
-    parameters: Type.Object({
-      commands: Type.Array(Type.String(), { description: "Commands to run now, one line each, as they will run from the deployed folder" }),
-      long_running: Type.Optional(Type.Array(Type.String(), { description: "Commands activate will start later that fetch as they start" })),
-      why: Type.String({ description: "What they do, in a sentence: 'Python packages from requirements.txt, into .venv here', or 'copy the integration into the host, then start it'" }),
-      dir: Type.Optional(Type.String({ description: "A folder inside the deployed one to run them in, e.g. frontend. Default: the deployed folder." })),
-    }),
-    async execute(_id, params, signal, onUpdate, ctx) {
-      const current = needsDeploy();
-      const dir = inside(current, params.dir);
-      const starts = params.long_running ?? [];
-      const body = [
-        `On this machine, in ${shortPath(dir)}:`,
-        ...params.commands.map((command) => `  $ ${command}`),
-        ...(starts.length > 0 ? ["", "and later start:", ...starts.map((command) => `  $ ${command}`)] : []),
-        "",
-        params.why,
-      ].join("\n");
-      // Allowed before - this session, or always in this project - every one of them, word for word, here: run, unasked.
-      const all = [...params.commands, ...starts];
-      const always = allowedAlways(current.plainFile);
-      const known = all.every((command) => state.allowedThisSession.has(allowedKey(dir, command)) || always.has(allowedKey(dir, command)));
-      const asked = known ? "once" : await options.approve("turri wants to run this", body, ctx);
-      const answer: Approval | undefined = asked === true ? "once" : asked === false ? "no" : asked;
-      if (answer === undefined) {
-        return text(`There is no one to ask here, so nothing was run. Tell the person what it needs, as commands they can run themselves in ${shortPath(dir)}, and start nothing that needs them.`, { approved: false });
-      }
-      if (answer === "no") {
-        return text(`The person said no: nothing was run. Tell them what it needs - the commands, to run themselves in ${shortPath(dir)} - and stop.`, { approved: false });
-      }
-      if (answer === "session" || answer === "always") for (const command of all) state.allowedThisSession.add(allowedKey(dir, command));
-      if (answer === "always") allowAlways(current.plainFile, dir, all);
-      for (const command of starts) state.approvedStarts.add(command);
-      const results: string[] = [];
-      for (const command of params.commands) {
-        onUpdate?.({ content: [{ type: "text", text: `▶ ${command}` }], details: {} });
-        const run = await runHostCommand(dir, command, { signal });
-        results.push(`$ ${command}\n(exit ${run.exitCode})\n${clip(run.output.trim())}`);
-        if (run.exitCode !== 0) {
-          return text([`The person agreed, but this failed - the ones after it were not run:`, "", ...results].join("\n"), { approved: true, failed: command });
-        }
-      }
-      const agreed = known ? "The person allowed these before, so they ran without asking" : "The person agreed";
-      return text([`${agreed}, and ${params.commands.length === 1 ? "it" : `all ${params.commands.length}`} ran:`, "", ...results].join("\n"), { approved: true, ...(known ? { allowedBefore: true } : {}) });
     },
   });
 
@@ -278,13 +160,6 @@ export function createDeployTools(options: {
     }),
     async execute(_id, params) {
       const current = needsDeploy();
-      const installing = installsSoftware(params.command);
-      if (installing !== undefined && !state.approvedStarts.has(params.command)) {
-        throw new Error(
-          `Not started: \`${installing}\` installs or fetches software on this machine, which only the person can allow. ` +
-            "Put the command in propose_setup's long_running first - word for word - or start it another way that fetches nothing.",
-        );
-      }
       const started = await startDeployed({
         name: params.name,
         command: params.command,
@@ -300,17 +175,7 @@ export function createDeployTools(options: {
   // The one halt: with the pulses in the conversation, and without them for the release agent.
   const stopTool = haltTool(options.jobs !== undefined ? { jobs: options.jobs } : {});
 
-  return [deploy, proposeSetup, startTool, stopTool];
+  return [deploy, startTool, stopTool];
 }
 
-export const DEPLOY_TOOLS = ["release", "propose_setup", "activate", "halt"];
-
-/** Why a shell command is refused while something is deployed - or nothing when it may run. */
-export function refuseInstall(command: string): string | undefined {
-  const installing = installsSoftware(command);
-  if (installing === undefined) return undefined;
-  return (
-    `Not run: \`${installing}\` installs or fetches software on this machine, which only the person can allow. ` +
-    "Put it in propose_setup - it asks them, and runs it when they agree - or, if they said no, tell them what it needs."
-  );
-}
+export const DEPLOY_TOOLS = ["release", "activate", "halt"];

@@ -80,6 +80,13 @@ describe("the coding agent's prompt", () => {
     expect(prompt).toContain('<resource name="schema.yaml" path="a/schema.yaml" code-copy="a/schema.yaml">\nkind: Example\n</resource>');
   });
 
+  it("marks a linked resource that is code as code, with no place for a copy of it - it lives elsewhere, and is built on", () => {
+    const prompt = codingPrompt({ linkedResources: [{ text: "ingest.py", target: "../src/services/ingest.py", content: "def discover_integrations(): ..." }] });
+    expect(prompt).toContain('<resource name="ingest.py" path="../src/services/ingest.py" kind="code">');
+    expect(prompt).not.toContain('code-copy="src/services/ingest.py"');
+    expect(prompt).toContain("never copy it, nor recreate it or what it belongs to");
+  });
+
   it("says a linked resource is not in the workspace, and that the code keeps at most one copy, where code-copy says", () => {
     const prompt = codingPrompt({ linkedResources: [{ text: "version.json", target: "../resources/version/version.json", content: "{}" }] });
     expect(prompt).toContain('code-copy="resources/version/version.json"');

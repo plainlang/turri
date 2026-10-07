@@ -323,7 +323,9 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
       const args = JSON.stringify(event.args ?? {});
       transcript({ kind: "tool", text: `${shownName(event.toolName)} ${clipText(args, MAX_TOOL_ARGS)}`, full: `${shownName(event.toolName)} ${args}` });
       const took = Date.now() - stepStarted;
-      const line = describeToolCall(event.toolName, event.args);
+      // Which agent made the call, by its role: several work in one pulse.
+      const role = agentRoles.get(session);
+      const line = `${role !== undefined ? `(${role}) ` : ""}${describeToolCall(event.toolName, event.args)}`;
       reportActivity(took >= 1000 ? `${line}   (model ${seconds(took)})` : line);
       reportNow(`running ${shownName(event.toolName)}`);
     }
@@ -582,6 +584,8 @@ const timedSessions = new WeakMap<object, number>();
 
 /** Which agent a session is, and what it runs on - for its transcript entries. */
 const agentLabels = new WeakMap<object, { label: string; model?: string }>();
+/** Each agent's role, to say on its activity lines which agent did what. */
+const agentRoles = new WeakMap<object, AgentRole>();
 
 function agentOf(session: object): { label: string; model?: string } | undefined {
   return agentLabels.get(session);
@@ -827,6 +831,7 @@ export async function createExecutor(opts: {
   // An agent a render starts - it has a label - has its turns timed: as long as its role's turns may take.
   if (opts.label !== undefined) timeTurns(session, config !== undefined ? roleTurnLimitMs(config, opts.role) : undefined);
   sendReasoningEffort(session);
+  if (opts.role !== undefined) agentRoles.set(session, opts.role);
   if (opts.label !== undefined) {
     const thinking = session.thinkingLevel;
     agentLabels.set(session, { label: opts.label, model: session.model !== undefined ? `${session.model.provider}/${session.model.id}${thinking ? `:${thinking}` : ""}` : undefined });

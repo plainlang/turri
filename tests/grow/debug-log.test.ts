@@ -85,7 +85,8 @@ describe("an agent's debug log", () => {
     expect(text).toContain("system prompt");
     expect(text).toContain("You are the coding agent.");
     // The job says where its agent's log is.
-    expect(activity.some((line) => line.startsWith("debug log: .turri/debug/") && line.endsWith("app-1-coding-agent.log"))).toBe(true);
+    // Where it is goes in the trace, not the activity.
+    expect(activity.some((line) => line.startsWith("debug log:"))).toBe(false);
   });
 
   it("streams the whole turn: the prompt, the reply and thinking, every tool call and its whole result, the usage", async () => {

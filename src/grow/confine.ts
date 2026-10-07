@@ -17,7 +17,7 @@ import { Type } from "typebox";
 import { NOTES_FILE } from "./notes.ts";
 import { RECORD_FILE } from "./records.ts";
 import { keptShellOutput, outputsDir, readOutputTool } from "./testing.ts";
-import { reportNote } from "./activity.ts";
+import { reportLogNote } from "./activity.ts";
 import { agentShell, type AgentShell } from "./agent-shell.ts";
 import { ENVIRONMENT_ERROR_TOOL } from "./environment-error.ts";
 import { anotherPulseIn, COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from "./shell.ts";
@@ -378,7 +378,7 @@ export function confinedTools(c: Confinement): ConfinedTools {
     tools.push(withKeptOutput(bash, workdir));
     description += `, bash - ${shell.description}`;
     // Which walls are up, in the job's log.
-    reportNote(`  ${shell.description}`);
+    reportLogNote(`  ${shell.description}`);
     // A cut output - a command's, a test run's - is read whole through read_output, never by a path.
     tools.push(readOutputTool(workdir));
   }

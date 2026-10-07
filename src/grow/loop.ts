@@ -624,6 +624,7 @@ export function createWorkLoop(options: {
     const job: Job = options.registry.start({
       kind: conformance ? "bind" : "regrow",
       summary: `${basename(tip.plainFile)} ${conformance ? "conformance: " : ""}${planned.title}`,
+      module: tip.moduleName,
       diff: shown.diff,
       ...(state.model !== undefined ? { model: state.model } : {}),
       lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
@@ -1161,10 +1162,11 @@ export function createWorkLoop(options: {
         const status = statusOf(state);
         let before = status.running?.jobId;
         if (before !== undefined) lastOf.set(tip.moduleName, before);
-        const row = (id: string, summary: string, note: string, waitingOn: string[]): Job => ({
+        const row = (id: string, summary: string, note: string, waitingOn: string[], conformance = false): Job => ({
           id,
-          kind: "regrow",
+          kind: conformance ? "bind" : "regrow",
           summary,
+          module: tip.moduleName,
           note,
           ...(state.model !== undefined ? { model: state.model } : {}),
           status: "queued",
@@ -1202,6 +1204,7 @@ export function createWorkLoop(options: {
               ? `Being planned into pulses now: ${job.title}. The first starts as soon as the plan is made.`
               : `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a pulse before it ends.`,
             before !== undefined ? [before] : [],
+            job.track === "conformance",
           );
           before = planned.id;
           lastOf.set(tip.moduleName, planned.id);

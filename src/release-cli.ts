@@ -1,6 +1,5 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { createInterface } from "node:readline/promises";
 import {
   createBashToolDefinition,
   createEditToolDefinition,
@@ -12,7 +11,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
-import { createDeployState, createDeployTools, DEPLOY_TOOLS, refuseInstall, type Approve } from "./release-tools.ts";
+import { createDeployState, createDeployTools, DEPLOY_TOOLS } from "./release-tools.ts";
 import { hostDirOf, listDeployed, runningDeployed, shortPath, stopDeployed } from "./grow/release.ts";
 import { projectDirOf } from "./grow/paths.ts";
 import { ask, BEGIN, createExecutor } from "./pi.ts";
@@ -24,9 +23,8 @@ has an agent start it here, on this machine. The module's code, as its last comm
 goes in dist/<module> first. The agent looks for guidance on how this project releases it - what
 --guidance says, the project's AGENTS.md - and follows it from there when there is some: an
 integration its host application takes with the host's own scripts, say. When there is none, it
-reads how the code in dist runs, checks the toolchains it needs, and starts what serves. Either way it asks before it installs or runs
-anything, and stays in the foreground with the servers' output; Ctrl-C stops them. Without a terminal
-to ask, nothing is installed.
+reads how the code in dist runs, installs what it needs, and starts what serves. Either way it asks
+nothing, and stays in the foreground with the servers' output; Ctrl-C stops them.
 
 The project's config.yaml gives the defaults: module (the file when none is given) and
 harness-model (the agent's model).
@@ -67,30 +65,12 @@ function parseArgs(argv: string[]) {
   return { plainFile: positional[0], model, inModule, guidance };
 }
 
-/** Once, for the session, always, or not, at the terminal - or undefined when there is none, and so no one to ask. */
-const askAtTerminal: Approve = async (title, body) => {
-  if (process.stdin.isTTY !== true) return undefined;
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await prompt.question(`\n\n${c.bold(title)}\n${body}\n\n${c.bold("[o]nce · [s]ession · [a]lways · [N]o: ")}`);
-    const said = answer.trim().toLowerCase();
-    return said === "o" || said === "once" || said === "y" || said === "yes" ? "once" : said === "s" || said === "session" ? "session" : said === "a" || said === "always" ? "always" : "no";
-  } finally {
-    prompt.close();
-  }
-};
-
-/** The person's own shell, in the deployed folder - installing nothing they did not agree to. */
+/** The person's own shell, in the deployed folder: it installs and runs what the release needs. */
 function hostBash(dir: string): AnyTool {
   const bash: AnyTool = createBashToolDefinition(dir);
   return {
     ...bash,
     description: `${bash.description}\n\nIt runs on the person's own machine, in ${shortPath(dir)}. Never start a server here: activate does.`,
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const refused = refuseInstall((params as { command: string }).command);
-      if (refused !== undefined) throw new Error(refused);
-      return bash.execute(toolCallId, params, signal, onUpdate, ctx);
-    },
   };
 }
 
@@ -161,7 +141,7 @@ async function main() {
   const model = args.model ?? modelSpec(projectModels(configForSpec(plainFile)).harness);
 
   const state = createDeployState();
-  const tools = createDeployTools({ cwd: process.cwd(), state, approve: askAtTerminal, defaultPlainFile: () => plainFile });
+  const tools = createDeployTools({ cwd: process.cwd(), state, defaultPlainFile: () => plainFile });
   // It decides itself whether there is guidance, and releases: from the host codebase, which holds dist too.
   const dir = hostDirOf(plainFile, process.cwd());
   const notes = projectNotes([process.cwd(), dir, projectDirOf(plainFile)]);

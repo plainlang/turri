@@ -18,10 +18,10 @@ import { RECORD_FILE } from "./records.ts";
  * back, without a list of what each stack leaves lying around (`node_modules`, `.venv`, `target`). The
  * working tree itself is never read or touched.
  *
- * What starts it runs here, on the person's machine, unfenced: a server the person opens
- * in their browser, with their toolchains. So nothing is installed without them saying so - the
- * commands that would are told apart from the rest (`installsSoftware`) and put to them first - and
- * everything started is the harness's to stop: on a redeploy, on /halt, and when turri exits.
+ * What starts it runs here, on the person's machine, unfenced: a server the person opens in their
+ * browser, with their toolchains. The agent that releases it installs and runs what it needs itself,
+ * as any agent with a shell would - nothing is put to the person - and everything started is the
+ * harness's to stop: on a redeploy, on /halt, and when turri exits.
  */
 
 /**
@@ -144,111 +144,6 @@ export function describeDeployment(deployment: Deployment): string {
         ]
       : []),
   ].join("\n");
-}
-
-// ---------------------------------------------------------------------------------------------
-// What installs software.
-
-/** Programs that install or fetch whatever they are asked to do. Asking only what version they are is fine. */
-const INSTALLERS = new Set([
-  "pip", "pip3", "pipx", "uv", "uvx", "poetry", "pipenv", "pdm", "conda", "mamba", "micromamba", "hatch",
-  "npx", "bunx", "pnpx", "deno", "corepack", "volta", "nvm", "fnm", "n",
-  "brew", "apt", "apt-get", "aptitude", "yum", "dnf", "pacman", "apk", "zypper", "port", "snap", "flatpak", "nix", "nix-env", "nix-shell",
-  "gem", "bundle", "bundler", "rbenv", "rvm", "composer", "pecl", "cpan", "cpanm",
-  "go", "cargo", "rustup", "dotnet", "nuget", "mvn", "mvnw", "gradle", "gradlew", "sbt", "lein", "sdk", "sdkmanager", "coursier", "cs",
-  "asdf", "mise", "pyenv", "jenv", "sudo", "doas", "make", "gmake", "just", "task", "bazel",
-]);
-
-/** For these, the subcommands that install or fetch: the rest - run, start, test - only run what is there. */
-const INSTALLING_SUBCOMMANDS: Record<string, Set<string>> = {
-  npm: new Set(["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "ci", "clean-install", "add", "update", "up", "upgrade", "udpate", "dlx", "exec", "x", "create", "init", "innit", "rebuild", "link", "ln", "cache", "install-test", "it", "install-ci-test", "cit"]),
-  pnpm: new Set(["install", "i", "add", "update", "up", "upgrade", "dlx", "exec", "create", "init", "rebuild", "link", "fetch", "import", "env", "setup"]),
-  yarn: new Set(["install", "add", "upgrade", "up", "dlx", "create", "init", "set", "plugin", "import", "link"]),
-  bun: new Set(["install", "i", "add", "a", "update", "upgrade", "x", "create", "init", "link", "pm"]),
-  docker: new Set(["pull", "build", "run", "create", "compose", "buildx", "load", "import", "plugin", "start", "up"]),
-  podman: new Set(["pull", "build", "run", "create", "compose", "load", "import", "start"]),
-  "docker-compose": new Set(["up", "pull", "build", "run", "create", "start"]),
-  "podman-compose": new Set(["up", "pull", "build", "run", "create", "start"]),
-};
-
-/** `python -m <these>` installs. */
-const INSTALLING_MODULES = new Set(["pip", "venv", "virtualenv", "ensurepip", "pipx", "poetry", "uv", "pdm", "conda"]);
-
-/** Arguments that only ask a program about itself. */
-const ONLY_ASKING = new Set(["--version", "-v", "-V", "version", "--help", "-h", "help", "env", "list", "ls", "--list", "config", "outdated", "info", "show", "doctor", "view"]);
-
-/** Wrappers that run the command after them. */
-const WRAPPERS = new Set(["env", "exec", "time", "nohup", "command", "nice", "setsid", "xargs", "caffeinate", "timeout", "stdbuf", "builtin"]);
-
-const LOCAL_HOSTS = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1|host\.docker\.internal)$/;
-
-function words(segment: string): string[] {
-  return (segment.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((word) => word.replace(/^["']|["']$/g, ""));
-}
-
-/** A URL to somewhere other than this machine: what a download reaches for. */
-function remoteUrl(word: string): boolean {
-  const match = /^(?:https?|ftp):\/\/([^/:?#]+|\[[^\]]+\])/i.exec(word);
-  return match !== null && !LOCAL_HOSTS.test(match[1]!);
-}
-
-/** Whether one simple command installs or fetches software. */
-function installingSegment(segment: string): boolean {
-  let all = words(segment);
-  // Past assignments and wrappers, to the program that runs.
-  for (;;) {
-    const first = all[0];
-    if (first === undefined) return false;
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) all = all.slice(1);
-    else if (WRAPPERS.has(first)) {
-      all = all.slice(1);
-      // timeout 30 <command>, nice -n 5 <command>: their own arguments first.
-      while (all[0] !== undefined && (/^-/.test(all[0]) || /^\d+[smhd]?$/.test(all[0]))) all = all.slice(1);
-    } else break;
-  }
-  const [program, ...args] = all as [string, ...string[]];
-  const name = basename(program);
-  const asking = args.length > 0 && args.every((arg) => ONLY_ASKING.has(arg) || arg.startsWith("-"));
-
-  if (INSTALLERS.has(name)) return !asking;
-  const subcommands = INSTALLING_SUBCOMMANDS[name];
-  if (subcommands !== undefined) {
-    const sub = args.find((arg) => !arg.startsWith("-"));
-    // A bare `yarn` installs; a bare `npm`, `bun` or `docker` prints its help.
-    if (sub === undefined) return name === "yarn" && args.length === 0;
-    if (sub === "compose" || sub === "buildx") {
-      const next = args[args.indexOf(sub) + 1];
-      return next !== undefined && !ONLY_ASKING.has(next) && next !== "ps" && next !== "logs" && next !== "down" && next !== "stop";
-    }
-    return subcommands.has(sub);
-  }
-  if (/^python(\d+(\.\d+)?)?$/.test(name) || name === "py") {
-    const at = args.indexOf("-m");
-    const module = at !== -1 ? args[at + 1] : undefined;
-    if (module !== undefined && INSTALLING_MODULES.has(module)) return !args.slice(at + 2).every((arg) => ONLY_ASKING.has(arg));
-    return false;
-  }
-  // Asking the app that runs here is how it is tried; fetching from anywhere else is a download.
-  if (name === "curl" || name === "wget") return args.some(remoteUrl);
-  // A project's own scripts install as often as they run: they are asked about like the rest.
-  if (name.endsWith(".sh") || /(^|\/)scripts?\//.test(program)) return true;
-  if ((name === "bash" || name === "sh" || name === "zsh") && args.some((arg) => arg.endsWith(".sh"))) return true;
-  return false;
-}
-
-/**
- * Whether a shell command installs or fetches software - a package manager, a build that downloads
- * what it depends on, an image pull, a script fetched and piped to a shell - and so is the person's to
- * allow. Returns the part of it that does, or nothing when none does.
- *
- * Read the way a shell splits it - on `&&`, `||`, `;`, `|`, `&`, newlines and subshells - each simple
- * command on its own. A command that only asks a program what version it is installs nothing.
- */
-export function installsSoftware(command: string): string | undefined {
-  if (/\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/.test(command)) return command.trim();
-  if (/\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?python\d*\b/.test(command)) return command.trim();
-  const segments = command.split(/&&|\|\||[;|&\n()`]|\$\(/).map((part) => part.trim()).filter((part) => part !== "");
-  return segments.find(installingSegment);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -443,33 +338,4 @@ export async function startDeployed(input: { name: string; command: string; dir:
     await sleep(1000);
   }
   return failed(`is running, but nothing answered at ${url.href} in ${Math.round(READY_TIMEOUT_MS / 1000)}s`);
-}
-
-/** Run a one-off command in `dir`, on this machine, to the end: setup the person agreed to. */
-export function runHostCommand(dir: string, command: string, options: { timeoutMs?: number; onOutput?: (text: string) => void; signal?: AbortSignal } = {}): Promise<{ exitCode: number; output: string }> {
-  return new Promise((done) => {
-    const child = spawn("bash", ["-c", command], { cwd: dir, env: { ...process.env, CI: process.env.CI ?? "1" }, stdio: ["ignore", "pipe", "pipe"], detached: true });
-    let output = "";
-    const take = (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      output = (output + text).slice(-200_000);
-      options.onOutput?.(text);
-    };
-    child.stdout?.on("data", take);
-    child.stderr?.on("data", take);
-    const stop = () => child.pid !== undefined && signalGroup(child.pid, "SIGTERM");
-    const timer = setTimeout(() => {
-      output += `\n[stopped after ${Math.round((options.timeoutMs ?? 0) / 1000)}s]`;
-      stop();
-    }, options.timeoutMs ?? 20 * 60 * 1000);
-    options.signal?.addEventListener("abort", stop, { once: true });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      done({ exitCode: code ?? 1, output });
-    });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      done({ exitCode: 1, output: `${output}${error.message}` });
-    });
-  });
 }
