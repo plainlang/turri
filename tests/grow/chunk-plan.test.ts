@@ -140,9 +140,33 @@ describe("cutting the queue's work into jobs", () => {
   it("splits a group too big to render well, a functional spec a job", async () => {
     const long = (n: number) => `- A :User: does thing ${n}.\n${Array.from({ length: 70 }, (_, line) => `  - detail ${line}`).join("\n")}`;
     const from = input({}, tree({ definitions: DEFS.slice(0, 2), specs: [long(1), long(2)] }));
-    const plan = await planChunks(from, agents({ groups: [{ specs: [1, 2], title: "Both" }] }));
+    const notes: string[] = [];
+    const plan = await planChunks(from, agents({ groups: [{ specs: [1, 2], title: "Both" }] }), notes);
     expect(plan).toHaveLength(2);
     expect(MAX_LINES_PER_JOB).toBe(120);
+    expect(notes).toEqual([`"Both" is past ${MAX_LINES_PER_JOB} lines with its definitions and reqs - a functional spec a pulse`]);
+  });
+
+  it("notes what the plan did not do as asked - the wishes an agent did not follow, and an answer that did not hold, with why", async () => {
+    const from = input({}, tree({ definitions: DEFS, impl: ["- :Implementation: is Python."], specs: SPECS }));
+    const notes: string[] = [];
+    await planChunks(
+      from,
+      agents(
+        { groups: [{ specs: [1, 2, 3, 4], title: "Everything" }, { specs: [5], title: "Kudos" }], notes: "Kudos alone: it is past the comments." },
+        { implementationReqs: [{ req: 1, to: "all" }], testReqs: [], notes: "Python with the first: it is about everything." },
+      ),
+      notes,
+    );
+    expect(notes).toEqual([
+      "the grouping: Kudos alone: it is past the comments.",
+      'the grouping did not hold ("Everything" has 4 functional specs - at most 3.) - a functional spec a pulse',
+      "the placement: Python with the first: it is about everything.",
+    ]);
+    // A plan that holds, and followed every wish, has nothing to say.
+    const quiet: string[] = [];
+    await planChunks(from, agents({ groups: SPECS.map((_, index) => ({ specs: [index + 1], title: `${index + 1}` })) }, { implementationReqs: [{ req: 1, to: "all" }], testReqs: [] }), quiet);
+    expect(quiet).toEqual([]);
   });
 
   it("puts what is about everything in a job of its own for the code when the first job is too big - never for the conformance tests, whose every job tests a functional spec", async () => {

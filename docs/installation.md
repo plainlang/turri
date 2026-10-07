@@ -19,7 +19,7 @@ Then, in the project that holds your specs:
 
 ```bash
 cd ~/my-project
-turri init-config   # a config.yaml with the model you talk to and the one that writes the code
+turri init-config   # a config.yaml with the model you talk to and the one that writes the code, every other key commented out
 turri               # pi, with turri's tools, skills and themes loaded
 ```
 

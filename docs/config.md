@@ -14,6 +14,9 @@ harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the spe
 coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
 ```
 
+Below them it puts every other key, commented out - each with what it does, what it is unset, and an example
+value - so you can see what there is and try one by uncommenting it.
+
 It never writes over a `config.yaml` already there - `--force` does - and takes a folder other than the current
 one as its argument.
 

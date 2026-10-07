@@ -12,8 +12,9 @@ import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
  * It is drawn as a component rather than handed over as lines, because pi cuts a list of
  * lines off at ten, and a panel that silently drops the end of the queue is worse than
  * none. Instead it sizes itself: compact by default, so the whole queue is always
- * accounted for even when it is only counted, and in full while tool output is expanded -
- * pi's own ctrl+o, which the person already uses to see more of what the agent did.
+ * accounted for even when it is only counted, and the agents' trace in full while tool output is
+ * expanded - pi's own ctrl+o, which the person already uses to see more of what the agent did.
+ * The queue and what finished stay counted either way: the side panel lists them.
  */
 
 export const JOB_PANEL_KEY = "turri-jobs";
@@ -197,7 +198,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
 
   if (queued.length > 0) {
     if (lines.length > 0) lines.push("");
-    if (expanded || queued.length === 1) {
+    // The queue is the same whether ctrl+o expands the agents' trace or not: the side panel lists it in full.
+    if (queued.length === 1) {
       for (const job of queued) {
         lines.push(`  queued  ${pulseName(job)}`);
         if (job.note !== undefined) lines.push(`          ${job.note}`);
@@ -205,20 +207,14 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
     } else {
       // Counted, then named in order - so however narrow the line gets, the number is there.
       lines.push(`  queued (${queued.length}): ${queued.map(pulseName).join(" → ")}`);
-      hidden = true;
     }
   }
 
-  // What finished, newest first: each with ctrl+o, as the side panel lists it; else counted, in one line.
+  // What finished, newest first, counted in one line - ctrl+o or not: the side panel lists each.
   if (finished.length > 0) {
     lines.push("");
     const marks = options.marks ?? PLAIN_MARKS;
-    if (expanded) {
-      for (const job of finished) lines.push(`  ${finishedMark(job, marks)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`);
-    } else {
-      lines.push(`  finished (${finished.length}): ${finished.map((job) => `${finishedMark(job, marks)} ${pulseName(job)}`).join(" · ")}`);
-      if (finished.length > 1) hidden = true;
-    }
+    lines.push(`  finished (${finished.length}): ${finished.map((job) => `${finishedMark(job, marks)} ${pulseName(job)}`).join(" · ")}`);
   }
 
   // Always a line of help: how to see more here, and how to inspect the jobs in the side panel.
@@ -227,7 +223,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   } else if (expanded) {
     lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each pulse builds`);
   } else {
-    lines.push(`  ctrl+o ${hidden ? "for the full queue and activity" : "expand"} · ${PANEL_KEY} to see what each pulse builds`);
+    lines.push(`  ctrl+o ${hidden ? "for the agents' full trace" : "expand"} · ${PANEL_KEY} to see what each pulse builds`);
   }
   return lines;
 }

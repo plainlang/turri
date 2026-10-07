@@ -1606,6 +1606,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
     promptSnippet: "steer how the work is planned, for the project or one module",
     promptGuidelines: [
       "When the user says how the work should be cut or ordered - 'build the batch worker's helpers with the worker', 'models first' - for more than one change, call steer with it in their words. For one change only, pass it as the guidance of regrow.",
+      "After steering, call regrow to plan again. Where its reply lists what the plan did not do as asked, tell the user that and the reasons it gives - never a reason of your own.",
     ],
     parameters: Type.Object({
       action: Type.Union([Type.Literal("add"), Type.Literal("set"), Type.Literal("clear"), Type.Literal("show")], {

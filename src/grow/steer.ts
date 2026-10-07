@@ -100,7 +100,7 @@ export function steeringBlock(steering: Steering[] | undefined): string[] {
     ...steering.map((entry) => `<from source="${entry.source}">\n${entry.text.trim()}\n</from>`),
     "</how the queue is to be planned>",
     "Follow these as a strong preference: they say how the person wants the work cut and ordered. They never override the",
-    "limits and checks the plan is held to; where one would, keep to the limit, and say so where you give your answer.",
+    "limits and checks the plan is held to; where one would, keep to the limit, and say which and why in your answer's notes.",
     "",
   ];
 }

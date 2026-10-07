@@ -146,6 +146,8 @@ export interface NewSpec {
 
 export interface GroupAnswer {
   groups: Array<{ specs: number[]; title: string }>;
+  /** What of the person's wishes it did not follow, and why. */
+  notes?: string;
 }
 
 export interface PlaceInput {
@@ -164,9 +166,14 @@ export type Target = number | "all" | "built";
 export interface PlaceAnswer {
   implementationReqs: Array<{ req: number; to: Target }>;
   testReqs: Array<{ req: number; to: Target }>;
+  /** What of the person's wishes it did not follow, and why. */
+  notes?: string;
 }
 
-/** The two judgements, each asked again with what was wrong with its answer. Injectable, so the plan is testable without a model. */
+/**
+ * The two judgements, each asked again with what was wrong with its answer - the last answer given, whether it holds
+ * or not: the plan checks it again. Injectable, so the plan is testable without a model.
+ */
 export interface ChunkAgents {
   group(specs: NewSpec[], check: (answer: GroupAnswer) => string[], steering?: Steering[]): Promise<GroupAnswer | undefined>;
   place(input: PlaceInput, check: (answer: PlaceAnswer) => string[]): Promise<PlaceAnswer | undefined>;
@@ -345,10 +352,12 @@ function titleOf(change: SpecChange): string {
 
 /**
  * Cut the queue's work - from `input.base` to `input.current` - into jobs, as the three steps say. Returns the draft
- * the work loop runs: checked (checkDraft), or, when nothing holds, the whole work as one job.
+ * the work loop runs: checked (checkDraft), or, when nothing holds, the whole work as one job. `notes` is given what
+ * the plan did not do as asked - the person's wishes an agent did not follow and why, an answer that did not hold, a
+ * group split for its size - for the conversation to say, rather than guess.
  */
-export async function planChunks(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
-  if (input.track !== "conformance") return cut(input, agents);
+export async function planChunks(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Promise<DraftJob[]> {
+  if (input.track !== "conformance") return cut(input, agents, notes);
   // The conformance tests are grouped by the harness, as one job as far as the guardrail lets: no agent is asked.
   return anchored(await cut(input), netChanges(input.base, input.current));
 }
@@ -404,7 +413,12 @@ function conformanceGroups(
   return groups.map((group) => ({ specs: group.specs, title: group.specs.map(titleOfSpec).join("; ") }));
 }
 
-async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> {
+async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Promise<DraftJob[]> {
+  /** What the plan did not do as asked: in the activity, and in the notes. */
+  const say = (text: string) => {
+    reportActivity(`  ${text}`);
+    notes?.push(text);
+  };
   const net = netChanges(input.base, input.current);
   if (net.length === 0) return [];
   // What is grouped into jobs: the functional specs grown again - the modules' below first, as the codebase is built on
@@ -458,7 +472,11 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
     : grouped !== undefined && groupProblems(numbered, grouped).length === 0
       ? grouped.groups
       : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));
-  if (!conformance && (grouped === undefined || groupProblems(numbered, grouped).length > 0)) reportActivity("  the grouping did not hold - a functional spec a pulse");
+  if (grouped?.notes !== undefined && grouped.notes.trim() !== "") say(`the grouping: ${grouped.notes.trim()}`);
+  if (!conformance && agents !== undefined) {
+    if (grouped === undefined) say("the grouping was not given - a functional spec a pulse");
+    else if (groupProblems(numbered, grouped).length > 0) say(`the grouping did not hold (${groupProblems(numbered, grouped).join(" ")}) - a functional spec a pulse`);
+  }
   let chunks = chunksFor(groups);
 
   // 2. The definitions each group uses.
@@ -478,8 +496,9 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
       testReqs: testReqs.map((change, index) => ({ number: index + 1, text: textOf(change) })),
     };
     const answer = (await agents?.place(placeInput, (given) => placeProblems(placeInput, given)).catch(() => undefined)) ?? undefined;
+    if (answer?.notes !== undefined && answer.notes.trim() !== "") say(`the placement: ${answer.notes.trim()}`);
     placement = answer !== undefined && placeProblems(placeInput, answer).length === 0 ? answer : undefined;
-    if (placement === undefined && agents !== undefined) reportActivity("  the placement did not hold - every implementation req with the first pulse, every test req with the first conformance pulse");
+    if (placement === undefined && agents !== undefined) say("the placement did not hold - every implementation req with the first pulse, every test req with the first conformance pulse");
   }
   /** A req's chunk: its group, the built job, or the first job of the new work for "all". */
   const chunkOf = (to: Target): Chunk => (to === "built" ? builtChunk()! : to === "all" ? newChunks()[0]! : newChunks()[to - 1]!);
@@ -495,6 +514,9 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
 
   // A group too big to render well goes a functional spec a job; its reqs with the first of them.
   if (newChunks().some((chunk) => chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB)) {
+    for (const chunk of newChunks()) {
+      if (chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB) say(`"${chunk.title}" is past ${MAX_LINES_PER_JOB} lines with its definitions and reqs - a functional spec a pulse`);
+    }
     const split = groups.flatMap((group) => {
       const chunk = newChunks().find((candidate) => candidate.specs[0] === bySpec.get(group.specs[0]!));
       return chunk !== undefined && chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB ? group.specs.map((number) => ({ specs: [number], title: titleOf(bySpec.get(number)!) })) : [group];
@@ -522,7 +544,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents): Promise<DraftJob[]> 
   const draft = draftOf(chunks, net);
   if (checkDraft(input, draft).length === 0) return draft;
   // It does not hold together: a functional spec a job, every req with the first.
-  reportActivity(`  the plan did not hold together (${checkDraft(input, draft)[0]?.slice(0, 120)}) - a functional spec a pulse`);
+  say(`the plan did not hold together (${checkDraft(input, draft)[0]?.slice(0, 120)}) - a functional spec a pulse`);
   placement = undefined;
   groups.splice(0, groups.length, ...numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) })));
   chunks = chunksFor(groups);
@@ -600,6 +622,7 @@ export function placePrompt(input: PlaceInput): string {
 }
 
 const TargetSchema = Type.Union([Type.Number(), Type.Literal("all"), Type.Literal("built")]);
+const NOTES = "Each of the person's wishes for how the queue is planned that you did not follow, and why - a limit it would break, say. Leave it out when you followed them all, or there are none.";
 
 /** Ask one step of an agent, and ask again with what was wrong, until it holds or the retries are spent. */
 async function askStep<A>(options: { cwd: string; model?: string; label: string; task: string; tool: (take: (answer: A) => void) => ToolDefinition; check: (answer: A) => string[] }): Promise<A | undefined> {
@@ -614,7 +637,7 @@ async function askStep<A>(options: { cwd: string; model?: string; label: string;
       answer = undefined;
       await ask(session, `That does not hold:\n- ${problems.join("\n- ")}\n\nCall ${tool.name} again, with it fixed.`);
     }
-    return answer !== undefined && options.check(answer).length === 0 ? answer : undefined;
+    return answer;
   } finally {
     session.dispose();
   }
@@ -638,6 +661,7 @@ export function llmChunkAgents(options: { cwd: string; model?: string; label?: s
             description: "The new functional specs in groups, in order: each group's spec numbers and a short title.",
             parameters: Type.Object({
               groups: Type.Array(Type.Object({ specs: Type.Array(Type.Number()), title: Type.String() })),
+              notes: Type.Optional(Type.String({ description: NOTES })),
             }),
             async execute(_id, params) {
               take(params as GroupAnswer);
@@ -660,10 +684,11 @@ export function llmChunkAgents(options: { cwd: string; model?: string; label?: s
             parameters: Type.Object({
               implementation_reqs: Type.Array(Type.Object({ req: Type.Number(), to: TargetSchema })),
               test_reqs: Type.Array(Type.Object({ req: Type.Number(), to: TargetSchema })),
+              notes: Type.Optional(Type.String({ description: NOTES })),
             }),
             async execute(_id, params) {
-              const given = params as { implementation_reqs: PlaceAnswer["implementationReqs"]; test_reqs: PlaceAnswer["testReqs"] };
-              take({ implementationReqs: given.implementation_reqs, testReqs: given.test_reqs });
+              const given = params as { implementation_reqs: PlaceAnswer["implementationReqs"]; test_reqs: PlaceAnswer["testReqs"]; notes?: string };
+              take({ implementationReqs: given.implementation_reqs, testReqs: given.test_reqs, ...(given.notes !== undefined ? { notes: given.notes } : {}) });
               return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
             },
           }) as ToolDefinition,

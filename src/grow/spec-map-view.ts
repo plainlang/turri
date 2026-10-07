@@ -255,7 +255,6 @@ function annotation(item: MarkedItem, page: MarkedPage, jobs: Job[], style: Tran
     if (item.mark === "planned") return style.muted(`← removing in pulse ${item.pulse!.number}`);
   }
   if (item.mark === "growing" && item.state === "test") return style.accent(`← its conformance tests being written${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
-  if (item.mark === "growing") return style.accent(`← growing now${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
   if (item.rolledBack !== undefined) return style.error(`← rolled back · was pulse ${item.rolledBack}`);
   if (item.mark === "planning" && item.state === "new") return style.muted("← new · planning");
   if (item.mark === "waiting" && item.state === "new" && page.tracked) return style.muted("← new · not planned yet");

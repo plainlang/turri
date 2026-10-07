@@ -85,8 +85,9 @@ come waits for a free slot, and says so.
 
 - **The panel** above the input, while something runs or waits, shows each running pulse - its module,
   time and cost, and what its agents are doing - the queue, by module, and what finished, newest first,
-  its mark green, red or amber as in the side panel: in one line, or each with its time and cost with
-  `ctrl+o`. It shows no spec diff - the side panel does. With nothing running or waiting it is gone.
+  its mark green, red or amber as in the side panel, each in one line. `ctrl+o` expands the agents' trace
+  alone; the queue and what finished stay counted - the side panel lists them. It shows no spec diff - the
+  side panel does. With nothing running or waiting it is gone.
 - **A pulse's change** is what its agent works from, not a text diff of the module's file: the items
   `<spec change>` gives the agent - only what the pulse's functional specs use, an import's items as
   well as the module's own, a code pulse's without the test reqs - each in the file it is written in,
@@ -118,7 +119,7 @@ come waits for a free slot, and says so.
   | Mark | Means |
   | --- | --- |
   | `✓` | built: the code record has it as the spec does |
-  | `⠋` | growing now, in the running pulse - with how long it has run |
+  | `⠋` | growing now, in the running pulse |
   | `4` | planned, in that pulse - dimmer than the one growing: the numbers move whenever the plan is made again |
   | `·` | differs from the code, with no plan behind it - the top line says why |
   | `…` | the planner is cutting it into pulses now |

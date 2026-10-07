@@ -371,6 +371,13 @@ the conversation (`steer`, for the whole project or one module, for the session)
 and whatever asks for the work - `regrow` and `brood`'s `write_spec_diff`
 take a `guidance` of their own, which the loop keeps with that module.
 
+A plan is kept until the spec, what it starts from or its steering changes. `steer` alone plans nothing: the
+next look does - a `regrow`, a job ending, the spec changing. Then the work not running yet is planned again
+to follow it, a running job going on as it is. Where a plan did not do as asked, it says so, and what `regrow`
+returns lists it under "what the plan did not do as asked": each wish an agent did not follow, with why (both
+tools take a `notes` for that), a grouping or placement that did not hold, with what was wrong, and a group
+split for its size. The conversation tells the person that, rather than guessing.
+
 ### When the spec changes
 
 A spec change is a notice, not a diff to run: **`regrow`**, called after the spec was edited by any means -
