@@ -298,6 +298,8 @@ export interface MapCodebase {
   planning?: Track;
   /** The module below it that it waits for. */
   waitsFor?: string;
+  /** Its conformance tests are on: by the config, or asked for this session. */
+  conformance: boolean;
   /** Why nothing runs there, when nothing does. */
   why?: string;
   /** Halted, or the planner found no plan: it needs the person. `pulse`, the pulse that did not land. */
@@ -1325,6 +1327,7 @@ export function createWorkLoop(options: {
             plainFile: tip.plainFile,
             buildDir: tip.buildDir,
             pulses,
+            conformance: state.conformance !== undefined || configConformance(tip.plainFile),
             ...(state.planning !== undefined ? { planning: state.planning } : {}),
             ...(running === undefined && state.waitsFor !== undefined ? { waitsFor: state.waitsFor } : {}),
             ...(running === undefined && state.why !== undefined ? { why: state.why } : {}),

@@ -3,7 +3,6 @@ import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works
 import { highlightLine, roleOf, type PlainRole } from "../plain/highlight.ts";
 import { DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS } from "../plain/spec.ts";
 import type { DiffPaint } from "./diff-view.ts";
-import { conceptsUsed } from "./drift.ts";
 import { spinner } from "./job-panel.ts";
 import { formatDuration, type Job } from "./jobs.ts";
 import { countOf, type Mark, type MarkedItem, type MarkedPage } from "./spec-map.ts";
@@ -101,6 +100,8 @@ function markText(item: MarkedItem, style: TranscriptStyle, now: number): string
 export const CONFORMS = "⊨";
 
 function testsText(item: MarkedItem, style: TranscriptStyle, now: number): string {
+  // A test req's own mark says it: it is the conformance tests' alone.
+  if (item.state === "test") return " ";
   if (item.testing === true) return style.accent(spinner(now));
   if (item.tests === "now") return (style.conforms ?? style.success ?? style.added)(CONFORMS);
   if (item.tests === "older") return style.muted(CONFORMS);
@@ -253,6 +254,7 @@ function annotation(item: MarkedItem, page: MarkedPage, jobs: Job[], style: Tran
     if (item.mark === "growing") return style.muted(`← being removed now${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
     if (item.mark === "planned") return style.muted(`← removing in pulse ${item.pulse!.number}`);
   }
+  if (item.mark === "growing" && item.state === "test") return style.accent(`← its conformance tests being written${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
   if (item.mark === "growing") return style.accent(`← growing now${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
   if (item.rolledBack !== undefined) return style.error(`← rolled back · was pulse ${item.rolledBack}`);
   if (item.mark === "planning" && item.state === "new") return style.muted("← new · planning");
@@ -261,23 +263,6 @@ function annotation(item: MarkedItem, page: MarkedPage, jobs: Job[], style: Tran
 }
 
 const firstLine = (text: string) => text.split("\n")[0] ?? "";
-
-/** An item's short name, as another item lists it: its first line, cut. */
-function shortName(item: MarkedItem): string {
-  const line = firstLine(item.text).replace(/^-\s*/, "").trim();
-  return line.length > 48 ? `${line.slice(0, 47)}…` : line;
-}
-
-/** A mark as a word, for the item that lists another. */
-function markWord(item: MarkedItem, now: number): string {
-  const tested = item.tests === "now" ? ` ${CONFORMS}` : "";
-  if (item.mark === "built") return `✓${tested}`;
-  if (item.mark === "growing") return `${spinner(now)}${tested}`;
-  if (item.mark === "planned") return `pulse ${item.pulse!.number}${tested}`;
-  if (item.mark === "planning") return `…${tested}`;
-  if (item.mark === "stuck") return `!${tested}`;
-  return `·${tested}`;
-}
 
 function wrapped(text: string, width: number, colour: (text: string) => string = (line) => line): string[] {
   return text
@@ -300,14 +285,16 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
     lines.push(`${CONTINUED}${style.muted("acceptance tests:")}`);
     for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `  ${highlighted(line, style)}`).join("\n"), width));
   }
-  // Where it stands: built, growing, planned, or why it is neither.
+  // Where it stands, when its mark alone does not say: growing, planned, or why it is neither. Built, the ✓ says it.
   const elapsed = elapsedOf(item, jobs);
   const pulse = item.pulse;
   const where =
-    item.state === "test"
-      ? "a test req: the conformance tests follow it - it is not built into the code"
-      : item.state === "built"
-        ? "built: the code record has it as the spec does"
+    item.mark === "built" || item.mark === "none"
+      ? undefined
+      : item.state === "test"
+        ? pulse !== undefined
+          ? `a test req: conformance pulse ${pulse.number} writes the conformance tests to follow it${pulse.running ? `, now${elapsed !== undefined ? ` · ${elapsed}` : ""}` : ""}`
+          : "a test req: the conformance tests do not follow it yet - they are written once the code is built"
         : pulse !== undefined
           ? `${item.state === "removed" ? "taken out" : "grown"} by pulse ${pulse.number}${pulse.running ? `, growing now${elapsed !== undefined ? ` · ${elapsed}` : ""}` : " (planned - the number moves when the plan is made again)"}: ${pulse.title}`
           : item.mark === "planning"
@@ -317,30 +304,7 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
               : item.mark === "stuck"
                 ? `not growing: ${page.codebase?.stuck?.why ?? page.status}`
                 : `not planned yet: ${page.status}`;
-  lines.push(...wrapped(where, width, item.mark === "stuck" ? style.error : style.muted));
-  if (item.section === FUNCTIONAL_REQUIREMENTS) {
-    const tests =
-      item.testing === true
-        ? "conformance tests: being written now"
-        : item.tests === "now"
-          ? "conformance tests: written for it as it reads now"
-          : item.tests === "older"
-            ? "conformance tests: written for its earlier text - written again once it is built"
-            : item.tests === "removed"
-              ? "conformance tests: written for it - they go with it"
-              : "conformance tests: none written for it";
-    lines.push(...wrapped(tests, width, style.muted));
-  }
-  // A definition: the built functional specs that use its concept - what a change to it can break.
-  if (item.section === DEFINITIONS) {
-    const concept = /^- (:[^:\s]+:)/.exec(item.text.trim())?.[1];
-    const definitions = page.items.filter((other) => other.section === DEFINITIONS && other.state !== "removed").map((other) => ({ markdown: other.text }));
-    const users = concept === undefined ? [] : page.items.filter((other) => other.section === FUNCTIONAL_REQUIREMENTS && other.state !== "removed" && conceptsUsed(other.text, definitions).has(concept));
-    if (users.length > 0) {
-      const built = users.filter((user) => user.state === "built").length;
-      lines.push(...wrapped(`used by ${users.length} functional spec${users.length === 1 ? "" : "s"}${built > 0 ? `, ${built} built` : ""}: ${users.map((user) => `${shortName(user)} (${markWord(user, now)})`).join(", ")}`, width, style.muted));
-    }
-  }
+  if (where !== undefined) lines.push(...wrapped(where, width, item.mark === "stuck" ? style.error : style.muted));
   return lines;
 }
 
