@@ -13,6 +13,7 @@ import {
   whyBubblewrapFailed,
   type SandboxFence,
 } from "../../src/grow/os-sandbox.ts";
+import { writableFor } from "../../src/grow/agent-shell.ts";
 import { runCommand } from "../../src/grow/shell.ts";
 
 /**
@@ -117,7 +118,7 @@ describe.runIf(wall.kind !== "none")(`behind ${wall.kind === "none" ? "no wall" 
       cwd: code,
       read: [],
       write: [code],
-      writable: [env.HOME!, env.TMPDIR!, join(project, "plain_modules", ".turri", "cache")],
+      writable: writableFor(env, moduleDir),
       machine: machineFor(env, TOOLCHAIN_VARIABLES),
       deny: [join(code, ".turri.json")],
     };
@@ -167,6 +168,29 @@ describe.runIf(wall.kind !== "none")(`behind ${wall.kind === "none" ? "no wall" 
     expect(result.exitCode, result.output).toBe(0);
     expect(result.output.trim().split("\n")).toEqual([env.TMPDIR!, env.HOME!]);
   });
+
+  it.runIf(wall.kind === "seatbelt" && spawnSync("jcmd", ["-h"]).status === 0)(
+    "lets a JVM attach to one it started - as Mockito's inline mocks do - but never to one of the person's",
+    async () => {
+      writeFileSync(join(code, "Sleep.java"), "public class Sleep { public static void main(String[] a) throws Exception { Thread.sleep(30000); } }\n");
+      const own = await run("java Sleep.java 2>/dev/null & P=$!; sleep 3; jcmd $P VM.version 2>/dev/null | tail -1; kill $P");
+      expect(own.output).toMatch(/JDK \d+/);
+
+      // The person's JVM, its attach socket already open in the per-user temporary folder.
+      const outsideEnv = { ...process.env };
+      delete outsideEnv.DIRHELPER_USER_DIR_SUFFIX;
+      const outside = spawn("java", [join(code, "Sleep.java")], { stdio: "ignore", env: outsideEnv });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        expect(spawnSync("jcmd", [String(outside.pid), "VM.version"], { env: outsideEnv }).status).toBe(0);
+        const theirs = await run(`jcmd ${outside.pid} VM.version >/dev/null 2>&1 && echo reached || echo refused`);
+        expect(theirs.output).toContain("refused");
+      } finally {
+        outside.kill();
+      }
+    },
+    60_000,
+  );
 
   it("caps the processes and the size of a file", async () => {
     const result = await run("ulimit -S -f");

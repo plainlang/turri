@@ -121,7 +121,7 @@ describe("the testing scripts, in an agent's prompt", () => {
 });
 
 describe("the testing scripts, run", () => {
-  it("run on the code in place, from the project, when the project says testing-scripts-run-on: in-place - without the provider keys", async () => {
+  it("run by default on the code in place, from the project - without the provider keys", async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -130,7 +130,6 @@ describe("the testing scripts, run", () => {
     const code = join(root, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, "app.py"), "print('hi')\n");
-    writeFileSync(join(root, "config.yaml"), "testing-scripts-run-on: in-place\n");
     const script = join(root, "run_unittests.sh");
     writeFileSync(script, 'echo "cwd=$(pwd)"; echo "build=$1"; ls "$1"; echo "key=${ANTHROPIC_API_KEY:-none}"; echo "host=$(uname -s)"\n');
     const before = process.env.ANTHROPIC_API_KEY;
@@ -161,7 +160,7 @@ describe("the testing scripts, run", () => {
 });
 
 describe("the testing scripts, run on a copy", () => {
-  it("run by default on this machine, on a fresh copy of the code named for its module and the run, with the script copied beside it, in the person's environment but for the provider keys", async () => {
+  it("run with testing-scripts-run-on: copy on this machine, on a fresh copy of the code named for its module and the run, with the script copied beside it, in the person's environment but for the provider keys", async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, readdirSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -170,6 +169,7 @@ describe("the testing scripts, run on a copy", () => {
     const code = join(root, "plain_modules", "app", "code");
     mkdirSync(code, { recursive: true });
     writeFileSync(join(code, "app.py"), "print('hi')\n");
+    writeFileSync(join(root, "config.yaml"), "testing-scripts-run-on: copy\n");
     const script = join(root, "test_scripts", "run_unittests.sh");
     mkdirSync(join(root, "test_scripts"));
     writeFileSync(script, 'echo "build=$1"; ls "$1"; echo "me=$0"; echo "home=$HOME"; echo "key=${ANTHROPIC_API_KEY:-none}"; touch "$1/made-by-the-run"\n');

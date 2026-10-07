@@ -19,14 +19,26 @@ import { projectDirOf } from "./grow/paths.ts";
  * judge-model:                                              # the judge and the test review (default: coding-model)
  *   model: google/gemini-3.1-pro
  * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chat chose) or false (default: all, with test reqs)
+ * conformance-budget: 30%                                   # under chosen: how many functional specs a module may have chosen, beside those with acceptance tests - a count or a share (default: no limit)
  * review: false                                             # review the code and its tests once they pass (default: true)
  * allow-to-stop-jobs: false                                 # stop a running job the spec moved on from (default: true)
  * rules-off: [integrations]                                 # ***plain rules to leave out of the prompts, by name (default: none)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters - see test-scripts.ts
- * testing-scripts-run-on: in-place                         # what the testing scripts run on: copy (default), or in-place - see test-scripts.ts
+ * testing-scripts-run-on: in-place                         # what the testing scripts run on: in-place (default), or copy - see test-scripts.ts
+ * turn-limit: 150                                           # seconds each turn of an agent a render starts has (default: 120; 0 for none)
+ * models:                                                   # each agent role's own model, thinking and turn limit - see AGENT_ROLES
+ *   default: amazon-bedrock/global.openai.gpt-6-luna         #   every role not named
+ *   coding: { model: amazon-bedrock/eu.anthropic.claude-sonnet-5, thinking: high, turn-limit: 150 }
+ *   explorer: google/gemini-3.1-flash-lite
  * ```
+ *
+ * `models:` names a model, a thinking level and a turn limit per agent role (AGENT_ROLES), each falling back as
+ * roleModel says: a role it does not name takes `default`, and what an entry leaves out it takes from there too.
+ * `harness-model`, `coding-model` and `judge-model` are the same as `models: chat`, `coding` and `judge`, which win
+ * over them. The turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes;
+ * TURRI_TURN_LIMIT wins over all of them.
  *
  * Each model is a model reference and a thinking level (off, minimal, low, medium, high, xhigh, max),
  * either of which may be left out; a bare string is the model alone. What a model leaves out it takes
@@ -78,6 +90,22 @@ export interface ModelChoice {
   thinking?: ThinkingLevel;
 }
 
+/**
+ * The agents turri starts, by what they do - each can be given its own model, thinking and turn limit (`models:`).
+ * The code fixer of a conformance run and the repair agent are coding agents; the unit-test and conformance arbiters
+ * are both `arbiter`.
+ */
+export const AGENT_ROLES = ["chat", "chooser", "planner", "diagnosis", "release", "coding", "conformance", "explorer", "reviewer", "test-reviewer", "judge", "arbiter"] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
+/** The roles on the conversation's side: without their own entry they take the chat's model, not `default`. */
+const CHAT_SIDE: readonly AgentRole[] = ["chat", "chooser", "planner", "diagnosis", "release"];
+
+/** A role's model and thinking, and how long each of its turns may take, in seconds - each may be left out. */
+export interface RoleChoice extends ModelChoice {
+  turnLimit?: number;
+}
+
 function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
 }
@@ -112,15 +140,48 @@ export function inheritModel(own: ModelChoice | undefined, from: ModelChoice | u
   return { ...(model !== undefined ? { model } : {}), ...(thinking !== undefined ? { thinking } : {}) };
 }
 
-/** The three models as they hold: the judge inherits from the coding model, the coding model from the harness model. */
-export function projectModels(config: Pick<ProjectConfig, "harnessModel" | "codingModel" | "judgeModel">): {
+/**
+ * The three models as they hold: the judge inherits from the coding model, the coding model from the harness model -
+ * `models:` over them: `chat` over harness-model, `coding` over coding-model, `judge` over judge-model, and `default`
+ * between the harness model and the rest.
+ */
+export function projectModels(config: Pick<ProjectConfig, "harnessModel" | "codingModel" | "judgeModel" | "models">): {
   harness?: ModelChoice;
   coding?: ModelChoice;
   judge?: ModelChoice;
 } {
-  const harness = config.harnessModel;
-  const coding = inheritModel(config.codingModel, harness);
-  return { harness, coding, judge: inheritModel(config.judgeModel, coding) };
+  const models = config.models ?? {};
+  const harness = inheritModel(choiceOf(models.chat), config.harnessModel);
+  const coding = inheritModel(choiceOf(models.coding), inheritModel(config.codingModel, inheritModel(choiceOf(models.default), harness)));
+  return { harness, coding, judge: inheritModel(choiceOf(models.judge), inheritModel(config.judgeModel, inheritModel(choiceOf(models.default), coding))) };
+}
+
+/** A role entry's model and thinking alone. */
+function choiceOf(entry: RoleChoice | undefined): ModelChoice | undefined {
+  if (entry === undefined || (entry.model === undefined && entry.thinking === undefined)) return undefined;
+  return { ...(entry.model !== undefined ? { model: entry.model } : {}), ...(entry.thinking !== undefined ? { thinking: entry.thinking } : {}) };
+}
+
+/**
+ * What the config itself says a role runs on - its own entry, the legacy key that names it (judge-model for the judge
+ * and the test review), then `default` (the chat's side: the chat's model instead) - or nothing when it says nothing
+ * of it, and the role runs on what it is given: the job's model, which the command line and the conversation choose.
+ * The coding role always runs on what it is given: its config is already in it (projectModels).
+ */
+export function roleModel(config: Pick<ProjectConfig, "harnessModel" | "judgeModel" | "models">, role: AgentRole): ModelChoice | undefined {
+  if (role === "coding") return undefined;
+  const models = config.models ?? {};
+  const own = choiceOf(models[role]);
+  if (CHAT_SIDE.includes(role)) return own === undefined ? undefined : inheritModel(own, inheritModel(choiceOf(models.chat), config.harnessModel));
+  const legacy = role === "judge" || role === "test-reviewer" ? config.judgeModel : undefined;
+  return inheritModel(own, inheritModel(legacy, choiceOf(models.default)));
+}
+
+/** How long each turn of a role's agents may take, in milliseconds: its own, `default`'s, `turn-limit:`'s - or undefined, the harness's default. */
+export function roleTurnLimitMs(config: Pick<ProjectConfig, "models" | "turnLimit">, role: AgentRole | undefined): number | undefined {
+  const models = config.models ?? {};
+  const seconds = (role !== undefined ? models[role]?.turnLimit : undefined) ?? models.default?.turnLimit ?? config.turnLimit;
+  return seconds !== undefined ? seconds * 1000 : undefined;
 }
 
 /** A model as the config gives it: a string, or `model:` and `thinking:`. */
@@ -132,6 +193,33 @@ function modelChoice(value: unknown): ModelChoice | undefined {
   const thinking = isThinkingLevel(raw.thinking) ? raw.thinking : undefined;
   if (model === undefined && thinking === undefined) return undefined;
   return { ...(model !== undefined ? { model } : {}), ...(thinking !== undefined ? { thinking } : {}) };
+}
+
+/** A role's entry under `models:`: a model string, or `model:`, `thinking:` and `turn-limit:`. */
+function roleChoice(value: unknown): RoleChoice | undefined {
+  const choice = modelChoice(value);
+  const raw = value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const turnLimit = turnLimitSetting(raw["turn-limit"] ?? raw.turn_limit);
+  if (choice === undefined && turnLimit === undefined) return undefined;
+  return { ...(choice ?? {}), ...(turnLimit !== undefined ? { turnLimit } : {}) };
+}
+
+/** A turn limit in seconds: a whole number, 0 for none. */
+function turnLimitSetting(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
+}
+
+/** `models:` - each role's entry, by its name; `default` for every role not named. */
+function modelsSetting(value: unknown): ProjectConfig["models"] {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const models: NonNullable<ProjectConfig["models"]> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const name = key.replace(/_/g, "-");
+    if (name !== "default" && !(AGENT_ROLES as readonly string[]).includes(name)) continue;
+    const choice = roleChoice(entry);
+    if (choice !== undefined) models[name as AgentRole | "default"] = choice;
+  }
+  return Object.keys(models).length > 0 ? models : undefined;
 }
 
 export interface ProjectConfig {
@@ -153,6 +241,12 @@ export interface ProjectConfig {
    */
   conformanceTests?: boolean | "chosen";
   /**
+   * Under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside
+   * those with acceptance tests - a count, or a share of the module's functional specs (rounded up, at least one).
+   * Every choice for the module counts, whenever it was made; the person's own bind is not limited. Unset: no limit.
+   */
+  conformanceBudget?: { count: number } | { share: number };
+  /**
    * Whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at
    * most, the second weighed by the arbiter. false: the work goes on once its tests pass. Unset: true.
    */
@@ -171,8 +265,8 @@ export interface ProjectConfig {
   /** Path from the root to the static checks script - optional: the coding agent's to run, never a gate. */
   staticChecksScript?: string;
   /**
-   * What the testing scripts run on, on this machine: a fresh copy of the code (the default), or the code in place - for
-   * an integration whose scripts merge it into a host codebase.
+   * What the testing scripts run on, on this machine: the code in place (the default) - as for an integration whose
+   * scripts merge it into a host codebase - or a fresh copy of the code.
    */
   testingScriptsRunOn?: "copy" | "in-place";
   /** How many jobs run at once in the chat - modules that share nothing build side by side up to it. Unset: from the machine's memory. */
@@ -198,6 +292,10 @@ export interface ProjectConfig {
    * toolchain installed somewhere unusual. A module's own are added to the project's.
    */
   toolchains?: string[];
+  /** Each agent role's own model, thinking and turn limit; `default` for every role not named. */
+  models?: Partial<Record<AgentRole | "default", RoleChoice>>;
+  /** Seconds each turn of an agent a render starts has, for every role without its own. Unset: 120. 0: none. */
+  turnLimit?: number;
 }
 
 /** The config keys, as written in the file. */
@@ -207,6 +305,7 @@ export const CONFIG_KEYS = {
   codingModel: "coding-model",
   judgeModel: "judge-model",
   conformanceTests: "conformance-tests",
+  conformanceBudget: "conformance-budget",
   review: "review",
   allowToStopJobs: "allow-to-stop-jobs",
   unittestsScript: "unittests-script",
@@ -218,6 +317,8 @@ export const CONFIG_KEYS = {
   compactAt: "compact-at",
   agentEnv: "agent-env",
   toolchains: "toolchains",
+  models: "models",
+  turnLimit: "turn-limit",
 } as const satisfies Record<keyof ProjectConfig, string>;
 
 function whatScriptsRunOn(value: unknown): "copy" | "in-place" | undefined {
@@ -229,6 +330,19 @@ function conformanceSetting(value: unknown): boolean | "chosen" | undefined {
   if (typeof value === "boolean") return value;
   const word = typeof value === "string" ? value.trim().toLowerCase() : undefined;
   return word === "all" ? true : word === "chosen" ? "chosen" : word === "false" ? false : word === "true" ? true : undefined;
+}
+
+/** `conformance-budget:` - a whole number, or a share such as `30%`. Anything else is not read. */
+function budgetSetting(value: unknown): ProjectConfig["conformanceBudget"] {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return { count: value };
+  const share = typeof value === "string" ? /^\s*(\d+(?:\.\d+)?)\s*%\s*$/.exec(value) : null;
+  if (share !== null && Number(share[1]) <= 100) return { share: Number(share[1]) / 100 };
+  return undefined;
+}
+
+/** How many functional specs a module of `count` may have chosen under a budget: the count, or the share rounded up - at least one. */
+export function budgetFor(budget: NonNullable<ProjectConfig["conformanceBudget"]>, count: number): number {
+  return "count" in budget ? budget.count : Math.max(1, Math.ceil(budget.share * count));
 }
 
 function text(value: unknown): string | undefined {
@@ -253,7 +367,22 @@ export function readProjectConfig(root: string, module?: string): ProjectConfig 
   merged.toolchains = project.toolchains !== undefined && own.toolchains !== undefined ? [...new Set([...project.toolchains, ...own.toolchains])] : (own.toolchains ?? project.toolchains);
   merged.codingModel = inheritModel(own.codingModel, project.codingModel);
   merged.judgeModel = inheritModel(own.judgeModel, project.judgeModel);
+  merged.models = joinModels(project.models, own.models);
   return withoutUndefined(merged);
+}
+
+/** A module's `models:` over the project's, role by role - each entry taking what it leaves out from the project's; the chat's the project's alone. */
+function joinModels(project: ProjectConfig["models"], own: ProjectConfig["models"]): ProjectConfig["models"] {
+  if (own === undefined) return project;
+  const joined: NonNullable<ProjectConfig["models"]> = { ...(project ?? {}) };
+  for (const [role, entry] of Object.entries(own) as Array<[AgentRole | "default", RoleChoice]>) {
+    if (role === "chat") continue;
+    const base = project?.[role];
+    const choice = inheritModel(choiceOf(entry), choiceOf(base));
+    const turnLimit = entry.turnLimit ?? base?.turnLimit;
+    joined[role] = { ...(choice ?? {}), ...(turnLimit !== undefined ? { turnLimit } : {}) };
+  }
+  return joined;
 }
 
 /** A module's `agent-env:` added to the project's. */
@@ -346,6 +475,7 @@ function readConfigFile(path: string): ProjectConfig {
     codingModel: modelChoice(raw[CONFIG_KEYS.codingModel]) ?? modelChoice(raw.model),
     judgeModel: modelChoice(raw[CONFIG_KEYS.judgeModel]),
     conformanceTests: conformanceSetting(conformance),
+    conformanceBudget: budgetSetting(raw[CONFIG_KEYS.conformanceBudget]),
     review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
     allowToStopJobs: typeof raw[CONFIG_KEYS.allowToStopJobs] === "boolean" ? (raw[CONFIG_KEYS.allowToStopJobs] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
@@ -365,5 +495,7 @@ function readConfigFile(path: string): ProjectConfig {
       typeof raw[CONFIG_KEYS.parallelJobs] === "number" && Number.isInteger(raw[CONFIG_KEYS.parallelJobs]) && (raw[CONFIG_KEYS.parallelJobs] as number) >= 1
         ? (raw[CONFIG_KEYS.parallelJobs] as number)
         : undefined,
+    models: modelsSetting(raw[CONFIG_KEYS.models]),
+    turnLimit: turnLimitSetting(raw[CONFIG_KEYS.turnLimit]),
   };
 }

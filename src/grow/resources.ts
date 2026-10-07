@@ -1,6 +1,7 @@
-import { readFileSync, statSync } from "node:fs";
-import { extname, join } from "node:path";
-import { openFrom } from "../plain/files.ts";
+import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { collectLinkedResources, type MarshalledPlainSource } from "../plain/spec.ts";
 import { scriptKind } from "./test-scripts.ts";
 
@@ -11,6 +12,10 @@ export interface LoadedResource {
   content: string;
   /** An image: sent to the agent with its first message, not as text. */
   image?: ResourceImage;
+  /** Where the file is: copy_resource copies it whole from here. */
+  source?: string;
+  /** Its text was cut for the prompt: how long it is whole. */
+  cutFrom?: number;
 }
 
 /** A linked image as a model is sent it. */
@@ -64,20 +69,71 @@ export function loadLinkedResources(
       loaded.push({ text: resource.text, target: resource.target, content: `[an image: attached to your first message, image ${number}]`, image });
       continue;
     }
-    let content = openFrom(templateDirs, resource.target);
-    if (content === null) {
-      try {
-        content = readFileSync(resource.target, "utf8");
-      } catch {
-        continue;
-      }
+    const source = [...templateDirs.map((dir) => join(dir, resource.target)), resource.target].find((path) => isFileAt(path));
+    if (source === undefined) continue;
+    let content = readFileSync(source, "utf8");
+    const whole = content.length;
+    if (whole > MAX_RESOURCE_CHARS) {
+      content = `${content.slice(0, MAX_RESOURCE_CHARS)}\n... [cut here: ${whole} characters whole - copy_resource puts the whole file at its code-copy path, to read it there]`;
     }
-    if (content.length > MAX_RESOURCE_CHARS) {
-      content = `${content.slice(0, MAX_RESOURCE_CHARS)}\n... [truncated, ${content.length} characters total]`;
-    }
-    loaded.push({ text: resource.text, target: resource.target, content });
+    loaded.push({ text: resource.text, target: resource.target, content, source: resolve(source), ...(whole > MAX_RESOURCE_CHARS ? { cutFrom: whole } : {}) });
   }
   return loaded;
+}
+
+function isFileAt(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Where in a codebase a linked resource's one copy goes: its path, without the steps up and the leading `./`. */
+export function codeCopyOf(target: string): string {
+  return target
+    .split(/[\\/]/)
+    .filter((part) => part !== "" && part !== "." && part !== "..")
+    .join("/");
+}
+
+/**
+ * `copy_resource`: a linked resource copied whole into the agent's own folder - at its code-copy path, or where it
+ * says - by the harness, byte for byte. The agent's prompt shows a long resource cut short, and the file itself is
+ * outside its walls: copied, it reads the whole of it there, and the code or the tests use that one copy.
+ */
+export function createCopyResourceTool(options: { resources: LoadedResource[]; dir: string }): ToolDefinition {
+  const root = resolve(options.dir);
+  const copyable = options.resources.filter((resource) => resource.source !== undefined && resource.image === undefined);
+  return defineTool({
+    name: "copy_resource",
+    label: "Copy a linked resource",
+    description:
+      "Copy a linked resource whole into your folder - at its code-copy path unless you give another, inside your folder - " +
+      "byte for byte. Use it for a resource the code or the tests need as a file, and to read one the prompt shows cut short.",
+    promptSnippet: "copy_resource: a linked resource copied whole into your folder, at its code-copy path",
+    parameters: Type.Object({
+      path: Type.String({ description: "The resource's path, as <linked resources> gives it" }),
+      to: Type.Optional(Type.String({ description: "Where in your folder, relative to it - its code-copy path when left out" })),
+    }),
+    async execute(_id, params) {
+      const { path, to } = params as { path: string; to?: string };
+      const resource = copyable.find((candidate) => candidate.target === path || codeCopyOf(candidate.target) === codeCopyOf(path));
+      if (resource === undefined) {
+        const known = copyable.map((candidate) => candidate.target).join(", ");
+        return { content: [{ type: "text" as const, text: `No linked resource ${path}. ${known !== "" ? `The ones you have: ${known}.` : "You have none to copy."}` }], details: {} };
+      }
+      const target = resolve(root, to ?? codeCopyOf(resource.target));
+      const inside = relative(root, target);
+      if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
+        return { content: [{ type: "text" as const, text: `Not copied: ${to} is not inside your folder, ${root}.` }], details: {} };
+      }
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(resource.source!, target);
+      const size = statSync(target).size;
+      return { content: [{ type: "text" as const, text: `Copied ${resource.target} whole to ${inside} (${size} bytes). Read it there.` }], details: {} };
+    },
+  }) as ToolDefinition;
 }
 
 /** The images among loaded resources, in the order the prompt numbers them. */

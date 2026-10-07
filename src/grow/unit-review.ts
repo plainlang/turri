@@ -285,7 +285,7 @@ export async function createUnitReviewer(options: {
     customTools: [submit, ...canItFail, ...fence.tools],
     tools: [...fence.names, ...canItFail.map((tool) => tool.name), "submit_review"],
     model: options.model,
-    label: `${options.label} reviewer`,
+    label: `${options.label} reviewer`, role: "reviewer",
     system: fence.note,
     task: unitReviewTask({ ...options, canItFail: options.unitScript !== undefined }),
     compaction: { instructions: REVIEWER_COMPACTION },

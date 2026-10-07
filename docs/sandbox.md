@@ -154,7 +154,9 @@ namespaces) the check and the audit hold alone. What a command behind it reaches
   `toolchains:` - nothing else of the person's home;
 - writes: its role's own roots - none for a role that only reads - and the module's home, `TMPDIR` and caches. On macOS
   the developer tools' own scratch files too (`xcrun`'s database, clang's module cache), which go where macOS says, not
-  where `TMPDIR` does;
+  where `TMPDIR` does - and a folder of the module's own in macOS's per-user temporary folder
+  (`DIRHELPER_USER_DIR_SUFFIX`), where its JVMs keep their attach sockets, so Mockito's inline mocks, `jcmd` and
+  `jstack` attach to a JVM it started; the person's JVMs' sockets, beside it, stay out of reach;
 - never the code record; no Unix socket outside its folders (on macOS, the name service's excepted); signals and
   process listings only within its own sandbox (bubblewrap's PID namespace, Seatbelt's same-sandbox), so `ps` shows
   nothing else and `kill` reaches nothing else;

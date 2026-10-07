@@ -10,7 +10,7 @@ import { abandonWork, markWork, recordHistory, type WorkStart } from "./lineage.
 import { missingToolchainError } from "./environment-error.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
-import { notesForSession, withNotes } from "./notes.ts";
+import { NOTES_TURN, notesForSession, withNotes } from "./notes.ts";
 import { createScriptTool, MissingTestScriptError, runConformanceScript, runUnitScript, withTestingScripts, type TestScripts } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
@@ -72,7 +72,7 @@ async function repairRegression(input: {
   const [specifications] = getSpecificationsForFrid(input.tree, input.frids[input.frids.length - 1]!);
   const runs: TestRun[] = [];
 
-  const fence = confinedTools({ workdir: input.buildDir });
+  const fence = confinedTools({ workdir: input.buildDir, reportsEnvironment: true });
   const notes = notesForSession(input.buildDir, `${input.step} regression repair`);
   reportStage(`${unitOf(input.moduleName)}: starting the repair agent${input.model ? ` (${input.model})` : ""}`);
   const session = await createExecutor({
@@ -91,7 +91,8 @@ async function repairRegression(input: {
     ],
     tools: [...fence.names, ...FIX_TOOLS, ...WEB_TOOLS],
     model: input.model,
-    label: `${input.step} repair agent`,
+    label: `${input.step} repair agent`, role: "coding",
+    checkEnvironment: { run: () => runUnitScript(input.buildDir, input.scripts.unit!), script: input.scripts.unit! },
     system: `${fence.note}\n\n${workspaceBlock({ dir: input.buildDir, hasMyDiff: FIX_TOOLS.includes("my_diff") })}`,
     task: withNotes(
       withTestingScripts(
@@ -122,7 +123,7 @@ async function repairRegression(input: {
     });
     if (restored.length > 0) reportActivity(`  put back ${restored.length} conformance test file(s) the repair agent changed`);
     reportStage(`${unitOf(input.moduleName)}: checking the working notes were left`);
-    await notes.ensureWritten((next) => ask(session, next, input.onDelta));
+    await notes.ensureWritten((next) => ask(session, next, input.onDelta, NOTES_TURN));
     return restored.length > 0
       ? `${report}\n\n(The harness put back ${restored.length} conformance test file(s) this repair changed.)`
       : report;

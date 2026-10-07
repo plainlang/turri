@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
-import { ask, BEGIN, createExecutor, refuseIfModelIsBlind } from "../pi.ts";
+import { ask, BEGIN, createExecutor, refuseIfModelIsBlind, type TurnOptions } from "../pi.ts";
 import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser } from "../plain/parser.ts";
 import {
   ACCEPTANCE_TESTS,
@@ -20,7 +20,7 @@ import { abandonWork, diffSinceSnapshot, moduleDirOf, recordHistory, startWork, 
 import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unansweredPrompt } from "./submit-work.ts";
 import type { JobCases } from "./drift.ts";
 import { CONFORMANCE_COMPACTION } from "./compaction.ts";
-import { notesForSession, readNotes, reflectOnReview, withNotes } from "./notes.ts";
+import { NOTES_TURN, notesForSession, passedOutcome, readNotes, reflectOnReview, withNotes } from "./notes.ts";
 import { labelsPrompt, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
   createScriptTool,
@@ -70,7 +70,7 @@ import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../confi
 import { defaultBuildDir, modulesRoot, testsDirUnder, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule, moduleSection, section, sectionModules, specChangeBlock, type SectionModules } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
-import { loadLinkedResources, resourceImages } from "./resources.ts";
+import { createCopyResourceTool, loadLinkedResources, resourceImages } from "./resources.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import {
   findTestRemovals,
@@ -145,6 +145,11 @@ export interface RenderConformanceTestsResult {
   rounds?: number;
   /** Whether the agent changed the code to make the tests pass. */
   codeChanged: boolean;
+  /**
+   * The code and the tests as they were at the harness's last green run - the whole suite and the unit tests passing -
+   * file by file: what is still as it was then needs no run of the whole suite again.
+   */
+  green?: { code: Map<string, string>; tests: Map<string, string> };
   /** Conformance tests that went missing mid-run and had to be justified. */
   testRemovals: TestRemoval[];
   /**
@@ -292,6 +297,8 @@ export async function renderConformanceTests(
   const unitRuns: TestRun[] = [];
   const testRemovals: TestRemoval[] = [];
   const codeBefore = digestFiles(buildDir);
+  // The code and the tests at the last green run: the whole suite and the unit tests passing on them.
+  let green: { code: Map<string, string>; tests: Map<string, string> } | undefined;
   const codeChanged = () => {
     const diff = diffFiles(codeBefore, digestFiles(buildDir));
     return diff.added.length + diff.changed.length + diff.removed.length > 0;
@@ -400,7 +407,7 @@ export async function renderConformanceTests(
 
   // The conformance agent: its file tools write the tests folder and read the code too - how it is reached, what it is
   // called - and its shell holds only the tests. The full outputs of test runs come through read_output, not by path.
-  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, buildDir], write: [conformanceDir] });
+  const fence = confinedTools({ workdir: conformanceDir, read: [conformanceDir, buildDir], write: [conformanceDir], reportsEnvironment: true });
   const notes = notesForSession(buildDir, `${label} conformance`);
   // Each agent runs the suite three times a turn at most: the third ends its turn, and the harness runs it and judges.
   const conformanceRuns = turnLimited(
@@ -438,20 +445,23 @@ export async function renderConformanceTests(
           return answerAsExplorer({ buildDir, spec: specContext, account: invocation, question, label, model: options.model, onDelta: options.onDelta });
         },
       }),
+      createCopyResourceTool({ resources: linkedResources, dir: conformanceDir }),
     ],
-    tools: [...fence.names, "run_conformance_tests", "my_diff", "ask_explorer", "update_notes", "submit_work", ...WEB_TOOLS],
+    tools: [...fence.names, "run_conformance_tests", "my_diff", "ask_explorer", "update_notes", "submit_work", "copy_resource", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
+    role: "conformance",
     system: `${fence.note}\n\n${workspaceBlock({ dir: conformanceDir, hasMyDiff: true })}`,
     task: [withNotes(agentPrompt, buildDir), "", ...SUBMIT_WORK_NOTE].join("\n"),
     compaction: { instructions: CONFORMANCE_COMPACTION },
+    checkEnvironment: { run: () => runConformanceScript(buildDir, [conformanceDir], scripts), script: scripts.conformance! },
     images: resourceImages(linkedResources),
   });
 
   /** A turn of the conformance agent: a fresh count of its runs of the suite. */
-  const askConformance = (text: string, onDelta?: (delta: string) => void) => {
+  const askConformance = (text: string, onDelta?: (delta: string) => void, turn?: TurnOptions) => {
     conformanceRuns.newTurn();
-    return ask(executor, text, onDelta);
+    return ask(executor, text, onDelta, turn);
   };
 
   // The coding agent, made the first time the code is what is wrong.
@@ -472,6 +482,7 @@ export async function renderConformanceTests(
         ...fixerServices.tools,
       ],
       toolNames: ["run_unit_tests", "run_conformance_tests", ...fixerServices.names, "update_notes"],
+      checkEnvironment: { run: () => runUnitScript(buildDir, scripts.unit!), script: scripts.unit! },
     });
     fixerConformanceRuns.newTurn();
     return ask(fixer, withNotes(text, buildDir), options.onDelta);
@@ -768,6 +779,7 @@ export async function renderConformanceTests(
         continue;
       }
       stage("unit tests pass too");
+      green = { code: digestFiles(buildDir), tests: digestFiles(conformanceDir) };
       // The review gate: passing tests prove nothing when they assert nothing, mock the software, or leave out
       // what the spec asks for. It has to pass, as the suite and the unit tests do.
       const testChanges = diffFiles(testsAtStart, digestFiles(conformanceDir));
@@ -884,9 +896,12 @@ export async function renderConformanceTests(
       break;
     }
 
-    stage("checking the working notes were left");
-    await notes.ensureWritten((next) => askConformance(next, options.onDelta));
-    if (fixer !== undefined) await fixerNotes.ensureWritten((next) => ask(fixer!, next, options.onDelta));
+    // Notes are kept only with work that lands: work that does not is rolled back, notes and all.
+    if (verified) {
+      stage("checking the working notes were left");
+      await notes.ensureWritten((next) => askConformance(next, options.onDelta, NOTES_TURN), passedOutcome("conformance testing script"));
+      if (fixer !== undefined) await fixerNotes.ensureWritten((next) => ask(fixer!, next, options.onDelta, NOTES_TURN), passedOutcome("conformance testing script"));
+    }
     const changed = codeChanged();
     if (verified) {
       // The tests, and the code when it changed: one commit if they share a module folder.
@@ -917,6 +932,7 @@ export async function renderConformanceTests(
       ...(environment !== undefined ? { environment } : {}),
       ...(unlabelled !== undefined ? { unlabelled } : {}),
       ...(reviewWaived !== undefined ? { reviewWaived } : {}),
+      ...(verified && green !== undefined ? { green } : {}),
       ...(!verified && lastReview !== undefined ? { review: lastReview } : {}),
     };
   } finally {

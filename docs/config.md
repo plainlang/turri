@@ -39,7 +39,12 @@ judge-model:                         # the verdicts of a conformance run (defaul
 conformance-tests: true              # write and run conformance tests (default: where there are test reqs)
 unittests-script: test_scripts/run_unittests_python.sh
 conformance-tests-script: test_scripts/run_conformance_tests_python.sh
-testing-scripts-run-on: in-place     # what the testing scripts run on: in-place - the code itself (default: copy - a fresh copy)
+testing-scripts-run-on: copy         # what the testing scripts run on: copy - a fresh copy (default: in-place - the code itself)
+turn-limit: 150                      # seconds each agent turn has (default: 120; 0 for none)
+models:                              # each agent role's model, thinking and turn limit - see below
+  default: amazon-bedrock/global.openai.gpt-6-luna
+  coding: { model: amazon-bedrock/eu.anthropic.claude-sonnet-5, thinking: high, turn-limit: 180 }
+  explorer: google/gemini-3.1-flash-lite
 ```
 
 | key | what it sets | unset |
@@ -48,7 +53,8 @@ testing-scripts-run-on: in-place     # what the testing scripts run on: in-place
 | `harness-model` | the model `turri chat` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regrow`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
-| `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, a conformance job after each code job. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
+| `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
+| `conformance-budget` | under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside those with acceptance tests - a count (`2`) or a share of its functional specs (`30%`, rounded up, at least one). Every choice for the module counts, whenever it was made - ahead of the code, or once it is built; the chooser and the chat model are told what is left, and `turri regrow`'s chooser can choose no more. Your own `bind` is not limited. A module's `config.<module>.yaml` can set its own | no limit |
 | `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
 | `rules-off` | a list of rule names - `integrations`, `concise-specs`, the files of `genome/rules/` without `.md` - left out of the conversation's prompt and every spec-writing agent's: a rule this project's own skills or AGENTS.md replace, such as one that says to probe a live API before any spec is written. The project's alone | none |
 | `allow-to-stop-jobs` | `true` or `false`: whether turri stops a running job the spec has moved on from - a functional spec it grows changed, or a file one links was edited - rolls it back and grows the spec as it now is. `false`: the job runs to its end and lands, and what changed since is grown on top of it by the next job - see [growing the code](growing.md). Your own `halt` stops a job either way | `true` |
@@ -59,12 +65,40 @@ testing-scripts-run-on: in-place     # what the testing scripts run on: in-place
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | half this machine's cores, between one and four - see [how many jobs at once](#how-many-jobs-at-once) |
 | `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A module's `config.<module>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
 | `toolchains` | folders of this machine an agent's commands may read beside the system's, the `PATH`'s and those the toolchain variables point at - a toolchain installed somewhere unusual (`[/srv/zig]`). A module's own add to the project's. See [the OS sandbox](sandbox.md#the-os-sandbox) | none |
-| `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`. `in-place`: the real build and tests folders, the script at its own path, from the project - for an integration embedded in a host codebase (see [the testing scripts](growing.md#the-testing-scripts)) | `copy` |
+| `turn-limit` | seconds each turn of an agent a job starts has, for every role without its own (`models:`); `0` for none. `TURRI_TURN_LIMIT` wins over it. A turn past it ends at its next request to the model - see [growing the code](growing.md) | 120 |
+| `models` | each agent role's own model, thinking and turn limit - see [models per role](#models-per-role) | every role on `coding-model`, the conversation's side on `harness-model` |
+| `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `in-place`: the real build and tests folders, the script at its own path, from the project - so a script that finds a host codebase from its own path finds it. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`, with the script copied beside it; it gives the coding agent `can_it_fail` (see [the testing scripts](growing.md#the-testing-scripts)) | `in-place` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
 does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the
 wrong type, as if it were not there. `model:`, from before there were separate models, is read as
 `coding-model`.
+
+## Models per role
+
+`models:` gives each kind of agent its own model, thinking level and turn limit. Each entry is a model
+(`provider/id`, or `provider/id:thinking`) or `{ model, thinking, turn-limit }`, any of which may be left out:
+
+| role | the agents |
+| --- | --- |
+| `default` | every role not named below - but the conversation's side |
+| `chat` | `turri chat`'s model - the same as `harness-model`, which it wins over |
+| `chooser`, `planner`, `diagnosis`, `release` | the conversation's side: the conformance chooser of `turri regrow`, the planner's agents, the diagnosis of a failed job, `turri release`'s agent. Unnamed, the chat's model |
+| `coding` | the coding agent, the code fixer of a conformance run and the repair agent - the same as `coding-model`, which it wins over. `--model` on the command line, or a model chosen in the conversation (`engine`), wins over both |
+| `conformance` | the conformance agent |
+| `explorer` | the explorers of a conformance run |
+| `reviewer` | the review of the code and its unit tests |
+| `test-reviewer` | the review of the conformance tests - `judge-model` too, when it is set |
+| `judge` | the judge of a failing conformance run - the same as `judge-model`, which it wins over |
+| `arbiter` | the arbiters that weigh a second review |
+
+What an entry leaves out it takes from `default`: `reviewer: { thinking: low }` runs the default model, thinking
+little. A turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes; `TURRI_TURN_LIMIT`
+wins over all of them. A `config.<module>.yaml` lays its own `models:` over the project's, role by role - all but
+`chat`, the project's alone.
+
+The thinking level reaches the model as each provider takes it. OpenAI's models on Bedrock are sent it as their
+reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`) by turri itself, as pi sends them none.
 
 ## How many jobs at once
 

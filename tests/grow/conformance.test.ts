@@ -62,7 +62,8 @@ describe("the harness's run of the conformance testing script", () => {
     expect(result.output).toContain("boom");
   });
 
-  it("leaves the build and test directories untouched, and starts each run afresh", async () => {
+  it("leaves the build and test directories untouched, and starts each run afresh, with testing-scripts-run-on: copy", async () => {
+    writeFileSync(join(project, "config.yaml"), "testing-scripts-run-on: copy\n");
     writeFileSync(join(buildDir, "app.txt"), "hello");
     await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && echo first > state.txt\n'));
     expect(readdirSync(buildDir)).toEqual(["app.txt"]);

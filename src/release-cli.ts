@@ -190,6 +190,7 @@ async function main() {
     customTools: allTools,
     tools: [...fileTools.map((tool) => tool.name), "bash", ...DEPLOY_TOOLS],
     model,
+    role: "release",
     system: [
       "You get software that was just built running on the person's own machine, so they can try it. They are at this terminal.",
       `Your file tools and your shell start in ${dir}. Your shell is the person's own - not a sandbox.`,

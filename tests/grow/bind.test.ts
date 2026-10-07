@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /** The conformance agent, stubbed: it records what it was given, and leaves a labelled test where it was asked to. */
 const conformanceRuns: Array<{ plainFile: string; frid: string; buildDir: string; conformanceDir: string; diff?: string; module?: string; specs?: string }> = [];
 let passing = true;
+/** What the stubbed run says of its last green run: nothing, the code and tests as they are after it, or as they were before it wrote. */
+let green: "none" | "now" | "stale" = "none";
 vi.mock("../../src/grow/conformance.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/grow/conformance.ts")>();
   return {
@@ -20,8 +22,12 @@ vi.mock("../../src/grow/conformance.ts", async (importOriginal) => {
         diff: options.diff, module: options.spec?.moduleName, specs: JSON.stringify(options.spec?.tree),
       });
       mkdirSync(options.conformanceDir, { recursive: true });
+      const { digestFiles } = await import("../../src/grow/codebase.ts");
+      const before = { code: digestFiles(options.buildDir), tests: digestFiles(options.conformanceDir) };
       writeFileSync(join(options.conformanceDir, "check_1.sh"), "# conformance tests of functionality 1\nexit 0\n");
+      const after = { code: digestFiles(options.buildDir), tests: digestFiles(options.conformanceDir) };
       return {
+        ...(green === "now" ? { green: after } : green === "stale" ? { green: before } : {}),
         moduleName: options.spec?.moduleName ?? "x", frid: options.frid, buildDir: options.buildDir, conformanceDir: options.conformanceDir,
         prompt: "", response: "Brought the tests in line.", files: ["check_1.sh"], runs: [{ command: "sh check.sh", exitCode: passing ? 0 : 1 }],
         passed: passing, rounds: 1, codeChanged: false, testRemovals: [],
@@ -104,6 +110,32 @@ describe("conformance for a spec diff", () => {
     expect(describeSpecDiffConformance(result)).toContain("in line with the spec change");
   });
 
+  it("runs the whole suite only once - not again when the code and the tests are as they were when it passed with the unit tests", async () => {
+    for (const name of ["base", "top"]) built(name);
+    const diff = diffOf("base", module_(["- Base one.", "- Base two, now with a limit of ten."]));
+    green = "now";
+    try {
+      const result = await renderSpecDiffConformance({ plainFile: file("base"), diff, cwd: dir });
+      expect(result.passed).toBe(true);
+      expect(result.regression).toMatchObject({ passed: true, runs: [], repairs: [] });
+    } finally {
+      green = "none";
+    }
+  });
+
+  it("runs the whole suite again when the code or the tests changed after the green run", async () => {
+    for (const name of ["base", "top"]) built(name);
+    const diff = diffOf("base", module_(["- Base one.", "- Base two, now with a limit of ten."]));
+    green = "stale";
+    try {
+      const result = await renderSpecDiffConformance({ plainFile: file("base"), diff, cwd: dir });
+      expect(result.regression?.runs.length).toBeGreaterThan(0);
+      expect(result.regression?.passed).toBe(true);
+    } finally {
+      green = "none";
+    }
+  });
+
   it("stops at a conformance step that does not pass, and undoes it", async () => {
     built("base");
     passing = false;
@@ -155,8 +187,9 @@ describe("the work loop's conformance jobs", () => {
     await loop.bringUp(file("base"));
     await loop.drain();
 
-    // A conformance job after each code job: the conformance agent given the spec whole - its test reqs with it.
-    expect(conformanceRuns).toHaveLength(2);
+    // One conformance job once the module's code is built - both code jobs landed: the conformance agent given the
+    // spec whole - its test reqs with it.
+    expect(conformanceRuns).toHaveLength(1);
     expect(conformanceRuns[0]!.specs).toContain("Shell scripts.");
     expect(conformanceRuns[0]).toMatchObject({ buildDir: buildOf("base"), conformanceDir: testsOf("base") });
     const tested = JSON.stringify(readRecord(testsOf("base")));
@@ -166,7 +199,7 @@ describe("the work loop's conformance jobs", () => {
     expect(historyLog(buildOf("base"))).toContain("conformance tests:");
   });
 
-  it("leave nothing of a conformance job that does not pass, and go on building the code", async () => {
+  it("leave nothing of a conformance job that does not pass, and halt the module - nothing is built on it", async () => {
     const { createWorkLoop } = await import("../../src/grow/loop.ts");
     const { createJobRegistry } = await import("../../src/grow/jobs.ts");
     const { readRecord, writeCodeRecord } = await import("../../src/grow/records.ts");
@@ -184,7 +217,8 @@ describe("the work loop's conformance jobs", () => {
     const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => true, run: run as never });
     await loop.bringUp(file("base"));
     await loop.drain();
-    expect(built).toHaveLength(2);
+    // The module's code was built whole, then its conformance tests ran and did not pass.
+    expect(built).toEqual(["Base one.", "Base two."]);
     expect(readRecord(testsOf("base"))).toBeNull();
     expect(existsSync(join(testsOf("base"), "check_1.sh"))).toBe(false);
     expect(loop.status()[0]!.why).toMatch(/did not pass/);

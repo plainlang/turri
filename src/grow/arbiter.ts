@@ -155,7 +155,7 @@ export async function arbitrateReview<P extends ReviewedProblem>(options: Arbite
     customTools: [submit, ...fence.tools],
     tools: [...fence.names, "submit_ruling"],
     model: options.model,
-    label: `${options.label} arbiter`,
+    label: `${options.label} arbiter`, role: "arbiter",
     system: fence.note,
     task: arbiterPrompt(options),
     budget: { calls: REVIEWER_CALLS, finish: ["submit_ruling"] },

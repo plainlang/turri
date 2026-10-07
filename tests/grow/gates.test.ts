@@ -90,6 +90,7 @@ describe("the harness's own run of the unit tests", { timeout: 120_000 }, () => 
   it("stages every run somewhere new, so no run sees a copy an earlier run removed", async () => {
     writeFileSync(join(code, "test_app.py"), passingTest);
     writeTestScripts(root, { unit: "#!/bin/bash\necho \"staged in $1\"\nls \"$1\"\n" });
+    writeFileSync(join(root, "config.yaml"), "testing-scripts-run-on: copy\n");
     const places = new Set<string>();
     for (let i = 0; i < 3; i += 1) {
       const verdict = await verifyUnitSuite(code, [], script());

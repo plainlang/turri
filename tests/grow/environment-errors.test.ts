@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { describeEnvironmentError, EnvironmentError, environmentErrorTool } from "../../src/grow/environment-error.ts";
+import { checkAgainstScript, describeEnvironmentError, EnvironmentError, environmentErrorTool } from "../../src/grow/environment-error.ts";
 import { createJobRegistry } from "../../src/grow/jobs.ts";
 
 /**
@@ -51,6 +51,43 @@ describe("report_environment_error", () => {
     const result = await tool.execute("id", { missing: "the CUDA toolkit (nvcc)", needed_by: "torch's GPU build", shown_by: "nvcc: command not found" });
     expect(result.terminate).toBe(true);
     expect(reports).toEqual([{ missing: "the CUDA toolkit (nvcc)", neededBy: "torch's GPU build", shownBy: "nvcc: command not found" }]);
+  });
+  const mockito = { missing: "Mockito agent attachment capability", needed_by: "mvn test", shown_by: "Could not initialize plugin: interface org.mockito.plugins.MockMaker" };
+  const script = "/project/test_scripts/run_unittests.sh";
+
+  it("does not stand when the harness's own run of the testing script passes - as a sandboxed mvn test's Mockito failure did not - and the agent goes on", async () => {
+    const reports: unknown[] = [];
+    const runs: number[] = [];
+    const check = checkAgainstScript(async () => (runs.push(1), { exitCode: 0, output: "BUILD SUCCESS" }), script);
+    const tool = environmentErrorTool((report) => reports.push(report), check) as any;
+    for (let n = 0; n < 2; n += 1) {
+      const result = await tool.execute("id", mockito);
+      expect(result.terminate).toBeUndefined();
+      expect(result.content[0].text).toContain("the harness ran the project's testing script, run_unittests.sh, on this machine itself, and it passed");
+    }
+    expect(runs).toHaveLength(2);
+    expect(reports).toEqual([]);
+  });
+
+  it("stands when the harness's own run cannot find its toolchain", async () => {
+    const reports: unknown[] = [];
+    const check = checkAgainstScript(async () => ({ exitCode: 127, output: "run_unittests.sh: line 3: mvn: command not found" }), script);
+    const result = await (environmentErrorTool((report) => reports.push(report), check) as any).execute("id", { missing: "Maven", needed_by: "mvn test" });
+    expect(result.terminate).toBe(true);
+    expect(reports).toEqual([{ missing: "Maven", neededBy: "mvn test" }]);
+  });
+
+  it("shows the agent the harness's run once when it fails for another reason, and stands when the agent reports again", async () => {
+    const reports: unknown[] = [];
+    const check = checkAgainstScript(async () => ({ exitCode: 1, output: "Tests run: 3, Failures: 1\nexpected 200 but was 500" }), script);
+    const tool = environmentErrorTool((report) => reports.push(report), check) as any;
+    const first = await tool.execute("id", mockito);
+    expect(first.terminate).toBeUndefined();
+    expect(first.content[0].text).toMatch(/exited 1, but not for want of a toolchain[\s\S]*expected 200 but was 500/);
+    expect(reports).toEqual([]);
+    const again = await tool.execute("id", mockito);
+    expect(again.terminate).toBe(true);
+    expect(reports).toHaveLength(1);
   });
 });
 

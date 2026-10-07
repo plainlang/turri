@@ -47,7 +47,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
       const prompt = session.task !== undefined && (first || session.role === "reviewer") ? (given === actual.BEGIN ? session.task : `${session.task}\n\n${given}`) : given;
       const tool = (name: string) => session.tools.find((candidate) => candidate.name === name)!;
       // Asked to leave notes, it does - and that is not a turn the test is about.
-      if (prompt.startsWith("Before you finish: call update_notes")) {
+      if (prompt.includes("Before you finish: call update_notes")) {
         await tool("update_notes").execute("id", { changes: [{ section: "where", action: "add", text: "stub agent was here" }] });
         return "Done.";
       }

@@ -1,4 +1,5 @@
 import { relative, resolve } from "node:path";
+import { digestFiles } from "./codebase.ts";
 import type { JobCases } from "./drift.ts";
 import { getFrids, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
 import { reportActivity, reportStage, unitOf } from "./activity.ts";
@@ -127,6 +128,13 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
     return { ...base, tested: tested(), passed: false, stoppedAt: "conformance" };
   }
 
+  // The run that passed was of the whole suite - the module's tests folder holds the chain's, copied up - and the unit
+  // tests with it: on code and tests still as they were then, a second run would only say it again.
+  if (conformance.green !== undefined && sameFiles(conformance.green.code, digestFiles(buildDir)) && sameFiles(conformance.green.tests, digestFiles(conformanceDir))) {
+    stage("the whole conformance suite and the unit tests passed on the code and the tests as they are - not run again");
+    const regression = { passed: true, runs: [], repairs: [], command: scripts.conformance! };
+    return { ...base, tested: tested(), regression, passed: true, stoppedAt: null };
+  }
   stage("conformance tests pass - running the codebase's whole conformance suite");
   const regression = await ensureRegressionPasses({
     start: unit,
@@ -142,6 +150,13 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
     onDelta: options.onDelta,
   });
   return { ...base, tested: tested(), regression, passed: regression.passed, stoppedAt: regression.passed ? null : "regression" };
+}
+
+/** Whether two digests of a folder hold the same files, each with the same content. */
+function sameFiles(a: Map<string, string>, b: Map<string, string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [file, digest] of a) if (b.get(file) !== digest) return false;
+  return true;
 }
 
 /** What the conformance for a spec change did, for the agent and the person. */

@@ -605,7 +605,7 @@ const TargetSchema = Type.Union([Type.Number(), Type.Literal("all"), Type.Litera
 async function askStep<A>(options: { cwd: string; model?: string; label: string; task: string; tool: (take: (answer: A) => void) => ToolDefinition; check: (answer: A) => string[] }): Promise<A | undefined> {
   let answer: A | undefined;
   const tool = options.tool((given) => (answer = given));
-  const session = await createExecutor({ cwd: options.cwd, customTools: [tool], tools: [tool.name], model: options.model, label: options.label, task: options.task, budget: { calls: 4, finish: [tool.name] } });
+  const session = await createExecutor({ cwd: options.cwd, customTools: [tool], tools: [tool.name], model: options.model, label: options.label, role: "planner", task: options.task, budget: { calls: 4, finish: [tool.name] } });
   try {
     await ask(session, BEGIN);
     for (let again = 0; again < RETRIES; again += 1) {
