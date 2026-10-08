@@ -2,7 +2,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, type TuiMouseEvent, typ
 import type { Job } from "./jobs.ts";
 import { createJobsTreeState, jobsTreeLines, jobsTreeRows, keepCursorInView, scrollTree, treeKey, type JobsTreeState, type TreeRow } from "./jobs-tree.ts";
 import type { MarkedPage } from "./spec-map.ts";
-import { createSpecMapState, focusOf, minimap, specMapHeader, specMapLines, type MapRow, type SpecMapState } from "./spec-map-view.ts";
+import { createSpecMapState, minimap, shownPage, specMapHeader, specMapLines, switchTab, tabBar, type MapRow, type SpecMapState } from "./spec-map-view.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
 
 /**
@@ -88,7 +88,9 @@ export function createSidePanel(options: SidePanelOptions) {
       const body = [style.muted("  No .plain file to map: name one to regrow, or set module: in config.yaml."), ...new Array<string>(Math.max(0, rows - 4)).fill("")];
       return [truncateToWidth(`${style.heading("regen")}${waitingNote()}`, width), style.muted("─".repeat(Math.max(1, width))), ...body, style.muted(truncateToWidth(`p pulses · esc or ${options.key} back to the chat`, width))];
     }
-    const bodyHeight = Math.max(3, rows - 3);
+    // A chain of modules: a tab each, on a line of their own under the top line.
+    const tabbed = pages.length > 1;
+    const bodyHeight = Math.max(3, rows - 3 - (tabbed ? 1 : 0));
     lastBodyHeight = bodyHeight;
     // A long map has a minimap down its right edge: the content gives it two columns.
     const first = specMapLines(pages, map, width, style, options.jobs(), now);
@@ -104,11 +106,17 @@ export function createSidePanel(options: SidePanelOptions) {
           return visible.map((line, row) => `${line}${" ".repeat(Math.max(0, width - 2 - visibleWidth(line)))} ${strip[row]}`);
         })()
       : visible;
-    // The top line is the module the cursor is in.
-    const page = drawn.rows[map.cursor]?.page ?? focusOf(pages)!;
+    // The top line is the module shown.
+    const page = shownPage(pages, map)!;
     const where = drawn.lines.length > bodyHeight ? `${map.top + 1}-${Math.min(drawn.lines.length, map.top + bodyHeight)} of ${drawn.lines.length}` : "all shown";
-    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn", "p pulses", `esc or ${options.key} back to the chat`];
-    return [specMapHeader(page, width, style, waitingNote()), style.muted("─".repeat(Math.max(1, width))), ...body, style.muted(truncateToWidth(`${where}  —  ${keys.join(" · ")}`, width))];
+    const keys = ["↑↓ move", "enter open/close", ...(tabbed ? ["←→ module"] : []), "o/c all", "pgup pgdn", "p pulses", `esc or ${options.key} back to the chat`];
+    return [
+      specMapHeader(page, width, style, waitingNote()),
+      ...(tabbed ? [tabBar(pages, page, width, style, now)] : []),
+      style.muted("─".repeat(Math.max(1, width))),
+      ...body,
+      style.muted(truncateToWidth(`${where}  —  ${keys.join(" · ")}`, width)),
+    ];
   };
 
   /** From the map to the pulse list: onto the pulse that grows the item under the cursor, when one does. */
@@ -155,20 +163,17 @@ export function createSidePanel(options: SidePanelOptions) {
       // A group's heading only says what is under it.
       if (target === undefined || target.kind === "group") return;
       const to = open ?? !isOpen(target);
-      if (target.kind === "module") map.modules.set(target.key.replace(/^module\n/, ""), to);
-      else if (target.kind === "import") map.imports.set(target.key.replace(/^import\n/, ""), to);
+      if (target.kind === "import") map.imports.set(target.key.replace(/^import\n/, ""), to);
       else if (to) map.open.add(target.key);
       else map.open.delete(target.key);
     };
     if (matchesKey(data, Key.up)) move(map.cursor - 1);
     else if (matchesKey(data, Key.down)) move(map.cursor + 1);
     else if (matchesKey(data, Key.enter) || data === " ") toggle(row);
-    else if (matchesKey(data, Key.right)) toggle(row, true);
-    else if (matchesKey(data, Key.left)) {
-      // Open, it closes; closed, the cursor goes up to the module it is in.
-      if (row !== undefined && isOpen(row)) toggle(row, false);
-      else if (row !== undefined && row.kind !== "module") move(rows.findLastIndex((other, index) => index < map.cursor && other.kind === "module"));
-    } else if (data === "o" || data === "c") for (const entry of rows) toggle(entry, data === "o");
+    // ←→ go from one module's tab to the next.
+    else if (matchesKey(data, Key.right)) switchTab(pages, map, 1);
+    else if (matchesKey(data, Key.left)) switchTab(pages, map, -1);
+    else if (data === "o" || data === "c") for (const entry of rows) toggle(entry, data === "o");
     else if (matchesKey(data, Key.pageUp)) scrollMap(-page);
     else if (matchesKey(data, Key.pageDown)) scrollMap(page);
     else if (matchesKey(data, Key.home) || data === "g") move(0);

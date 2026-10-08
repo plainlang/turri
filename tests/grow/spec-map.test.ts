@@ -9,7 +9,7 @@ import { recordHistory } from "../../src/grow/lineage.ts";
 import { writeCodeRecord } from "../../src/grow/records.ts";
 import { createSidePanel } from "../../src/grow/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles, importLabel, layOut, markSpecMap, pageItems, readSpecMap, type MapItem, type MapPage, type MarkedPage } from "../../src/grow/spec-map.ts";
-import { createSpecMapState, focusOf, lineDiff, specMapHeader, specMapLines, wordDiff } from "../../src/grow/spec-map-view.ts";
+import { createSpecMapState, focusOf, lineDiff, specMapHeader, specMapLines, switchTab, tabBar, wordDiff } from "../../src/grow/spec-map-view.ts";
 import type { TranscriptStyle } from "../../src/grow/transcript-view.ts";
 import { PLAIN_PAINT } from "../../src/grow/diff-view.ts";
 
@@ -354,7 +354,7 @@ describe("the regeneration drawn", () => {
     expect(text).not.toContain("used by");
   });
 
-  it("groups what a module is built from under it - the files it imports, the modules it requires - each closed until opened", () => {
+  it("shows the files a module imports under its own text, each closed until opened - the module it requires is a tab of its own", () => {
     const items: MapItem[] = [
       { key: "a", section: FUNCTIONAL_REQUIREMENTS, state: "built", text: "- Say hello.", acceptance: [] },
       { key: "b", section: NON_FUNCTIONAL_REQUIREMENTS, state: "built", text: "- Use Python 3.12.", acceptance: [], file: "stdlib/lang/python" },
@@ -365,21 +365,23 @@ describe("the regeneration drawn", () => {
     const marked = markSpecMap([base, top], { files: [], codebases: [codebase(base)] });
     const state = createSpecMapState();
     const text = specMapLines(marked, state, 100, style).lines.join("\n");
-    // The module asked for is open; the one it requires is under it, not at the top.
-    expect(text.indexOf("▾ top.plain")).toBeLessThan(text.indexOf("base.plain"));
+    // The module asked for is shown; the one it requires is not drawn under it.
+    expect(text).toContain("- Say hello.");
     expect(text).toContain("imported (2)");
     expect(text).toContain("▸ from stdlib/lang/python · 1 req · all built");
     expect(text).toContain("▸ from stdlib/backend/python-fastapi · 1 req · 1 changing");
     expect(text).not.toContain("Use FastAPI");
-    expect(text).toContain("required (1)");
-    expect(text).toContain("▸ base.plain");
+    expect(text).not.toContain("required (");
     expect(text).not.toContain("- Store a value.");
     // Opened, an import block shows its items, word by word where they changed.
     state.imports.set(`${top.plainFile}\nstdlib/backend/python-fastapi`, true);
     expect(specMapLines(marked, state, 100, style).lines.join("\n")).toContain("- Use [-Flask.-]{+FastAPI.+}");
+    // ← goes to the module it requires.
+    switchTab(marked, state, -1);
+    expect(specMapLines(marked, state, 100, style).lines.join("\n")).toContain("- Store a value.");
   });
 
-  it("nests the requires chain as it is written - each module under the one that requires it - opened down to the module in focus", () => {
+  it("has a tab a module of the chain, in its order, the one shown marked - fitted to the width around it, the rest counted", () => {
     const module = (name: string, requires?: string): MapPage => ({
       module: name,
       plainFile: join(dir, `${name}.plain`),
@@ -388,34 +390,27 @@ describe("the regeneration drawn", () => {
       items: [{ key: name, section: FUNCTIONAL_REQUIREMENTS, state: "new", text: `- ${name} works.`, acceptance: [] }],
       ...(requires !== undefined ? { requires } : {}),
     });
-    const pages = [module("version_api"), module("function_executor", "version_api"), module("http_client", "function_executor")];
-    // The bottom of the chain is being planned: the modules above it open, so it can be seen.
-    const marked = markSpecMap(pages, { files: [], codebases: [{ ...codebase(pages[0]!), planning: "code" }] });
-    const lines = specMapLines(marked, createSpecMapState(), 120, style).lines;
-    const at = (text: string) => lines.findIndex((line) => line.includes(text));
-    const indent = (text: string) => /^\W*?(\s*)[▸▾]/.exec(lines[at(text)]!)?.[1]?.length ?? -1;
-    // Each a level deeper than the one that requires it - version_api under function_executor, not beside it.
-    expect(lines.filter((line) => line.includes("required (")).length).toBe(2);
-    expect(at("▾ http_client.plain")).toBeLessThan(at("▾ function_executor.plain"));
-    expect(at("▾ function_executor.plain")).toBeLessThan(at("version_api.plain"));
-    expect(indent("function_executor.plain")).toBeGreaterThan(indent("http_client.plain"));
-    expect(indent("version_api.plain")).toBeGreaterThan(indent("function_executor.plain"));
-    expect(lines.join("\n")).toContain("- version_api works.");
+    const names = ["version_api", "function_executor", "http_client", "auth", "utils", "listing", "restore_api"];
+    const pages = names.map((name, index) => module(name, index > 0 ? names[index - 1] : undefined));
+    const marked = markSpecMap(pages, { files: [], codebases: [codebase(pages[0]!)] });
+    const shown = marked.find((page) => page.module === "auth")!;
+    expect(tabBar(marked, shown, 200, style, 0)).toBe("version_api  function_executor  http_client  [auth]  utils  listing  restore_api");
+    const narrow = tabBar(marked, shown, 40, style, 0);
+    expect(narrow).toContain("[auth]");
+    expect(narrow).toMatch(/^‹ \d+ {2}.*\[auth\].* \d+ ›$/);
+    expect(narrow.length).toBeLessThanOrEqual(40);
+    // A chain of many modules draws only the one shown, not each nested in the next.
+    const lines = specMapLines(marked, createSpecMapState(), 120, style).lines.join("\n");
+    const focus = focusOf(marked)!;
+    expect(lines).toContain(`- ${focus.module} works.`);
+    expect(names.filter((name) => name !== focus.module).some((name) => lines.includes(`- ${name} works.`))).toBe(false);
   });
 
-  it("heads the map with the module the cursor is in, its count and status, and has a row for each module - only the one in focus open", () => {
-    const base = markSpecMap([{ ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- One."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- One."] })), module: "base", plainFile: join(dir, "base.plain") }], noPlan)[0]!;
+  it("heads the map with the module shown, its count and status", () => {
     const top = markSpecMap([{ ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two.", "- Three."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] })), module: "top", plainFile: join(dir, "top.plain") }], noPlan)[0]!;
     const head = specMapHeader(top, 160, style);
     expect(head).toContain("regen  top.plain");
     expect(head).toContain("1 of 2 functionalities built · not asked to build - regrow plans it");
-    // Nothing asked for, nothing growing: the first module is in focus.
-    const text = specMapLines([base, top], createSpecMapState(), 160, style).lines.join("\n");
-    expect(text).toContain("▾ base.plain");
-    expect(text).toContain("- One.");
-    expect(text).toContain("▸ top.plain");
-    expect(text).toContain("1/2 built · not asked to build - regrow plans it");
-    expect(text).not.toContain("- Two.");
   });
 
   it("opens the module growing now, and the one asked for, before the others", () => {
@@ -484,24 +479,30 @@ describe("the side panel's two views", () => {
     expect(source.read()[0]).toMatchObject({ status: "the map could not be read: no plan", stuck: true });
   });
 
-  it("opens and closes a module with enter and the arrow keys, and heads the map with the module the cursor is in", () => {
+  it("goes from one module's tab to the next with ←→, follows the module growing until another tab is chosen, and opens an item with enter", () => {
     const base = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- One."] }), null), module: "base", plainFile: join(dir, "base.plain") };
-    const top = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] }), null), module: "top", plainFile: join(dir, "top.plain") };
-    const marked = markSpecMap([base, top], noPlan);
+    const top = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] }), null), module: "top", plainFile: join(dir, "top.plain"), requires: "base" };
+    let marked = markSpecMap([base, top], { files: [], codebases: [codebase(base)] });
     const panel = createSidePanel({ jobs: () => [], map: () => marked, rows: () => 20, style, back() {}, close() {}, key: "ctrl+h" });
-    expect(panel.render(100)[0]).toContain("base.plain");
-    expect(panel.render(100).join("\n")).not.toContain("- Two.");
-    // Down past base's item onto top's row: the top line follows, and enter opens it.
-    panel.handleInput("\x1b[B");
-    panel.handleInput("\x1b[B");
-    expect(panel.render(100)[0]).toContain("top.plain");
+    // The module asked for is shown, its tab marked, the other beside it.
+    let lines = panel.render(100);
+    expect(lines[0]).toContain("top.plain");
+    expect(lines[1]).toBe("base  [top]");
+    expect(lines.join("\n")).toContain("- Two.");
+    expect(lines.join("\n")).not.toContain("- One.");
+    // ← to the module it is built on.
+    panel.handleInput("\x1b[D");
+    lines = panel.render(100);
+    expect(lines[0]).toContain("base.plain");
+    expect(lines[1]).toBe("[base]  top");
+    expect(lines.join("\n")).toContain("- One.");
+    // Enter opens the item under the cursor.
     panel.handleInput("\r");
-    expect(panel.render(100).join("\n")).toContain("- Two.");
-    // ← on an item goes up to its module; ← again closes it.
-    panel.handleInput("\x1b[B");
-    panel.handleInput("\x1b[D");
-    panel.handleInput("\x1b[D");
-    expect(panel.render(100).join("\n")).not.toContain("- Two.");
+    expect(panel.render(100).length).toBe(20);
+    // Another module starts growing: the tab chosen gives way, and it is shown.
+    const two = top.items[0]!;
+    marked = markSpecMap([base, top], { files: [], codebases: [codebase(base, { pulses: [pulseOf([two], 1, true)] })] });
+    expect(panel.render(100)[1]).toMatch(/^base {2}\[\S+ top\]$/);
   });
 });
 

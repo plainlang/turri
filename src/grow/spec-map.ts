@@ -536,6 +536,28 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
  * .plain files in the folder that no other one there imports or requires.
  */
 export function defaultMapFiles(cwd: string): string[] {
+  // Asked for on every read of the map, every second while regen shows: worked out again only once the folder's .plain
+  // files or its config change - parsing each file's chains takes seconds in a project of many modules.
+  const key = `${resolve(cwd)}\n${folderPrint(cwd)}`;
+  if (keptDefaultFiles?.key === key) return keptDefaultFiles.files;
+  const files = withParseCache(() => findDefaultMapFiles(cwd));
+  keptDefaultFiles = { key, files };
+  return files;
+}
+
+let keptDefaultFiles: { key: string; files: string[] } | undefined;
+
+/** The folder's .plain files and its config, by name, size and when each changed. */
+function folderPrint(cwd: string): string {
+  try {
+    const names = readdirSync(cwd).filter((name) => name.endsWith(".plain") || /^config(\..+)?\.yaml$/.test(name)).sort();
+    return fingerprint(names.map((name) => join(cwd, name)));
+  } catch {
+    return "";
+  }
+}
+
+function findDefaultMapFiles(cwd: string): string[] {
   try {
     const module = readProjectConfig(cwd).module;
     if (module !== undefined && existsSync(resolve(cwd, module))) return [resolve(cwd, module)];

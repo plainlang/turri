@@ -216,8 +216,8 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
     }
     const { job } = row;
     const open = isOpen(state, job);
-    // A line says which module, how long and what it cost - and the mark where it is, or how it ended; the rest is in it, opened.
-    const head = `${pointer}   ${open ? "▾" : "▸"} ${markOf(job, style)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`;
+    // A line says which module, which pulse, how long and what it cost - and the mark where it is, or how it ended; the rest - what it grows too - is in it, opened.
+    const head = `${pointer}   ${open ? "▾" : "▸"} ${markOf(job, style)} ${pulseName(job, { title: false })} · ${formatDuration(job)}${pulseCost(job)}`;
     const [first = "", ...rest] = wrapTextWithAnsi(head, Math.max(10, width));
     lines.push(here ? style.heading(first) : first, ...rest.map((line) => `        ${line}`));
     if (open) lines.push(...detailLines(job, jobs, width, style));

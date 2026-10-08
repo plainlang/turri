@@ -100,7 +100,7 @@ describe("tool calls as one line", () => {
 describe("the panel", () => {
   it("lists what finished on top, a line a module, each pulse with its mark, number, kind and title - a rule under it - and is gone when nothing runs", async () => {
     const jobs = createJobRegistry();
-    const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", pulse: 1, title: "registration", run: async () => ({ report: "", details: { passed: true } }) });
+    const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", pulse: 1, title: "Registration", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(first.id);
     const second = jobs.start({ kind: "bind", summary: "y", module: "backend", pulse: 2, title: "fs 1", run: async () => ({ report: "", details: { passed: false } }) });
     await jobs.wait(second.id);
@@ -108,14 +108,15 @@ describe("the panel", () => {
     await jobs.wait(other.id);
     // Nothing running: no panel at all.
     expect(jobPanelLines(jobs.list())).toEqual([]);
-    jobs.start({ kind: "regrow", summary: "z", module: "backend", pulse: 3, title: "log in", run: () => new Promise(() => {}) });
+    jobs.start({ kind: "regrow", summary: "z", module: "backend", pulse: 3, title: "Log in with :User:", run: () => new Promise(() => {}) });
     const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };
     const lines = jobPanelLines(jobs.list(), { marks, width: 80 });
+    // What a pulse grows is said all lowercase.
     expect(lines[0]).toBe("  backend  <ok>✓ 1 regrow: registration · <bad>✗ 2 bind: fs 1");
     expect(lines[1]).toBe("  web      <ok>✓ 1 regrow: home page");
     expect(lines[2]).toBe(`  ${"─".repeat(76)}`);
     // What runs is below the rule, by the input: its module, its kind and number, what it grows.
-    expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regrow pulse 3 · log in · \d+s$/);
+    expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regrow pulse 3 · log in with :user: · \d+s$/);
     // ctrl+o expands the agents' trace, not what finished: the side panel lists each.
     expect(jobPanelLines(jobs.list(), { expanded: true, marks, width: 80 }).slice(0, 2)).toEqual(lines.slice(0, 2));
   });

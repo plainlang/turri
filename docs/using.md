@@ -97,7 +97,7 @@ come waits for a free slot, and says so.
 - **The panel** above the input, while something runs, shows on top what finished - a line a module, its
   pulses oldest first, each with its mark (green, red or amber, as in the side panel), number, kind and what
   it grew, `cognio  … 2 earlier · ✓ 3 regrow: registration · ✓ 4 bind: fs 1–3`, the newest that fit the width -
-  then a rule, and under it each running pulse - `cognio · regrow pulse 5 · user search and profiles`, its
+  then a rule, and under it each running pulse - `cognio · regrow pulse 5 · user search and profiles`, what it grows all lowercase, its
   time and cost, and what its agents are doing. Pulses are numbered within their module, as regen numbers
   them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module.
   What waits is not in it, and it shows no spec diff - the side panel has both. With nothing running it
@@ -167,27 +167,27 @@ come waits for a free slot, and says so.
   regrown in pulse 2`, and for a functional spec `◆ bound - its conformance tests pass` or `· not bound - no
   conformance tests for it yet`.
 
-  Each module mapped is a row of its own, `▾ backend.plain ████░░ 5/12 built · pulse 3 of 8 growing`, with
-  its items under it. Only the module in focus starts open - the one growing now, else the one asked for, else
-  the first - the rest closed until opened; the top line is the module the cursor is in. Under a module opened,
-  after its own text, is what it is built from, in two groups, each closed until opened: **imported** - a
-  folded block a file it imports, `▸ from stdlib/backend/python-fastapi · 7 reqs · all built` - and
-  **required** - the module it requires, a module row of its own, read from the codebase built on it, whose
-  record has every module's items; opened, it has its own groups under it in turn, so the chain nests as the
-  specs write it. A module another one requires is shown there, under it, not at the top; the module in focus
-  starts open with every module above it. A map longer than the screen has a minimap down its right edge, a cell a slice in the colour of
+  One module is shown at a time, with a tab for each module of the chain on the line under the top line, in
+  the chain's order - the module it is built on to the left: `d365_version_api  [d365_http_client]  d365_utils
+  12 ›`. A tab growing spins, one stuck says `!`; what does not fit is counted at either end. `←` `→` go from
+  one tab to the next. The module shown is the one in focus - the one growing now, else the one asked for,
+  else the first - until you pick another tab; it goes back to following once another module is in focus, or
+  the one in focus starts growing. Under the module's own text is what it imports, under **imported**, a
+  folded block a file, `▸ from stdlib/backend/python-fastapi · 7 reqs · all built`, closed until opened. The
+  modules it requires are tabs of their own: a chain of many modules is never drawn nested, one in the next.
+  A map longer than the screen has a minimap down its right edge, a cell a slice in the colour of
   its most pressing mark, the slice shown solid. The map is read from the files - the code record, the
   `.plain` files, the tests record - so it is right the moment turri opens a project, before anything runs;
   the work loop's plan adds the pulses on top. It maps the files asked to build this conversation, else
   `module:` in `config.yaml`, else the `.plain` files of the folder that no other one there imports or
-  requires. `↑` `↓` move row by row, `enter` or `space` open and close a module, an item or an import block,
-  `→` `←` open and close it (`←` on a closed one goes up to its module), `o` and `c` open or close everything
-  shown, `pgup` `pgdn` and the
+  requires - the folder's files looked at again only once one of them, or its config, changes. `↑` `↓` move
+  row by row, `enter` or `space` open and close an item or an import block, `←` `→` go to the next module's
+  tab, `o` and `c` open or close everything shown, `pgup` `pgdn` and the
   wheel scroll, `g`/`G` go to the top and the bottom.
 
   `p` goes to the **pulses** - and back - onto the pulse that grows the item under the cursor, and
   back onto the first item the pulse under the cursor grows. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
-  its own (running and queued start open). A pulse is one line: its module and kind (`hubspot regrow`, `hubspot bind`), its time and its cost - a
+  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regrow pulse 1`, `hubspot · bind pulse 2`) - what it grows is in it, opened - its time and its cost - a
   finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
   Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
   and what each spent, and whether it did not pass. Under it is a row

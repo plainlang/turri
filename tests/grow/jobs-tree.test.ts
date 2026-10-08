@@ -62,6 +62,15 @@ describe("the jobs tree", () => {
     expect(rowsOf(jobs, state)).toEqual(["[running 1]", "[queued 1]", "[finished 0]"]);
   });
 
+  it("names a pulse by its module, kind and number alone - what it grows is in it, opened", () => {
+    const jobs = [job("a", "succeeded", { finishedAt: 1, module: "d365_http_client", kind: "regrow", pulse: 1, title: "Implement HttpClient" })];
+    const state = createJobsTreeState();
+    state.open.finished = true;
+    const lines = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
+    expect(lines).toContain("✓ d365_http_client · regrow pulse 1 · ");
+    expect(lines).not.toContain("HttpClient");
+  });
+
   it("shows a job in a line - its module, time and cost - and all of its diff once opened", () => {
     const usage = { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.5 };
     const jobs = [job("c", "queued", { module: "app", diff: diff("Users give kudos."), waitingOn: ["b"], usage })];

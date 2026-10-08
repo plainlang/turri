@@ -42,17 +42,24 @@ export function spinner(now: number): string {
 }
 
 /** What a pulse is listed as: its module and its kind - "hubspot regrow", "hubspot bind" - or what was asked for. */
-export function pulseName(job: Job): string {
+export function pulseName(job: Job, options: { title?: boolean } = {}): string {
   if (job.module === undefined) return job.summary;
   // Its module, its kind and number, what it grows: `cognio · regrow pulse 6 · user search and profiles`.
-  if (job.pulse !== undefined) return `${job.module} · ${job.kind} pulse ${job.pulse}${job.title !== undefined ? ` · ${job.title}` : ""}`;
+  const title = options.title !== false ? pulseTitle(job) : undefined;
+  if (job.pulse !== undefined) return `${job.module} · ${job.kind} pulse ${job.pulse}${title !== undefined ? ` · ${title}` : ""}`;
   return `${job.module} ${job.kind}`;
+}
+
+/** What a pulse grows, as the panels show it: its plan's title, all lowercase. */
+export function pulseTitle(job: Job): string | undefined {
+  return job.title?.toLowerCase();
 }
 
 /** A finished pulse in its module's line: its mark, number, kind and what it grew - `✓ 3 regrow: registration`. */
 function finishedItem(job: Job, marks: MarkPaint): string {
   if (job.module === undefined || job.pulse === undefined) return `${finishedMark(job, marks)} ${pulseName(job)}`;
-  return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}${job.title !== undefined ? `: ${job.title}` : ""}`;
+  const title = pulseTitle(job);
+  return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}${title !== undefined ? `: ${title}` : ""}`;
 }
 
 /**

@@ -14,11 +14,9 @@ import type { TranscriptStyle } from "./transcript-view.ts";
  * Each item's first line, with its mark in the gutter and its conformance tests beside it; a changed item's changed
  * sub-bullets under it, word by word; an item taken out as a struck-through ghost. Enter opens an item: all of it, its
  * acceptance tests, the pulse that brings it, its conformance tests, and - a definition - the built specs that use it.
- * Every module of the map is a row of its own - its strip, its count, its status - opened and closed like a block: the
- * module in focus open, the rest closed until opened. Under a module opened, after its own text, what it is built from
- * in two groups: the files it imports, a folded block each, and the module it requires - a module row of its own, with
- * what it is built from under it in turn, so the chain nests as it is written; all closed until opened. A module another
- * one requires is shown there, not at the top.
+ * One module is shown at a time, a tab a module of the chain - ←→ go from one to the next: the module growing now, until
+ * another tab is chosen, and again once another module starts growing. Under its own text, the files it imports, a
+ * folded block each. A chain of many modules nested one in another was too deep to read, and too much to draw.
  */
 
 export interface SpecMapState {
@@ -33,19 +31,18 @@ export interface SpecMapState {
   open: Set<string>;
   /** Import blocks opened by hand, by where they are and file: the rest closed. */
   imports: Map<string, boolean>;
-  /** Modules opened or closed by hand, by where they are: the rest open only while in focus. */
-  modules: Map<string, boolean>;
+  /** The tab chosen by hand - its .plain file - and the module in focus when it was: another in focus, or it starts growing, the view follows that. */
+  tab?: { file: string; focus?: string };
   /** An item to show - in its module and import block, opened for it - and put the cursor on: by .plain file and key. */
   reveal?: { file: string; key: string };
 }
 
 export function createSpecMapState(): SpecMapState {
-  return { view: "map", cursor: 0, top: 0, open: new Set(), imports: new Map(), modules: new Map() };
+  return { view: "map", cursor: 0, top: 0, open: new Set(), imports: new Map() };
 }
 
-/** A row: a module, at the top or required by the one above it; a group's heading; an import block; an item. */
+/** A row: a group's heading; an import block; an item. */
 export type MapRow =
-  | { kind: "module"; page: MarkedPage; key: string; open: boolean; depth: number }
   | { kind: "group"; page: MarkedPage; key: string; label: string; depth: number }
   | { kind: "import"; page: MarkedPage; file: string; key: string; open: boolean; depth: number }
   | { kind: "item"; page: MarkedPage; item: MarkedItem; key: string };
@@ -59,6 +56,62 @@ type LineMark = Mark | "removed" | undefined;
  */
 export function focusOf(pages: MarkedPage[]): MarkedPage | undefined {
   return pages.find((page) => page.items.some((item) => item.mark === "growing")) ?? pages.findLast((page) => page.tracked) ?? pages[0];
+}
+
+/** The module in focus as a tab chosen by hand remembers it: which it is, and whether it was growing - one starting to grow is shown. */
+function focusKey(pages: MarkedPage[]): string | undefined {
+  const focus = focusOf(pages);
+  return focus === undefined ? undefined : `${focus.plainFile}${focus.items.some((item) => item.mark === "growing") ? "\ngrowing" : ""}`;
+}
+
+/** The module shown: the tab chosen by hand while the module in focus is as it was then, else the one in focus. */
+export function shownPage(pages: MarkedPage[], state: SpecMapState): MarkedPage | undefined {
+  const focus = focusOf(pages);
+  const chosen = state.tab !== undefined && state.tab.focus === focusKey(pages) ? pages.find((page) => page.plainFile === state.tab!.file) : undefined;
+  if (chosen === undefined) state.tab = undefined;
+  return chosen ?? focus;
+}
+
+/** The tab `by` along from the one shown - the chain's order, the module it is built on to the left - its cursor at its top. */
+export function switchTab(pages: MarkedPage[], state: SpecMapState, by: number): void {
+  const shown = shownPage(pages, state);
+  const at = shown === undefined ? 0 : pages.indexOf(shown);
+  const next = pages[Math.max(0, Math.min(pages.length - 1, at + by))];
+  if (next === undefined || next === shown) return;
+  state.tab = { file: next.plainFile, ...(focusKey(pages) !== undefined ? { focus: focusKey(pages)! } : {}) };
+  state.cursor = 0;
+  state.top = 0;
+  state.cursorKey = undefined;
+}
+
+/** A tab's name: its .plain file's, without the extension. */
+const tabName = (page: MarkedPage) => basename(page.plainFile).replace(/\.plain$/, "");
+
+/**
+ * The tabs, a module each in the chain's order, the one shown marked - those growing spin, those stuck say so - fitted to
+ * `width` around the one shown, what does not fit counted at either end.
+ */
+export function tabBar(pages: MarkedPage[], shown: MarkedPage | undefined, width: number, style: TranscriptStyle, now: number): string {
+  const label = (page: MarkedPage) => {
+    const growing = page.items.some((item) => item.mark === "growing");
+    const mark = growing ? `${spinner(now)} ` : page.stuck ? "! " : "";
+    const text = `${mark}${tabName(page)}`;
+    if (page === shown) return style.heading(`[${text}]`);
+    return growing ? style.accent(text) : page.stuck ? style.error(text) : style.muted(text);
+  };
+  const tabs = pages.map(label);
+  const at = Math.max(0, shown === undefined ? 0 : pages.indexOf(shown));
+  let from = at;
+  let to = at + 1;
+  const lineOf = (a: number, b: number) =>
+    `${a > 0 ? style.muted(`‹ ${a}  `) : ""}${tabs.slice(a, b).join("  ")}${b < tabs.length ? style.muted(`  ${tabs.length - b} ›`) : ""}`;
+  // Out from the one shown, a tab at a time on either side, while they fit.
+  for (let grew = true; grew; ) {
+    grew = false;
+    if (to < tabs.length && visibleWidth(lineOf(from, to + 1)) <= width) (to += 1), (grew = true);
+    if (from > 0 && visibleWidth(lineOf(from - 1, to)) <= width) (from -= 1), (grew = true);
+  }
+  return truncateToWidth(lineOf(from, to), width, "…");
 }
 /** Strike text through. */
 const strike = (text: string) => `\x1b[9m${text}\x1b[29m`;
@@ -371,50 +424,30 @@ function importSummary(items: MarkedItem[]): string {
 }
 
 /**
- * The rows, top to bottom: each module not required by another, and - open - its own items, then the files it
- * imports and the module it requires, each group under its heading, the required module's own groups under it in turn.
- * The module in focus is open - and every module above it, so it can be seen - and the rest closed, unless opened or
- * closed by hand.
+ * The rows of the module shown, top to bottom: its own items, then the files it imports, a block each under their
+ * heading, closed until opened. The modules it requires are tabs of their own.
  */
 export function specMapRows(pages: MarkedPage[], state: SpecMapState): MapRow[] {
-  const focus = focusOf(pages);
-  const byModule = new Map(pages.map((page) => [page.module, page]));
-  // The modules a module is built on, down its chain, nearest first.
-  const below = (page: MarkedPage): MarkedPage[] => {
-    const out: MarkedPage[] = [];
-    for (let at = page.requires; at !== undefined && byModule.has(at) && !out.includes(byModule.get(at)!); at = byModule.get(at)!.requires) out.push(byModule.get(at)!);
-    return out;
-  };
-  const required = new Set(pages.flatMap(below));
   const reveal = state.reveal;
+  const revealed = reveal !== undefined ? pages.find((entry) => entry.plainFile === reveal.file) : undefined;
+  // An item to show, on another tab: that tab, beside the module in focus now.
+  if (revealed !== undefined) state.tab = { file: revealed.plainFile, ...(focusKey(pages) !== undefined ? { focus: focusKey(pages)! } : {}) };
+  const page = shownPage(pages, state);
   const rows: MapRow[] = [];
-  const moduleRows = (page: MarkedPage, path: string, depth: number, above: MarkedPage[]) => {
-    const chain = below(page);
-    const holds = (target: MarkedPage | undefined) => target !== undefined && (target === page || chain.includes(target));
-    const revealed = reveal !== undefined ? pages.find((entry) => entry.plainFile === reveal.file) : undefined;
-    const open = (holds(revealed) ? true : undefined) ?? state.modules.get(path) ?? holds(focus);
-    if (holds(revealed)) state.modules.set(path, true);
-    rows.push({ kind: "module", page, key: `module\n${path}`, open, depth });
-    if (!open) return;
-    const item = (entry: MarkedItem): MapRow => ({ kind: "item", page, item: entry, key: `${path}\n${entry.key}` });
-    rows.push(...page.items.filter((entry) => entry.file === undefined).map(item));
-    const imports = page.imports.filter((file) => page.items.some((entry) => entry.file === file));
-    if (imports.length > 0) rows.push({ kind: "group", page, key: `group\n${path}\nimported`, label: `imported (${imports.length})`, depth });
-    for (const file of imports) {
-      const items = page.items.filter((entry) => entry.file === file);
-      const key = `${path}\n${file}`;
-      if (revealed === page && items.some((entry) => entry.key === reveal!.key)) state.imports.set(key, true);
-      const opened = state.imports.get(key) ?? false;
-      rows.push({ kind: "import", page, file, key: `import\n${key}`, open: opened, depth });
-      if (opened) rows.push(...items.map(item));
-    }
-    // The module it requires, with what that is built from under it in turn - never one already above it.
-    const next = page.requires !== undefined ? byModule.get(page.requires) : undefined;
-    if (next === undefined || next === page || above.includes(next)) return;
-    rows.push({ kind: "group", page, key: `group\n${path}\nrequired`, label: "required (1)", depth });
-    moduleRows(next, `${path}\n${next.plainFile}`, depth + 1, [...above, page]);
-  };
-  for (const page of pages) if (!required.has(page)) moduleRows(page, page.plainFile, 0, []);
+  if (page === undefined) return rows;
+  const path = page.plainFile;
+  const item = (entry: MarkedItem): MapRow => ({ kind: "item", page, item: entry, key: `${path}\n${entry.key}` });
+  rows.push(...page.items.filter((entry) => entry.file === undefined).map(item));
+  const imports = page.imports.filter((file) => page.items.some((entry) => entry.file === file));
+  if (imports.length > 0) rows.push({ kind: "group", page, key: `group\n${path}\nimported`, label: `imported (${imports.length})`, depth: 0 });
+  for (const file of imports) {
+    const items = page.items.filter((entry) => entry.file === file);
+    const key = `${path}\n${file}`;
+    if (revealed === page && items.some((entry) => entry.key === reveal!.key)) state.imports.set(key, true);
+    const opened = state.imports.get(key) ?? false;
+    rows.push({ kind: "import", page, file, key: `import\n${key}`, open: opened, depth: 0 });
+    if (opened) rows.push(...items.map(item));
+  }
   if (reveal !== undefined) {
     const found = rows.find((row) => row.kind === "item" && row.page.plainFile === reveal.file && row.item.key === reveal.key);
     if (found !== undefined) state.cursorKey = found.key;
@@ -447,6 +480,10 @@ export function specMapLines(
     lines.push(line);
     marks.push(mark);
   };
+  // The module shown: a spec that does not parse, or has nothing in it yet, says so.
+  const shown = shownPage(pages, state);
+  if (shown?.error !== undefined) add(style.error(`  its spec does not parse: ${shown.error}`));
+  else if (shown !== undefined && shown.items.length === 0) add(style.muted("  nothing in this spec yet"));
   let block: string | undefined;
   let section: string | undefined;
   // Straight under an import block's line: its first heading needs no blank line before it.
@@ -455,20 +492,6 @@ export function specMapLines(
     const here = index === state.cursor;
     const pointer = here ? style.accent("›") : " ";
     const page = row.page;
-    if (row.kind === "module") {
-      // A blank line above a module - not between closed ones, which sit together, nor under its group's heading.
-      const previous = rows[index - 1];
-      const together = (previous?.kind === "module" && !previous.open && !row.open) || previous?.kind === "group";
-      if (lines.length > 0 && !together) add("");
-      block = undefined;
-      section = undefined;
-      rowStarts.push(lines.length);
-      add(moduleLine(row.page, row.open, here, width, style, now, `${pointer}${INDENT.repeat(row.depth)}`));
-      if (row.open && page.error !== undefined) add(style.error(`      its spec does not parse: ${page.error}`));
-      else if (row.open && page.items.length === 0) add(style.muted("      nothing in this spec yet"));
-      underImport = true;
-      return;
-    }
     if (row.kind === "group") {
       if (lines.length > 0) add("");
       rowStarts.push(lines.length);
@@ -562,16 +585,7 @@ export function progressStrip(page: MarkedPage, style: TranscriptStyle, cells = 
 }
 
 /** A module's row: opened or closed, its file, its strip, how many of its functional specs are built, and its status. */
-function moduleLine(page: MarkedPage, open: boolean, here: boolean, width: number, style: TranscriptStyle, now: number, pointer: string): string {
-  const { built, total } = countOf(page);
-  const growing = page.items.some((item) => item.mark === "growing");
-  const name = `${open ? "▾" : "▸"} ${basename(page.plainFile)}`;
-  const strip = progressStrip(page, style, 12);
-  const status = page.stuck ? style.error(`! ${page.status}`) : growing ? style.accent(`${spinner(now)} ${page.status}`) : style.muted(page.status);
-  const count = total > 0 ? style.muted(`${built}/${total} built · `) : "";
-  return truncateToWidth(`${pointer} ${here ? style.heading(name) : name}${strip !== "" ? `  ${strip}` : ""}  ${count}${status}`, width, "…");
-}
-/** The map's top lines: the page's name, its strip and its count and status - and, for a chain, a tab a module. */
+/** The map's top line: the page's name, its strip and its count and status. */
 export function specMapHeader(page: MarkedPage, width: number, style: TranscriptStyle, waiting = ""): string {
   const { built, total } = countOf(page);
   const strip = progressStrip(page, style);
