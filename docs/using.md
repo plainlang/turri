@@ -94,9 +94,12 @@ modules or ten. How many run at once is capped by what the machine has room for:
 `parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a pulse whose turn has
 come waits for a free slot, and says so.
 
-- **The panel** above the input, while something runs, shows each running pulse - its module, time and
-  cost, and what its agents are doing - and what finished, newest first, its mark green, red or amber as
-  in the side panel, in one line. `ctrl+o` expands the agents' trace alone; what finished stays counted.
+- **The panel** above the input, while something runs, shows on top what finished - a line a module, its
+  pulses oldest first, each with its mark (green, red or amber, as in the side panel), number, kind and what
+  it grew, `cognio  … 2 earlier · ✓ 3 regrow: registration · ✓ 4 bind: fs 1–3`, the newest that fit the width -
+  then a rule, and under it each running pulse - `cognio · regrow pulse 5 · user search and profiles`, its
+  time and cost, and what its agents are doing. Pulses are numbered within their module, as regen numbers
+  them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module.
   What waits is not in it, and it shows no spec diff - the side panel has both. With nothing running it
   is gone.
 - **A pulse's change** is what its agent works from, not a text diff of the module's file: the items

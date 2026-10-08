@@ -23,6 +23,10 @@ export interface Job {
   summary: string;
   /** The module it works in, for a job that grows one: what a finished job is listed as. */
   module?: string;
+  /** Its number among its module's pulses, from 1 - as regen numbers them. */
+  pulse?: number;
+  /** What it grows, in a few words: its plan's title. */
+  title?: string;
   /** The spec change a render spec diff job renders, as its diff. Shown while it waits and runs. */
   diff?: string;
   /** Where its diff's lines are in the .plain files - their files and line numbers there - when they could be placed. */
@@ -96,6 +100,10 @@ export interface StartJobInput {
   summary: string;
   /** The module it works in, for a job that grows one. */
   module?: string;
+  /** Its number among its module's pulses, from 1. */
+  pulse?: number;
+  /** What it grows, in a few words. */
+  title?: string;
   /** For a render spec diff job: the diff, to show in the panel and the transcript. */
   diff?: string;
   /** "provider/model-id" its agents run on, to show where the job is shown. */
@@ -207,6 +215,8 @@ export function createJobRegistry(options?: {
         kind: input.kind,
         summary: input.summary,
         ...(input.module !== undefined ? { module: input.module } : {}),
+        ...(input.pulse !== undefined ? { pulse: input.pulse } : {}),
+        ...(input.title !== undefined ? { title: input.title } : {}),
         diff: input.diff,
         model: input.model,
         ...(input.follows !== undefined ? { follows: input.follows } : {}),

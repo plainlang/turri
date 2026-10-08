@@ -713,6 +713,9 @@ export function createWorkLoop(options: {
       kind: conformance ? "bind" : "regrow",
       summary: `${basename(tip.plainFile)} ${conformance ? "conformance: " : ""}${planned.title}`,
       module: tip.moduleName,
+      // Numbered as regen numbers it: the module's pulses this session, from 1.
+      pulse: (state.pulses ?? 0) + 1,
+      title: planned.title,
       diff: shown.diff,
       ...(state.model !== undefined ? { model: state.model } : {}),
       lanes: [...moduleLanes(tip.plainFile, options.buildDir)],

@@ -43,7 +43,37 @@ export function spinner(now: number): string {
 
 /** What a pulse is listed as: its module and its kind - "hubspot regrow", "hubspot bind" - or what was asked for. */
 export function pulseName(job: Job): string {
-  return job.module === undefined ? job.summary : `${job.module} ${job.kind}`;
+  if (job.module === undefined) return job.summary;
+  // Its module, its kind and number, what it grows: `cognio · regrow pulse 6 · user search and profiles`.
+  if (job.pulse !== undefined) return `${job.module} · ${job.kind} pulse ${job.pulse}${job.title !== undefined ? ` · ${job.title}` : ""}`;
+  return `${job.module} ${job.kind}`;
+}
+
+/** A finished pulse in its module's line: its mark, number, kind and what it grew - `✓ 3 regrow: registration`. */
+function finishedItem(job: Job, marks: MarkPaint): string {
+  if (job.module === undefined || job.pulse === undefined) return `${finishedMark(job, marks)} ${pulseName(job)}`;
+  return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}${job.title !== undefined ? `: ${job.title}` : ""}`;
+}
+
+/**
+ * What finished, a line a module - its name, then its pulses oldest first - fitted to `width` from the left: the
+ * newest that fit, the rest counted as earlier. The side panel lists every one.
+ */
+export function finishedLines(finished: Job[], width: number | undefined, marks: MarkPaint = PLAIN_MARKS): string[] {
+  const byModule = new Map<string, Job[]>();
+  for (const job of [...finished].sort((a, b) => a.sequence - b.sequence)) {
+    const key = job.module ?? job.kind;
+    byModule.set(key, [...(byModule.get(key) ?? []), job]);
+  }
+  const pad = Math.max(...[...byModule.keys()].map((name) => visibleWidth(name)));
+  return [...byModule].map(([name, jobs]) => {
+    const head = `  ${name}${" ".repeat(pad - visibleWidth(name))}  `;
+    const items = jobs.map((job) => finishedItem(job, marks));
+    const lineOf = (from: number) => `${head}${from > 0 ? `… ${from} earlier · ` : ""}${items.slice(from).join(" · ")}`;
+    let from = 0;
+    while (width !== undefined && from < items.length - 1 && visibleWidth(lineOf(from)) > width) from += 1;
+    return lineOf(from);
+  });
 }
 
 /** A pulse that ran to its end and whose build did not pass - stopped at a gate - is not a success. */
@@ -156,14 +186,18 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   const running = inOrder.filter((job) => job.status === "running");
   // Nothing running: no panel - what waits and what finished are in the side panel.
   if (running.length === 0) return [];
-  const finished = inOrder
-    .filter((job) => (job.status === "succeeded" || job.status === "failed" || job.status === "stopped") && job.replacedBy === undefined)
-    .sort((a, b) => (b.finishedAt ?? b.sequence) - (a.finishedAt ?? a.sequence) || b.sequence - a.sequence);
+  const finished = inOrder.filter((job) => (job.status === "succeeded" || job.status === "failed" || job.status === "stopped") && job.replacedBy === undefined);
 
   const lines: string[] = [];
 
-  for (const job of running) {
-    if (lines.length > 0) lines.push("");
+  // What finished, on top - a line a module, oldest first - and a rule under it: what runs now is below, by the input.
+  if (finished.length > 0) {
+    lines.push(...finishedLines(finished, options.width, options.marks ?? PLAIN_MARKS));
+    lines.push(`  ${"─".repeat(Math.max(10, (options.width ?? 80) - 4))}`);
+  }
+
+  for (const [index, job] of running.entries()) {
+    if (index > 0) lines.push("");
     // Its module, how long and what it has cost: what it is doing follows.
     lines.push(`${spinner(now)} ${pulseName(job)} · ${formatDuration(job)}${pulseCost(job)}`);
     // What it is on now, and for how long - beside the job's own time, which is the whole of it.
@@ -188,13 +222,6 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
       const seconds = Math.max(0, Math.round((now - job.now.since) / 1000));
       lines.push(`      … ${job.now.label} · ${seconds}s`);
     }
-  }
-
-  // What finished, newest first, counted in one line - ctrl+o or not: the side panel lists each.
-  if (finished.length > 0) {
-    lines.push("");
-    const marks = options.marks ?? PLAIN_MARKS;
-    lines.push(`  finished (${finished.length}): ${finished.map((job) => `${finishedMark(job, marks)} ${pulseName(job)}`).join(" · ")}`);
   }
 
   // Always a line of help: how to see more here, and how to inspect the jobs in the side panel.

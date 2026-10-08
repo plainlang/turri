@@ -98,24 +98,42 @@ describe("tool calls as one line", () => {
 });
 
 describe("the panel", () => {
-  it("counts what finished, newest first, each with its mark, in one line - ctrl+o or not - and is gone when nothing runs", async () => {
+  it("lists what finished on top, a line a module, each pulse with its mark, number, kind and title - a rule under it - and is gone when nothing runs", async () => {
     const jobs = createJobRegistry();
-    const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", run: async () => ({ report: "", details: { passed: true } }) });
+    const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", pulse: 1, title: "registration", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(first.id);
-    const second = jobs.start({ kind: "bind", summary: "y", module: "backend", run: async () => ({ report: "", details: { passed: false } }) });
+    const second = jobs.start({ kind: "bind", summary: "y", module: "backend", pulse: 2, title: "fs 1", run: async () => ({ report: "", details: { passed: false } }) });
     await jobs.wait(second.id);
+    const other = jobs.start({ kind: "regrow", summary: "w", module: "web", pulse: 1, title: "home page", run: async () => ({ report: "", details: { passed: true } }) });
+    await jobs.wait(other.id);
     // Nothing running: no panel at all.
     expect(jobPanelLines(jobs.list())).toEqual([]);
-    jobs.start({ kind: "regrow", summary: "z", module: "backend", run: () => new Promise(() => {}) });
+    jobs.start({ kind: "regrow", summary: "z", module: "backend", pulse: 3, title: "log in", run: () => new Promise(() => {}) });
     const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };
-    expect(jobPanelLines(jobs.list(), { marks })).toContain("  finished (2): <bad>✗ backend bind · <ok>✓ backend regrow");
+    const lines = jobPanelLines(jobs.list(), { marks, width: 80 });
+    expect(lines[0]).toBe("  backend  <ok>✓ 1 regrow: registration · <bad>✗ 2 bind: fs 1");
+    expect(lines[1]).toBe("  web      <ok>✓ 1 regrow: home page");
+    expect(lines[2]).toBe(`  ${"─".repeat(76)}`);
+    // What runs is below the rule, by the input: its module, its kind and number, what it grows.
+    expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regrow pulse 3 · log in · \d+s$/);
     // ctrl+o expands the agents' trace, not what finished: the side panel lists each.
-    const expanded = jobPanelLines(jobs.list(), { expanded: true, marks });
-    expect(expanded).toContain("  finished (2): <bad>✗ backend bind · <ok>✓ backend regrow");
-    expect(expanded.some((line) => /^  <ok>✓ backend regrow · \d+s$/.test(line))).toBe(false);
+    expect(jobPanelLines(jobs.list(), { expanded: true, marks, width: 80 }).slice(0, 2)).toEqual(lines.slice(0, 2));
   });
 
-  it("shows running jobs by module, time and cost, with their activity and not their stage - and what finished, in a line", async () => {
+  it("fits a module's line to the width with its newest pulses, the rest counted as earlier", async () => {
+    const jobs = createJobRegistry();
+    for (const [index, title] of ["description", "health check", "registration", "log in", "search"].entries()) {
+      const job = jobs.start({ kind: "regrow", summary: title, module: "cognio", pulse: index + 1, title, run: async () => ({ report: "", details: { passed: true } }) });
+      await jobs.wait(job.id);
+    }
+    jobs.start({ kind: "regrow", summary: "z", module: "cognio", pulse: 6, title: "profiles", run: () => new Promise(() => {}) });
+    const line = jobPanelLines(jobs.list(), { width: 70 })[0]!;
+    expect(line).toBe("  cognio  … 3 earlier · ✓ 4 regrow: log in · ✓ 5 regrow: search");
+    expect(line.length).toBeLessThanOrEqual(70);
+    expect(jobPanelLines(jobs.list())[0]).toContain("✓ 1 regrow: description");
+  });
+
+  it("shows running jobs by module, time and cost, with their activity and not their stage - and what finished, above them", async () => {
     const jobs = createJobRegistry();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -134,11 +152,11 @@ describe("the panel", () => {
     await jobs.wait(finished.id);
 
     const lines = jobPanelLines(jobs.list());
-    expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app render · \d+s$/);
+    expect(lines[2]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] app render · \d+s$/);
     expect(lines.join("\n")).not.toContain("app 3: writing code and unit tests");
     expect(lines).toContain("      ✎ write app.py");
-    // What finished is counted in one line below, newest first, with its mark.
-    expect(lines).toContain("  finished (1): ✓ done already");
+    // What finished is above it, with its mark - a job of no module under its kind.
+    expect(lines[0]).toBe("  render  ✓ done already");
 
     release();
   });
