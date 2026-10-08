@@ -67,6 +67,27 @@ function resumePrompt(step: StepSpec): string {
     .join("\n");
 }
 
+/** How many times a step whose turn ends on a question in its reply is sent back to carry on. */
+export const QUESTION_NUDGES = 2;
+
+/** Whether a reply ends on a question: its last line, its markdown left aside, ends with a question mark. */
+export function endsOnQuestion(reply: string): boolean {
+  const last = reply.trim().split("\n").filter((line) => line.trim() !== "").at(-1) ?? "";
+  return /\?$/.test(last.replace(/[*_`)\]"'\s]+$/, ""));
+}
+
+/** Sent when a step's turn ended on a question in its reply: no one reads it, and the step is not done. */
+function unansweredQuestionPrompt(skill: Skill, step: StepSpec): string {
+  return [
+    "Your turn ended on a question in your reply. No one reads it: the person sees only what ask_user asks, and",
+    `the step ends when your turn does - so step '${step.name}' would end here, not done.`,
+    skill.paced
+      ? "If it is truly the person's to decide, ask it with ask_user. Otherwise decide it yourself."
+      : `'${skill.name}' asks the person nothing more: decide it yourself, as a careful engineer would, and say what you chose.`,
+    `Then carry on with step '${step.name}' until all of it is done, and end your turn only then.`,
+  ].join("\n");
+}
+
 function stepPrompt(skill: Skill, step: StepSpec, critique: string, context?: string): string {
   if (critique) {
     return [
@@ -141,7 +162,12 @@ export function compileSkill(opts: {
       const prompt =
         resuming === step.name && !state.critique ? resumePrompt(step) : stepPrompt(skill, step, state.critique, context);
       resuming = undefined;
-      await ask(opts.executor, prompt);
+      let reply = await ask(opts.executor, prompt);
+      // A question in the reply reaches no one - the person sees only what ask_user asks - and the step ends with the
+      // turn: back to the work, so a step is not left half done on a question nobody answers.
+      for (let nudges = 0; nudges < QUESTION_NUDGES && endsOnQuestion(reply); nudges += 1) {
+        reply = await ask(opts.executor, unansweredQuestionPrompt(skill, step));
+      }
 
       let artifact = "";
       try {

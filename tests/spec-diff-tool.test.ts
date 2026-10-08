@@ -104,7 +104,10 @@ describe("write_spec_diff", () => {
     writeFileSync(join(dir, "app.plain"), one);
     const { call, loop } = setup({ paced: false });
     await call({ plain_file: "app.plain", diff: diffOf(one, two) });
-    await expect(call({ plain_file: "app.plain", diff: diffOf(two, three) })).resolves.toBeDefined();
+    const second = await call({ plain_file: "app.plain", diff: diffOf(two, three) });
+    // Told to write the next change at once - not to carry on with an interview it does not have.
+    expect(JSON.stringify(second)).toContain("Write the next change now, without stopping to ask");
+    expect(JSON.stringify(second)).not.toContain("Carry on with the interview");
     await loop.drain();
     expect(readFileSync(join(dir, "app.plain"), "utf8")).toBe(three);
     expect(JSON.stringify(readRecord(join(dir, "plain_modules", "app", "code")))).toContain("can log out.");

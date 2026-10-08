@@ -13,6 +13,11 @@ description: >-
   `brood`. Not for adding a feature to an existing project (use `bud`).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 metadata:
+  # What each phase does, in a line - shown under the skill's progress while it runs.
+  phases:
+    intent: "what you want to build, and which stack to build it on"
+    groundwork: "the language, frameworks, storage and architecture"
+    product: "writes the features one by one - each starts a regrow pulse"
   # It writes its spec changes one after another on its own: no answer between them.
   paced: false
 ---
@@ -136,6 +141,10 @@ Write the product, feature by feature, as spec diffs - on your own, without aski
    paths from the project root. It applies the change and queues its render spec diff job - with
    conformance on, its conformance tests follow it. Go straight on to the next feature -
    never wait for a build. Never change a `.plain` file in this step by any other means.
+
+The step is done only once every feature you planned is written, one spec diff each. Never stop
+part-way to ask whether to go on, or which feature comes next: nobody answers in this step, and the
+skill ends when your turn does - so a question here leaves the product unwritten.
 
 Correct a change you find wrong once written with a diff and `fixes_earlier`, never by editing the
 file.

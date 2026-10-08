@@ -34,7 +34,9 @@ something is growing invites you to look, with an option of its own, `Peek at wh
 panel and asks the same question again, waiting under it.
 
 While a skill runs, a line above the input shows its phases, every one by name - those done ticked, the one it is in
-marked, the rest to come - and where it is: `brood  ✓ intent ━━ ⠋ stack ── ○ testing ── ○ product   phase 2 of 4`. The phases are the skill's own steps, read from its `SKILL.md`.
+marked, the rest to come - and where it is: the skill's name at the left edge, `phase 2 of 4` at the right, and its
+phases centred between them, `✓ intent ━━━━ ⠋ stack ──── ○ testing ──── ○ product`. Under it, dimmed, the phase it is in and what
+it does: `stack - the language, frameworks, storage and architecture`. The phases are the skill's own steps, read from its `SKILL.md`.
 
 `genome/skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see

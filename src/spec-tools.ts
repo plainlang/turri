@@ -47,7 +47,9 @@ export function createSpecDiffTools(options: {
     promptSnippet: "apply a git diff of the .plain specs and start building it",
     promptGuidelines: [
       "Every change to a .plain file in the product phase goes through write_spec_diff, as a git diff with paths relative to the project root. It writes the change and starts its build in one step.",
-      "One change per answer, and a new one only after the user has answered a question about it. Set fixes_earlier to correct something already written.",
+      paced
+        ? "One change per answer, and a new one only after the user has answered a question about it. Set fixes_earlier to correct something already written."
+        : "Write the changes one after another, on your own: no answer is needed between them, and none is asked for. Set fixes_earlier to correct something already written.",
       "To take something out of what is already written and queued - the user drops a page or a feature - write the diff that removes it from every spec that names it, with fixes_earlier. What is left to build is worked out from the spec each time, and a build the change undoes is stopped by itself; never stop builds to drop a change - it stays in the files.",
     ],
     parameters: Type.Object({
@@ -121,7 +123,8 @@ export function createSpecDiffTools(options: {
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
         `Building in the background:\n${describeModules(statuses)}\n`,
-        "Carry on with the interview.",
+        // An interview goes back to its questions; a skill that writes on its own, straight to its next change - a stop to ask ends it.
+        paced ? "Carry on with the interview." : "Write the next change now, without stopping to ask: this skill goes on until everything it is to write is written.",
       ];
       return {
         content: [{ type: "text" as const, text: lines.join(" ") + reviewNote(liveReview) }],

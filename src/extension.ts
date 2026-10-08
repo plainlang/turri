@@ -42,7 +42,7 @@ import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
 import { createJobPanel, didNotPass, PANEL_KEY, spinner } from "./grow/job-panel.ts";
-import { skillProgressLine } from "./skill-progress.ts";
+import { skillAboutLine, skillProgressLine } from "./skill-progress.ts";
 import { createSidePanel } from "./grow/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles } from "./grow/spec-map.ts";
 import { createSpecMapState } from "./grow/spec-map-view.ts";
@@ -467,7 +467,7 @@ export default function (pi: ExtensionAPI) {
       const ticker = setInterval(show, 5000);
       ticker.unref?.();
 
-      // Above the input, while it runs: every phase by name, the one it is in, and how far through.
+      // Above the input, while it runs: every phase by name, the one it is in, and how far through - and under it, what that phase does.
       const phases = skill.steps.map((step) => step.name);
       const progress = { current: -1, attempt: 1 };
       if (ctx.hasUI) {
@@ -475,19 +475,19 @@ export default function (pi: ExtensionAPI) {
           // The spinner on the phase it is in moves.
           const redraw = setInterval(() => tui.requestRender(), 1000);
           redraw.unref?.();
+          const style = {
+            heading: (text: string) => theme.bold(theme.fg("accent", text)),
+            done: (text: string) => theme.fg("success", text),
+            now: (text: string) => theme.bold(theme.fg("accent", text)),
+            muted: (text: string) => theme.fg("muted", text),
+          };
           return {
-            render: (width: number) => [
-              skillProgressLine(
-                { skill: skill.name, phases, current: progress.current, attempt: progress.attempt, frame: spinner(Date.now()) },
-                width,
-                {
-                  heading: (text) => theme.bold(theme.fg("accent", text)),
-                  done: (text) => theme.fg("success", text),
-                  now: (text) => theme.bold(theme.fg("accent", text)),
-                  muted: (text) => theme.fg("muted", text),
-                },
-              ),
-            ],
+            render: (width: number) => {
+              const about = skill.steps[progress.current]?.about;
+              const now = { skill: skill.name, phases, current: progress.current, attempt: progress.attempt, frame: spinner(Date.now()), ...(about !== undefined ? { about } : {}) };
+              const under = skillAboutLine(now, width, style);
+              return [skillProgressLine(now, width, style), ...(under !== undefined ? [under] : [])];
+            },
             invalidate: () => {},
             dispose: () => clearInterval(redraw),
           };

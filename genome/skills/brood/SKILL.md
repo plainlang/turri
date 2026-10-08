@@ -13,6 +13,12 @@ description: >-
   specs are the source of truth).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff]
 metadata:
+  # What each phase does, in a line - shown under the skill's progress while it runs.
+  phases:
+    intent: "what problem this solves, for whom, and how you will know it works"
+    stack: "the language, frameworks, storage and architecture"
+    testing: "whether there are conformance tests, and how they are written and run"
+    product: "the product, feature by feature - each answer starts a regrow pulse"
   gates:
     - after: product
       continuous:

@@ -13,6 +13,11 @@ description: >-
   `spawn`) or adding a feature (`bud`).
 allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff, regrow, drift, halt, watch_jobs, spec_findings]
 metadata:
+  # What each phase does, in a line - shown under the skill's progress while it runs.
+  phases:
+    intake: "reads the spec, checks it parses, and makes sure a build can start"
+    grow: "builds what is left, watches the builds, and settles what the spec leaves open"
+    report: "what was built, what struggled, and what was decided in the spec"
   # It writes its fixes one after another, from what the builds show: no answer between them.
   paced: false
 ---

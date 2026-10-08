@@ -48,7 +48,19 @@ declares gates today.
 
 `paced: false` under `metadata:` lets a skill write spec changes one after another on its own:
 `write_spec_diff` otherwise refuses a new change until the user has answered a question since the
-last one - one answer, one change, as an interview writes them. `spawn` is unpaced.
+last one - one answer, one change, as an interview writes them. `spawn` is unpaced: the tool tells it so, and after
+each change to write the next at once, not to carry on with an interview it does not have.
+
+A step ends when its agent's turn does. A turn that ends on a question in the reply would end the step there, half
+done, on a question no one reads - the person sees only what `ask_user` asks. So such a step is sent back, twice at
+most: to ask with `ask_user` if the question is truly the person's, or, in an unpaced skill, to decide it itself -
+then to carry on until the step is done.
+
+`phases:` under `metadata:` says what each step does, in a short line a step by its name - for the person, not
+the agent: while the skill runs, the line above the input shows its phases, and under them the one it is in with
+its line (`groundwork - the language, frameworks, storage and architecture`). A phase's name alone
+says little to someone who has not read the skill. Every skill with more than one step describes each; a line for a
+step the skill does not have is an error, as a gate after one is.
 
 A skill gets the tools its `allowed-tools` names, and nothing else: one that names none has none. So
 every skill here names its own - the file tools (`read`, `write`, `edit`, `bash`, `ls`, `grep`, `find`)

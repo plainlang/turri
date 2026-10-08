@@ -67,6 +67,8 @@ export interface StepSpec {
   name: string;
   /** Prose under the step's heading - this is what the executor is told to do. */
   instructions: string;
+  /** What the step does, in a short line for the person - shown under the skill's progress while it runs. */
+  about?: string;
   gate?: GateSpec;
 }
 
@@ -186,8 +188,24 @@ export function loadSkill(skillDir: string): Skill {
     });
   }
 
-  const steps = parseSteps(name, content).map<StepSpec>((s) => ({ ...s, gate: gatesByStep.get(s.name) }));
+  // What each step does, for the person: `metadata.phases`, a short line a step by its name.
+  const rawPhases = (data.metadata as { phases?: unknown } | undefined)?.phases ?? {};
+  if (typeof rawPhases !== "object" || rawPhases === null || Array.isArray(rawPhases)) {
+    throw new Error(`${name}: 'metadata.phases' is a line a step, by the step's name`);
+  }
+  const abouts = new Map(Object.entries(rawPhases as Record<string, unknown>).map(([step, about]) => [step, String(about ?? "").trim()]));
+
+  const steps = parseSteps(name, content).map<StepSpec>((s) => {
+    const about = abouts.get(s.name);
+    return { ...s, ...(about !== undefined && about !== "" ? { about } : {}), gate: gatesByStep.get(s.name) };
+  });
   if (steps.length === 0) throw new Error(`${name}: the skill body is empty`);
+
+  for (const stepName of abouts.keys()) {
+    if (!steps.some((s) => s.name === stepName)) {
+      throw new Error(`${name}: 'metadata.phases' describes unknown step '${stepName}'`);
+    }
+  }
 
   for (const stepName of gatesByStep.keys()) {
     if (!steps.some((s) => s.name === stepName)) {

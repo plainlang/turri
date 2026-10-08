@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -83,6 +83,27 @@ describe("gates", () => {
     expect(() =>
       skill("Do it.\n", "metadata:\n  gates:\n    - after: nope\n      review:\n        rubric: ./r.md\n"),
     ).toThrow(/gate references unknown step 'nope'/);
+  });
+});
+
+describe("what each step does", () => {
+  it("comes from metadata.phases, a line a step by its name", () => {
+    const s = skill("## Steps\n\n### first\n\nDo it.\n\n### second\n\nThen this.\n", "metadata:\n  phases:\n    first: \"reads the spec\"\n");
+    expect(s.steps.map((step) => step.about)).toEqual(["reads the spec", undefined]);
+  });
+
+  it("is rejected when it describes a step that does not exist", () => {
+    expect(() => skill("## Steps\n\n### first\n\nDo it.\n", "metadata:\n  phases:\n    nope: \"does nothing\"\n")).toThrow(
+      /'metadata.phases' describes unknown step 'nope'/,
+    );
+  });
+
+  it("is said for every phase of every skill that has phases", () => {
+    for (const name of readdirSync(join(process.cwd(), "genome", "skills"))) {
+      const loaded = loadSkill(join(process.cwd(), "genome", "skills", name));
+      if (loaded.steps.length < 2) continue;
+      for (const step of loaded.steps) expect(step.about, `${name}: ${step.name}`).toBeTruthy();
+    }
   });
 });
 
