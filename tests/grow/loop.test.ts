@@ -550,6 +550,54 @@ describe("the work loop", () => {
       return { ran, gate, runConformance };
     }
 
+    it("are not planned out for a functional spec edited while its tests are being written - they are written again for its new text", async () => {
+      // The running pulse is let finish: what comes after it is planned ahead, from what it will land.
+      writeFileSync(join(dir, "config.yaml"), "allow-to-stop-jobs: false\n");
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      // The conformance pulse is held while it writes, so the spec can change under it.
+      let release!: () => void;
+      let hold: Promise<void> | undefined = new Promise((resolve) => (release = resolve));
+      let started!: () => void;
+      const writing = new Promise<void>((resolve) => (started = resolve));
+      /** The functional specs a conformance pulse took the tests of out. */
+      const deleted: string[] = [];
+      const loop = createWorkLoop({
+        registry: createJobRegistry(),
+        cwd: dir,
+        planner: false,
+        conformanceOn: () => true,
+        run: code.run,
+        runConformance: async (job, onDelta) => {
+          deleted.push(...job.planned.cases.delete.map((spec) => spec.frid));
+          const held = hold;
+          hold = undefined;
+          if (held !== undefined) {
+            started();
+            await held;
+          }
+          return tests.runConformance(job, onDelta);
+        },
+      });
+      await loop.bringUp("app.plain");
+      await writing;
+      // While it writes fs 2's tests for "Say goodbye.", fs 2 is edited: its code is behind the spec now.
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye, loudly."]));
+      await loop.bringUp("app.plain");
+      release();
+      await loop.drain();
+      // What ran after: fs 2's code grown again, and its tests written again for the new text - never taken out first,
+      // to be written again a pulse later.
+      expect(deleted).toEqual([]);
+      const after = tests.ran.slice(1);
+      expect(after.length).toBeGreaterThan(0);
+      expect(after.some((run) => run.patch.includes("2") || run.add.includes("2"))).toBe(true);
+      const tested = JSON.stringify(readRecord(testsDir()));
+      expect(tested).toContain("Say goodbye, loudly.");
+      expect(tested).not.toContain('"Say goodbye."');
+    });
+
     it("are written once the module's code is built - every code job of it landed - in one job for the module, with the config on", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
       const code = runner();

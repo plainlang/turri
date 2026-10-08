@@ -18,7 +18,8 @@ import { applyChanges, changesBetween, inconsistencies, layoutOf, makeStep, pars
  * functional specs outward, in three steps:
  *
  * 1. Which new functional specs go together - next to each other, as the spec orders them, at most
- *    MAX_SPECS_PER_JOB in a job; most go alone. An agent judges it: "describe the same thing" is a judgement.
+ *    `max-specs-per-pulse` in a job (MAX_SPECS_PER_JOB unset): what builds one feature goes together, and only what
+ *    stands on its own goes alone. An agent judges it: "builds the same thing" is a judgement.
  * 2. The definitions each group uses: the concepts its functional specs name, and the concepts those
  *    definitions name in turn. A definition goes with the first group that uses it; later ones have it built.
  *    Code, not an agent: it is a lookup.
@@ -27,7 +28,7 @@ import { applyChanges, changesBetween, inconsistencies, layoutOf, makeStep, pars
  *
  * Changes to what is built already - an item edited or taken out, a functional spec built changed - go first, in a
  * job of their own. Every answer is checked; one that does not hold goes back to its agent, twice at most, and then
- * the plan falls back to a functional spec a job. A job past MAX_LINES_PER_JOB is split. The plan is the queue
+ * the plan falls back to a functional spec a job. A job past `max-lines-per-pulse` (MAX_LINES_PER_JOB unset) is split. The plan is the queue
  * master's proposal: it reviews it, and may change it, held to the same checks.
  */
 
@@ -53,9 +54,17 @@ export interface PlanInput {
   track?: "code" | "conformance";
   /**
    * For the conformance tests: a job a functional spec, as the person asked. Otherwise every functional spec tested is
-   * in one job, as far as the guardrail (MAX_LINES_PER_JOB) lets.
+   * in one job, as far as the guardrail (`max-lines-per-pulse`) lets.
    */
   separately?: boolean;
+  /** How big a pulse may be - the config's `max-specs-per-pulse` and `max-lines-per-pulse`; unset, MAX_SPECS_PER_JOB and MAX_LINES_PER_JOB. */
+  limits?: PulseLimits;
+}
+
+/** How big a pulse may be: how many functional specs, and how many lines of spec with the definitions they bring. */
+export interface PulseLimits {
+  specs: number;
+  lines: number;
 }
 
 /** One job of a plan: a title, why, and the changes it makes, by id. */
@@ -175,7 +184,7 @@ export interface PlaceAnswer {
  * or not: the plan checks it again. Injectable, so the plan is testable without a model.
  */
 export interface ChunkAgents {
-  group(specs: NewSpec[], check: (answer: GroupAnswer) => string[], steering?: Steering[]): Promise<GroupAnswer | undefined>;
+  group(specs: NewSpec[], check: (answer: GroupAnswer) => string[], steering?: Steering[], maxSpecs?: number): Promise<GroupAnswer | undefined>;
   place(input: PlaceInput, check: (answer: PlaceAnswer) => string[]): Promise<PlaceAnswer | undefined>;
 }
 
@@ -206,7 +215,7 @@ function definedBy(text: string): string[] {
 }
 
 /** What is wrong with a grouping: every new functional spec once, in order, next to each other, none too big. */
-export function groupProblems(specs: NewSpec[], answer: GroupAnswer): string[] {
+export function groupProblems(specs: NewSpec[], answer: GroupAnswer, maxSpecs = MAX_SPECS_PER_JOB): string[] {
   const problems: string[] = [];
   const numbers = specs.map((spec) => spec.number);
   const given = answer.groups.flatMap((group) => group.specs);
@@ -221,7 +230,7 @@ export function groupProblems(specs: NewSpec[], answer: GroupAnswer): string[] {
   };
   for (const group of answer.groups) {
     if (group.specs.length === 0) problems.push(`"${group.title}" has no functional spec.`);
-    if (group.specs.length > MAX_SPECS_PER_JOB) problems.push(`"${group.title}" has ${group.specs.length} functional specs - at most ${MAX_SPECS_PER_JOB}.`);
+    if (group.specs.length > maxSpecs) problems.push(`"${group.title}" has ${group.specs.length} functional specs - at most ${maxSpecs}.`);
     for (let i = 1; i < group.specs.length; i += 1) {
       if (!nextTo(group.specs[i - 1]!, group.specs[i]!)) problems.push(`"${group.title}" groups ${group.specs.join(", ")}: only functional specs next to each other in the same module go together.`);
     }
@@ -388,12 +397,13 @@ function anchored(draft: DraftJob[], net: SpecChange[]): DraftJob[] {
 /**
  * How the conformance tests are cut, with no agent: every functional spec tested in one job - those of one module
  * together - a new job begun only where the next functional spec would take the job's functional specs and the
- * definitions they bring past MAX_LINES_PER_JOB; or, `separately`, a job a functional spec, as the person asked.
+ * definitions they bring past `maxLines`; or, `separately`, a job a functional spec, as the person asked.
  * `size`: the movable lines of the last group of a grouping, its definitions placed.
  */
 function conformanceGroups(
   specs: NewSpec[],
   separately: boolean,
+  maxLines: number,
   size: (groups: Array<{ specs: number[]; title: string }>) => number,
   titleOfSpec: (number: number) => string,
 ): Array<{ specs: number[]; title: string }> {
@@ -403,7 +413,7 @@ function conformanceGroups(
     const sameModule = last !== undefined && specs.find((other) => other.number === last.specs[0])?.module === spec.module;
     if (!separately && last !== undefined && sameModule) {
       const trial = [...groups.slice(0, -1), { specs: [...last.specs, spec.number] }].map((group) => ({ ...group, title: "" }));
-      if (size(trial) <= MAX_LINES_PER_JOB) {
+      if (size(trial) <= maxLines) {
         last.specs.push(spec.number);
         continue;
       }
@@ -414,6 +424,8 @@ function conformanceGroups(
 }
 
 async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Promise<DraftJob[]> {
+  // How big a pulse may be: the config's, else the defaults.
+  const { specs: maxSpecs, lines: maxLines } = input.limits ?? { specs: MAX_SPECS_PER_JOB, lines: MAX_LINES_PER_JOB };
   /** What the plan did not do as asked: in the activity, and in the notes. */
   const say = (text: string) => {
     reportActivity(`  ${text}`);
@@ -462,20 +474,20 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
     ...list.map((group) => ({ title: group.title, specs: group.specs.map((number) => bySpec.get(number)!), definitions: [], reqs: [] })),
   ];
   const conformance = input.track === "conformance";
-  const grouped = conformance ? undefined : ((await agents?.group(numbered, (answer) => groupProblems(numbered, answer), input.steering).catch(() => undefined)) ?? undefined);
+  const grouped = conformance ? undefined : ((await agents?.group(numbered, (answer) => groupProblems(numbered, answer, maxSpecs), input.steering, maxSpecs).catch(() => undefined)) ?? undefined);
   const groups = conformance
-    ? conformanceGroups(numbered, input.separately === true, (list) => {
+    ? conformanceGroups(numbered, input.separately === true, maxLines, (list) => {
         const trial = chunksFor(list);
         placeDefinitions(trial, definitions);
         return movableSize(trial.at(-1)!);
       }, (number) => titleOf(bySpec.get(number)!))
-    : grouped !== undefined && groupProblems(numbered, grouped).length === 0
+    : grouped !== undefined && groupProblems(numbered, grouped, maxSpecs).length === 0
       ? grouped.groups
       : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));
   if (grouped?.notes !== undefined && grouped.notes.trim() !== "") say(`the grouping: ${grouped.notes.trim()}`);
   if (!conformance && agents !== undefined) {
     if (grouped === undefined) say("the grouping was not given - a functional spec a pulse");
-    else if (groupProblems(numbered, grouped).length > 0) say(`the grouping did not hold (${groupProblems(numbered, grouped).join(" ")}) - a functional spec a pulse`);
+    else if (groupProblems(numbered, grouped, maxSpecs).length > 0) say(`the grouping did not hold (${groupProblems(numbered, grouped, maxSpecs).join(" ")}) - a functional spec a pulse`);
   }
   let chunks = chunksFor(groups);
 
@@ -512,14 +524,40 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
   };
   place();
 
-  // A group too big to render well goes a functional spec a job; its reqs with the first of them.
-  if (newChunks().some((chunk) => chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB)) {
-    for (const chunk of newChunks()) {
-      if (chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB) say(`"${chunk.title}" is past ${MAX_LINES_PER_JOB} lines with its definitions and reqs - a functional spec a pulse`);
-    }
-    const split = groups.flatMap((group) => {
+  // A group too big to render well is split - into as few pulses as fit, its functional specs kept together in runs as
+  // long as the limit lets, rather than a functional spec a pulse: most of the grouping holds. Its reqs go with the first.
+  if (newChunks().some((chunk) => chunk.specs.length > 1 && movableSize(chunk) > maxLines)) {
+    /** The size of the group starting at `first` in a trial grouping, its definitions placed as they would be. */
+    const sizeIn = (list: Array<{ specs: number[]; title: string }>, first: number): number => {
+      const trial = chunksFor(list);
+      placeDefinitions(trial, definitions);
+      const chunk = trial.find((candidate) => candidate.specs[0] === bySpec.get(first));
+      return chunk !== undefined ? movableSize(chunk) : 0;
+    };
+    const split: Array<{ specs: number[]; title: string }> = [];
+    groups.forEach((group, at) => {
       const chunk = newChunks().find((candidate) => candidate.specs[0] === bySpec.get(group.specs[0]!));
-      return chunk !== undefined && chunk.specs.length > 1 && movableSize(chunk) > MAX_LINES_PER_JOB ? group.specs.map((number) => ({ specs: [number], title: titleOf(bySpec.get(number)!) })) : [group];
+      if (chunk === undefined || chunk.specs.length < 2 || movableSize(chunk) <= maxLines) {
+        split.push(group);
+        return;
+      }
+      const after = groups.slice(at + 1);
+      const runs: number[][] = [];
+      let run: number[] = [group.specs[0]!];
+      for (const next of group.specs.slice(1)) {
+        const longer = [...run, next];
+        const trial = [...split, ...runs.map((specs) => ({ specs, title: "" })), { specs: longer, title: "" }, ...after];
+        if (sizeIn(trial, longer[0]!) <= maxLines) run = longer;
+        else {
+          runs.push(run);
+          run = [next];
+        }
+      }
+      runs.push(run);
+      say(`"${group.title}" is past ${maxLines} lines with its definitions and reqs - split into ${runs.length} pulses`);
+      runs.forEach((specs, index) =>
+        split.push({ specs, title: specs.length === 1 ? titleOf(bySpec.get(specs[0]!)!) : `${group.title} (${index + 1} of ${runs.length})` }),
+      );
     });
     const before = placement;
     // A req placed with a group that split goes with the first functional spec of it.
@@ -532,7 +570,7 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
   }
   // What is about everything, the first group cannot carry within the limit: a job of its own ahead of it, when it holds on its own.
   const first = newChunks()[0];
-  if (first !== undefined && sizeOf(first) > MAX_LINES_PER_JOB) {
+  if (first !== undefined && sizeOf(first) > maxLines) {
     const everything = implementationReqs.filter((change, index) => (placement?.implementationReqs.find((entry) => entry.req === index + 1)?.to ?? "all") === "all");
     const standalone = everything.filter((change) => namedIn(textOf(change)).every((concept) => definitions.every((definition) => !definedBy(textOf(definition)).includes(concept))));
     if (standalone.length > 0) {
@@ -557,16 +595,17 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
 // ---------------------------------------------------------------------------------------------
 // The agents.
 
-export function groupPrompt(specs: NewSpec[], steering?: Steering[]): string {
+export function groupPrompt(specs: NewSpec[], steering?: Steering[], maxSpecs = MAX_SPECS_PER_JOB): string {
   return [
     "You plan how new work on a codebase is built: which of its new functional specs are built together, in one job.",
     "",
-    "Each job is rendered by a coding agent, reviewed and tested, then the next. A job is best when it is one thing a",
-    `person would name - one component, one feature - so group the functional specs that build it, up to ${MAX_SPECS_PER_JOB}:`,
-    "a component and the parts only it uses (a timeout handler, a retry handler and the executor that runs a function",
-    "through both), an endpoint and the one that undoes it, a record and the list of it. Keep a functional spec alone when",
-    "it stands on its own - the next ones do not build on it as parts of the same thing - or when it is big: a job is",
-    "better small than wide. Never group specs only because they are of the same kind, or next to each other.",
+    "Each job is rendered by a coding agent, reviewed and tested, then the next - fewer, fuller jobs: each job costs a",
+    "coding session, a test run and a review. So group by default: what builds one feature goes together - the feature,",
+    `its edge cases, and the functional specs that build on it - up to ${maxSpecs}: a component and the parts only it uses`,
+    "(a timeout handler, a retry handler and the executor that runs a function through both), an endpoint and the one",
+    "that undoes it, a record, the list of it and its filters. Keep a functional spec alone only when it is truly",
+    "independent - nothing next to it builds on it or is part of the same thing - or when it is very large on its own.",
+    "Never group specs only because they are of the same kind.",
     "",
     "Only functional specs next to each other in the same module go together, and they stay in the order given: the",
     "order is what each is built on. Give each group a short title that says what it builds.",
@@ -647,12 +686,12 @@ async function askStep<A>(options: { cwd: string; model?: string; label: string;
 export function llmChunkAgents(options: { cwd: string; model?: string; label?: string }): ChunkAgents {
   const label = options.label ?? "queue planner";
   return {
-    group: (specs, check, steering) =>
+    group: (specs, check, steering, maxSpecs) =>
       askStep<GroupAnswer>({
         cwd: options.cwd,
         model: options.model,
         label: `${label} grouping`,
-        task: groupPrompt(specs, steering),
+        task: groupPrompt(specs, steering, maxSpecs),
         check,
         tool: (take) =>
           defineTool({

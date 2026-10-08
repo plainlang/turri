@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DONE_OPTION, OTHER_OPTION, missingOptions, runAsk, type AskUserIO } from "../../src/ask.ts";
+import { askWithPeek, DONE_OPTION, OTHER_OPTION, missingOptions, PEEK_HINT, PEEK_INVITE, PEEK_OPTION, runAsk, type AskUserIO } from "../../src/ask.ts";
 
 /** A scripted user: each select/input call returns the next queued reply. */
 function scriptedUser(replies: Array<string | undefined>): AskUserIO & { calls: string[][] } {
@@ -143,5 +143,55 @@ describe("tool-call markup a model leaks into a question", () => {
     const answer = await runAsk({ question: "Pick one", options: ["</parameter>", "<parameter name=\"options\">[\"a\"]"] }, io);
     expect(answer).toContain("This question was not asked: its question or options held tool-call markup");
     expect(shown).toEqual([]);
+  });
+});
+
+describe("peeking while a question waits", () => {
+  /** The dialog, scripted: each select answers with what `pick` says, and every title shown is kept. */
+  const dialog = (pick: (options: string[], call: number) => string) => {
+    const titles: string[] = [];
+    const offered: string[][] = [];
+    let call = 0;
+    const io: AskUserIO = {
+      select: async (title, options) => (titles.push(title), offered.push(options), pick(options, call++)),
+      input: async (title) => (titles.push(title), "typed"),
+    };
+    return { io, titles, offered };
+  };
+
+  it("says under every question that ctrl+h is safe - the question waits", async () => {
+    const { io, titles } = dialog((options) => options[0]!);
+    expect(await askWithPeek({ question: "Which stack?", options: ["FastAPI", "Express"] }, io)).toBe("FastAPI");
+    expect(titles[0]).toBe(`Which stack?\n\n${PEEK_HINT}`);
+  });
+
+  it("invites them to look the first time something is growing - an option that opens the panel and asks the same question again", async () => {
+    const opened: string[] = [];
+    const peek = { invited: false, growing: () => true, open: () => opened.push("panel") };
+    // They take the invitation, then answer the same question, asked again under the panel.
+    const { io, titles, offered } = dialog((options, call) => (call === 0 ? PEEK_OPTION : options[1]!));
+    expect(await askWithPeek({ question: "Which stack?", options: ["FastAPI", "Express"] }, io, peek)).toBe("Express");
+    expect(titles[0]).toContain(PEEK_INVITE);
+    expect(offered[0]).toContain(PEEK_OPTION);
+    expect(opened).toEqual(["panel"]);
+    // Asked again as it was: no invitation, no peek option.
+    expect(titles[1]).not.toContain(PEEK_INVITE);
+    expect(offered[1]).not.toContain(PEEK_OPTION);
+    // Once an interview: the next question is asked as any.
+    const next = dialog((options) => options[0]!);
+    await askWithPeek({ question: "Conformance tests?", options: ["Yes", "No"] }, next.io, peek);
+    expect(next.titles[0]).not.toContain(PEEK_INVITE);
+  });
+
+  it("does not invite while nothing grows, and an answer picked over the invitation is the answer", async () => {
+    const quiet = { invited: false, growing: () => false, open: () => {} };
+    const { io, titles } = dialog((options) => options[0]!);
+    await askWithPeek({ question: "Which stack?", options: ["FastAPI"] }, io, quiet);
+    expect(titles[0]).not.toContain(PEEK_INVITE);
+    expect(quiet.invited).toBe(false);
+    const growing = { invited: false, growing: () => true, open: () => {} };
+    const answered = dialog((options) => options[0]!);
+    expect(await askWithPeek({ question: "Which stack?", options: ["FastAPI"] }, answered.io, growing)).toBe("FastAPI");
+    expect(growing.invited).toBe(true);
   });
 });

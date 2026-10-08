@@ -58,7 +58,7 @@ export function createSidePanel(options: SidePanelOptions) {
 
   const waitingNote = () =>
     // A question asked while it showed waits in the chat, unanswered: the person is told it is there.
-    options.waiting?.() === true ? `   ${style.warning?.("the chat is waiting for your answer") ?? style.accent("the chat is waiting for your answer")} - ${options.key} to go back` : "";
+    options.waiting?.() === true ? `   ${style.warning?.("your question is waiting") ?? style.accent("your question is waiting")} - ${options.key} or esc to answer it, as you left it` : "";
 
   const renderPulses = (width: number, rows: number): string[] => {
     const bodyHeight = rows - 3;

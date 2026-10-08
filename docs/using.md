@@ -27,6 +27,15 @@ The skills that build from scratch:
 | `spawn` | its quick twin: asks only what you want to build and which stack - one of the standard library's, your own, or `You choose` - and confirms a five-line brief, then writes the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
 | `mature` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
 
+Peeking is safe while a skill asks you something: `ctrl+h` opens the side panel over the question, which waits under it
+as it was - the panel says `your question is waiting`, and `ctrl+h` or `esc` takes you back to answer it. Every question
+says so under it - `ctrl+h peek at the build - this question waits for you` - and the first one a skill asks once
+something is growing invites you to look, with an option of its own, `Peek at what's growing first`, that opens the
+panel and asks the same question again, waiting under it.
+
+While a skill runs, a line above the input shows its phases, every one by name - those done ticked, the one it is in
+marked, the rest to come - and where it is: `brood  ✓ intent ━━ ⠋ stack ── ○ testing ── ○ product   phase 2 of 4`. The phases are the skill's own steps, read from its `SKILL.md`.
+
 `genome/skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
 [authoring \*\*\*plain](authoring-plain.md#the-skills). A skill run that is interrupted can be resumed
@@ -147,11 +156,11 @@ come waits for a free slot, and says so.
   waiting - and how many are built, then what is happening: `pulse 3 of 8 growing`, or why nothing is -
   `not asked to build - regrow plans it` (turri was just opened, or nothing has asked for the module: the
   plan lives in memory and is made again on the next regrow), `planning`, `waits for backend`, and in red
-  `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: first
-  where it stands, a line a mark, its marks in words - `✓ regrown - the code is built from it as it reads now`,
-  `2 not regrown yet - to be regrown in pulse 2`, and for a functional spec `◆ bound - its conformance tests
-  pass` or `· not bound - no conformance tests for it yet` - then all of its text against the code's and its
-  acceptance tests.
+  `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: all of
+  its text against the code's and its acceptance tests, and under them, dimmed, where it stands - a line a mark,
+  its marks in words: `✓ regrown - the code is built from it as it reads now`, `2 not regrown yet - to be
+  regrown in pulse 2`, and for a functional spec `◆ bound - its conformance tests pass` or `· not bound - no
+  conformance tests for it yet`.
 
   Each module mapped is a row of its own, `▾ backend.plain ████░░ 5/12 built · pulse 3 of 8 growing`, with
   its items under it. Only the module in focus starts open - the one growing now, else the one asked for, else

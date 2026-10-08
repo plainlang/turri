@@ -100,7 +100,7 @@ is reported as pending, not dropped.
 - Nothing is queued (`docs/growing.md`). `loop.ts` works out what is left to grow - `drift.ts`
   `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
   reqs or acceptance tests) to the spec now - has `chunk-plan.ts` cut it into jobs from the functional
-  specs outward (an agent groups 1-3 of them, code gives each group the definitions it uses, an agent
+  specs outward (an agent groups them, by default, up to `max-specs-per-pulse`, code gives each group the definitions it uses, an agent
   places the reqs), and runs the first; again whenever a job ends or the spec changes. A chain is built in
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
   (`stillWanted`) - unless the change is inside what it grows, which steers it instead (`steering.ts`: its agent

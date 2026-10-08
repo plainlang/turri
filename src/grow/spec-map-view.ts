@@ -239,7 +239,8 @@ export function lineDiff(was: string, now: string): Array<{ was?: string; now?: 
 
 /** A line of a diff as drawn: kept dimmed, changed word by word, gone struck in red, new in green. */
 function diffLine(line: { was?: string; now?: string }, style: TranscriptStyle): string {
-  if (line.was === line.now) return style.muted(line.now ?? "");
+  // Unchanged, it is the spec as any of its lines: drawn as the spec is, not dimmed - dimmed is turri's own words.
+  if (line.was === line.now) return highlighted(line.now ?? "", style);
   if (line.was === undefined) return style.added(line.now ?? "");
   if (line.now === undefined) return style.removed(strike(line.was));
   return wordDiff(line.was, line.now, style);
@@ -334,8 +335,7 @@ function statusLines(item: MarkedItem, page: MarkedPage, width: number, style: T
 }
 
 function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, now: number): string[] {
-  // Where it stands first: what its marks mean for it.
-  const lines: string[] = statusLines(item, page, width, style, now);
+  const lines: string[] = [];
   // The rest of its text - its first line is the row - against the record's, for a change.
   const rest = item.state === "changed" ? lineDiff(item.was ?? "", item.text).slice(1) : item.text.split("\n").slice(1).map((line) => ({ was: line, now: line }));
   for (const line of rest) {
@@ -347,6 +347,8 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
     lines.push(`${CONTINUED}${style.muted("acceptance tests:")}`);
     for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `  ${highlighted(line, style)}`).join("\n"), width));
   }
+  // Where it stands last, under all of its text: what its marks mean for it.
+  lines.push(...statusLines(item, page, width, style, now));
   return lines;
 }
 

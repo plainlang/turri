@@ -3,7 +3,7 @@ import { digestFiles } from "./codebase.ts";
 import type { JobCases } from "./drift.ts";
 import { getFrids, getInheritedFunctionalSpecs, TEST_REQUIREMENTS } from "../plain/spec.ts";
 import { reportActivity, reportLogNote, reportStage, unitOf } from "./activity.ts";
-import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
+import { conformanceDirFor, notLandedWhy, renderConformanceTests, type RenderConformanceTestsResult } from "./conformance.ts";
 import { abandonWork, startWork } from "./lineage.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./regression.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
@@ -130,7 +130,7 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
   const base = { moduleName, buildDir, conformanceDir, diff: applied, conformance, specGaps: linesAddedSince(notesBefore, buildDir, "gaps") };
 
   if (!conformance.passed) {
-    abandonWork(unit, moduleName, "the conformance tests for the spec change do not pass");
+    abandonWork(unit, moduleName, notLandedWhy("for the spec change", conformance.unlabelled));
     return { ...base, tested: tested(), passed: false, stoppedAt: "conformance" };
   }
 

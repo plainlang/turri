@@ -220,6 +220,11 @@ export function roleTurnLimitMs(config: Pick<ProjectConfig, "models" | "turnLimi
   return seconds !== undefined ? seconds * 1000 : undefined;
 }
 
+/** A whole number of at least 1, as the config gives it - or nothing. */
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : undefined;
+}
+
 /** A model as the config gives it: a string, or `model:` and `thinking:`. */
 function modelChoice(value: unknown): ModelChoice | undefined {
   if (typeof value === "string") return text(value) !== undefined ? splitModelSpec(value) : undefined;
@@ -322,6 +327,10 @@ export interface ProjectConfig {
    * session through a job is compacted between turns. The project's alone. Unset: 100k.
    */
   compactAt?: number;
+  /** The most functional specs the planner puts in one pulse. Unset: 3. A module's own config wins. */
+  maxSpecsPerPulse?: number;
+  /** The most lines of spec - its functional specs and the definitions they bring - in one pulse; past it, split. Unset: 120. */
+  maxLinesPerPulse?: number;
   /**
    * What passes through to the agents' commands beside the scrubbed environment: every variable of the dotenv `files`
    * (paths from the project root), and the `vars` named, from the environment turri was started in. A module's own are
@@ -357,6 +366,8 @@ export const CONFIG_KEYS = {
   parallelJobs: "parallel-jobs",
   rulesOff: "rules-off",
   compactAt: "compact-at",
+  maxSpecsPerPulse: "max-specs-per-pulse",
+  maxLinesPerPulse: "max-lines-per-pulse",
   agentEnv: "agent-env",
   toolchains: "toolchains",
   models: "models",
@@ -538,6 +549,8 @@ function readConfigFile(path: string): ProjectConfig {
       typeof raw[CONFIG_KEYS.parallelJobs] === "number" && Number.isInteger(raw[CONFIG_KEYS.parallelJobs]) && (raw[CONFIG_KEYS.parallelJobs] as number) >= 1
         ? (raw[CONFIG_KEYS.parallelJobs] as number)
         : undefined,
+    maxSpecsPerPulse: positiveInteger(raw[CONFIG_KEYS.maxSpecsPerPulse]),
+    maxLinesPerPulse: positiveInteger(raw[CONFIG_KEYS.maxLinesPerPulse]),
     models: modelsSetting(raw[CONFIG_KEYS.models]),
     turnLimit: turnLimitSetting(raw[CONFIG_KEYS.turnLimit]),
   };

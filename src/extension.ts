@@ -41,7 +41,8 @@ import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
-import { createJobPanel, didNotPass, PANEL_KEY } from "./grow/job-panel.ts";
+import { createJobPanel, didNotPass, PANEL_KEY, spinner } from "./grow/job-panel.ts";
+import { skillProgressLine } from "./skill-progress.ts";
 import { createSidePanel } from "./grow/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles } from "./grow/spec-map.ts";
 import { createSpecMapState } from "./grow/spec-map-view.ts";
@@ -55,7 +56,7 @@ import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
-import { runAsk, type AskUser } from "./ask.ts";
+import { askWithPeek, type AskUser, type Peek } from "./ask.ts";
 import {
   createJobRegistry,
   defaultParallelJobs,
@@ -121,6 +122,7 @@ function discoverSkills(): { skills: Skill[]; pending: string[] } {
 function askUserVia(
   ctx: ExtensionContext,
   onExchange: (question: string, answer: string, said?: string) => void,
+  peek?: Peek,
 ): AskUser {
   return async (request) => {
     if (!ctx.hasUI) {
@@ -129,10 +131,15 @@ function askUserVia(
 
     ctx.ui.setWorkingMessage("waiting for your answer");
     try {
-      const answer = await runAsk(request, {
-        select: (title, options) => ctx.ui.select(title, options),
-        input: (title) => ctx.ui.input(title),
-      });
+      // Every question says ctrl+h is safe to press; a skill's, once something grows, invites them to look.
+      const answer = await askWithPeek(
+        request,
+        {
+          select: (title, options) => ctx.ui.select(title, options),
+          input: (title) => ctx.ui.input(title),
+        },
+        peek,
+      );
       onExchange(request.question, answer, request.context);
       return answer;
     } finally {
@@ -309,7 +316,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => showConformance(ctx));
   // Where the keys are, from the first moment - before any job shows its panel.
   pi.on("session_start", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} inspect pulses · ctrl+o expand`);
+    if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} peek at regen and the pulses · ctrl+o expand the trace`);
   });
   // What a turri that was killed left running - its commands' process groups - stopped as this one starts.
   const orphans = sweepOrphanedGroups();
@@ -460,9 +467,37 @@ export default function (pi: ExtensionAPI) {
       const ticker = setInterval(show, 5000);
       ticker.unref?.();
 
+      // Above the input, while it runs: every phase by name, the one it is in, and how far through.
+      const phases = skill.steps.map((step) => step.name);
+      const progress = { current: -1, attempt: 1 };
+      if (ctx.hasUI) {
+        ctx.ui.setWidget("turri-skill", (tui, theme) => {
+          // The spinner on the phase it is in moves.
+          const redraw = setInterval(() => tui.requestRender(), 1000);
+          redraw.unref?.();
+          return {
+            render: (width: number) => [
+              skillProgressLine(
+                { skill: skill.name, phases, current: progress.current, attempt: progress.attempt, frame: spinner(Date.now()) },
+                width,
+                {
+                  heading: (text) => theme.bold(theme.fg("accent", text)),
+                  done: (text) => theme.fg("success", text),
+                  now: (text) => theme.bold(theme.fg("accent", text)),
+                  muted: (text) => theme.fg("muted", text),
+                },
+              ),
+            ],
+            invalidate: () => {},
+            dispose: () => clearInterval(redraw),
+          };
+        });
+      }
+
       const report: Reporter = {
         step: (name, attempt) => {
-          if (ctx.hasUI) ctx.ui.setStatus("turri-skill", skillStatus(skill, name, attempt));
+          progress.current = phases.indexOf(name);
+          progress.attempt = attempt;
           live.step = skillStatus(skill, name, attempt).slice(skill.name.length + 2);
           live.stepStarted = Date.now();
           push(`step ${name} (attempt ${attempt})`);
@@ -509,7 +544,12 @@ export default function (pi: ExtensionAPI) {
           for (const line of (said ?? "").trim().split("\n").filter((line) => line.trim() !== "")) push(`  ${line}`);
           push(`  Q: ${question}`);
           push(`  A: ${answer}`);
-          recordExchange(pi, { skill: skill.name, question, answer });
+          recordExchange(pi, { skill: skill.name, question, answer, ...(said !== undefined && said.trim() !== "" ? { said: said.trim() } : {}) });
+        }, {
+          // Invited once a run: the first question asked while something is growing.
+          invited: false,
+          growing: () => jobs.list().some((job) => job.status === "running"),
+          open: () => panelOpeners.get(jobs)?.(ctx),
         }),
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
@@ -537,7 +577,10 @@ export default function (pi: ExtensionAPI) {
           return ctx.ui.confirm(`Review gate: ${skill.name}`, `${critique}\n\n${question}`);
         },
         }),
-      ).finally(() => clearInterval(ticker));
+      ).finally(() => {
+        clearInterval(ticker);
+        if (ctx.hasUI) ctx.ui.setWidget("turri-skill", undefined);
+      });
       const noise = describeCaptured(captured);
       if (noise !== null) push(noise);
 
@@ -569,7 +612,6 @@ export default function (pi: ExtensionAPI) {
           ].join("\n")
         : [`${skill.name}: stopped at a gate. No approved artifact.`, changed, "", "<trace>", ...trace, "</trace>"].join("\n");
 
-      if (ctx.hasUI) ctx.ui.setStatus("turri-skill", undefined);
       return { content: [{ type: "text" as const, text }], details: { ok: result.ok, artifacts: result.artifacts } };
     },
   });
@@ -1251,6 +1293,9 @@ async function deliver(
 }
 
 /** Looking in on work that is still running, and collecting what finished. */
+/** By registry: what opens the side panel - for a skill's question that invites the person to peek. */
+const panelOpeners = new WeakMap<JobRegistry, (ctx: ExtensionContext) => void>();
+
 /** By registry: the last pulse that failed, stopped or did not pass, not yet looked at - ctrl+h opens on it. */
 const needsLooking = new WeakMap<JobRegistry, string>();
 
@@ -1539,8 +1584,10 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     });
   }
 
+  panelOpeners.set(jobs, (ctx) => openPanel(ctx));
+
   pi.registerShortcut(PANEL_KEY, {
-    description: "Open the side panel - regen and the pulses - or go back to it",
+    description: "Peek at regen and the pulses - a question waiting in the chat waits for you - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
       openPanel(ctx);
@@ -1820,8 +1867,20 @@ function specConflictTask(conflict: SpecConflict): string {
 
 const INTERVIEW_ENTRY = "forge_exchange";
 
+/**
+ * A skill's question as the transcript keeps it: who asked, what it said before asking - a brief to confirm, the choices
+ * it weighed, shown in the dialog that is gone once answered - the question, and the answer.
+ */
+export function exchangeLines(data: Exchange, fg: (color: "muted" | "text" | "dim" | "accent", text: string) => string): string[] {
+  const said = data.said !== undefined ? data.said.split("\n").map((line) => fg("text", line)) : [];
+  const answer = data.answer.trim() === "" ? fg("dim", "> (no answer)") : fg("accent", `> ${data.answer}`);
+  return [fg("muted", `${data.skill} asked`), ...said, ...(said.length > 0 ? [""] : []), fg("text", data.question), answer];
+}
+
 export interface Exchange {
   skill: string;
+  /** What the skill's agent said before asking - a brief to confirm, the choices it weighed: shown in the dialog, kept here. */
+  said?: string;
   question: string;
   answer: string;
 }
@@ -1892,19 +1951,8 @@ function registerInterviewLog(pi: ExtensionAPI) {
     // is what made these unreadable. And Text pads by 1 on both axes unless told
     // otherwise, so one Text per line puts a blank line between each. Hence a single Text
     // with explicit zero padding, coloured per line.
-    const answer =
-      data.answer.trim() === ""
-        ? theme.fg("dim", "> (no answer)")
-        : theme.fg("accent", `> ${data.answer}`);
-
     const box = new Box(1, 0);
-    box.addChild(
-      new Text(
-        [theme.fg("muted", `${data.skill} asked`), theme.fg("text", data.question), answer].join("\n"),
-        0,
-        0,
-      ),
-    );
+    box.addChild(new Text(exchangeLines(data, (color, text) => theme.fg(color, text)).join("\n"), 0, 0));
     return box;
   });
 }

@@ -312,7 +312,7 @@ describe("the regeneration drawn", () => {
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
   });
 
-  it("opens an item to where it stands - regrown, and for a functionality bound - its marks in words, then its text and acceptance tests", () => {
+  it("opens an item to its text and acceptance tests, then where it stands - regrown, and for a functionality bound - its marks in words", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201.", "- A :User: can log in."] }),
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can log in."] }),
@@ -333,12 +333,24 @@ describe("the regeneration drawn", () => {
     const user = lines.findIndex((line) => line.includes(":User: is a person."));
     expect(lines[user + 1]).toContain("✓ regrown");
     expect(lines[user + 2]).not.toContain("bound");
+    // A changed item's lines that did not change are the spec's, as any: not dimmed.
+    const changed = page(
+      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Read the contacts.\n  - Active contacts first.\n  - In the order received."] }),
+      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Read the contacts.\n  - Archived contacts are not read.\n  - In the order received."] }),
+    );
+    const [markedChange] = markSpecMap([changed], noPlan);
+    const openChange = createSpecMapState();
+    for (const entry of markedChange!.items) openChange.open.add(`${markedChange!.plainFile}\n${entry.key}`);
+    const shownChange = specMapLines([markedChange!], openChange, 120, { ...style, muted: (t: string) => `<dim>${t}</dim>` }).lines.join("\n");
+    expect(shownChange).toContain("│   - In the order received.");
+    expect(shownChange).not.toContain("<dim>  - In the order received.</dim>");
     // Not the spec's own text: dimmed, the mark beside it in its own colour.
     const dimmed = specMapLines([marked!], state, 120, { ...style, muted: (t: string) => `<dim>${t}</dim>` }).lines.join("\n");
     expect(dimmed).toContain("│ ✓ <dim>regrown - the code is built from it as it reads now</dim>");
     expect(dimmed).toContain("<dim>not bound - no conformance tests for it yet</dim>");
-    // Then its text and acceptance tests, as before.
+    // Below all of its text: its sub-bullets first, where it stands last.
     expect(text).toContain("  - The response is 201.");
+    expect(text.indexOf("  - The response is 201.")).toBeLessThan(text.indexOf("2 not regrown yet - to be regrown in pulse 2"));
     expect(text).not.toContain("used by");
   });
 

@@ -125,3 +125,43 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
 
   return chosen.length > 0 ? chosen.join(", ") : DISMISSED;
 }
+
+/**
+ * Peeking while a question waits. The person answering a skill's interview sees `ctrl+h` and `ctrl+o` and presses
+ * neither, for fear a key kills the questions - in a terminal a ctrl key so often does. It does not: the panel takes the
+ * keys while it shows, and the question waits under it, as it was. So every question says so, and the first one asked
+ * once something is growing invites them to look - an option of its own that opens the panel and asks the same
+ * question again, waiting underneath: a safe first time teaches the key better than any hint.
+ */
+export interface Peek {
+  /** Whether something is growing now - a pulse running: there is something to look at. */
+  growing(): boolean;
+  /** Open the panel on what is growing. It takes the keys; the question asked next waits under it. */
+  open(): void;
+  /** Already invited, this interview: the invitation is made once. */
+  invited: boolean;
+}
+
+/** Under every question: the key, and that pressing it loses nothing. */
+export const PEEK_HINT = "ctrl+h peek at the build - this question waits for you";
+/** The first question asked once something is growing: what there is to see, and that looking is safe. */
+export const PEEK_INVITE = "Your first feature is growing now. Press ctrl+h any time to peek at it - this question waits for you while you look.";
+/** The option the invitation adds: pick it, and the panel opens with this question waiting under it. */
+export const PEEK_OPTION = "Peek at what's growing first (ctrl+h) - this question waits";
+
+/** A question asked with the hint under it, and - once something is growing, the first time - the invitation to look. */
+export async function askWithPeek(request: AskUserRequest, io: AskUserIO, peek?: Peek): Promise<string> {
+  const hinted: AskUserIO = {
+    select: (title, options) => io.select(`${title}\n\n${PEEK_HINT}`, options),
+    input: (title) => io.input(`${title}\n\n${PEEK_HINT}`),
+  };
+  if (peek === undefined || peek.invited || !peek.growing()) return runAsk(request, hinted);
+  peek.invited = true;
+  const context = [PEEK_INVITE, request.context?.trim() ?? ""].filter((part) => part !== "").join("\n\n");
+  const choosing = (request.options?.length ?? 0) > 0 && request.multiSelect !== true;
+  const answer = await runAsk({ ...request, context, ...(choosing ? { options: [...request.options!, PEEK_OPTION] } : {}) }, hinted);
+  if (answer !== PEEK_OPTION) return answer;
+  // They looked: the panel shows, and the same question - as it was asked - waits under it for when they come back.
+  peek.open();
+  return runAsk(request, hinted);
+}

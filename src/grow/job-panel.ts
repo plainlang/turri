@@ -203,7 +203,7 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   } else {
     // Set apart from the trace above it.
     lines.push("");
-    lines.push(`  ctrl+o to ${expanded ? "collapse" : "expand"} the trace · ${PANEL_KEY} to view regen`);
+    lines.push(`  ctrl+o to ${expanded ? "collapse" : "expand"} the trace · ${PANEL_KEY} to peek at regen`);
   }
   return lines;
 }

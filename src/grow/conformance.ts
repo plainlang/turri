@@ -912,8 +912,9 @@ export async function renderConformanceTests(
       recordHistory(conformanceDir, subject);
       if (moduleDirOf(buildDir) !== moduleDirOf(conformanceDir)) recordHistory(buildDir, subject);
     } else if (start !== undefined) {
-      stage("conformance tests NOT passing - undoing them");
-      abandonWork(start, moduleName, `the conformance tests ${options.diff !== undefined ? "for the spec change" : `of functionality ${frid}`} do not pass`);
+      const why = notLandedWhy(options.diff !== undefined ? "for the spec change" : `of functionality ${frid}`, unlabelled);
+      stage(`${why} - undoing them`);
+      abandonWork(start, moduleName, why);
     }
 
     return {
@@ -943,6 +944,15 @@ export async function renderConformanceTests(
     reviewer?.dispose();
     await fixerServices.stopAll();
   }
+}
+
+/**
+ * Why conformance tests did not land, in a line. Tests sent back to be labelled and never labelled may well pass: the
+ * line says so, rather than that they failed.
+ */
+export function notLandedWhy(what: string, unlabelled?: string[]): string {
+  if (unlabelled === undefined) return `the conformance tests ${what} do not pass`;
+  return `the conformance tests ${what} were not written and labelled after ${LABEL_ASKS} requests - still missing: ${unlabelled.join("; ")} - whatever the test runs said`;
 }
 
 /** Each module of the chain, by name, and its .plain file - for a conflict that crosses modules. */

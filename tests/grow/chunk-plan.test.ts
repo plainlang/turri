@@ -144,7 +144,38 @@ describe("cutting the queue's work into jobs", () => {
     const plan = await planChunks(from, agents({ groups: [{ specs: [1, 2], title: "Both" }] }), notes);
     expect(plan).toHaveLength(2);
     expect(MAX_LINES_PER_JOB).toBe(120);
-    expect(notes).toEqual([`"Both" is past ${MAX_LINES_PER_JOB} lines with its definitions and reqs - a functional spec a pulse`]);
+    expect(notes).toEqual([`"Both" is past ${MAX_LINES_PER_JOB} lines with its definitions and reqs - split into 2 pulses`]);
+  });
+
+  it("splits a group too big into as few pulses as fit - its functional specs kept together in runs, not one a pulse", async () => {
+    // Four of 40 lines: two fit in 120 with their definitions, three do not.
+    const mid = (n: number) => `- A :User: does thing ${n}.\n${Array.from({ length: 39 }, (_, line) => `  - detail ${line}`).join("\n")}`;
+    const from = input({}, tree({ definitions: DEFS.slice(0, 2), specs: [mid(1), mid(2), mid(3), mid(4)] }));
+    const notes: string[] = [];
+    const plan = await planChunks({ ...from, limits: { specs: 4, lines: 120 } }, agents({ groups: [{ specs: [1, 2, 3, 4], title: "All of it" }] }), notes);
+    expect(plan.map((job) => job.title)).toEqual(["All of it (1 of 2)", "All of it (2 of 2)"]);
+    expect(notes).toEqual(['"All of it" is past 120 lines with its definitions and reqs - split into 2 pulses']);
+    expect(checkDraft(from, plan)).toEqual([]);
+  });
+
+  it("takes how big a pulse may be from its limits - more functional specs, more lines - the defaults unset", async () => {
+    const specs5 = [1, 2, 3, 4, 5].map((number) => ({ number, text: `- spec ${number}` }));
+    const five = { groups: [{ specs: [1, 2, 3, 4, 5], title: "one feature" }] };
+    expect(groupProblems(specs5, five).join("\n")).toContain("at most 3");
+    expect(groupProblems(specs5, five, 5)).toEqual([]);
+    // Two of 70 lines: past 120 - but not past 200.
+    const long = (n: number) => `- A :User: does thing ${n}.\n${Array.from({ length: 70 }, (_, line) => `  - detail ${line}`).join("\n")}`;
+    const from = input({}, tree({ definitions: DEFS.slice(0, 2), specs: [long(1), long(2)] }));
+    expect(await planChunks({ ...from, limits: { specs: 3, lines: 200 } }, agents({ groups: [{ specs: [1, 2], title: "Both" }] }))).toHaveLength(1);
+  });
+
+  it("asks the grouping agent for fewer, fuller pulses - one feature together, a spec alone only when independent", async () => {
+    const { groupPrompt } = await import("../../src/grow/chunk-plan.ts");
+    const prompt = groupPrompt([{ number: 1, text: "- spec 1" }], undefined, 5);
+    expect(prompt).toContain("fewer, fuller jobs: each job costs a\ncoding session, a test run and a review. So group by default");
+    expect(prompt).toContain("up to 5");
+    expect(prompt).toContain("Keep a functional spec alone only when it is truly\nindependent");
+    expect(prompt).not.toContain("better small than wide");
   });
 
   it("notes what the plan did not do as asked - the wishes an agent did not follow, and an answer that did not hold, with why", async () => {

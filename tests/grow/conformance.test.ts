@@ -162,3 +162,14 @@ describe("the functionalities a spec change touches", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("why conformance tests did not land", () => {
+  it("says the tests were never labelled, not that they failed, when labelling is what stopped them", async () => {
+    const { notLandedWhy } = await import("../../src/grow/conformance.ts");
+    expect(notLandedWhy("for the spec change")).toBe("the conformance tests for the spec change do not pass");
+    const why = notLandedWhy("for the spec change", ["conformance tests of functionality 2"]);
+    expect(why).toContain("were not written and labelled after 3 requests");
+    expect(why).toContain("conformance tests of functionality 2");
+    expect(why).not.toContain("do not pass");
+  });
+});

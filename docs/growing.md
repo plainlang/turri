@@ -348,9 +348,10 @@ the first carrying every definition and req, is no better: most of the work land
 work is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
 
 1. **Which functional specs go together** - the new ones, and those [grown again](#what-a-job-is-given-and-what-it-records).
-   An agent groups them: at most three a job, only ones next to each other in the same module - the specs that build
-   one component or feature together (a component and the parts only it uses), a spec alone when it stands on its own
-   or is big. Each is shown with its module and its id there, and a number of its own to answer with: a codebase
+   An agent groups them, by default: fewer, fuller pulses, as each costs a coding session, a test run and a review.
+   What builds one feature goes together - the feature, its edge cases and the specs that build on it, a component and
+   the parts only it uses - up to `max-specs-per-pulse` (3 unset), only ones next to each other in the same module; a
+   spec goes alone only when it is truly independent or very large on its own. Each is shown with its module and its id there, and a number of its own to answer with: a codebase
    grows again the functional specs of the modules it is built on too, and each module numbers its own from 1.
 2. **The definitions each group uses**, in code: the concepts its functional specs name, and the
    concepts those definitions name in turn. A definition goes with the first group that uses it; later
@@ -360,9 +361,11 @@ work is cut from the functional specs outward (`chunk-plan.ts`), in three steps:
 
 Changes to what is built - an item edited or taken out, a functional spec built worded differently - go
 first, in a job of their own. Every answer is checked: every new functional spec once, in order, next to
-each other, at most three; every req placed once. One that does not hold goes back to its agent, twice at
+each other, at most `max-specs-per-pulse`; every req placed once. One that does not hold goes back to its agent, twice at
 most, and then the plan is a functional spec a job with every req in the first. A group whose functional specs
-and the definitions they bring pass 120 lines goes a functional spec a job; its reqs do not count, as a split
+and the definitions they bring pass `max-lines-per-pulse` (120 unset) is split into as few pulses as fit - its
+functional specs kept together in runs, in order, as long as each run stays within it, `Comments (1 of 2)`, `Comments
+(2 of 2)` - not a functional spec a job; its reqs do not count, as a split
 leaves them with its first job whatever happens. The planner runs on the chat's model in a conversation, and on the
 harness model under `turri regrow`. No agent reviews its plan: the harness checks it - every
 change in exactly one job, the spec holding together after each, the last ending on the spec as it is.

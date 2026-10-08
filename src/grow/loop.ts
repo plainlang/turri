@@ -4,7 +4,7 @@ import { plainFileParser, withParseCache } from "../plain/parser.ts";
 import { STDLIB_ROOT } from "../plain/stdlib.ts";
 import { ACCEPTANCE_TESTS, FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
-import { llmChunkAgents, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
+import { llmChunkAgents, MAX_LINES_PER_JOB, MAX_SPECS_PER_JOB, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
 import { commitNotes, recordHistory, resetToLastCommit } from "./lineage.ts";
 import { NOTES_FILE, recordPulse } from "./notes.ts";
 import { createJobRegistry, formatDuration, type Job, type JobRegistry } from "./jobs.ts";
@@ -136,7 +136,8 @@ interface ModuleState {
   /** The code's plan: planned again when the spec, where it starts from or the steering it followed changes. */
   plan?: { specKey: string; from: string; steeringKey: string; jobs: PlannedJob[]; notes: string[] };
   /** The conformance tests' plan, apart from the code's: planned from what they are written for. */
-  conformancePlan?: { specKey: string; from: string; jobs: PlannedJob[] };
+  /** `codeKey`: the code record it was planned against - what the tests are written for follows the code; it changed, the plan is made again. */
+  conformancePlan?: { specKey: string; from: string; codeKey: string; jobs: PlannedJob[] };
   running?: {
     jobId: string;
     /** Its number among the module's pulses this session, from 1: what the regeneration calls it. */
@@ -427,9 +428,18 @@ export function createWorkLoop(options: {
   /** What the conformance tests are written for, by their record - nothing, when there is none. */
   const testedOf = (state: ModuleState): MarshalledPlainSource => readRecord(testsDirOf(state)) ?? {};
 
-  /** What the conformance tests are to be written for now: of what the code is built from, what is chosen, with the test reqs as the spec has them. */
-  const conformanceOf = (state: ModuleState, spec: SpecSnapshot): MarshalledPlainSource => {
-    const tests = readRecord(testsDirOf(state));
+  /** What the code is built from, as a key: a conformance plan made against other code is made again. */
+  const codeKeyOf = (state: ModuleState): string => serializeTree(readRecord(tipEntry(state).buildDir) ?? {});
+
+  /**
+   * What the conformance tests are to be written for now: of what the code is built from, what is chosen, with the test
+   * reqs as the spec has them. `from`: the tests the work starts from - what a running pulse will land, when the work
+   * after it is planned ahead - else the tests record as it is. Read from the record alone, a pulse still writing a
+   * functional spec's tests would not count them: one whose code is behind the spec would be planned out, its tests
+   * taken out again once they landed.
+   */
+  const conformanceOf = (state: ModuleState, spec: SpecSnapshot, from?: MarshalledPlainSource): MarshalledPlainSource => {
+    const tests = from ?? readRecord(testsDirOf(state));
     const target = conformanceTarget(readRecord(tipEntry(state).buildDir), tests, spec.tree, chosenOf(state, spec, tests));
     // No functional spec to test, and none tested: nothing to write - the reqs alone are no conformance job.
     const specsIn = (tree: MarshalledPlainSource | null) => ((tree?.[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? []).length;
@@ -570,7 +580,7 @@ export function createWorkLoop(options: {
 
   /** The work of a track, from where it is built from to what it is to be. */
   const workOf = (track: Track, from: MarshalledPlainSource, state: ModuleState, spec: SpecSnapshot) =>
-    track === "code" ? codeWork(from, spec.tree) : changesBetween(serializeTree(from), serializeTree(conformanceOf(state, spec)));
+    track === "code" ? codeWork(from, spec.tree) : changesBetween(serializeTree(from), serializeTree(conformanceOf(state, spec, from)));
 
   /** The codebases brought up in this look: one left behind is never waited for. */
   let looking = new Set<ModuleState>();
@@ -642,7 +652,7 @@ export function createWorkLoop(options: {
 
   const plan = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track = "code"): Promise<{ jobs: PlannedJob[]; notes: string[] }> => {
     const tip = tipEntry(state);
-    const current = track === "code" ? codeTree(spec.tree) : conformanceOf(state, spec);
+    const current = track === "code" ? codeTree(spec.tree) : conformanceOf(state, spec, from);
     const specFile = relative(options.cwd, tip.plainFile);
     let specText = "";
     try {
@@ -652,7 +662,10 @@ export function createWorkLoop(options: {
     }
     const steering = steeringOf(state);
     const separately = track === "conformance" && state.conformanceSeparately === true;
-    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, ...(separately ? { separately } : {}) };
+    // How big a pulse may be: the module's config, else the defaults.
+    const config = configForSpec(tip.plainFile);
+    const limits = { specs: config.maxSpecsPerPulse ?? MAX_SPECS_PER_JOB, lines: config.maxLinesPerPulse ?? MAX_LINES_PER_JOB };
+    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, limits, ...(separately ? { separately } : {}) };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into pulses`);
@@ -983,7 +996,7 @@ export function createWorkLoop(options: {
         const next = { specKey, from: serializeTree(running.from), jobs: [running.planned, ...rest.jobs] };
         if (state.running === running) {
           if (track === "code") state.plan = { ...next, steeringKey, notes: rest.notes };
-          else state.conformancePlan = next;
+          else state.conformancePlan = { ...next, codeKey: codeKeyOf(state) };
         }
       }
       return;
@@ -1022,8 +1035,10 @@ export function createWorkLoop(options: {
       if (workOf("conformance", tested, state, spec).length > 0) {
         const testedKey = serializeTree(tested);
         const existing = state.conformancePlan;
-        if (existing === undefined || existing.specKey !== specKey || existing.from !== testedKey || existing.jobs.length === 0) {
-          state.conformancePlan = { specKey, from: testedKey, jobs: (await planIdle(state, spec, tested, "conformance")).jobs };
+        // Made again when the spec, the tests or the code it was planned against moved: what the tests are written for
+        // follows the code, and a plan made before a code pulse landed would test it as it was.
+        if (existing === undefined || existing.specKey !== specKey || existing.from !== testedKey || existing.codeKey !== codeKeyOf(state) || existing.jobs.length === 0) {
+          state.conformancePlan = { specKey, from: testedKey, codeKey: codeKeyOf(state), jobs: (await planIdle(state, spec, tested, "conformance")).jobs };
         }
         const next = state.conformancePlan!.jobs[0];
         if (next !== undefined) {

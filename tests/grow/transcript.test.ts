@@ -121,7 +121,7 @@ describe("the side panel", () => {
     const panel = createSidePanel({ jobs: () => [], rows: () => 20, style: PLAIN, key: "ctrl+h", back: () => (back += 1), close: () => {}, waiting: () => waiting });
     expect(panel.render(120)[0]).not.toContain("waiting");
     waiting = true;
-    expect(panel.render(120)[0]).toContain("the chat is waiting for your answer - ctrl+h to go back");
+    expect(panel.render(120)[0]).toContain("your question is waiting - ctrl+h or esc to answer it, as you left it");
     expect(panel.render(120).at(-1)).toContain("esc or ctrl+h back to the chat");
     panel.handleInput("\x1b");
     expect(back).toBe(1);
