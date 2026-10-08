@@ -20,7 +20,9 @@ Never point an integration under construction at your production portal.
 
 ## 2. The project
 
-**hubsync** is Python with Typer. The machine needs [uv](https://docs.astral.sh/uv/).
+Build it on any command-line stack your machine can build - Python, TypeScript, Go, Rust or Java. The agents use
+the toolchains on your machine and install none, so the interview offers only the stacks it can build; `turri
+doctor` lists what is there.
 
 ```bash
 mkdir ~/hubsync && cd ~/hubsync
@@ -52,7 +54,7 @@ agent might see the token, in tool results or in the logs, it reads `[HUBSPOT_AC
 turri
 ```
 
-> Let's build hubsync - a standalone Python CLI with Typer that syncs a CSV of contacts into HubSpot.
+> Let's build hubsync - a standalone CLI that syncs a CSV of contacts into HubSpot.
 > `hubsync push contacts.csv` matches each row to a HubSpot contact by email: it creates the contacts that are
 > missing and updates the ones whose first name, last name, company or phone differ. Nothing is ever deleted.
 > `--dry-run` prints what it would do. It prints a summary - created, updated, unchanged, failed - and exits 1
@@ -68,8 +70,8 @@ The interview follows **turri**'s rules for integrations, which come before the 
 - **The contract, in `resources/`.** What it learns goes into files the spec links to rather than restates:
   `resources/hubspot.openapi.yaml` for the endpoints it uses, `resources/error-map.yaml`, which errors are worth
   retrying, `resources/contract/` for the CSV's columns. The spec says what **hubsync** does with them.
-- **Its shape.** Standalone: **hubsync** is a CLI of its own, on `stdlib/cli/python-typer`, not a library inside
-  another codebase.
+- **Its shape and stack.** Standalone: **hubsync** is a CLI of its own, not a library inside another codebase - on
+  the command-line stack you choose, `stdlib/cli/<stack>`, from those your machine can build.
 
 A functional spec then reads like this:
 

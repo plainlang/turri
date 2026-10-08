@@ -113,8 +113,9 @@ Read `references/stack.md` and walk its topics in order: language, frameworks, s
 external services, structure and architecture, other constraints, anything else, and last the
 unit tests - generated code needs them from the first functionality onward.
 
-Offer the standard library's stacks first (the stdlib rule, in `<plain-rules>`, and the first
-section of `references/stack.md`): a stack from it is one import, and only what it leaves open -
+Offer the standard library's stacks first, those in a language this machine can build now (the stdlib
+rule, in `<plain-rules>`, `<toolchains on this machine>`, and the first section of
+`references/stack.md`): a stack from it is one import, and only what it leaves open -
 storage, external services, other constraints - is asked and written.
 
 Create the module structure and frontmatter so there is a `.plain` file to build into, and

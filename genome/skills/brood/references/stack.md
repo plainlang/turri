@@ -15,8 +15,12 @@ Do **not** add `***test reqs***` or `***acceptance tests***` in this phase — t
 
 Before the topics, settle what kind of software each module is - a backend, a frontend, a
 command-line tool, a library - and offer the standard library's stacks for that kind (the stdlib
-rule, in `<plain-rules>`, lists them). Ask with `ask_user`: the stacks of that kind as options, the
-one that fits earlier answers first, and "Something else…" for a stack of the user's own.
+rule, in `<plain-rules>`, lists them) that this machine can build: `<toolchains on this machine>`, in
+your instructions, says which languages it can build now. The agents use its toolchains and install
+none, so a stack in a language it lacks stops at its first build. Ask with `ask_user`: those stacks
+as options, the one that fits earlier answers first, and "Something else…" for a stack of the user's
+own. A stack the user names in a language the machine lacks: say what to install first and that
+`turri doctor` checks it, and ask whether to wait for that or choose another.
 
 - **A stack from the standard library.** Import it into the module's frontmatter as
   `stdlib/<kind>/<stack>`, and read the templates it brings: the stack, its `stdlib/lang/<language>`

@@ -4,6 +4,7 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createExecutor } from "./pi.ts";
+import { toolchainsBlock } from "./stack.ts";
 import { describeToolCall, describeToolResult } from "./grow/activity.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
@@ -156,8 +157,10 @@ export async function runSkill(opts: {
     customTools,
     tools: [...builtins, ...names],
     model: opts.model,
-    // A skill writes specs; the rules it is held to are in its system prompt.
+    // A skill writes specs; the rules it is held to are in its system prompt - and what this machine can build, so the
+    // stack it offers or chooses is one that can be grown here.
     rules: true,
+    system: toolchainsBlock(),
     resumeFrom: resumed?.sessionFile,
   });
 

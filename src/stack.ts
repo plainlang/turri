@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { plainFileParser } from "./plain/parser.ts";
@@ -76,6 +77,55 @@ export function stackOnMachine(project: string, has: (command: string) => boolea
     const needs = stackOf(reqs.join("\n"));
     return { module, needs, missing: needs.filter((need) => !need.commands.some(has)) };
   });
+}
+
+/**
+ * The standard library's languages, and what builds and tests their stacks here - every command needed. Python's stacks
+ * run through uv, which fetches Python itself; TypeScript's through npm; Java's through the Maven or Gradle wrapper,
+ * which needs only Java.
+ */
+export const STDLIB_LANGUAGES: Array<{ language: string; commands: string[] }> = [
+  { language: "Python", commands: ["uv"] },
+  { language: "TypeScript", commands: ["node", "npm"] },
+  { language: "Go", commands: ["go"] },
+  { language: "Rust", commands: ["cargo"] },
+  { language: "Java", commands: ["java"] },
+];
+
+/**
+ * Whether a toolchain's command is really there: on the PATH - and Java on macOS, which keeps a `/usr/bin/java` that only
+ * asks to install a JDK, by `java_home` finding one.
+ */
+function toolchainHere(command: string): boolean {
+  if (!onPath(command)) return false;
+  if (command === "java" && process.platform === "darwin") return spawnSync("/usr/libexec/java_home", [], { stdio: "ignore" }).status === 0;
+  return true;
+}
+
+/** Which of the standard library's languages this machine can build and test now, and which it lacks a command of. */
+export function languagesOnMachine(has: (command: string) => boolean = toolchainHere): { ready: typeof STDLIB_LANGUAGES; missing: typeof STDLIB_LANGUAGES } {
+  const ready = STDLIB_LANGUAGES.filter(({ commands }) => commands.every(has));
+  return { ready, missing: STDLIB_LANGUAGES.filter((entry) => !ready.includes(entry)) };
+}
+
+/**
+ * What a spec-writing agent and the conversation are told of this machine before a stack is chosen: the languages it
+ * can build now. The agents install nothing, so a stack in a language the machine lacks stops at its first build -
+ * offering one is offering a project that cannot be grown here until the person installs it.
+ */
+export function toolchainsBlock(has: (command: string) => boolean = toolchainHere): string {
+  const { ready, missing } = languagesOnMachine(has);
+  const named = (entries: typeof STDLIB_LANGUAGES) => entries.map(({ language, commands }) => `${language} (${commands.join(", ")})`).join(", ");
+  return [
+    "<toolchains on this machine>",
+    ready.length > 0 ? `It can build and test now: ${named(ready)}.` : "It can build none of the standard library's languages now.",
+    ...(missing.length > 0 ? [`It lacks, to build: ${named(missing)} - not installed.`] : []),
+    "Every frontend stack - React, Vue, Svelte, Angular - is TypeScript, and needs Node and npm.",
+    "Choosing a stack, offer only those in a language it can build now, and choose only among them. A stack in a",
+    "language it lacks cannot be grown here until the person installs its toolchain - nothing is installed for them;",
+    "asked for one anyway, say what to install first, and that `turri doctor` checks it.",
+    "</toolchains on this machine>",
+  ].join("\n");
 }
 
 /** The toolchain commands a testing script is checked for. */

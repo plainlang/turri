@@ -1,9 +1,10 @@
 ---
 name: spawn
 description: >-
-  The quick twin of `brood`: asks only what the user wants to build, then writes the whole
-  `***plain` spec on its own - the stack, the unit tests and the product, feature by feature -
-  making every choice itself where the user said nothing, and queues each feature as a render spec
+  The quick twin of `brood`: asks only what the user wants to build and which stack to build it on -
+  one question, "you choose" among its answers - then writes the whole `***plain` spec on its own - the
+  stack, the unit tests and the product, feature by feature - making every choice itself where the user
+  said nothing, and queues each feature as a render spec
   diff job the moment it is written. Conformance tests are off unless the user asks for them. No
   interview beyond intent, no gates. The user then keeps
   talking in the conversation, and every change they ask for is a spec diff: what is left to build
@@ -29,10 +30,11 @@ the project's testing scripts and config - never code. Code is generated from th
 `plain_modules/`, read-only; never write or edit it. Say everything in terms of specs: "I'll put
 this in the spec."
 
-The user tells you what they want, once. Everything else is yours to choose, on best effort: the
-stack, the architecture, the tests, the features and their order, every rule a feature needs.
-Choose what a careful engineer would for this intent - common, well supported, simple - and say
-what you chose. Never ask about any of it. The user corrects it afterwards in the conversation,
+The user tells you what they want, once, and which stack to build it on - or leaves that to you.
+Everything else is yours to choose, on best effort: the architecture, the tests, the features and
+their order, every rule a feature needs - and the stack, when the user leaves it to you. Choose what
+a careful engineer would for this intent - common, well supported, simple - and say what you chose.
+Never ask about any of the rest. The user corrects it afterwards in the conversation,
 where every change is a spec diff and the queued builds are reworked around it.
 
 Read what is already there first: an existing `.plain` file, `config.yaml`, `template/`,
@@ -58,11 +60,23 @@ Find out what the user wants to build - the only thing you ask about.
 If what the user has already said answers it, do not ask again. Otherwise ask one open question with
 `ask_user` and `free_form: true`: what should it do, and for whom? Ask at most two follow-ups, and
 only when the answer leaves open something that changes what gets built - what kind of software it
-is (a web app, an API, a CLI), or what the first version must do. Never ask about technology,
-testing, structure or details: those are yours.
+is (a web app, an API, a CLI), or what the first version must do. Never ask about testing, structure
+or details: those are yours.
+
+Then the stack - the one technical question, because it has to be one this machine can build: the
+agents use its toolchains and install none, so a Go project on a laptop without Go stops at its first
+build. `<toolchains on this machine>`, in your instructions, says which languages it can build now.
+When the user already named a stack - a language, a framework - take it; when it is in a language the
+machine lacks, say what to install first and that `turri doctor` checks it, and ask whether to wait for
+that or choose another. Otherwise ask one `ask_user` question: first `You choose`, then the standard
+library's stacks for the kind of software it is (the stdlib rule, in `<plain-rules>`, lists them - for
+an API the backend stacks, for a command-line tool the CLI ones) - only those in a language the machine
+can build now; the "Something else…" that `ask_user` adds takes a stack of the user's own. A product of two kinds - a web app and its API - is one question a module. `You choose` leaves it
+to you, as the groundwork step says.
 
 Then state the brief back in five short bullets - the problem, the primary user, what they can do
-with it, what makes the first version useful, and what the first version leaves out - and ask one
+with it, what makes the first version useful, and what the first version leaves out - with the stack
+in a line under them (the user's, or `chosen when it is built` when it is left to you) - and ask one
 `ask_user` question with the options `Build it` and `Change something`. On a change, fold it in and
 ask again. Write nothing to disk in this step.
 
@@ -74,8 +88,10 @@ nothing built, and `write_spec_diff` not used.
 1. **The module and its stack.** Create the `.plain` file (and the template, when it helps), with
    its frontmatter, and write the stack into `***implementation reqs***`: the language, the
    framework, storage, the architecture and layout - one requirement per fact, at the right scope,
-   the shared ones on the template. Choose what fits the intent: a mainstream stack, with the
-   fewest moving parts. Follow `genome/rules/impl-reqs.md`. When the standard library has a template
+   the shared ones on the template. The stack is the user's, when they named or chose one; left to
+   you, choose what fits the intent - a mainstream stack, with the fewest moving parts - in a language
+   this machine can build now (`<toolchains on this machine>`). Follow
+   `genome/rules/impl-reqs.md`. When the standard library has a template
    for it - a backend, a frontend, a command-line tool or a library (the stdlib rule, in `<plain-rules>`) -
    import that template and write only what the module needs beyond it.
 2. **Unit tests.** A `:UnitTests:` requirement - the framework, and how they are run - unless the

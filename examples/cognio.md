@@ -1,8 +1,8 @@
 # A backend and a web app: cognio
 
 You will build **cognio**, a Strava for students. They post their study sessions, follow one another and give each
-other kudos. It is a FastAPI backend and a React web app, grown from an empty folder without writing a line of code
-or spec yourself.
+other kudos. It is a backend API and a web app, on the stacks you choose, grown from an empty folder without writing
+a line of code or spec yourself.
 
 This example shows everything **turri** does, step by step: the interview, the specs it writes, the pulses that grow
 the code, regen, which shows how far it has grown, and what happens when you change your mind. It takes an
@@ -10,10 +10,10 @@ hour or so, most of it the agents' time.
 
 ## 1. Before you start
 
-Install **turri** as the [quick start](../README.md#quick-start) says, and run `turri setup`. cognio's backend is
-Python with FastAPI and its frontend React, so the machine needs what builds and tests them:
-[uv](https://docs.astral.sh/uv/) (it fetches Python 3.12 itself) and Node 20 or newer with npm. Once the project
-exists, `turri doctor` in its folder says what is missing.
+Install **turri** as the [quick start](../README.md#quick-start) says, and run `turri setup`. You choose the stacks
+as you go: the backend in Python, TypeScript, Go, Rust or Java, the web app in React, Vue, Svelte or Angular. The
+agents use the toolchains on your machine and install none, so the interview offers only the stacks it can build -
+a web app always needs Node. `turri doctor` lists what is there.
 
 ## 2. A folder and a config
 
@@ -55,16 +55,18 @@ Tell it, in your own words - this is how cognio began:
 > unique, and users can follow other users by searching for them. Users post their study session with a photo
 > of their setup and a fact they learned, and its type - prep for an exam, class work and so on. Other users can
 > give kudos and comments, and users are notified of new kudos, comments and follows. The feed is chronological,
-> with posts only from the users I follow, and every user has a profile page with their study sessions. The
-> backend is FastAPI, the frontend React. Let's start with the backend.
+> with posts only from the users I follow, and every user has a profile page with their study sessions. It's a
+> backend API and a web app. Let's start with the backend.
 
 **turri** starts the `brood` skill: an interview that writes the spec as you answer. Every question comes with
 choices - pick one, or type your own answer.
 
 - **Intent.** Who is it for, what is the outcome, how will you know it works, and what is left out. It reads the
   brief back to you; confirm it, or correct it.
-- **Stack.** It offers the standard library's stacks first - for cognio, `stdlib/backend/python-fastapi`: FastAPI,
-  Pydantic, pytest, and a dozen decisions you would otherwise make yourself - then asks only what that leaves
+- **Stack.** It offers the standard library's backend stacks your machine can build - FastAPI, Flask or Django in
+  Python, Express, Fastify or NestJS in TypeScript, Gin in Go, Axum in Rust, Spring Boot in Java - or one of your
+  own. A stack from it is one import, `stdlib/backend/<stack>`, with a dozen decisions you would otherwise make
+  yourself - the framework, its layout, its errors and logs, its unit tests. Then it asks only what that leaves
   open: where the data lives (SQLite is fine here), how passwords are hashed, how users sign in, where photos go.
   It writes `backend.plain` and the unit testing script, and reads the stack back.
 - **Testing.** Whether there are conformance tests - black-box tests of the running service, written from the
@@ -118,7 +120,7 @@ When the backend is built, ask:
 > Release it.
 
 **turri** takes what has grown, starts it on this machine, installing what it needs, and tells you where it
-runs - the API, and FastAPI's interactive documentation at `/docs`. Register a user there, sign in, post a
+runs - the API, and its interactive documentation where the stack has one. Register a user, sign in, post a
 session.
 
 ## 6. Change your mind
@@ -137,10 +139,10 @@ Nothing is patched by hand, and nothing drifts: the code is always grown from th
 
 ## 7. The frontend
 
-> Now the frontend: a React web app over this API.
+> Now the frontend: a web app over this API.
 
-The frontend is a module of its own, `frontend.plain`, on `stdlib/frontend/react-vite`, with its own unit testing
-script. It usually links a resource file describing the backend's API, so the two agree, and it is interviewed and
+The frontend is a module of its own, `frontend.plain`, on the frontend stack you choose - React, Vue, Svelte or
+Angular, `stdlib/frontend/<stack>` - with its own unit testing script. It usually links a resource file describing the backend's API, so the two agree, and it is interviewed and
 grown the same way. regen then has a row for each module; the one being grown is open, the other folded. When it is
 built, *release it* again and open the web app.
 

@@ -84,3 +84,18 @@ describe("what a project's implementation reqs need", () => {
     expect(stackOf("- :Implementation: is written in Rust with Axum.")[0]).toEqual({ toolchain: "Rust", commands: ["cargo"], words: ["rust", "axum"] });
   });
 });
+
+describe("the toolchains a stack can be chosen from", () => {
+  it("says which of the standard library's languages this machine can build, which it lacks, and to offer only the first", async () => {
+    const { toolchainsBlock, languagesOnMachine } = await import("../src/stack.ts");
+    // A laptop with uv and Node, no Go, no Rust, no JDK.
+    const has = (command: string) => ["uv", "node", "npm"].includes(command);
+    expect(languagesOnMachine(has).ready.map((entry) => entry.language)).toEqual(["Python", "TypeScript"]);
+    const block = toolchainsBlock(has);
+    expect(block).toContain("It can build and test now: Python (uv), TypeScript (node, npm).");
+    expect(block).toContain("It lacks, to build: Go (go), Rust (cargo), Java (java) - not installed.");
+    expect(block).toContain("offer only those in a language it can build now, and choose only among them");
+    // Node without npm builds no TypeScript stack.
+    expect(languagesOnMachine((command) => command === "node").ready).toEqual([]);
+  });
+});

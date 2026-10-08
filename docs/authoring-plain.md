@@ -124,6 +124,13 @@ entry point.
   to import which, and lists every template with what it is and the folder it is in, read from
   `stdlib/` when the rules load. `spawn` and `brood` import a stack when the one chosen
   is in it, and its conformance template when conformance tests are on.
+- **Only what this machine can build.** The agents use this machine's toolchains and install none, so
+  a Go stack on a laptop without Go stops at its first build. Every spec-writing agent and the
+  conversation are told which of the standard library's languages the machine can build now - Python
+  needs `uv`, TypeScript and every frontend `node` and `npm`, Go `go`, Rust `cargo`, Java a JDK
+  (`src/stack.ts`, `toolchainsBlock`) - and `spawn` and `brood` offer, and choose, only stacks in those.
+  A stack the person names in a language the machine lacks is not refused: they are told what to install
+  first, and that `turri doctor` checks it.
 
 A requirement beyond the stack - storage, an outside service - is added on top of it. A module that
 differs from its stack on something the stack settles - another framework, another layout - writes
@@ -167,13 +174,13 @@ The ones that shape a spec most:
 In a conversation (`turri`), say what you want and the matching skill runs. Two build a
 project from scratch, and write each spec change as a git diff that is built in the background the
 moment it is written. `brood` interviews you one question at a time and writes the specs as
-you answer; `spawn`, its quick twin, asks only what you want to build and writes the rest on
-its own:
+you answer; `spawn`, its quick twin, asks only what you want to build and which stack - or leaves the stack
+to it - and writes the rest on its own:
 
 | skill | phases | how a spec change is written |
 | --- | --- | --- |
 | `brood` | intent → stack → testing → product, feature by feature | first, in testing, whether there are conformance tests, their `***test reqs***` and script - written as files, building nothing; then one spec change per answer, across whatever sections it needs, as a git diff with `write_spec_diff`, rendered as a render spec diff job and conformance tested as it is built |
-| `spawn` | intent → groundwork → product | only the intent is asked; the stack and the unit tests are chosen and written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs, and what is left to build is worked out again from the spec |
+| `spawn` | intent → groundwork → product | only the intent and the stack are asked - the stack one question, `You choose` first, skipped when the user named one; the stack and the unit tests are written as files, with conformance tests off unless the user asks for them; then one spec change per feature, in build order, as a git diff with `write_spec_diff`, one after another with no answer between them. Changes after it are asked for in the conversation, as spec diffs, and what is left to build is worked out again from the spec |
 
 `mature` starts from a spec you already have, rough or hand-written, and runs on its own until
 it is fully rendered - every functionality built from the spec as it stands, its tests passing. It

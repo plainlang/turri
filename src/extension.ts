@@ -18,7 +18,7 @@ import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { AGENT_ROLES, CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
 import { sweepOrphanedGroups } from "./grow/shell.ts";
-import { readScript, scriptAgainstMachine, stackOnMachine } from "./stack.ts";
+import { readScript, scriptAgainstMachine, stackOnMachine, toolchainsBlock } from "./stack.ts";
 import { sandboxAvailable, sandboxSummary } from "./grow/os-sandbox.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
@@ -834,6 +834,8 @@ export function machineBlock(cwd: string): string {
     ),
     ...misfits,
     "</this machine>",
+    "",
+    toolchainsBlock(),
   ].join("\n");
 }
 

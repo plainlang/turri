@@ -1,7 +1,7 @@
 # A backend service: shorty
 
 You will build **shorty**, a URL shortener: an HTTP API that turns a long URL into a short code, redirects anyone who
-opens the code, and counts the clicks. It is TypeScript on Fastify, with conformance tests from the start. These
+opens the code, and counts the clicks - in the language you choose, with conformance tests from the start. These
 are black-box tests that start the service and call it over HTTP, so they show that it does what the spec says.
 
 It takes an hour or so. [cognio](cognio.md) explains each step in more detail. This example is about the
@@ -9,7 +9,9 @@ conformance tests.
 
 ## 1. The project
 
-The machine needs Node 20 or newer, with npm.
+Build it on any backend stack your machine can build - Python, TypeScript, Go, Rust or Java. The agents use the
+toolchains on your machine and install none, so the interview offers only the stacks it can build; `turri doctor`
+lists what is there.
 
 ```bash
 mkdir ~/shorty && cd ~/shorty
@@ -31,7 +33,7 @@ you pick. [The project config](../docs/config.md) has the details.
 turri
 ```
 
-> Let's build shorty - a URL shortener API in TypeScript with Fastify. You post a long URL and get back a short
+> Let's build shorty - a URL shortener API. You post a long URL and get back a short
 > code; opening `/<code>` redirects to the URL and counts the click. Codes are 7 characters, letters and digits,
 > or a custom alias of my choice if it's free. A link can expire at a given time; after that, the code returns
 > 410. I can list my links with their click counts, and delete one. Keep the data in SQLite. Requests are
@@ -40,11 +42,13 @@ turri
 The interview, `brood`, asks one question at a time:
 
 - **Intent**, read back for you to confirm.
-- **Stack.** `stdlib/backend/typescript-fastify`, with what it leaves open: SQLite through which library, how API keys
-  are stored (hashed), what a redirect returns (`302`).
+- **Stack.** The standard library's backend stacks your machine can build - FastAPI, Flask or Django in Python;
+  Express, Fastify or NestJS in TypeScript; Gin or net/http in Go; Axum in Rust; Spring Boot in Java - or one of your
+  own. A stack from it is one import, `stdlib/backend/<stack>`; then it asks only what that leaves open: SQLite
+  through which library, how API keys are stored (hashed), what a redirect returns (`302`).
 - **Testing.** Conformance tests are already on from `config.yaml`, so it writes their test reqs (`***test reqs***`)
-  and the conformance testing script, `run_conformance_tests_typescript.sh`, from the stack's template,
-  `stdlib/backend/conformance/typescript-fastify`.
+  and the conformance testing script, `run_conformance_tests_<language>.sh`, from the stack's template,
+  `stdlib/backend/conformance/<stack>`.
 - **Product**, feature by feature: API keys, creating a link, the redirect, custom aliases, expiry, listing,
   deleting. Each answer is a spec change that starts growing at once.
 
@@ -89,12 +93,13 @@ regen's second column and starts once the code is built.
 
 > Release it.
 
-**turri** starts the service on this machine and tells you where it is running. Make a key and a link:
+**turri** starts the service on this machine and tells you where it is running - the port is the stack's. Make a key
+and a link, with that address for `$SHORTY`:
 
 ```bash
-curl -s -X POST localhost:3000/links -H "Authorization: Bearer $KEY" \
+curl -s -X POST $SHORTY/links -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{"url": "https://codeplain.ai"}'
-curl -si localhost:3000/<code>
+curl -si $SHORTY/<code>
 ```
 
 ## 6. Change a rule
