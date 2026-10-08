@@ -525,6 +525,27 @@ It is raised two ways:
   a credential `agent-env:` names that is not there when the pulse starts - before any agent does. What the harness
   found it works out at once - the diagnosis, not after a second failure - to say how to fix it on this machine.
 
+**Hidden by turri's own sandbox, not missing.** An agent's commands run behind the OS sandbox, which reads only the
+toolchain folders it knows; a toolchain kept somewhere else - a version manager's install it does not recognise - is
+on the machine, but out of the agent's sight. When a report names a file that is on this machine, outside the project
+and the system's folders (`sandboxGapOf` in `environment-error.ts`), the stop says so, and the fix is a line of config,
+not an install:
+
+> **lunch stopped: turri's sandbox kept its agents from reading `…/mise/installs/node/24.16.0/lib/node_modules/npm/bin/npm-cli.js` - it is on this machine; nothing is missing.**
+> To fix: let the agents read that toolchain - add its folder to `toolchains:` in config.yaml, keeping what is there: `toolchains: [/Users/…/mise/installs/node/24.16.0]`. Nothing needs installing.
+
+**The conversation heals it.** Told of the stop, it never grows the module again before the cause is fixed - a pulse
+stopped on its environment stops the same way again - and fixes what it can:
+
+- **hidden by the sandbox**: it adds the folder to `toolchains:` itself, says so in a line, and resumes;
+- **a toolchain or a tool missing** - a JDK, Maven, Go, uv: it looks first for one installed off the PATH - Homebrew's opt
+  folders, `/Library/Java/JavaVirtualMachines`, mise, asdf, sdkman, nvm - then asks you, with the exact command for this
+  machine (`brew install openjdk@21`, `mise use -g java@21`), and on your yes runs it in its shell, checks the command is
+  found now as the testing script would find it, and resumes. One installed where turri's own PATH does not reach needs
+  turri restarted, and it says so. On a no - or where it cannot do it, sudo with a password, a licence - it tells you
+  exactly what to do;
+- **a credential missing**: never made up - you are told where `agent-env:` reads it from.
+
 Either way the pulse is not tried again: no second run would find what is missing. The message is in the chat, at the
 end of `turri regrow`, and in the job's log; after the fix the pulse runs again from the start. The re-run line names the spec that was grown, as the folder it was run from reaches it.
 

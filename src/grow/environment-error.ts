@@ -1,10 +1,12 @@
-import { basename, dirname, isAbsolute } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, isAbsolute, sep } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { passedCredentials } from "./agent-env.ts";
 import { missingToolchain } from "./test-scripts.ts";
 import { MODULES_DIR } from "./paths.ts";
 import { reportActivity } from "./activity.ts";
+import { LINUX_MACHINE, MACOS_MACHINE } from "./os-sandbox.ts";
 
 /**
  * When the machine lacks what the work needs - a toolchain, a system library, a credential - no agent can fix it, and
@@ -28,9 +30,18 @@ export class EnvironmentError extends Error {
   fix?: string;
   /** Who found it: an agent, or the harness. */
   readonly source: "agent" | "harness";
+  /**
+   * Nothing is missing: what the agent could not reach is on this machine, and turri's own sandbox kept it from it - the
+   * files it named, and the toolchain folder that holds them, for `toolchains:` to let the agents read.
+   */
+  readonly sandbox?: SandboxGap;
 
-  constructor(details: { moduleName: string; missing: string; neededBy: string; shownBy?: string; fix?: string; source: "agent" | "harness" }) {
-    super(`${details.moduleName} stopped: the environment lacks ${details.missing}.`);
+  constructor(details: { moduleName: string; missing: string; neededBy: string; shownBy?: string; fix?: string; source: "agent" | "harness"; sandbox?: SandboxGap }) {
+    super(
+      details.sandbox !== undefined
+        ? `${details.moduleName} stopped: turri's sandbox kept its agents from ${details.sandbox.paths[0]}, which is on this machine.`
+        : `${details.moduleName} stopped: the environment lacks ${details.missing}.`,
+    );
     this.name = "EnvironmentError";
     this.moduleName = details.moduleName;
     this.missing = details.missing;
@@ -38,7 +49,45 @@ export class EnvironmentError extends Error {
     if (details.shownBy !== undefined) this.shownBy = details.shownBy;
     if (details.fix !== undefined) this.fix = details.fix;
     this.source = details.source;
+    if (details.sandbox !== undefined) this.sandbox = details.sandbox;
   }
+}
+
+/** Files on this machine turri's sandbox kept an agent from, and the toolchain folder that holds them. */
+export interface SandboxGap {
+  paths: string[];
+  folder: string;
+}
+
+/** A folder named for a version - `24.16.0`, `v22.3.0`, `3.12.4` - the root of a version manager's install. */
+const VERSION = /^v?\d+\.\d+/;
+
+/** The parts of an install below its root, where the root ends: `…/24.16.0/lib/node_modules/…` ends before `lib`. */
+const INSIDE_INSTALL = new Set(["bin", "lib", "lib64", "libexec", "share", "include", "node_modules"]);
+
+/** The toolchain folder a file is part of: its version manager's install, else the folder above its bin or lib, else its own. */
+function toolchainFolder(path: string): string {
+  const parts = path.split(sep);
+  for (let at = parts.length - 2; at > 0; at -= 1) if (VERSION.test(parts[at]!)) return parts.slice(0, at + 1).join(sep);
+  const inside = parts.findIndex((part, at) => at > 1 && INSIDE_INSTALL.has(part));
+  return inside > 1 ? parts.slice(0, inside).join(sep) : dirname(path);
+}
+
+/**
+ * What an agent reported the machine lacks, read for what it says of turri's own sandbox: a file it names that is on
+ * this machine - outside the project and the system's folders, which the sandbox already lets it read - is not missing,
+ * the sandbox hid it. A version manager's Node under ~/.local/share/mise, say, whose npm the agent could not open. Then
+ * the stop is the sandbox's, and the fix is a line of config - `toolchains:` - not an install.
+ */
+export function sandboxGapOf(text: string, options: { project?: string; exists?: (path: string) => boolean; platform?: NodeJS.Platform } = {}): SandboxGap | undefined {
+  const exists = options.exists ?? existsSync;
+  const system = (options.platform ?? process.platform) === "darwin" ? MACOS_MACHINE : LINUX_MACHINE;
+  const within = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
+  const named = [...text.matchAll(/(?:^|[\s'"`(=:])(\/[^\s'"`()<>,;]+)/g)].map((match) => match[1]!.replace(/[.:]+$/, ""));
+  const paths = [...new Set(named)].filter(
+    (path) => path.split("/").length > 3 && exists(path) && !system.some((root) => within(path, root)) && (options.project === undefined || !within(path, options.project)),
+  );
+  return paths.length > 0 ? { paths, folder: toolchainFolder(paths[0]!) } : undefined;
 }
 
 /**
@@ -46,6 +95,14 @@ export class EnvironmentError extends Error {
  * the work again, as the pulse knows it - the spec the person ran; without it, the module's own spec by its name.
  */
 export function describeEnvironmentError(error: EnvironmentError, rerun?: string): string {
+  if (error.sandbox !== undefined) {
+    return [
+      `**${error.moduleName} stopped: turri's sandbox kept its agents from reading \`${error.sandbox.paths[0]}\` - it is on this machine; nothing is missing.**`,
+      `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,
+      `To fix: let the agents read that toolchain - add its folder to \`toolchains:\` in config.yaml, keeping what is there: \`toolchains: [${error.sandbox.folder}]\`. Nothing needs installing.`,
+      `Then re-run: \`${rerun ?? `turri regrow ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
+    ].join("\n");
+  }
   return [
     `**${error.moduleName} stopped: the environment lacks ${error.missing}.**`,
     `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,

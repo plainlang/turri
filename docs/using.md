@@ -105,7 +105,9 @@ come waits for a free slot, and says so.
   the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
   the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
   as GitHub names a hunk's function: each section is named once.
-- **The side panel** (`ctrl+h`, as it was left; **`/regen`** on regen - `/regeneration`, its old name, and `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
+- **The side panel** (`ctrl+h`, as it was left - but on the pulse that last failed, stopped or did not pass, when one has
+  since it was last opened: the live panel that showed it is gone with the last pulse, and its announcement in the chat
+  says `ctrl+h shows this pulse`; **`/regen`** on regen - `/regeneration`, its old name, and `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time.

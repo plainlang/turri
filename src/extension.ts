@@ -41,11 +41,11 @@ import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
-import { createJobPanel, PANEL_KEY } from "./grow/job-panel.ts";
+import { createJobPanel, didNotPass, PANEL_KEY } from "./grow/job-panel.ts";
 import { createSidePanel } from "./grow/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles } from "./grow/spec-map.ts";
 import { createSpecMapState } from "./grow/spec-map-view.ts";
-import { createJobsTreeState } from "./grow/jobs-tree.ts";
+import { createJobsTreeState, selectJob } from "./grow/jobs-tree.ts";
 import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./grow/lineage.ts";
 import { defaultBuildDir } from "./grow/paths.ts";
@@ -205,6 +205,8 @@ export default function (pi: ExtensionAPI) {
       // Queued again as another job: that one says how it went.
       if (job.replacedBy !== undefined) return;
       announceJob(pi, job);
+      // Gone wrong: the next ctrl+h opens on it - the live panel that showed it is gone with the last pulse.
+      if (job.status === "failed" || job.status === "stopped" || didNotPass(job)) needsLooking.set(jobs, job.id);
       // A spec that contradicts itself is the person's to settle, now: the agent is started on it.
       if (job.specConflict !== undefined) {
         void pi.sendMessage(
@@ -1249,6 +1251,9 @@ async function deliver(
 }
 
 /** Looking in on work that is still running, and collecting what finished. */
+/** By registry: the last pulse that failed, stopped or did not pass, not yet looked at - ctrl+h opens on it. */
+const needsLooking = new WeakMap<JobRegistry, string>();
+
 function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   pi.registerTool({
     name: "diagnose",
@@ -1397,6 +1402,13 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   /** Open the side panel - on the view named, or as it was left. */
   const openPanel = (ctx: ExtensionContext, view?: "map" | "pulses") => {
     if (view !== undefined) mapState.view = view;
+    // A pulse that failed or stopped since the panel was last opened: opened as it is, it is on that pulse - what went
+    // wrong is what the person opens it to see.
+    else {
+      const id = needsLooking.get(jobs);
+      if (id !== undefined && selectJob(shownJobs(jobs), jobsTree, id)) mapState.view = "pulses";
+    }
+    needsLooking.delete(jobs);
     if (panel !== undefined) {
       panel.handle?.setHidden(false);
       panel.handle?.focus();
@@ -1543,13 +1555,28 @@ const WATCH_REDRAW_MS = 500;
  * What the agent is to do with a job that just ended, unasked: what the project's guidance says to do then, or else say
  * in a line or two what ended - the person saw it end already, in the transcript.
  */
-const JOB_FINISHED_REACTION = [
+export const JOB_FINISHED_REACTION = [
   "React to this now - the person has not asked, and need not. If guidance for this project - its AGENTS.md, a skill,",
   "what the person said earlier - says what to do when a pulse finishes (release what was built, run something, tell",
   "someone), do that, as it says. Otherwise say in a line or two what finished and what it means for the person - the",
   "report is theirs to read in full; do not repeat it - and, when it failed, what they can do. Start no other work.",
   "A report that says \"Released after the pulse\" was released by turri itself, as the pulse's last stage: do not call",
   "release for it - say in a line what was released, or why nothing was.",
+  "A pulse that stopped on its environment - \"stopped: turri's sandbox kept its agents from…\" or \"stopped: the",
+  "environment lacks…\" - stops the same way again until that is fixed: never regrow it before. Heal it, then regrow the",
+  "module to resume:",
+  "- turri's sandbox kept the agents from a folder on this machine: nothing is missing. Add the folder its report names to",
+  "  `toolchains:` in config.yaml - a list, keeping what is there - say so in a line, and resume.",
+  "- the machine lacks a toolchain or a tool - a JDK, Maven, Gradle, Go, uv, Node, a system library: first find out, in your",
+  "  shell, whether it is installed somewhere off the PATH (`command -v`, Homebrew's opt folders, /Library/Java/",
+  "  JavaVirtualMachines, a version manager the person uses - mise, asdf, sdkman, nvm). Then ask the person with ask_user",
+  "  to let you put it in place the way this machine installs things - the exact command, `brew install openjdk@21`,",
+  "  `mise use -g java@21`, `sdk install maven` - and on yes run it in your shell, check that the command is found now as",
+  "  the testing script would find it (`command -v`, `turri doctor`), and resume. A tool installed where the PATH turri",
+  "  was started with does not reach needs turri restarted: say so, with the line for the shell profile. On no, or when it",
+  "  needs what you cannot do - sudo with a password, a licence, a download behind a login - tell the person exactly what",
+  "  to do, and that \"resume\" picks it up once it is in.",
+  "- a credential `agent-env:` names that is not there: never make one up - tell the person where it is read from.",
 ].join("\n");
 
 /** Opens the side panel, and goes back to it from the conversation. */
@@ -1822,9 +1849,11 @@ function registerInterviewLog(pi: ExtensionAPI) {
           ? `${theme.fg("warning", "■")} ${theme.fg("text", data.summary)} ${theme.fg("warning", `stopped after ${data.duration}`)}`
           : `${theme.fg("error", "✗")} ${theme.fg("text", data.summary)} ${theme.fg("error", `failed after ${data.duration}`)}`;
     const spent = data.spent ? ` ${theme.fg("muted", `· ${data.spent}`)}` : "";
-    // Its headline only: the chat has the whole report, and says what it means - or does what the project says to.
+    // Its headline only: the chat has the whole report, and says what it means - or does what the project says to. One
+    // that went wrong says where to see why: the live panel, which said it, is gone with the last pulse.
+    const wrong = data.status !== "succeeded" || data.incomplete === true;
     const box = new Box(1, 0);
-    box.addChild(new Text(header + spent, 0, 0));
+    box.addChild(new Text(header + spent + (wrong ? `\n${theme.fg("muted", `  ${PANEL_KEY} shows this pulse - its stages, what its agents did, its log`)}` : ""), 0, 0));
     return box;
   });
 

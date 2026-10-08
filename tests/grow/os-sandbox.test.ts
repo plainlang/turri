@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { agentEnvironment, TOOLCHAIN_VARIABLES } from "../../src/grow/agent-env.ts";
@@ -96,6 +96,17 @@ describe("what of the machine a command reads", () => {
     expect(machine).not.toContain("/Users/zan/.cargo");
     expect(machine).not.toContain("relative/bin");
   });
+
+  it("is a version manager's whole install, whose bin links its tools into the install beside it - and no other parent", () => {
+    const mise = "/Users/t/.local/share/mise/installs/node/24.16.0";
+    const machine = machineFor({ PATH: `${mise}/bin:/Users/t/.nvm/versions/node/v22.3.0/bin:/Users/t/.cargo/bin:/opt/tools/bin` }, TOOLCHAIN_VARIABLES, [], "darwin");
+    expect(machine).toEqual(expect.arrayContaining([mise, `${mise}/bin`, "/Users/t/.nvm/versions/node/v22.3.0"]));
+    // Not a version: its parent may hold a credential, and is not read.
+    expect(machine).not.toContain("/Users/t/.cargo");
+    expect(machine).not.toContain("/opt/tools");
+    // mise's and uv's homes, found in the person's home as nvm's is.
+    expect(TOOLCHAIN_VARIABLES).toEqual(expect.arrayContaining(["MISE_DATA_DIR", "FNM_DIR", "RBENV_ROOT", "UV_PYTHON_INSTALL_DIR"]));
+  });
 });
 
 const wall = sandboxAvailable();
@@ -132,6 +143,26 @@ describe.runIf(wall.kind !== "none")(`behind ${wall.kind === "none" ? "no wall" 
     const result = await run('echo hi > ok.txt && cat ok.txt && touch ~/.npmrc "$TMPDIR/t" && python3 -c "print(6*7)" && git --version');
     expect(result.exitCode).toBe(0);
     expect(result.output).toMatch(/^hi\n42\ngit version/);
+  });
+
+  it("runs a tool a version manager links from its install's bin into the install beside it - npm under mise", async () => {
+    // As mise lays out a Node: bin/npm a link into lib/, the bin alone on the PATH.
+    // In the home folder, as mise's is - not in /tmp, which bubblewrap gives a command a fresh one of.
+    const root = realpathSync(mkdtempSync(join(homedir(), ".turri-mise-test-")));
+    const install = join(root, "installs", "node", "24.16.0");
+    mkdirSync(join(install, "bin"), { recursive: true });
+    mkdirSync(join(install, "lib", "node_modules", "npm", "bin"), { recursive: true });
+    writeFileSync(join(install, "lib", "node_modules", "npm", "bin", "npm-cli.sh"), "#!/bin/sh\necho npm ran\n", { mode: 0o755 });
+    symlinkSync("../lib/node_modules/npm/bin/npm-cli.sh", join(install, "bin", "npm"));
+    try {
+      const withMise = { ...env, PATH: `${join(install, "bin")}:${env.PATH}` };
+      const f = { ...fence, machine: machineFor(withMise, TOOLCHAIN_VARIABLES) };
+      const result = await runCommand("npm", { cwd: f.cwd, env: withMise, wrap: sandboxWrap(wall, f) });
+      expect(result.output).toContain("npm ran");
+      expect(result.exitCode).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("cannot read the spec, a sibling module or the code record, nor write the sibling", async () => {

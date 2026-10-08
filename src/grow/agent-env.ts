@@ -43,6 +43,11 @@ const TOOLCHAIN_LOCATORS: Record<string, string | undefined> = {
   SDKMAN_DIR: ".sdkman",
   VOLTA_HOME: ".volta",
   ASDF_DATA_DIR: ".asdf",
+  // mise and fnm keep their installs under ~/.local/share; uv the Pythons it fetches.
+  MISE_DATA_DIR: ".local/share/mise",
+  FNM_DIR: ".local/share/fnm",
+  RBENV_ROOT: ".rbenv",
+  UV_PYTHON_INSTALL_DIR: ".local/share/uv/python",
   BUN_INSTALL: ".bun",
   PNPM_HOME: undefined,
 };
@@ -130,6 +135,8 @@ function turrisOwn(module: string, name: string): Record<string, string> {
   if (!existsSync(gitconfig)) writeFileSync(gitconfig, GITCONFIG);
   const tmp = join(scratch, "tmp", name);
   mkdirSync(tmp, { recursive: true });
+  // There before the first command: bubblewrap binds every writable folder, and refuses one that is not.
+  mkdirSync(packageCacheDir(module), { recursive: true });
   // Java takes its temporary folder and its home from the system, not from TMPDIR and HOME - on macOS a per-user folder
   // and the person's home, both outside the sandbox. Every JVM reads JAVA_TOOL_OPTIONS, a test JVM Surefire or Gradle
   // forks too, and an agent's own MAVEN_OPTS does not replace it: Maven without its repository setting falls back to the

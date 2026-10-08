@@ -176,3 +176,37 @@ describe("the whole conformance suite, when its script cannot find its toolchain
     expect(describeEnvironmentError(stopped as EnvironmentError)).toContain("**app stopped: the environment lacks `flutter`.**");
   });
 });
+
+describe("a report of what turri's own sandbox hid", () => {
+  // As an agent wrote it, under mise - its npm on the machine, out of the sandbox's sight.
+  const npm = "/Users/tstoyche/.local/share/mise/installs/node/24.16.0/lib/node_modules/npm/bin/npm-cli.js";
+  const report = {
+    missing: "Sandbox read access to the installed npm CLI (npm works outside the sandbox but cannot run inside it)",
+    neededBy: "Generating the required package-lock.json using npm install",
+    shownBy: `The sandbox command npm install fails EPERM opening ${npm}. The external harness confirms npm exists outside the sandbox.`,
+  };
+
+  it("is the sandbox's, not the machine's, when a file it names is on this machine - and names the toolchain folder that holds it", async () => {
+    const { sandboxGapOf } = await import("../../src/grow/environment-error.ts");
+    const on = (path: string) => path === npm;
+    const gap = sandboxGapOf([report.missing, report.neededBy, report.shownBy].join("\n"), { exists: on, platform: "darwin", project: "/Users/tstoyche/projects/lunch" });
+    expect(gap).toEqual({ paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0" });
+    // Not on this machine: missing indeed.
+    expect(sandboxGapOf(report.shownBy, { exists: () => false, platform: "darwin" })).toBeUndefined();
+    // In the project, or the system's folders the sandbox already reads: not the sandbox's either.
+    expect(sandboxGapOf("cannot open /Users/tstoyche/projects/lunch/code/package.json", { exists: () => true, platform: "darwin", project: "/Users/tstoyche/projects/lunch" })).toBeUndefined();
+    expect(sandboxGapOf("cannot open /opt/homebrew/bin/node", { exists: () => true, platform: "darwin" })).toBeUndefined();
+    // No version in its path: the folder above its lib.
+    expect(sandboxGapOf("EPERM /Users/t/tools/node/lib/node_modules/npm/bin/npm-cli.js", { exists: () => true, platform: "darwin" })?.folder).toBe("/Users/t/tools/node");
+  });
+
+  it("tells the person - and the conversation - that nothing is missing, and the line of config that fixes it", async () => {
+    const { describeEnvironmentError, EnvironmentError } = await import("../../src/grow/environment-error.ts");
+    const error = new EnvironmentError({ moduleName: "lunch", ...report, source: "agent", sandbox: { paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0" } });
+    const said = describeEnvironmentError(error, "turri regrow razgrad-lunch/lunch.plain");
+    expect(said).toContain(`**lunch stopped: turri's sandbox kept its agents from reading \`${npm}\` - it is on this machine; nothing is missing.**`);
+    expect(said).toContain("add its folder to `toolchains:` in config.yaml, keeping what is there: `toolchains: [/Users/tstoyche/.local/share/mise/installs/node/24.16.0]`");
+    expect(said).not.toContain("provide it on this machine");
+    expect(error.message).toBe(`lunch stopped: turri's sandbox kept its agents from ${npm}, which is on this machine.`);
+  });
+});

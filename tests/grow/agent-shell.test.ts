@@ -58,7 +58,9 @@ describe("an agent's command", () => {
   it.runIf(sandboxAvailable().kind !== "none")("is stopped by the OS sandbox where the check cannot see the path", async () => {
     const shell = agentShell({ workdir: code });
     const result = await shell.run('P=$(dirname "$(dirname "$(dirname "$PWD")")"); echo changed > "$P/app.plain"');
-    expect(result.exitCode).not.toBe(0);
+    // Seatbelt refuses the write; bubblewrap never shows the command the project, so it writes to a throwaway file of
+    // its own. Either way the spec is as it was - and not because the audit put it back.
+    if (sandboxAvailable().kind === "seatbelt") expect(result.exitCode).not.toBe(0);
     expect(readFileSync(join(project, "app.plain"), "utf8")).toBe("the spec\n");
     expect(result.output).not.toContain("turri put back");
   });

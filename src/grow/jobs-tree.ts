@@ -79,6 +79,18 @@ function isOpen(state: JobsTreeState, job: Job): boolean {
 }
 
 /** The rows, top to bottom: each section's header, and its jobs when it is open - finished ones newest first. */
+/** The pulse list put on one pulse: its section open, the pulse opened - its stages, its agents, its log - and the cursor on it. */
+export function selectJob(jobs: Job[], state: JobsTreeState, id: string): boolean {
+  const job = jobs.find((entry) => entry.id === id);
+  if (job === undefined) return false;
+  const section: JobSection = job.status === "running" ? "running" : job.status === "queued" ? "queued" : "finished";
+  state.open[section] = true;
+  state.openJobs.set(id, section);
+  const at = jobsTreeRows(jobs, state).findIndex((row) => row.kind === "job" && row.job.id === id);
+  if (at !== -1) state.cursor = at;
+  return at !== -1;
+}
+
 export function jobsTreeRows(jobs: Job[], state: JobsTreeState): TreeRow[] {
   // A job queued again as another is that other one: it is not listed apart.
   const bySequence = jobs.filter((job) => job.replacedBy === undefined).sort((a, b) => a.sequence - b.sequence);

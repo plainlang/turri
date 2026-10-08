@@ -80,13 +80,19 @@ export const LINUX_MACHINE = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64
 /**
  * What of the machine a command reads, from the environment it runs in: the system's folders, every folder on its PATH,
  * the folders its toolchain variables point at, and the project's `toolchains:`. Only the PATH folders themselves, not
- * their parents - `~/.cargo/bin`, not `~/.cargo`, which holds a registry's credentials.
+ * their parents - `~/.cargo/bin`, not `~/.cargo`, which holds a registry's credentials - but for a version manager's
+ * install: a `bin` whose parent is a version, `…/installs/node/24.16.0/bin`, links its tools into the install beside it
+ * (`npm` into `lib/node_modules`), and an install holds the toolchain, never a credential.
  */
 export function machineFor(env: Record<string, string | undefined>, toolchainVariables: string[], extra: string[] = [], platform: NodeJS.Platform = process.platform): string[] {
   const base = platform === "darwin" ? MACOS_MACHINE : platform === "linux" ? LINUX_MACHINE : [];
   const onPath = (env.PATH ?? "").split(platform === "win32" ? ";" : ":").filter((dir) => dir.startsWith("/"));
+  const installs = onPath.flatMap((dir) => {
+    const install = /^(.*\/v?\d+\.\d+(?:\.\d+)?[^/]*)\/bin\/?$/.exec(dir)?.[1];
+    return install !== undefined ? [install] : [];
+  });
   const located = toolchainVariables.map((name) => env[name]).filter((dir): dir is string => dir !== undefined && dir.startsWith("/"));
-  return [...new Set([...base, ...onPath, ...located, ...extra])];
+  return [...new Set([...base, ...onPath, ...installs, ...located, ...extra])];
 }
 
 function sbplString(path: string): string {

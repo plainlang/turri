@@ -13,7 +13,7 @@ import {
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { configModuleOfBuild, inheritModel, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
 import { maskToolResults } from "./grow/masking.ts";
-import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool } from "./grow/environment-error.ts";
+import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool, sandboxGapOf } from "./grow/environment-error.ts";
 import { MODULES_DIR, projectRootOf, sessionsDir } from "./grow/paths.ts";
 import {
   currentStopSignal,
@@ -197,7 +197,9 @@ function throwIfEnvironmentReported(session: AgentSession): void {
   const parts = resolve(entry.cwd).split(sep);
   const index = parts.lastIndexOf(MODULES_DIR);
   const moduleName = index >= 0 && parts.length > index + 1 ? parts[index + 1]! : basename(resolve(entry.cwd));
-  throw new EnvironmentError({ moduleName, missing: report.missing, neededBy: report.neededBy, ...(report.shownBy !== undefined ? { shownBy: report.shownBy } : {}), source: "agent" });
+  // A file it names that is on this machine: not missing - turri's sandbox hid it, and the fix is a line of config.
+  const sandbox = sandboxGapOf([report.missing, report.neededBy, report.shownBy ?? ""].join("\n"), { project: projectRootOf(entry.cwd) });
+  throw new EnvironmentError({ moduleName, missing: report.missing, neededBy: report.neededBy, ...(report.shownBy !== undefined ? { shownBy: report.shownBy } : {}), source: "agent", ...(sandbox !== undefined ? { sandbox } : {}) });
 }
 
 /** A turn with one thing left to do: every tool but these is refused, the tools the session has left as they are. */

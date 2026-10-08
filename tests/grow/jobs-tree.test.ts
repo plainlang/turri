@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Job } from "../../src/grow/jobs.ts";
-import { createJobsTreeState, jobsTreeLines, jobsTreeRows, keepCursorInView, scrollTree, treeKey } from "../../src/grow/jobs-tree.ts";
+import { createJobsTreeState, jobsTreeLines, jobsTreeRows, keepCursorInView, scrollTree, selectJob, treeKey } from "../../src/grow/jobs-tree.ts";
 
 const PLAIN = { heading: (t: string) => t, muted: (t: string) => t, accent: (t: string) => t, error: (t: string) => t, added: (t: string) => t, removed: (t: string) => t };
 
@@ -35,6 +35,18 @@ describe("the jobs tree", () => {
     const state = createJobsTreeState();
     state.open.finished = true;
     expect(rowsOf(jobs, state)).toEqual(["[running 1]", "b", "[queued 1]", "c", "[finished 2]", "d", "a"]);
+  });
+
+  it("is put on a pulse that went wrong - its section opened, the pulse opened, the cursor on it - for ctrl+h to open on", () => {
+    const jobs = [job("a", "succeeded", { finishedAt: 1 }), job("b", "running"), job("d", "failed", { finishedAt: 2 })];
+    const state = createJobsTreeState();
+    expect(state.open.finished).toBe(false);
+    expect(selectJob(jobs, state, "d")).toBe(true);
+    expect(state.open.finished).toBe(true);
+    expect(state.openJobs.get("d")).toBe("finished");
+    const row = jobsTreeRows(jobs, state)[state.cursor]!;
+    expect(row.kind !== "section" && row.job.id).toBe("d");
+    expect(selectJob(jobs, state, "gone")).toBe(false);
   });
 
   it("opens and closes each section on its own", () => {

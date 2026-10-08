@@ -149,9 +149,11 @@ never where a rule lives - where neither starts (native Windows, WSL1, a contain
 namespaces) the check and the audit hold alone. What a command behind it reaches:
 
 - reads: its role's roots, the module's home, `TMPDIR` and the package caches, and of the machine only the system's
-  folders, every folder on the agent's `PATH` (the folder itself, not its parent: `~/.cargo/bin`, not `~/.cargo`), the
-  folders the toolchain variables point at (`JAVA_HOME`, `RUSTUP_HOME`, `NVM_DIR`, ...) and the project's
-  `toolchains:` - nothing else of the person's home;
+  folders, every folder on the agent's `PATH` (the folder itself, not its parent: `~/.cargo/bin`, not `~/.cargo`) - but
+  a version manager's install whole, a `bin` whose parent is a version (`…/mise/installs/node/24.16.0/bin`), as its
+  tools are links into the install beside it (`npm` into `lib/node_modules`) - the folders the toolchain variables
+  point at (`JAVA_HOME`, `RUSTUP_HOME`, `NVM_DIR`, mise's `MISE_DATA_DIR`, fnm's, rbenv's, the Pythons uv fetches, ...)
+  and the project's `toolchains:` - nothing else of the person's home;
 - writes: its role's own roots - none for a role that only reads - and the module's home, `TMPDIR` and caches. On macOS
   the developer tools' own scratch files too (`xcrun`'s database, clang's module cache), which go where macOS says, not
   where `TMPDIR` does - and a folder of the module's own in macOS's per-user temporary folder
