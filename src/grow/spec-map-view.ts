@@ -4,7 +4,7 @@ import { highlightLine, roleOf, type PlainRole } from "../plain/highlight.ts";
 import { DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS } from "../plain/spec.ts";
 import type { DiffPaint } from "./diff-view.ts";
 import { spinner } from "./job-panel.ts";
-import { formatDuration, type Job } from "./jobs.ts";
+import type { Job } from "./jobs.ts";
 import { countOf, type Mark, type MarkedItem, type MarkedPage } from "./spec-map.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
 
@@ -300,25 +300,6 @@ function diffLine(line: { was?: string; now?: string }, style: TranscriptStyle):
 }
 
 /** The pulse's running job, for how long it has run. */
-function elapsedOf(item: MarkedItem, jobs: Job[]): string | undefined {
-  const job = item.pulse?.running === true ? jobs.find((entry) => entry.id === item.pulse!.rowId) : undefined;
-  return job === undefined ? undefined : formatDuration(job);
-}
-
-/** What goes at the end of an item's row, when anything does. */
-function annotation(item: MarkedItem, page: MarkedPage, jobs: Job[], style: TranscriptStyle): string {
-  const elapsed = elapsedOf(item, jobs);
-  if (item.state === "removed") {
-    if (item.mark === "growing") return style.muted(`← being removed now${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
-    if (item.mark === "planned") return style.muted(`← removing in pulse ${item.pulse!.number}`);
-  }
-  if (item.mark === "growing" && item.state === "test") return style.accent(`← its conformance tests being written${elapsed !== undefined ? ` · ${elapsed}` : ""}`);
-  if (item.rolledBack !== undefined) return style.error(`← rolled back · was pulse ${item.rolledBack}`);
-  if (item.mark === "planning" && item.state === "new") return style.muted("← new · planning");
-  if (item.mark === "waiting" && item.state === "new" && page.tracked) return style.muted("← new · not planned yet");
-  return "";
-}
-
 const firstLine = (text: string) => text.split("\n")[0] ?? "";
 
 function wrapped(text: string, width: number, colour: (text: string) => string = (line) => line): string[] {
@@ -465,7 +446,7 @@ export function specMapLines(
   state: SpecMapState,
   width: number,
   style: TranscriptStyle,
-  jobs: Job[] = [],
+  _jobs: Job[] = [],
   now = Date.now(),
 ): { lines: string[]; rowStarts: number[]; rows: MapRow[]; marks: LineMark[] } {
   const rows = specMapRows(pages, state);
@@ -526,8 +507,8 @@ export function specMapLines(
     // The tests' column is one wide; a pulse numbered past 9 takes the space after it.
     const tests = testsText(item, style, now);
     const gutter = `${pointer}${markText(item, style, now)} ${tests}${" ".repeat(Math.max(0, 2 - visibleWidth(tests)))}${BAR}`;
-    const note = annotation(item, page, jobs, style);
-    const room = Math.max(10, width - GUTTER - BAR.length - (note === "" ? 0 : visibleWidth(note) + 3));
+    // Nothing is written to its right: where it stands is in its mark, and in its lines once opened.
+    const room = Math.max(10, width - GUTTER - BAR.length);
     const first = firstLine(item.text);
     const wasFirst = firstLine(item.was ?? "");
     const drawn =
@@ -537,7 +518,7 @@ export function specMapLines(
           ? wordDiff(wasFirst, first, style)
           : highlighted(first, style);
     const text = truncateToWidth(drawn, room, "…");
-    const line = `${gutter}${text}${note === "" ? "" : `${" ".repeat(Math.max(1, room - visibleWidth(text) + 3))}${note}`}`;
+    const line = `${gutter}${text}`;
     add(line, mark);
     if (state.open.has(row.key)) {
       for (const detail of detailLines(item, page, width, style, now)) add(detail, mark);

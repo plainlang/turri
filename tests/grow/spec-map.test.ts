@@ -211,6 +211,10 @@ describe("the plan laid over the map", () => {
     expect(marked!.items.find((entry) => entry.text === "- Log in.")).toMatchObject({ mark: "stuck", rolledBack: 3 });
     expect(marked!.items.find((entry) => entry.text === "- Follow someone.")!.mark).toBe("waiting");
     expect(marked!).toMatchObject({ status: "halted - pulse 3 didn't land", stuck: true });
+    // Nothing is written to the right of an item: where it stands is in its mark, and in its lines once opened.
+    const lines = specMapLines([marked!], createSpecMapState(), 160, style).lines;
+    expect(lines.find((line) => line.includes("- Log in."))!.trimEnd().endsWith("- Log in.")).toBe(true);
+    expect(lines.join("\n")).not.toContain("←");
   });
 
   it("marks every item that differs stuck when the planner found no plan", () => {
