@@ -928,14 +928,33 @@ job's log in `.turri/jobs/`, and in `growth`.
 Every job's agents start fresh, and without help each one would spend its first turns finding its
 bearings. So each agent working on a codebase - render, spec change, conformance, regression repair -
 starts with the notes the agents before it left, and before it finishes it updates them: a line
-added, changed or removed, never the whole thing rewritten. Four sections:
+added, changed or removed, never the whole thing rewritten. Six sections:
 
 | | |
 | --- | --- |
 | Where things are | entry points, layout, where each functionality lives |
 | How to build, run and test | the commands that work, what had to be installed |
 | Assumptions | what an agent assumed where the spec is silent - a format, a default, a choice it leaves open |
-| Pitfalls | what went wrong and what fixed it |
+| Spec gaps | what the spec should say and does not - a behaviour the person would want to decide, as the question it leaves |
+| Pitfalls | what went wrong and what fixed it - and what the debugger found, filed by turri itself |
+| Pulses | written by turri alone, as each pulse ends: the last ten, a line each |
+
+A pulse's line says what it grew, whether it landed, how it went - the rounds of the unit tests, the test runs, what
+the debugger found - how long it took, what it cost, and where its log is, for the whole of what its agents did:
+
+```
+- [2026-10-08 11:19 · hubspot pulse 2] HubSpot contact reading and mapping - landed; 4 rounds of the unit tests,
+  92 test runs; the debugger: the stand-in replaces a method, so it is given self · 7m 52s · $1.35 · log .turri/jobs/….log
+```
+
+It is written once anything the pulse did not land is rolled back, and committed - into the pulse's own commit when
+it landed, a commit of its own (`pulse 3 rolled back: …`) when it did not - so the next pulse, starting from the last
+commit, keeps it. `update_notes` refuses the section. What the debugger finds is filed in the pitfalls the moment it
+finds it, not left to the coding agent to write down.
+
+The spec gaps a pulse's agents add are said in its report - "Spec gaps its agents met ... Put each to the user" - so
+the conversation asks you, and writes the ones you decide into the spec; the gaps stay in the notes, for the agents
+after, until then.
 
 Stubborn on the specs, flexible on the assumptions: the spec is never an assumption and never
 copied into the notes, and where the two disagree the spec wins. An agent builds on the assumptions

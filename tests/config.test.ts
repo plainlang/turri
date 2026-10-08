@@ -238,6 +238,8 @@ describe("models: and turn-limit:", () => {
     expect(roleModel(config, "debugger")).toBeUndefined();
     // The conversation's side keeps the chat's model unless named.
     expect(roleModel(config, "chooser")).toBeUndefined();
+    // The release is not of it: it follows steps, on the model it is given - the coding model - or the default.
+    expect(roleModel(config, "release")).toEqual({ model: luna, thinking: "medium" });
     // Turn limits: the role's own, else the default's, else turn-limit:.
     expect(roleTurnLimitMs(config, "coding")).toBe(180_000);
     expect(roleTurnLimitMs(config, "explorer")).toBe(150_000);

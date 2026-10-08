@@ -6,10 +6,13 @@ import {
   applyNotesChanges,
   createNotesTool,
   formatNotes,
+  linesAddedSince,
   NOTES_FILE,
   notesForSession,
   parseNotes,
+  PULSES_KEPT,
   readNotes,
+  recordPulse,
   sectionNamed,
   withNotes,
 } from "../../src/grow/notes.ts";
@@ -30,7 +33,9 @@ const start = {
   where: ["Entry point: app/main.py"],
   run: ["Unit tests: .venv/bin/pytest"],
   assumptions: ["Dates are stored as UTC ISO strings"],
+  gaps: [],
   pitfalls: [],
+  pulses: [],
 };
 
 describe("updating the notes", () => {
@@ -46,7 +51,9 @@ describe("updating the notes", () => {
       where: ["Entry point: app/main.py", "Routes: app/routes/*.py"],
       run: [],
       assumptions: ["Dates are stored as Unix seconds"],
+      gaps: [],
       pitfalls: ["pytest needs PYTHONPATH=."],
+      pulses: [],
     });
   });
 
@@ -190,7 +197,7 @@ describe("the update_notes tool", () => {
     await call(session.tool, [{ section: "where", action: "add", text: "Entry: main.py" }]);
     writeFileSync(join(code, NOTES_FILE), "- rewritten\n");
     await call(session.tool, [{ section: "run", action: "add", text: "pytest" }]);
-    expect(readNotes(code)).toEqual({ where: ["Entry: main.py"], run: ["pytest"], assumptions: [], pitfalls: [] });
+    expect(readNotes(code)).toEqual({ where: ["Entry: main.py"], run: ["pytest"], assumptions: [], gaps: [], pitfalls: [], pulses: [] });
   });
 
   it("cannot be bypassed with the file tools", async () => {
@@ -234,5 +241,30 @@ describe("the notes, beside the code", () => {
     const next = join(root, "plain_modules", "next", "code");
     copyRequiredCode(code, next, "next");
     expect(readNotes(next)).toEqual(start);
+  });
+});
+
+describe("what turri itself keeps in the notes", () => {
+  it("writes a line a pulse as it ends - the last ten kept, each stamped with its pulse - and agents may not write them", async () => {
+    for (let pulse = 1; pulse <= PULSES_KEPT + 2; pulse += 1) recordPulse(code, `fs ${pulse} - landed; 1 round of the unit tests`, `app pulse ${pulse}`);
+    const { pulses } = readNotes(code);
+    expect(pulses).toHaveLength(PULSES_KEPT);
+    expect(pulses[0]).toMatch(/^\[[^\]]* · app pulse 3\] fs 3 - landed/);
+    expect(pulses.at(-1)).toContain("app pulse 12] fs 12 - landed");
+    expect(readFileSync(join(code, NOTES_FILE), "utf8")).toContain("## Pulses");
+    const tool = createNotesTool(code, () => {});
+    const run = (section: string) => (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { changes: [{ section, action: "add", text: "pulse 13 landed" }] });
+    await expect(run("pulses")).rejects.toThrow(/Pulses is written by turri as each pulse ends, not by you/);
+    expect(readNotes(code).pulses).toHaveLength(PULSES_KEPT);
+  });
+
+  it("tells the spec gaps a pulse's agents added - without when and where they came from - from those already there", async () => {
+    const tool = createNotesTool(code, () => {}, () => {}, "app 1");
+    const add = (text: string) => (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { changes: [{ section: "gaps", action: "add", text }] });
+    await add("What happens to a contact archived in HubSpot after it was synced?");
+    const before = readNotes(code);
+    await add("Is a contact with no email synced at all?");
+    expect(linesAddedSince(before, code, "gaps")).toEqual(["Is a contact with no email synced at all?"]);
+    expect(withNotes("the task", code)).toContain("- Spec gaps: what the specification should say and does not");
   });
 });

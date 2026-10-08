@@ -71,6 +71,8 @@ describe("turri init-config", () => {
     expect(written).toContain("The reviews and judges run on the\n# coding model but think medium");
     expect(projectModels(readProjectConfig(dir))).toMatchObject({ harness: { thinking: "medium" }, coding: { thinking: "low" } });
     expect(projectModels(readProjectConfig(dir)).judge).toEqual({ model: "anthropic/claude-haiku-5-5" });
+    // The release follows steps: the coding model, thinking low.
+    expect(written).toMatch(/^# {3}release: \{ model: anthropic\/claude-haiku-5-5, thinking: low \}/m);
     // Uncommented, each role thinks as turri has it think unset - so the file shows what applies.
     writeFileSync(join(dir, "config.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
     const models = readProjectConfig(dir).models ?? {};

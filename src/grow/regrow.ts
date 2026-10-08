@@ -23,7 +23,7 @@ import { abandonWork, recordHistory, startWork } from "./lineage.ts";
 import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
 import type { JobCases } from "./drift.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
-import { NOTES_TURN, notesForSession, passedOutcome, withNotes } from "./notes.ts";
+import { linesAddedSince, NOTES_TURN, notesForSession, passedOutcome, readNotes, recordNote, withNotes } from "./notes.ts";
 import {
   createLoopWatch,
   createScriptTool,
@@ -265,6 +265,10 @@ export interface RenderSpecDiffResult {
   restructured?: boolean;
   /** A dry run: the task the coding agent would be given. */
   task?: string;
+  /** Spec gaps its agents added to the notes: what the spec should say and does not, for the person to decide. */
+  specGaps?: string[];
+  /** What the debugger found, each time it was asked - its root cause. */
+  diagnosed?: string[];
 }
 
 export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<RenderSpecDiffResult> {
@@ -378,6 +382,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   });
 
   const digestsBefore = digestFiles(buildDir);
+  // The notes as the agent finds them: what it adds - a spec gap above all - is told with the result.
+  const notesBefore = readNotes(buildDir);
+  /** What the debugger found, each time it was asked: the pulse's line in the notes says it. */
+  const diagnosed: string[] = [];
   const runs: TestRun[] = [];
   // Its own runs of the unit tests, watched for a loop - edits that go back and forth while the failure stays.
   const loop = createLoopWatch(buildDir);
@@ -540,7 +548,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
               onDelta: options.onDelta,
             }).catch(() => undefined);
             if (found !== undefined) {
-              reportActivity(`  the debugger: ${found.rootCause.split("\n")[0]!.slice(0, 160)}`);
+              const cause = found.rootCause.split("\n")[0]!.slice(0, 240);
+              reportActivity(`  the debugger: ${cause.slice(0, 160)}`);
+              diagnosed.push(cause);
+              // A lesson that cost a debugger to learn is kept for every agent after - not left to the coding agent to write down.
+              recordNote(buildDir, "pitfalls", `the debugger, after ${times} failing runs: ${cause} - the fix: ${found.fix.split("\n")[0]!.slice(0, 200)}`, `${moduleName} spec change`);
               prompt = [
                 verdict.prompt,
                 "",
@@ -620,6 +632,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     testRemovals,
     files,
     ...(steering !== undefined && steering.steers > 0 ? { steered: [...steering.notes] } : {}),
+    // Read before a rollback takes the notes back: a gap the agent met is the person's to decide, whether it landed or not.
+    specGaps: linesAddedSince(notesBefore, buildDir, "gaps"),
+    diagnosed,
   };
 
   /** The change landed: what the code is built from is now the spec with the change in, committed with it. */
@@ -643,6 +658,16 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   return { ...base, passed: true, stoppedAt: null };
 }
 
+/** Spec gaps a pulse's agents met, as its report says them: for the conversation to put to the person. */
+export function specGapsText(gaps: string[] | undefined): string[] {
+  if (gaps === undefined || gaps.length === 0) return [];
+  return [
+    "",
+    "Spec gaps its agents met - the spec does not say, so they decided. Put each to the user, and write the ones they decide into the spec:",
+    ...gaps.map((gap) => `- ${gap}`),
+  ];
+}
+
 /** What a rendered spec change did, for the agent and the person. */
 export function describeSpecDiff(result: RenderSpecDiffResult): string {
   const { added, changed, removed } = result.files;
@@ -663,6 +688,7 @@ export function describeSpecDiff(result: RenderSpecDiffResult): string {
     `Files: ${added.length} added, ${changed.length} changed, ${removed.length} removed.`,
     result.testRemovals.length > 0 ? `Unit tests removed and justified: ${result.testRemovals.map((r) => r.file).join(", ")}.` : "",
     ...(result.steered !== undefined ? [`Steered while it grew - the spec changed inside what it was growing, and its agent was told: ${result.steered.join("; ")}.`] : []),
+    ...specGapsText(result.specGaps),
     "",
     "<agent report>",
     result.response,

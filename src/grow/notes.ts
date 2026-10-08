@@ -43,21 +43,29 @@ export const SECTIONS = {
   where: "Where things are",
   run: "How to build, run and test",
   assumptions: "Assumptions",
+  gaps: "Spec gaps",
   pitfalls: "Pitfalls",
+  pulses: "Pulses",
 } as const;
+
+/** The sections only the harness writes: what each pulse did, as it ended. update_notes refuses them. */
+const HARNESS_ONLY: Section[] = ["pulses"];
+
+/** How many pulses the notes keep: the last ones - the module's history has every one. */
+export const PULSES_KEPT = 10;
 
 export type Section = keyof typeof SECTIONS;
 
 const ORDER = Object.keys(SECTIONS) as Section[];
 
-type Notes = Record<Section, string[]>;
+export type Notes = Record<Section, string[]>;
 
 export function notesPath(buildDir: string): string {
   return join(buildDir, NOTES_FILE);
 }
 
 function empty(): Notes {
-  return { where: [], run: [], assumptions: [], pitfalls: [] };
+  return { where: [], run: [], assumptions: [], gaps: [], pitfalls: [], pulses: [] };
 }
 
 /** The notes, as lines per section. Lines under no known heading go to pitfalls, not lost. */
@@ -103,7 +111,12 @@ const GUIDANCE = [
   `- ${SECTIONS.assumptions}: what you assumed where the specification is silent - a format, a default, a`,
   "  choice it leaves open. Build on the assumptions already there; change or remove one the moment the code",
   "  or the specification shows it wrong.",
+  `- ${SECTIONS.gaps}: what the specification should say and does not - a behaviour you had to decide that the`,
+  "  person would want to decide, not a detail of how. Each is put to the person, to be written into the",
+  "  specification. One a line, as the question it leaves: \"What happens to a contact archived in HubSpot after it",
+  "  was synced?\"",
   `- ${SECTIONS.pitfalls}: what went wrong and what fixed it, approaches that did not work.`,
+  `- ${SECTIONS.pulses}: written by turri as each pulse ends - read them, never write them.`,
   "Each line stands on its own, for someone who never saw your work. When and where it came from is added",
   "to it for you - do not write it. Where two lines disagree, the later one is right: change the older one",
   'rather than add a contradicting line. Leave a section with nothing new alone: "none" is not a note.',
@@ -202,7 +215,7 @@ const RUNS_TESTING_SCRIPTS = /test_scripts\/|\brun_(unittests|unit_tests|conform
  * changed is stamped with `stamp` - when, and which step wrote it.
  */
 export function applyNotesChanges(notes: Notes, changes: NotesChange[], stamp?: string): { notes: Notes; problems: string[] } {
-  const next: Notes = { where: [...notes.where], run: [...notes.run], assumptions: [...notes.assumptions], pitfalls: [...notes.pitfalls] };
+  const next = Object.fromEntries(ORDER.map((key) => [key, [...(notes[key] ?? [])]])) as Notes;
   const problems: string[] = [];
   for (const change of changes) {
     const lines = next[change.section];
@@ -266,8 +279,8 @@ export function createNotesTool(
     description:
       "Update the working notes on this codebase for the next agent - add a line, change one that is no longer " +
       "true, remove one that is wrong - in its sections: where things are, how to build, run and test, " +
-      "assumptions made where the specification is silent, and pitfalls. Never requirements: the specification " +
-      "is never an assumption.",
+      "assumptions made where the specification is silent, spec gaps the person should decide, and pitfalls. Never " +
+      "requirements: the specification is never an assumption.",
     promptSnippet: "leave the next agent what you learned and assumed about this codebase",
     parameters: Type.Object({
       changes: Type.Array(
@@ -297,6 +310,10 @@ export function createNotesTool(
         );
       }
       const changes = params.changes.map((change) => ({ ...change, section: sectionNamed(change.section)! }));
+      const theirs = changes.filter((change) => HARNESS_ONLY.includes(change.section));
+      if (theirs.length > 0) {
+        throw new Error(`Nothing saved - ${theirs.map((change) => SECTIONS[change.section]).join(", ")} is written by turri as each pulse ends, not by you.`);
+      }
       const { notes, problems } = applyNotesChanges(
         readNotes(buildDir),
         changes as NotesChange[],
@@ -357,6 +374,28 @@ export function recordNote(buildDir: string, section: Section, text: string, sou
   } catch {
     // The notes are a help, not the work.
   }
+}
+
+/**
+ * A pulse's line, written by the harness as the pulse ends - landed or not: what it grew, how it went, where its log is.
+ * The last PULSES_KEPT stay; the module's history has every pulse.
+ */
+export function recordPulse(buildDir: string, text: string, source: string): void {
+  try {
+    const notes = readNotes(buildDir);
+    notes.pulses = [...notes.pulses, `[${now()} · ${source}] ${text.replace(/\s+/g, " ").trim()}`].slice(-PULSES_KEPT);
+    const formatted = formatNotes(notes);
+    writeFileSync(notesPath(buildDir), formatted);
+    knownNotes.set(notesPath(buildDir), formatted);
+  } catch {
+    // The notes are a help, not the work.
+  }
+}
+
+/** The lines of a section added since `before` - a pulse's new spec gaps, say - without when and where they came from. */
+export function linesAddedSince(before: Notes, buildDir: string, section: Section): string[] {
+  const known = new Set(before[section]);
+  return readNotes(buildDir)[section].filter((line) => !known.has(line)).map((line) => line.replace(/^\[[^\]]*\]\s*/, ""));
 }
 
 /** The notes, for an agent that reads them but leaves none - a judge. Empty when there are none. */

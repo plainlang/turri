@@ -121,7 +121,8 @@ export const ROLE_THINKING: Partial<Record<AgentRole, ThinkingLevel>> = {
 };
 
 /** The roles on the conversation's side: without their own entry they take the chat's model, not `default`. */
-const CHAT_SIDE: readonly AgentRole[] = ["chat", "chooser", "planner", "diagnosis", "release"];
+// The release is not: it follows steps - a script, a start command - and runs on the coding model, thinking low.
+const CHAT_SIDE: readonly AgentRole[] = ["chat", "chooser", "planner", "diagnosis"];
 
 /** A role's model and thinking, and how long each of its turns may take, in seconds - each may be left out. */
 export interface RoleChoice extends ModelChoice {

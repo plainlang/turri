@@ -1154,16 +1154,19 @@ function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): Wor
       plannerModel: () => chatModelOf(from.ctx),
       // How the work is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
       steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
-      // Under release-after-pulse, a pulse releases what it landed itself, on the chat's model, before the next starts.
-      release: ({ plainFile, moduleName, title, onDelta }) =>
-        runReleaseAgent({
+      // Under release-after-pulse, a pulse releases what it landed itself, before the next starts - on the model that grew
+      // it: a release follows steps, and a small model thinking little does that well.
+      release: ({ plainFile, moduleName, title, onDelta }) => {
+        const model = modelFor(chosenModels, "spec_changes", projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx));
+        return runReleaseAgent({
           plainFile,
           cwd,
           state: deployStates.get(jobs) ?? createDeployState(),
           afterPulse: { moduleName, subject: title },
           onDelta,
-          ...(chatModelOf(from.ctx) !== undefined ? { model: chatModelOf(from.ctx)! } : {}),
-        }),
+          ...(model !== undefined ? { model } : {}),
+        });
+      },
     });
     shared = { loop, from };
     workLoops.set(jobs, shared);

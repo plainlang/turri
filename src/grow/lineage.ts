@@ -97,6 +97,27 @@ export function recordHistory(dir: string, subject: string, body?: string): stri
 }
 
 /**
+ * The notes the harness writes once a pulse has ended, committed - or the next pulse, putting the module back to its last
+ * commit, would take them away. Into the pulse's own commit when it landed one - `landedSince` (ms), when it started - so
+ * the history keeps a commit a pulse; a commit of their own otherwise - a pulse rolled back leaves its line, and nothing
+ * else.
+ */
+export function commitNotes(dir: string, file: string, subject: string, landedSince?: number): void {
+  try {
+    const moduleDir = moduleDirOf(dir);
+    if (!existsSync(moduleDir) || !ensureHistory(moduleDir)) return;
+    const path = [basename(dir), file].join("/");
+    git(moduleDir, ["add", "--", path]);
+    if (git(moduleDir, ["diff", "--cached", "--quiet"]).status === 0) return;
+    const last = Number(git(moduleDir, ["log", "-1", "--format=%ct"]).stdout.trim()) * 1000;
+    const ownCommit = landedSince !== undefined && Number.isFinite(last) && last >= Math.floor(landedSince / 1000) * 1000;
+    git(moduleDir, ownCommit ? ["commit", "-q", "--amend", "--no-edit"] : ["commit", "-q", "-F", "-"], ownCommit ? undefined : subject);
+  } catch {
+    // History is a record, not a gate.
+  }
+}
+
+/**
  * Put a module back to its last commit before work starts on it.
  *
  * Every step commits what it did, so a module with changes nobody committed is one whose last

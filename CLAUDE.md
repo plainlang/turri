@@ -145,7 +145,7 @@ first looks for guidance on how the project is released (what the person said, A
 passes it to `release` - then it is followed from the host codebase (`releaseInPlace`, nothing
 exported); without guidance `release` exports the tip module's last `.plaingit` commit (`git archive`
 of `code/`) to `<project>/dist/<module>`. The chat model - or `turri release`'s one-off agent on
-`harness-model` - starts it on the host, installing what it needs in its own shell: nothing is put to the person. `activate` owns what
+`coding-model`, thinking low - starts it on the host, installing what it needs in its own shell: nothing is put to the person. `activate` owns what
 keeps running, stopped on redeploy, `/halt activated <name>` and exit.
 
 **Jobs and progress.** In the TUI, the tools that grow start background jobs (`loop.ts`, `jobs.ts`).

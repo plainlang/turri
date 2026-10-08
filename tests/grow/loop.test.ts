@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -199,6 +200,32 @@ describe("the work loop", () => {
     await loop.bringUp("app.plain");
     await loop.drain();
     expect(describeDrift(loop.drift("app.plain"))).toContain("Fully grown: every codebase is grown from the spec as it is");
+  });
+
+  it("writes each pulse's line into the notes as it ends - landed or rolled back - and commits it, so the next pulse keeps it", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+    const { gate, run } = runner();
+    const told: JobRunner = async (job, onDelta) => ({ ...(await run(job, onDelta)), story: "2 rounds of the unit tests, 5 test runs" });
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run: told });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    const { readNotes } = await import("../../src/grow/notes.ts");
+    const git = (...args: string[]) => execFileSync("git", ["--git-dir", join(dir, "plain_modules", "app", ".plaingit"), "--work-tree", join(dir, "plain_modules", "app"), ...args], { encoding: "utf8" });
+    const pulses = readNotes(codeDir()).pulses;
+    expect(pulses).toHaveLength(2);
+    expect(pulses[0]).toMatch(/^\[[^\]]* · app pulse 1\] Say hello\. - landed; 2 rounds of the unit tests, 5 test runs · \d+s/);
+    expect(pulses[1]).toContain("app pulse 2] Say goodbye. - landed");
+    // Each in its pulse's own commit: nothing left uncommitted, no commit of its own.
+    expect(git("status", "--porcelain")).toBe("");
+    expect(git("log", "--format=%s")).not.toContain("pulse 1 landed");
+    // A pulse that does not pass is rolled back - and its line kept, in a commit of its own.
+    writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Count to ten."]));
+    gate.land = false;
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(readNotes(codeDir()).pulses.at(-1)).toContain("app pulse 3] Count to ten. - did not pass - rolled back");
+    expect(git("log", "-1", "--format=%s")).toBe("pulse 3 rolled back: Count to ten.\n");
+    expect(git("status", "--porcelain")).toBe("");
   });
 
   it("has nothing to do when only the test reqs changed", async () => {

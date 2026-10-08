@@ -7,7 +7,8 @@ import { conformanceDirFor, renderConformanceTests, type RenderConformanceTestsR
 import { abandonWork, startWork } from "./lineage.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./regression.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
-import { applySpecDiff, snapshotSpec, type SpecSnapshot } from "./regrow.ts";
+import { applySpecDiff, snapshotSpec, specGapsText, type SpecSnapshot } from "./regrow.ts";
+import { linesAddedSince, readNotes } from "./notes.ts";
 import { sectionsOf } from "./state.ts";
 import { describeStop } from "./stop-report.ts";
 import { missingTestLabels } from "./test-kinds.ts";
@@ -67,6 +68,8 @@ export interface RenderSpecDiffConformanceResult {
   tested: string[];
   passed: boolean;
   stoppedAt: "conformance" | "regression" | null;
+  /** Spec gaps its agents added to the notes: what the spec should say and does not, for the person to decide. */
+  specGaps?: string[];
 }
 
 export async function renderSpecDiffConformance(options: RenderSpecDiffConformanceOptions): Promise<RenderSpecDiffConformanceResult> {
@@ -105,6 +108,8 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
   // state, not to what an interrupted run left half-written. The tests and the whole suite are
   // one unit, landed whole or undone whole.
   const unit = startWork([buildDir, conformanceDir], moduleName);
+  // The notes as its agents find them: a spec gap they add is told with the result.
+  const notesBefore = readNotes(buildDir);
   const conformance = await renderConformanceTests({
     plainFile: tip.plainFile,
     frid: lastFrid,
@@ -121,7 +126,8 @@ export async function renderSpecDiffConformance(options: RenderSpecDiffConforman
 
   // What the codebase now has conformance tests for, as their labels say.
   const tested = () => frids.filter((frid) => missingTestLabels(conformanceDir, frid, []).length === 0);
-  const base = { moduleName, buildDir, conformanceDir, diff: applied, conformance };
+  // Read before a rollback takes the notes back: a gap is the person's to decide, whether the tests passed or not.
+  const base = { moduleName, buildDir, conformanceDir, diff: applied, conformance, specGaps: linesAddedSince(notesBefore, buildDir, "gaps") };
 
   if (!conformance.passed) {
     abandonWork(unit, moduleName, "the conformance tests for the spec change do not pass");
@@ -185,6 +191,7 @@ export function describeSpecDiffConformance(result: RenderSpecDiffConformanceRes
     result.conformance.testRemovals.length > 0
       ? `Conformance tests removed and justified: ${result.conformance.testRemovals.map((r) => r.file).join(", ")}.`
       : "",
+    ...specGapsText(result.specGaps),
     "",
     "<agent report>",
     result.conformance.response,

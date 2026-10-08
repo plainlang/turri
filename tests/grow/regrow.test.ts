@@ -182,6 +182,9 @@ describe("rendering a spec diff", () => {
     expect(told).toContain("<root cause>\nevery connection opens its own in-memory database\n</root cause>");
     expect(told).toContain("<fix>\nuse StaticPool in the test engine\n</fix>");
     expect(coderTurns).toBe(4);
+    // What it found is kept for every agent after, whatever the coding agent writes down - and said in the pulse's story.
+    expect(readNotes(result.buildDir).pitfalls).toContainEqual(expect.stringContaining("the debugger, after 3 failing runs: every connection opens its own in-memory database - the fix: use StaticPool in the test engine"));
+    expect(result.diagnosed).toEqual(["every connection opens its own in-memory database"]);
   });
 
   it("ends the coding agent's turn when it goes round in circles in its own runs, and has a debugger on the harness model look at it", async () => {
@@ -230,6 +233,21 @@ describe("rendering a spec diff", () => {
     const told = prompts.find((prompt) => prompt.includes("a debugger looked at it with fresh eyes"));
     expect(told).toContain("You went round in circles");
     expect(told).toContain("<fix>\ntake self first\n</fix>");
+  });
+
+  it("says the spec gaps its agent met in its report, for the conversation to put to the person", async () => {
+    writeFileSync(join(dir, "config.yaml"), "review: false\n");
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });
+    const { ask } = await import("../../src/pi.ts");
+    vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+      const own = (name: string) => session.tools.find((tool) => tool.name === name);
+      if (prompt === BEGIN) await own("update_notes")!.execute("id", { changes: [{ section: "gaps", action: "add", text: "Should Two be case-sensitive?" }] });
+      return passingAgent(session, prompt);
+    }) as never);
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+    expect(result.specGaps).toEqual(["Should Two be case-sensitive?"]);
+    expect(describeSpecDiff(result)).toContain("Spec gaps its agents met - the spec does not say, so they decided. Put each to the user, and write the ones they decide into the spec:\n- Should Two be case-sensitive?");
   });
 
   it("gives the agent the spec the code is built from - the state before the change - and the change, never the spec after it", async () => {

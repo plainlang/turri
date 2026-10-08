@@ -5,8 +5,9 @@ import { STDLIB_ROOT } from "../plain/stdlib.ts";
 import { ACCEPTANCE_TESTS, FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, TEST_REQUIREMENTS, type MarshalledPlainSource } from "../plain/spec.ts";
 import { reportActivity, reportStage } from "./activity.ts";
 import { llmChunkAgents, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
-import { recordHistory, resetToLastCommit } from "./lineage.ts";
-import { createJobRegistry, type Job, type JobRegistry } from "./jobs.ts";
+import { commitNotes, recordHistory, resetToLastCommit } from "./lineage.ts";
+import { NOTES_FILE, recordPulse } from "./notes.ts";
+import { createJobRegistry, formatDuration, type Job, type JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
 import type { Steering } from "./steer.ts";
 import {
@@ -90,7 +91,7 @@ export type JobRunner = (
     steering?: JobSteering;
   },
   onDelta: (delta: string) => void,
-) => Promise<{ landed: boolean; report: string }>;
+) => Promise<{ landed: boolean; report: string; story?: string }>;
 
 /** A codebase as the loop sees it, for the person. */
 export interface ModuleStatus {
@@ -777,7 +778,7 @@ export function createWorkLoop(options: {
         }
         return {
           report: released !== undefined ? `${report}\n\n${released}` : report,
-          details: { passed: result.landed, landed: result.landed, ...(released !== undefined ? { released: true } : {}) },
+          details: { passed: result.landed, landed: result.landed, ...(released !== undefined ? { released: true } : {}), ...(result.story !== undefined ? { story: result.story } : {}) },
         };
       },
     });
@@ -841,7 +842,30 @@ export function createWorkLoop(options: {
         if (running !== undefined) own.from = serializeTree(running.after);
       }
     }
+    // What it did, in the notes every agent after reads - once anything it did not land is rolled back, so the line stays.
+    if (running !== undefined) notePulse(state, running, settled, landed);
     void tick();
+  };
+
+  /**
+   * A pulse's line in the notes, written as it ends: what it grew, whether it landed, how it went - the rounds, the test
+   * runs, what the debugger found - and where its log is, for whoever wants the whole of it. Committed with it.
+   */
+  const notePulse = (state: ModuleState, running: NonNullable<ModuleState["running"]>, settled: Job | undefined, landed: boolean) => {
+    const tip = tipEntry(state);
+    const details = settled?.details as { story?: string; notBuilt?: string } | undefined;
+    const outcome = landed
+      ? "landed"
+      : settled?.status === "stopped" || running.stopping === true
+        ? "stopped - rolled back"
+        : details?.notBuilt !== undefined
+          ? `did not start: ${details.notBuilt}`
+          : "did not pass - rolled back";
+    const log = settled?.logFile !== undefined ? ` · log ${relative(projectDirOf(tip.plainFile), settled.logFile)}` : "";
+    const took = settled !== undefined ? ` · ${formatDuration(settled)}${settled.usage.cost > 0 ? ` · $${settled.usage.cost.toFixed(2)}` : ""}` : "";
+    const what = `${running.planned.track === "conformance" ? "conformance tests: " : ""}${running.planned.title}`;
+    recordPulse(tip.buildDir, `${what} - ${outcome}${details?.story !== undefined ? `; ${details.story}` : ""}${took}${log}`, `${tip.moduleName} pulse ${running.number}`);
+    commitNotes(tip.buildDir, NOTES_FILE, `pulse ${running.number} ${landed ? "landed" : "rolled back"}: ${what}`, landed ? (settled?.startedAt ?? Date.now()) : undefined);
   };
 
   /**
@@ -1584,5 +1608,15 @@ const defaultRunner: JobRunner = async (job, onDelta) => {
     onDelta,
   });
   // Landed code can be tried.
-  return { landed: result.passed, report: withTryItLine(describeSpecDiff(result), result.passed && result.restructured !== true) };
+  return { landed: result.passed, report: withTryItLine(describeSpecDiff(result), result.passed && result.restructured !== true), story: codeStory(result) };
 };
+
+/** How a code pulse went, for its line in the notes: the rounds it took, its test runs, what the debugger found. */
+export function codeStory(result: { attempts?: number; runs?: unknown[]; diagnosed?: string[]; restructured?: boolean }): string | undefined {
+  if (result.restructured === true) return "only restructured, nothing grown";
+  const attempts = result.attempts ?? 0;
+  const runs = result.runs?.length ?? 0;
+  const rounds = `${attempts} round${attempts === 1 ? "" : "s"} of the unit tests, ${runs} test run${runs === 1 ? "" : "s"}`;
+  const found = (result.diagnosed ?? []).map((cause) => `the debugger: ${cause}`);
+  return [rounds, ...found].join("; ");
+}

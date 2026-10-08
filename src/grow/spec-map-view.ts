@@ -275,8 +275,67 @@ function wrapped(text: string, width: number, colour: (text: string) => string =
 }
 
 /** All of an item, opened: its text against the code's, its acceptance tests, and why it is not growing when it is not. */
-function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle): string[] {
-  const lines: string[] = [];
+/**
+ * Where an opened item stands, a line a track with its mark - what the code has of it (regrown), and for a functional
+ * spec what its conformance tests have (bound) - so the marks in the gutter explain themselves.
+ */
+function statusLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, now: number): string[] {
+  const pulse = item.pulse?.number;
+  const why = page.codebase?.stuck?.why ?? page.status;
+  const code =
+    item.state === "test"
+      ? item.mark === "built"
+        ? "followed - the conformance tests are written to it as it reads now"
+        : item.mark === "growing"
+          ? "the conformance tests are being written to it now"
+          : item.mark === "planned"
+            ? `the conformance tests are written to it in pulse ${pulse}`
+            : item.mark === "none"
+              ? "no conformance tests are written here"
+              : "not followed yet - the conformance tests are written to it once the code is built"
+      : item.state === "removed"
+        ? item.mark === "growing"
+          ? "being taken out of the code now"
+          : item.mark === "planned"
+            ? `taken out of the spec - taken out of the code in pulse ${pulse}`
+            : `taken out of the spec, still in the code: ${why}`
+        : item.mark === "built"
+          ? "regrown - the code is built from it as it reads now"
+          : item.mark === "growing"
+            ? `being regrown now, in pulse ${pulse}`
+            : item.mark === "planned"
+              ? `not regrown yet - to be regrown in pulse ${pulse}`
+              : item.mark === "planning"
+                ? "not regrown yet - being planned into pulses now"
+                : item.rolledBack !== undefined
+                  ? `not regrown - pulse ${item.rolledBack} was regrowing it, and was rolled back: ${why}`
+                  : item.mark === "stuck"
+                    ? `not regrown - ${why}`
+                    : `not regrown yet - not planned: ${page.status}`;
+  // Not the spec's own text: dimmed, its mark in its colour - and a halt in red.
+  const lines = wrapped(`${markText(item, style, now).trim()} ${(item.mark === "stuck" ? style.error : style.muted)(code)}`, width);
+  // A functional spec's conformance tests, where they are on.
+  const conformanceOn = page.codebase?.conformance ?? page.conformance !== false;
+  if (item.section === FUNCTIONAL_REQUIREMENTS && item.state !== "removed" && item.state !== "test" && (conformanceOn || item.tests !== undefined)) {
+    const tests =
+      item.testing === true
+        ? "being bound now - its conformance tests are being written and run"
+        : item.testsPulse !== undefined
+          ? `not bound yet - to be bound in pulse ${item.testsPulse.number}, its conformance tests written and run`
+          : item.tests === "now"
+            ? "bound - its conformance tests pass: the code is shown, end to end, to do what it says"
+            : item.tests === "older"
+              ? "bound to an earlier text - its conformance tests are written again for it as it reads now"
+              : "not bound - no conformance tests for it yet";
+    const glyph = testsText(item, style, now).trim() || style.muted("·");
+    lines.push(...wrapped(`${glyph} ${style.muted(tests)}`, width));
+  }
+  return lines;
+}
+
+function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, now: number): string[] {
+  // Where it stands first: what its marks mean for it.
+  const lines: string[] = statusLines(item, page, width, style, now);
   // The rest of its text - its first line is the row - against the record's, for a change.
   const rest = item.state === "changed" ? lineDiff(item.was ?? "", item.text).slice(1) : item.text.split("\n").slice(1).map((line) => ({ was: line, now: line }));
   for (const line of rest) {
@@ -288,20 +347,6 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
     lines.push(`${CONTINUED}${style.muted("acceptance tests:")}`);
     for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `  ${highlighted(line, style)}`).join("\n"), width));
   }
-  // Why it is not growing, when it is not and should be: built, growing or planned, its mark says it all.
-  const where =
-    item.mark === "built" || item.mark === "none" || item.pulse !== undefined
-      ? undefined
-      : item.state === "test"
-        ? "a test req: the conformance tests do not follow it yet - they are written once the code is built"
-        : item.mark === "planning"
-          ? "being planned into pulses now"
-          : item.rolledBack !== undefined
-            ? `pulse ${item.rolledBack} was growing it, and was rolled back: ${page.codebase?.stuck?.why ?? ""}`
-            : item.mark === "stuck"
-              ? `not growing: ${page.codebase?.stuck?.why ?? page.status}`
-              : `not planned yet: ${page.status}`;
-  if (where !== undefined) lines.push(...wrapped(where, width, item.mark === "stuck" ? style.error : style.muted));
   return lines;
 }
 
@@ -470,7 +515,7 @@ export function specMapLines(
     const line = `${gutter}${text}${note === "" ? "" : `${" ".repeat(Math.max(1, room - visibleWidth(text) + 3))}${note}`}`;
     add(line, mark);
     if (state.open.has(row.key)) {
-      for (const detail of detailLines(item, page, width, style)) add(detail, mark);
+      for (const detail of detailLines(item, page, width, style, now)) add(detail, mark);
       return;
     }
     // A changed item shows what changed in it, closed too: its changed sub-bullets, word by word.

@@ -105,7 +105,7 @@ export function quickStartConfig(vendor: Vendor = "other"): string {
     role("chooser", harness, "chooses what gets conformance tests under turri regrow"),
     role("planner", harness, "cuts the work into pulses"),
     role("diagnosis", harness, "looks into a pulse that failed for good"),
-    role("release", harness, "turri release's agent"),
+    role("release", coding, "turri release's agent, and release-after-pulse's"),
     `${column(`#   coding: { model: ${coding}, thinking: ${ROLE_THINKING.coding}, turn-limit: 180 }`, 72)}# as coding-model, which it wins over`,
     role("conformance", coding, "writes the conformance tests"),
     role("explorer", coding, "explores the code for a conformance run"),

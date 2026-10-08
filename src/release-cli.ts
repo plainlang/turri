@@ -92,7 +92,8 @@ async function main() {
     process.exit(1);
   }
   const plainFile = resolve(named);
-  const model = args.model ?? modelSpec(projectModels(configForSpec(plainFile)).harness);
+  // A release follows steps - a script, a start command: the coding model does that well, thinking low.
+  const model = args.model ?? modelSpec(projectModels(configForSpec(plainFile)).coding);
 
   const state = createDeployState();
   const stopAll = async () => {

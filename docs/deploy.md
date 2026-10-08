@@ -84,7 +84,8 @@ pulse's last stage (`releasing what this pulse landed`): the pulse ends once it 
 module's next pulse starts on what is out, and the chat - waiting on your answer to a question, say - has
 no part in it. One release a pulse that lands, in order.
 
-The release is done by an agent on the chat's model, the same one `turri release` runs, and it finds
+The release is done by an agent on the coding model, thinking low - it follows steps, and a small model does that
+well - the same one `turri release` runs, and it finds
 the guidance as the chat would: what was passed to `release` earlier in the conversation, the project's
 AGENTS.md and its skills. When nothing there says to release after a build, it releases nothing and says
 so. Its last words go in the pulse's report - "Released after the pulse: ..." - and the chat, seeing them,
@@ -98,8 +99,8 @@ Off by default: without the key, releasing after a pulse is the chat's, when its
 turri release [file.plain] [--in-module <module>] [--guidance <text>] [--model <provider/id>]
 ```
 
-The same, without the chat: a one-off agent on `harness-model` (or `--model`; without either, pi's
-default) is given the project's AGENTS.md and what `--guidance <text>` says, looks for guidance in
+The same, without the chat: a one-off agent on `coding-model`, thinking low (or `--model`; without either,
+pi's default) is given the project's AGENTS.md and what `--guidance <text>` says, looks for guidance in
 them, and releases as above - as the guidance says, or to `dist/<module>` - then works out how to
 start it and starts it here, installing what it needs without asking. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.

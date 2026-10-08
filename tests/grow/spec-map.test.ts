@@ -312,20 +312,33 @@ describe("the regeneration drawn", () => {
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
   });
 
-  it("opens an item to its text and acceptance tests alone - built, growing or planned, its marks say the rest", () => {
+  it("opens an item to where it stands - regrown, and for a functionality bound - its marks in words, then its text and acceptance tests", () => {
     const first = page(
-      tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201."] }),
-      tree({ [DEFINITIONS]: ["- :User: is a person."] }),
+      tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201.", "- A :User: can log in."] }),
+      tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can log in."] }),
+      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can log in."] }),
     );
-    const register = first.items.find((entry) => entry.section === FUNCTIONAL_REQUIREMENTS)!;
+    const register = first.items.find((entry) => entry.text.startsWith("- A :User: can register"))!;
     const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [pulseOf([register], 2, false, "registration")] })] });
     const state = createSpecMapState();
     for (const entry of marked!.items) state.open.add(`${marked!.plainFile}\n${entry.key}`);
-    const text = specMapLines([marked!], state, 120, style).lines.join("\n");
+    const lines = specMapLines([marked!], state, 120, style).lines;
+    const text = lines.join("\n");
+    // Each line with the mark it explains: the code's, then the conformance tests'.
+    expect(text).toContain("│ ✓ regrown - the code is built from it as it reads now");
+    expect(text).toContain("│ 2 not regrown yet - to be regrown in pulse 2");
+    expect(text).toContain("│ · not bound - no conformance tests for it yet");
+    expect(text).toContain("│ ◆ bound - its conformance tests pass: the code is shown, end to end, to do what it says");
+    // A definition is not bound: only what the code has of it.
+    const user = lines.findIndex((line) => line.includes(":User: is a person."));
+    expect(lines[user + 1]).toContain("✓ regrown");
+    expect(lines[user + 2]).not.toContain("bound");
+    // Not the spec's own text: dimmed, the mark beside it in its own colour.
+    const dimmed = specMapLines([marked!], state, 120, { ...style, muted: (t: string) => `<dim>${t}</dim>` }).lines.join("\n");
+    expect(dimmed).toContain("│ ✓ <dim>regrown - the code is built from it as it reads now</dim>");
+    expect(dimmed).toContain("<dim>not bound - no conformance tests for it yet</dim>");
+    // Then its text and acceptance tests, as before.
     expect(text).toContain("  - The response is 201.");
-    expect(text).not.toContain("grown by pulse");
-    expect(text).not.toContain("built: the code record");
-    expect(text).not.toContain("conformance tests:");
     expect(text).not.toContain("used by");
   });
 
