@@ -48,7 +48,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 | `src/grow/confine.ts`, `src/grow/agent-shell.ts`, `src/grow/command-check.ts`, `src/grow/os-sandbox.ts`, `src/grow/audit.ts`, `src/grow/agent-env.ts`, `src/grow/shell.ts` | the file-tool fence and the walls around every agent command: the check, the OS sandbox, the audit, the module's environment, the host runner - see [sandbox](sandbox.md) |
 | `src/grow/engine.ts` | choosing and resolving render models |
 | `src/grow/job-panel.ts`, `src/grow/transcript-view.ts`, `src/grow/diff-view.ts` | the job panel, the side panel's colours, and a spec diff as they show it - highlighted and banded |
-| `src/grow/spec-map.ts`, `src/grow/spec-map-view.ts` | the regeneration: each item's mark, from the records, the `.plain` files and the work loop's plan (`mapPlan`), and the map drawn |
+| `src/grow/spec-map.ts`, `src/grow/spec-map-view.ts` | regen: each item's mark, from the records, the `.plain` files and the work loop's plan (`mapPlan`), and the map drawn |
 | `src/grow/debug-log.ts` | each render agent's whole conversation, always streamed to `.turri/debug/` |
 | `genome/` | what turri knows and can do: `genome/skills/`, the skill library, and `genome/rules/`, the \*\*\*plain authoring rules |
 

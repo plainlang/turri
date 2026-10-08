@@ -11,8 +11,9 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
  * The coding agent's session fills with its own attempts, and an agent stuck on a failure tends to keep circling the
  * same few changes - moving files about, reordering a fixture - when the cause is one it has not thought of: an
  * in-memory database every connection opens anew, a test runner that does not put the project on the path. When the
- * unit tests fail the same way round after round, the harness starts this agent: a session of its own, the coding
- * model unless the config gives the `debugger` role one, that reads the code, the tests, the build files and the
+ * unit tests fail the same way round after round, or the agent goes round in circles in its own runs, the harness starts
+ * this agent: a session of its own - on the `debugger` role's model, else a stronger one than the coding agent's, the
+ * judge model or the harness model - that reads the code, the tests, the build files and the
  * failing run - and the web - and says what the cause is and what change fixes it. It changes nothing; the coding
  * agent is given what it found, and goes on.
  */

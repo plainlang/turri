@@ -514,7 +514,8 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
           ? "not asked to build - regrow plans it"
           : "all built"
         : running !== undefined
-          ? `${running.track === "conformance" ? "conformance " : ""}pulse ${running.number} of ${last} growing`
+          ? // The count is of all the module's pulses: what the running one does follows it, not "conformance pulse 5 of 5".
+            `pulse ${running.number} of ${last} growing${running.track === "conformance" ? " · conformance tests" : ""}`
           : codebase.planning !== undefined
             ? "planning"
             : codebase.waitsFor !== undefined

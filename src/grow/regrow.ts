@@ -25,6 +25,7 @@ import type { JobCases } from "./drift.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
 import { NOTES_TURN, notesForSession, passedOutcome, withNotes } from "./notes.ts";
 import {
+  createLoopWatch,
   createScriptTool,
   failureSignature,
   findStaticChecks,
@@ -43,6 +44,7 @@ import { toolchainError } from "./environment-error.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
+import { conversationWriting } from "./conversation-writes.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import { type ChainEntry, copyRequiredCode, findCodebaseTip, newlyRequired } from "./requires.ts";
 import { createCopyResourceTool, loadLinkedResources, resourceImages } from "./resources.ts";
@@ -94,6 +96,8 @@ const MAX_FOLLOW_UPS = ATTEMPTS["unit tests"];
  * one that fits neither way is refused: rendering it would mean guessing.
  */
 export function applySpecDiff(diff: string, cwd: string): "applied" | "already applied" {
+  // What it writes is the person's side's, not an agent command's: the audit leaves it.
+  const written = conversationWriting(plainFilesOf(diff).map((file) => resolve(cwd, file)));
   const dir = mkdtempSync(join(tmpdir(), "turri-diff-"));
   const patch = join(dir, "spec.diff");
   writeFileSync(patch, diff.endsWith("\n") ? diff : `${diff}\n`);
@@ -113,11 +117,13 @@ export function applySpecDiff(diff: string, cwd: string): "applied" | "already a
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    written();
   }
 }
 
 /** Undo a spec diff this process applied, when what it produced cannot be used. */
 export function revertSpecDiff(diff: string, cwd: string): void {
+  const written = conversationWriting(plainFilesOf(diff).map((file) => resolve(cwd, file)));
   const dir = mkdtempSync(join(tmpdir(), "turri-diff-"));
   const patch = join(dir, "spec.diff");
   writeFileSync(patch, diff.endsWith("\n") ? diff : `${diff}\n`);
@@ -125,6 +131,7 @@ export function revertSpecDiff(diff: string, cwd: string): void {
     spawnSync("git", ["apply", "--recount", "--reverse", patch], { cwd, encoding: "utf8" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    written();
   }
 }
 
@@ -372,6 +379,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 
   const digestsBefore = digestFiles(buildDir);
   const runs: TestRun[] = [];
+  // Its own runs of the unit tests, watched for a loop - edits that go back and forth while the failure stays.
+  const loop = createLoopWatch(buildDir);
   const fence = confinedTools({ workdir: buildDir, reportsEnvironment: true });
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
   // What it hands over at the end of a turn, for its reviewer.
@@ -401,7 +410,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       notes.tool,
       work.tool,
       ...createWebTools(),
-      createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs }),
+      createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs, watch: loop }),
       ...selfChecks,
       ...services.tools,
       ...fence.tools,
@@ -457,6 +466,10 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // when called again.
     // The same failure, round after round: how many times each has been seen running.
     const seenFailures = new Map<string, number>();
+    // The debugger's model: its own role's, when the config names one, else a stronger one than the agent it helps -
+    // the judge model when the config sets it, else the harness model.
+    const projectConfig = configForSpec(tip.plainFile);
+    const debuggerModel = modelSpec(inheritModel(projectConfig.judgeModel, inheritModel(projectConfig.harnessModel, splitModelSpec(options.model))));
     const untilPassing = async (): Promise<boolean> => {
       for (; followUp < MAX_FOLLOW_UPS; followUp += 1) {
         // A steer that came between its turns: its own turn, then the tests run again.
@@ -498,24 +511,32 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           return false;
         }
         if (!verdict.ok) {
-          // Failing the same way STUCK_ROUNDS times running: a debugger looks at it with fresh eyes, and the coding agent
-          // is given what it found with the failure. The rounds go on as before - and it looks again if it repeats.
+          // Failing the same way STUCK_ROUNDS times running, or the agent stopped for going round in circles in its own
+          // runs: a debugger looks at it with fresh eyes, on a stronger model, and the coding agent is given what it found
+          // with the failure. The rounds go on as before - and it looks again if it repeats.
           const key = verdict.run !== undefined ? failureSignature(verdict.run) : undefined;
           const seen = key !== undefined ? (seenFailures.get(key) ?? 0) + 1 : 0;
           seenFailures.clear();
           if (key !== undefined) seenFailures.set(key, seen);
           let prompt = verdict.prompt;
-          if (key !== undefined && seen >= STUCK_ROUNDS) {
-            seenFailures.delete(key);
-            stage(`the same failure ${seen} times - a debugger looks at it with fresh eyes`);
+          const circling = loop.stuck && verdict.run !== undefined;
+          if (circling || (key !== undefined && seen >= STUCK_ROUNDS)) {
+            if (key !== undefined) seenFailures.delete(key);
+            const times = circling ? Math.max(seen, loop.failing) : seen;
+            loop.reset();
+            stage(
+              circling
+                ? `the coding agent is going round in circles - ${times} failing runs - a debugger looks at it with fresh eyes`
+                : `the same failure ${seen} times - a debugger looks at it with fresh eyes`,
+            );
             const found = await debugFailure({
               buildDir,
               failure: verdict.run!.output,
-              times: seen,
+              times,
               task: steeredChange() ?? codingText ?? changeText ?? options.diff ?? "",
               script: scripts.unit,
               label: `${moduleName} spec change`,
-              ...(options.model !== undefined ? { model: options.model } : {}),
+              ...(debuggerModel !== undefined ? { model: debuggerModel } : {}),
               onDelta: options.onDelta,
             }).catch(() => undefined);
             if (found !== undefined) {
@@ -523,9 +544,12 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
               prompt = [
                 verdict.prompt,
                 "",
-                `It has failed this same way ${seen} times in a row, so a debugger looked at it with fresh eyes - it read the code,`,
-                "the tests, the build files and the testing script. This is what it found. Check it against the code, then make",
-                "the fix it names, rather than another variation on what you tried before.",
+                circling
+                  ? `You went round in circles - it has failed ${times} times since it last passed, the code back where it had been -`
+                  : `It has failed this same way ${seen} times in a row,`,
+                "so a debugger looked at it with fresh eyes - it read the code, the tests, the build files and the testing script.",
+                "This is what it found. Check it against the code, then make the fix it names, rather than another variation on what",
+                "you tried before.",
                 "",
                 diagnosisText(found),
               ].join("\n");

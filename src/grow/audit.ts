@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { writtenByConversation } from "./conversation-writes.ts";
 import { isCredentialFile } from "./credentials.ts";
 import { RECORD_FILE } from "./records.ts";
 
@@ -12,7 +13,9 @@ import { RECORD_FILE } from "./records.ts";
  * file, the code record, the module's lineage, the other modules, and the folders the role only reads. Small files are
  * kept before the command and put back from that copy; another module is put back as its last commit has it - unless a
  * pulse is at work in it, whose writes are not this command's to undo. The role's own work is left alone, and the pulse
- * goes on. Outside the project nothing can be put back: that is the OS sandbox's.
+ * goes on. Outside the project nothing can be put back: that is the OS sandbox's. Nor is a change the conversation
+ * itself made while the command ran - the person's model editing a spec beside a pulse (`conversation-writes.ts`): that
+ * is left, not taken for the command's.
  *
  * What changed is seen cheaply: each file's size and modification time before and after, skipping dependencies and
  * build output, and contents compared only where those differ.
@@ -38,6 +41,8 @@ export interface AuditResult {
   left: string[];
   /** Changed, and nothing to put it back from. */
   lost: string[];
+  /** Changed by the conversation itself while the command ran, and left. */
+  conversation: string[];
 }
 
 /** Folders never looked in: dependencies, build output, caches, histories, turri's scratch. */
@@ -71,6 +76,8 @@ interface Tree {
 export interface AuditSnapshot {
   scope: AuditScope;
   trees: Tree[];
+  /** When it was taken: a change the conversation made since is the conversation's, not the command's. */
+  at: number;
 }
 
 function stat(path: string): Seen | undefined {
@@ -140,6 +147,7 @@ function projectFile(project: string, path: string): boolean {
 
 /** Take what the audit compares against, before a command runs. */
 export function beforeCommand(scope: AuditScope): AuditSnapshot {
+  const at = Date.now();
   const modulesRoot = join(scope.project, "plain_modules");
   const trees: Tree[] = [];
 
@@ -175,7 +183,7 @@ export function beforeCommand(scope: AuditScope): AuditSnapshot {
       trees.push({ root: other, files, from: { lineage: other }, busy: scope.busy?.(other) === true });
     }
   }
-  return { scope, trees };
+  return { scope, trees, at };
 }
 
 /** The file's last committed content in a module's lineage, or nothing when it was not committed. */
@@ -193,7 +201,7 @@ function put(path: string, content: Buffer): void {
 /** After the command: put back what it changed that its role may not, and say what. */
 export function afterCommand(snapshot: AuditSnapshot): AuditResult {
   const { scope } = snapshot;
-  const result: AuditResult = { putBack: [], left: [], lost: [] };
+  const result: AuditResult = { putBack: [], left: [], lost: [], conversation: [] };
   const shown = (path: string) => relative(scope.project, path).split(sep).join("/");
   const modulesRoot = join(scope.project, "plain_modules");
 
@@ -220,6 +228,10 @@ export function afterCommand(snapshot: AuditSnapshot): AuditResult {
       }
     }
     for (const path of tree.files.keys()) if (!after.has(path)) changed.push(path);
+    // What the conversation wrote meanwhile is its own: left as it is.
+    const mine = changed.filter((path) => writtenByConversation(path, snapshot.at));
+    result.conversation.push(...mine.map(shown));
+    changed.splice(0, changed.length, ...changed.filter((path) => !mine.includes(path)));
     if (changed.length === 0) continue;
 
     if (tree.busy === true) {

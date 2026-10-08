@@ -8,6 +8,8 @@ import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { keepTestOutput, listFiles, shownTestOutput, type TestRun } from "./testing.ts";
+import { digestFiles } from "./codebase.ts";
+import { NOTES_FILE } from "./notes.ts";
 import { COMMAND_TIMEOUT_MS, runCommand } from "./shell.ts";
 
 /**
@@ -539,6 +541,8 @@ export function createScriptTool(options: {
   run: () => Promise<ScriptRun>;
   runs: TestRun[];
   onRun?: (command: string, exitCode: number) => void;
+  /** Watches the agent's runs for a loop: told once, then its turn is ended. */
+  watch?: LoopWatch;
 }) {
   const unit = options.kind === "unit";
   const name = unit ? "run_unit_tests" : "run_conformance_tests";
@@ -564,12 +568,107 @@ export function createScriptTool(options: {
         run.timedOut === true
           ? timedOutFailure(run, unit ? "unit testing" : "conformance testing").replace("The harness ran", "You ran")
           : `${run.command} exited ${run.exitCode}\n\n${run.output}`;
+      const loop = options.watch?.see(run);
       return {
-        content: [{ type: "text" as const, text }],
-        details: { command: run.command, exitCode: run.exitCode },
+        content: [{ type: "text" as const, text: loop === undefined ? text : `${text}\n\n${loopNotice(loop)}` }],
+        details: { command: run.command, exitCode: run.exitCode, ...(loop !== undefined ? { loop } : {}) },
+        // Going round in circles a second time: its turn ends here, and the harness takes it from there.
+        ...(loop === "stop" ? { terminate: true } : {}),
       };
     },
   });
+}
+
+/** How many of the agent's own runs failing the same way, one after another, are a loop. */
+export const LOOP_RUNS = 6;
+
+/**
+ * The agent's own test runs, watched for a loop: an agent stuck on a failure tends to try the same few changes in turn -
+ * three signatures of a stand-in function, say - running the tests after each, dozens of times in one turn, and never
+ * reads what would tell it the cause. Two things say it is circling: the code folder back exactly as it was at an
+ * earlier failing run (its notes aside), or LOOP_RUNS failing runs in a row the same way. The first time, it is told
+ * so with the run; the second, its turn is ended, and `stuck` says so until the harness has dealt with it. A passing
+ * run clears it all.
+ */
+export interface LoopWatch {
+  /** A run of the agent's: undefined, or "warn" the first time it is circling, "stop" the second. */
+  see(run: ScriptRun): "warn" | "stop" | undefined;
+  /** It was stopped for going round in circles, and the harness has not dealt with it yet. */
+  readonly stuck: boolean;
+  /** How many failing runs since its last passing one. */
+  readonly failing: number;
+  /** Dealt with: it starts counting again - the states it has failed in still remembered. */
+  reset(): void;
+}
+
+export function createLoopWatch(dir: string): LoopWatch {
+  /** The code folder at each failing run, as a digest of its files. */
+  const failedStates = new Set<string>();
+  let strikes = 0;
+  let stuck = false;
+  let failing = 0;
+  let last: string | undefined;
+  let streak = 0;
+  const stateOf = () =>
+    [...digestFiles(dir)]
+      .filter(([file]) => file !== NOTES_FILE && !file.endsWith(`/${NOTES_FILE}`))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([file, digest]) => `${file} ${digest}`)
+      .join("\n");
+  return {
+    see(run) {
+      if (run.exitCode === 0 && run.timedOut !== true) {
+        failedStates.clear();
+        strikes = 0;
+        stuck = false;
+        failing = 0;
+        last = undefined;
+        streak = 0;
+        return undefined;
+      }
+      failing += 1;
+      const state = stateOf();
+      const signature = failureSignature(run);
+      streak = signature === last ? streak + 1 : 1;
+      last = signature;
+      const revisited = failedStates.has(state);
+      failedStates.add(state);
+      if (!revisited && streak < LOOP_RUNS) return undefined;
+      streak = 0;
+      strikes += 1;
+      if (strikes === 1) return "warn";
+      stuck = true;
+      return "stop";
+    },
+    get stuck() {
+      return stuck;
+    },
+    get failing() {
+      return failing;
+    },
+    reset() {
+      strikes = 0;
+      stuck = false;
+      streak = 0;
+      last = undefined;
+    },
+  };
+}
+
+/** What the agent is told with a run when it is going round in circles. */
+function loopNotice(loop: "warn" | "stop"): string {
+  if (loop === "warn") {
+    return [
+      "You are going round in circles: the code is back exactly as it was at an earlier failing run, or the tests have",
+      "failed the same way run after run. Another variation on what you have tried will not fix it. Stop editing and",
+      "find the cause first: read the code under test where the failure points - how it calls what the test replaces,",
+      "with which arguments - and the test, line by line, against it. Then make the one change that the cause calls for.",
+    ].join("\n");
+  }
+  return [
+    "You are still going round in circles, so your turn ends here. Change nothing more now: a debugger will look at",
+    "the failure with fresh eyes, and you will be given what it finds.",
+  ].join("\n");
 }
 
 /** A run the time limit stopped: failed, and what most often keeps a test run from ending. */

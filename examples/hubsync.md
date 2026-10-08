@@ -97,7 +97,7 @@ testing scripts run on this machine in your own environment, so they read `.env`
 
 ## 5. Watch it grow, and try it
 
-The regeneration (`ctrl+h`) shows the code track and the conformance track as for any module. If HubSpot behaves
+regen (`ctrl+h`) shows the code track and the conformance track as for any module. If HubSpot behaves
 differently from what the spec says, the fix is a spec change, and that is yours to make: say what **hubsync**
 should do instead.
 

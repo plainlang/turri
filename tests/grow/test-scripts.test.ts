@@ -208,3 +208,48 @@ describe("the testing scripts, run on a copy", () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe("an agent's own test runs, watched for a loop", () => {
+  const failed = (error: string) => ({ command: "run_unittests.sh", exitCode: 1, output: `FAILED test_pages - TypeError: ${error}`, timeoutMs: 120_000 });
+  const passed = { command: "run_unittests.sh", exitCode: 0, output: "1 passed", timeoutMs: 120_000 };
+
+  it("tells the agent the first time the code is back where an earlier run failed, and ends its turn the second time", async () => {
+    const { createLoopWatch } = await import("../../src/grow/test-scripts.ts");
+    const watch = createLoopWatch(root);
+    const variant = (signature: string) => writeFileSync(join(root, "test_pages.py"), `def mock_get(${signature}): ...\n`);
+    // Three signatures in turn, the error changing with them: new states, then the first one again.
+    variant("url, params=None");
+    expect(watch.see(failed("got multiple values for argument 'params'"))).toBeUndefined();
+    variant("url, **kwargs");
+    expect(watch.see(failed("takes 1 positional argument but 2 were given"))).toBeUndefined();
+    variant("url, params=None, **kwargs");
+    expect(watch.see(failed("got multiple values for argument 'params'"))).toBeUndefined();
+    variant("url, params=None");
+    expect(watch.see(failed("got multiple values for argument 'params'"))).toBe("warn");
+    expect(watch.stuck).toBe(false);
+    variant("url, **kwargs");
+    expect(watch.see(failed("takes 1 positional argument but 2 were given"))).toBe("stop");
+    expect(watch.stuck).toBe(true);
+    expect(watch.failing).toBe(5);
+    // Dealt with: it counts again, the states remembered - and a passing run clears it all.
+    watch.reset();
+    expect(watch.stuck).toBe(false);
+    variant("self, url, params=None");
+    expect(watch.see(passed)).toBeUndefined();
+    expect(watch.failing).toBe(0);
+  });
+
+  it("counts the same failure run after run as a loop, though the code changes, and leaves the notes out of the code's state", async () => {
+    const { createLoopWatch, LOOP_RUNS } = await import("../../src/grow/test-scripts.ts");
+    const watch = createLoopWatch(root);
+    const seen: Array<string | undefined> = [];
+    for (let run = 1; run <= LOOP_RUNS; run += 1) {
+      writeFileSync(join(root, "app.py"), `ATTEMPT = ${run}\n`);
+      seen.push(watch.see(failed("no such table: users")));
+    }
+    expect(seen).toEqual([...Array(LOOP_RUNS - 1).fill(undefined), "warn"]);
+    // Only the notes changed: the code is where it was at the last failing run.
+    writeFileSync(join(root, ".turri-notes.md"), "- tried again\n");
+    expect(watch.see(failed("no such table: users"))).toBe("stop");
+  });
+});

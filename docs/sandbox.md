@@ -176,7 +176,10 @@ change inside the project (`src/grow/audit.ts`): the specs, `config*.yaml`, the 
 modules, the folders the role only reads, and the part of its own module it does not write - the coding agent's
 conformance tests. A changed file is put back, a new one removed, a deleted one brought back: from a copy kept before
 the command, or - another module - as its last commit has it, unless a pulse is at work in that module, whose writes are
-not this command's to undo (left, and logged). The agent is told in its command's result what was put back; the job's
+not this command's to undo (left, and logged). Nor is a change the conversation made while the command ran: the chat's
+`edit` and `write`, a spec diff it applied, or anything while a command of its own ran - the chat editing a spec beside a
+pulse is the person's change, not the agent's, so it is left and logged (`src/grow/conversation-writes.ts`). The agents
+of a pulse start without extensions, so nothing of theirs is marked so. The agent is told in its command's result what was put back; the job's
 log gets a line; you are not told, and the pulse goes on. It compares sizes and modification times, skipping
 dependencies and build output, and contents only where those differ - about 35 ms on a project of 3000 files. Outside
 the project nothing can be put back: that is the OS sandbox's, and on Windows an accepted gap.

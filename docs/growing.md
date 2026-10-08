@@ -65,7 +65,7 @@ scripts, models and conformance in its own `config.<module>.yaml`, laid over `co
 ## One job
 
 Every piece of work on the code is a job of the work loop (see [a whole module](#a-whole-module)) - in the chat, a
-**pulse** - the side panel's **regeneration** is the spec with how far the code has grown into it (`spec-map.ts`),
+**pulse** - the side panel's **regen** is the spec with how far the code has grown into it (`spec-map.ts`),
 and its pulses every one of them - while the code and this page call it a job: a
 spec diff that takes the code from the spec it is built from to the spec the job ends on. To see what
 the first jobs would be told:
@@ -150,13 +150,21 @@ runs the unit testing script itself**, and only that run counts (see
   that test and then the whole suite, the run that counts; and leave the cause and the fix in the notes.
   **The same failure three times running** - the same fingerprint of the run, its numbers, paths and ids
   left out, as a conformance run counts it - and a **debugger** looks at it with fresh eyes: an agent of its
-  own (`src/grow/debugger.ts`), on the `debugger` role's model, else the coding model, with a new session,
+  own (`src/grow/debugger.ts`), on the `debugger` role's model, else a stronger one than the coding agent's - the
+  judge model when `judge-model` is set, else the harness model - with a new session,
   that reads the failing run, the tests, the code, the build files and the unit testing script, and the web,
   and changes nothing. It hands over the root cause and the fix - which files, what to change - and the
   coding agent gets them with the failure, told to make that fix rather than another variation on what it
   tried. An agent circles a cause it has not thought of - an in-memory database every connection opens
   empty, a test runner that leaves the code off its path - and this is the way out. The rounds go on as
   before, up to 20; should the same failure come round three times again, the debugger looks again.
+- **It goes round in circles in its own runs.** An agent stuck on a failure can try the same few changes in
+  turn - three signatures of a stand-in function, say - and run the tests after each, dozens of times in one
+  turn. Its own `run_unit_tests` runs are watched (`createLoopWatch` in `test-scripts.ts`): the code folder back
+  exactly as it was at an earlier failing run, its notes aside, or six failing runs in a row the same way, is a
+  loop. The first time, the run tells it so - stop editing, read the code under test where the failure points,
+  then make the one change the cause calls for. The second time, its turn is ended there, and the debugger looks
+  at once, without waiting for three rounds. A passing run clears it.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
 - **It wrote nothing.** A turn can end with the agent having only thought the problem through, and

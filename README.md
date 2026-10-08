@@ -209,7 +209,7 @@ specs, and builds each one as it is written. While it works:
   model and cost - and the queue behind it;
 - ask to try it at any time - "let me try it" - and **`release`** puts what is grown so far in
   `dist/<module>` and **`activate`** starts it, installing what it needs - nothing to approve;
-- the **side panel** (`ctrl+h`) takes the screen and opens on the **regeneration** (`/regeneration`) - the spec, every item marked built, growing, planned or waiting - and `p` turns it to the **pulses** (`/pulses`) - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
+- the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - the spec, every item marked built, growing, planned or waiting - and `p` turns it to the **pulses** (`/pulses`) - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
 - **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
   module, and the **`drift`** tool says what is left to grow.
 
@@ -245,7 +245,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | --- | --- |
 | [Installation](docs/installation.md) | setup and doctor, what turri needs of this machine, **turri** in every `pi`, environment variables |
 | [Examples](examples/README.md) | projects to grow with turri step by step: cognio from an empty folder, a CLI, a backend service with conformance tests, a REST API integration |
-| [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and the regeneration, choosing models, the command line |
+| [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and regen, choosing models, the command line |
 | [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |

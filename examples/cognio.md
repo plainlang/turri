@@ -5,7 +5,7 @@ other kudos. It is a FastAPI backend and a React web app, grown from an empty fo
 or spec yourself.
 
 This example shows everything **turri** does, step by step: the interview, the specs it writes, the pulses that grow
-the code, the regeneration that shows how far it has grown, and what happens when you change your mind. It takes an
+the code, regen, which shows how far it has grown, and what happens when you change your mind. It takes an
 hour or so, most of it the agents' time.
 
 ## 1. Before you start
@@ -91,10 +91,10 @@ While you answer, the code grows. The panel above the input shows each **pulse**
 functional specs grown into the code by a coding agent, until their unit tests pass and a reviewer is satisfied -
 with its time and cost, and the next ones queued behind it.
 
-Press `ctrl+h` for the **regeneration**: the whole spec, every item marked with where it stands.
+Press `ctrl+h` for **regen**: the whole spec, every item marked with where it stands.
 
 ```
-Regeneration  backend.plain   ██████████▓▓▓▓░░░░░░░░░░  4 of 10 functional specs built · pulse 5 of 7 growing
+regen  backend.plain   ██████████▓▓▓▓░░░░░░░░░░  4 of 10 functionalities built · pulse 5 of 7 growing
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
 › ▾ backend.plain  ████▓▓░░░░░░  4/10 built · pulse 5 of 7 growing
       │ ***functional specs***
@@ -127,7 +127,7 @@ software should do:
 > Students should be able to edit their own comments.
 
 **turri** writes it into the spec as a spec change - a new functional spec, and whatever it touches - and grows
-just that: the regeneration shows the new item waiting, then planned, then growing, while everything already
+just that: regen shows the new item waiting, then planned, then growing, while everything already
 built stays `✓`. Change a rule instead - *a handle may be up to 20 characters, not 30* - and the definition is
 marked with the pulse that changes it; the specs that use it are grown again with it.
 
@@ -139,7 +139,7 @@ Nothing is patched by hand, and nothing drifts: the code is always grown from th
 
 The frontend is a module of its own, `frontend.plain`, on `stdlib/frontend/react-vite`, with its own unit testing
 script. It usually links a resource file describing the backend's API, so the two agree, and it is interviewed and
-grown the same way. The regeneration then has a row for each module; the one being grown is open, the other folded. When it is
+grown the same way. regen then has a row for each module; the one being grown is open, the other folded. When it is
 built, *release it* again and open the web app.
 
 ## 8. Leave, and come back

@@ -35,7 +35,7 @@ So `turri-dark` carries yellow, green and green-light, and `turri-light` carries
 green-dark. **Brand blue never appears as text in the dark theme** - at 1.97:1 on brand black it is
 illegible - so the dark theme's accent is brand yellow, and blue appears only in the light theme
 and in both themes' HTML-export backgrounds. The one place blue stands for something in both is the spec
-map's `⊨` - a functional spec its conformance tests pass for: brand blue in a light theme, and in a dark
+map's `◆` - a functional spec its conformance tests pass for: brand blue in a light theme, and in a dark
 one its tint 55% of the way to white, `#919aec`, 7.34:1 on brand black (`brandBlue` in
 `src/grow/plain-palette.ts`).
 

@@ -70,7 +70,7 @@ export function createSidePanel(options: SidePanelOptions) {
     const visible = tree_.lines.slice(tree.top, tree.top + bodyHeight);
     const where = tree_.lines.length > bodyHeight ? `${tree.top + 1}-${Math.min(tree_.lines.length, tree.top + bodyHeight)} of ${tree_.lines.length}` : "all shown";
     while (visible.length < bodyHeight) visible.push("");
-    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", ...(options.map !== undefined ? ["p regeneration"] : []), `esc or ${options.key} back to the chat`];
+    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", ...(options.map !== undefined ? ["p regen"] : []), `esc or ${options.key} back to the chat`];
     return [
       truncateToWidth(`${style.heading("Pulses")}${waitingNote()}`, width),
       style.muted("─".repeat(Math.max(1, width))),
@@ -86,7 +86,7 @@ export function createSidePanel(options: SidePanelOptions) {
       lastBodyHeight = rows - 3;
       drawnMap = { rows: [], rowStarts: [], lineCount: 0 };
       const body = [style.muted("  No .plain file to map: name one to regrow, or set module: in config.yaml."), ...new Array<string>(Math.max(0, rows - 4)).fill("")];
-      return [truncateToWidth(`${style.heading("Regeneration")}${waitingNote()}`, width), style.muted("─".repeat(Math.max(1, width))), ...body, style.muted(truncateToWidth(`p pulses · esc or ${options.key} back to the chat`, width))];
+      return [truncateToWidth(`${style.heading("regen")}${waitingNote()}`, width), style.muted("─".repeat(Math.max(1, width))), ...body, style.muted(truncateToWidth(`p pulses · esc or ${options.key} back to the chat`, width))];
     }
     const bodyHeight = Math.max(3, rows - 3);
     lastBodyHeight = bodyHeight;
@@ -189,7 +189,7 @@ export function createSidePanel(options: SidePanelOptions) {
         // A frame that throws is never drawn - nor is anything after it: the screen would freeze. What failed is shown instead.
         const lines = (error instanceof Error ? (error.stack ?? error.message) : String(error)).split("\n").slice(0, rows - 4);
         return [
-          truncateToWidth(`${style.heading(map.view === "map" ? "Regeneration" : "Pulses")}${waitingNote()}`, width),
+          truncateToWidth(`${style.heading(map.view === "map" ? "regen" : "Pulses")}${waitingNote()}`, width),
           style.muted("─".repeat(Math.max(1, width))),
           ...lines.map((line, index) => truncateToWidth(index === 0 ? style.error(`could not be drawn: ${line}`) : style.muted(line), width)),
           ...new Array<string>(Math.max(0, rows - 3 - lines.length)).fill(""),

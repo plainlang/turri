@@ -173,7 +173,7 @@ export function roleModel(config: Pick<ProjectConfig, "harnessModel" | "judgeMod
   if (role === "coding") return undefined;
   const models = config.models ?? {};
   const own = choiceOf(models[role]);
-  // The debugger looks at the coding agent's failure: without its own entry it runs on the coding model it is given.
+  // The debugger looks at the coding agent's failure: without its own entry it runs on the model it is given - a stronger one.
   if (role === "debugger") return own;
   if (CHAT_SIDE.includes(role)) return own === undefined ? undefined : inheritModel(own, inheritModel(choiceOf(models.chat), config.harnessModel));
   const legacy = role === "judge" || role === "test-reviewer" ? config.judgeModel : undefined;

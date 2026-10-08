@@ -106,6 +106,7 @@ export function agentShell(role: ShellRole, options: { wall?: Wall; busy?: (modu
     if (result.putBack.length > 0) reportNote(`  an agent's command changed ${result.putBack.join(", ")} - put back`);
     if (result.left.length > 0) reportNote(`  an agent's command changed ${result.left.join(", ")}, where another pulse is at work - left`);
     if (result.lost.length > 0) reportNote(`  an agent's command changed ${result.lost.join(", ")}, and it could not be put back`);
+    if (result.conversation.length > 0) reportNote(`  the conversation changed ${result.conversation.join(", ")} while an agent's command ran - left as it is`);
     const note = auditMessage(result);
     return { value, ...(note !== undefined ? { note } : {}) };
   };

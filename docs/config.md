@@ -107,7 +107,7 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 | `test-reviewer` | the review of the conformance tests - `judge-model` too, when it is set |
 | `judge` | the judge of a failing conformance run - the same as `judge-model`, which it wins over |
 | `arbiter` | the arbiters that weigh a second review |
-| `debugger` | the fresh look at unit tests that keep failing the same way. Unnamed, the coding model - not `default` |
+| `debugger` | the fresh look at unit tests that keep failing the same way, or a coding agent going round in circles. Unnamed, `judge-model` when it is set, else the harness model - not `default` |
 
 What an entry leaves out it takes from `default`: `reviewer: { thinking: low }` runs the default model, thinking
 little. A turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes; `TURRI_TURN_LIMIT`

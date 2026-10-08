@@ -48,17 +48,17 @@ Open `tidy.plain` while it writes. A functional spec reads like this:
 ## 3. Watch it grow
 
 The panel above the input shows the pulse that is growing: a few functional specs, grown by a coding agent until
-their unit tests pass and a reviewer is satisfied. `ctrl+h` opens the regeneration, where each functional spec has
+their unit tests pass and a reviewer is satisfied. `ctrl+h` opens regen, where each functionality has
 two marks:
 
 ```
-  ✓ ⊨ │ - `tidy plan <folder>` prints one line a file it would move, `<from> -> <to>`, …
+  ✓ ◆ │ - `tidy plan <folder>` prints one line a file it would move, `<from> -> <to>`, …
   ✓ 5 │ - `tidy apply <folder>` moves each file of :Folder: into the subfolder of its :Kind:, …
   ⠋   │ - `--by-date` sorts into `YYYY/MM` folders by each file's modified time, …
 ```
 
 The first mark is the code: `✓` built, a spinner growing, a number the pulse planned to grow it. The second is
-the conformance tests: `⊨` once they pass, a number for the conformance pulse planned to write them. The
+the conformance tests: `◆` once they pass, a number for the conformance pulse planned to write them. The
 conformance pulses run once the code they test is built.
 
 ## 4. Try it

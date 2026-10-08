@@ -6,7 +6,7 @@ never write a line of code yourself.
 
 | example | what you build | what it shows |
 | --- | --- | --- |
-| [cognio](cognio.md) | a Strava for students: a FastAPI backend and a React web app | the whole journey, step by step: the interview, the specs, the pulses, the regeneration, releasing, changing your mind, a second module |
+| [cognio](cognio.md) | a Strava for students: a FastAPI backend and a React web app | the whole journey, step by step: the interview, the specs, the pulses, regen, releasing, changing your mind, a second module |
 | [tidy](tidy.md) | a command-line tool that sorts a folder of files into subfolders | the quick start with `spawn`, a CLI on the standard library, conformance tests that run the real binary |
 | [shorty](shorty.md) | a backend service: a URL shortener with click counts, in TypeScript and Fastify | conformance tests from the start, `bind`, a rule changed and grown again |
 | [hubsync](hubsync.md) | an integration that keeps a CSV of contacts in step with HubSpot | a third-party REST API: its contract in `resources/`, credentials for the agents, conformance tests against the live sandbox |

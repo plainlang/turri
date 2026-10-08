@@ -79,8 +79,8 @@ describe("jobs that write the same module", () => {
       expect(lines.join("\n")).not.toContain("queued");
       expect(lines.join("\n")).not.toMatch(/app [456]/);
     }
-    expect(jobPanelLines(jobs.list(), { expanded: true }).at(-1)).toBe("  ctrl+o to collapse the trace · ctrl+h to view the regeneration panel");
-    expect(jobPanelLines(jobs.list()).at(-1)).toBe("  ctrl+o to expand the trace · ctrl+h to view the regeneration panel");
+    expect(jobPanelLines(jobs.list(), { expanded: true }).at(-1)).toBe("  ctrl+o to collapse the trace · ctrl+h to view regen");
+    expect(jobPanelLines(jobs.list()).at(-1)).toBe("  ctrl+o to expand the trace · ctrl+h to view regen");
     // A blank line sets the help apart from the trace above it.
     expect(jobPanelLines(jobs.list()).at(-2)).toBe("");
   });

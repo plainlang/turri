@@ -9,7 +9,7 @@ import { BEGIN } from "../../src/pi.ts";
 /** The agent is stubbed: it writes a unit test and runs the whole suite, and it passes. */
 const prompts: string[] = [];
 /** The images each agent is made with, by its label. */
-const imagesGiven: Array<{ label?: string; images?: unknown[]; system?: string }> = [];
+const imagesGiven: Array<{ label?: string; images?: unknown[]; system?: string; model?: string }> = [];
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string };
 async function agentRunning(command: string, session: StubSession, prompt: string) {
   // Asked to leave notes, it does - and that is not a turn the test is about.
@@ -54,8 +54,8 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
   return {
     ...actual,
-    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string; label?: string; images?: unknown[]; system?: string }) => {
-      imagesGiven.push({ label: opts.label, images: opts.images, system: opts.system });
+    createExecutor: async (opts: { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }>; task?: string; label?: string; images?: unknown[]; system?: string; model?: string }) => {
+      imagesGiven.push({ label: opts.label, images: opts.images, system: opts.system, model: opts.model });
       return { tools: opts.customTools, task: opts.task, dispose() {} };
     },
     ask: vi.fn(passingAgent),
@@ -182,6 +182,54 @@ describe("rendering a spec diff", () => {
     expect(told).toContain("<root cause>\nevery connection opens its own in-memory database\n</root cause>");
     expect(told).toContain("<fix>\nuse StaticPool in the test engine\n</fix>");
     expect(coderTurns).toBe(4);
+  });
+
+  it("ends the coding agent's turn when it goes round in circles in its own runs, and has a debugger on the harness model look at it", async () => {
+    writeFileSync(join(dir, "config.yaml"), "review: false\nharness-model: test/strong\n");
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });
+    const variant = (signature: string) =>
+      `import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        def mock_get(${signature}): pass\n        mock_get(self, 'url', params={})\n`;
+    const variants = ["url, params=None", "url, **kwargs", "url, params=None, **kwargs"];
+    const runsInTurn: number[] = [];
+    const toldInRuns: string[] = [];
+    const { ask } = await import("../../src/pi.ts");
+    vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+      const own = (name: string) => session.tools.find((tool) => tool.name === name);
+      if (own("submit_diagnosis")) {
+        await own("submit_diagnosis")!.execute("id", { root_cause: "the stand-in replaces a method, so it is given self", fix: "take self first" });
+        return "Done.";
+      }
+      if (prompt.includes("Before you finish: call update_notes")) return agentRunning("", session, prompt);
+      prompts.push(prompt === BEGIN ? (session.task ?? prompt) : prompt);
+      if (prompt.includes("take self first")) {
+        await own("write")!.execute("id", { path: "test_app.py", content: variant("self, url, params=None") });
+        await own("run_unit_tests")!.execute("id", {});
+        return "Done.";
+      }
+      // Each signature in turn, the tests run after each - until its turn is ended, or it gives up after 40.
+      let runs = 0;
+      for (; runs < 40; runs += 1) {
+        await own("write")!.execute("id", { path: "test_app.py", content: variant(variants[runs % variants.length]!) });
+        const result = (await own("run_unit_tests")!.execute("id", {})) as { terminate?: boolean; content: Array<{ text: string }> };
+        if (result.content[0]!.text.includes("You are going round in circles")) toldInRuns.push("warn");
+        if (result.terminate === true) break;
+      }
+      runsInTurn.push(runs + 1);
+      return "Done.";
+    }) as never);
+
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+
+    expect(result.passed).toBe(true);
+    // Told once at the first state it had failed in before, its turn ended at the second - not 40 runs later.
+    expect(toldInRuns).toEqual(["warn"]);
+    expect(runsInTurn).toEqual([5]);
+    // The debugger came at once, on the stronger model - the harness model, no judge model set.
+    expect(imagesGiven.find((agent) => agent.label === "app spec change debugger")?.model).toBe("test/strong");
+    const told = prompts.find((prompt) => prompt.includes("a debugger looked at it with fresh eyes"));
+    expect(told).toContain("You went round in circles");
+    expect(told).toContain("<fix>\ntake self first\n</fix>");
   });
 
   it("gives the agent the spec the code is built from - the state before the change - and the change, never the spec after it", async () => {

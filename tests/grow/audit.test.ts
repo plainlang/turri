@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { afterCommand, beforeCommand, type AuditScope } from "../../src/grow/audit.ts";
+import { conversationCommand, conversationWriting, resetConversationWrites } from "../../src/grow/conversation-writes.ts";
+import { applySpecDiff } from "../../src/grow/regrow.ts";
 
 /**
  * The audit after every agent command, on every platform: what the role may not change inside the project is put
@@ -34,7 +36,10 @@ beforeEach(() => {
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "built");
   }
 });
-afterEach(() => rmSync(project, { recursive: true, force: true }));
+afterEach(() => {
+  rmSync(project, { recursive: true, force: true });
+  resetConversationWrites();
+});
 
 /** The coding agent's scope: it writes its module's code. */
 const coder = (): AuditScope => ({ project, module: app, write: [join(app, "code")], readOnly: [] });
@@ -124,6 +129,53 @@ describe("what the role may not change", () => {
   });
 });
 
+describe("what the conversation changes while an agent's command runs", () => {
+  it("leaves a spec the conversation edited meanwhile, and still puts back what the command changed", () => {
+    const before = beforeCommand(coder());
+    // The person's model edits the spec while the agent's command runs - and the command changes the config.
+    const done = conversationWriting([join(project, "app.plain")]);
+    writeFileSync(join(project, "app.plain"), "***definitions***\n- :App: is an app the person changed.\n");
+    done();
+    writeFileSync(join(project, "config.yaml"), "coding-model: changed\n");
+    const result = afterCommand(before);
+    expect(readFileSync(join(project, "app.plain"), "utf8")).toContain("the person changed");
+    expect(result.conversation).toEqual(["app.plain"]);
+    expect(result.putBack).toEqual(["config.yaml"]);
+  });
+
+  it("puts back a spec the conversation wrote before the command began, as the command's change", () => {
+    conversationWriting([join(project, "app.plain")])();
+    // A moment later: the command begins after the conversation's write has ended.
+    const ended = Date.now();
+    while (Date.now() <= ended) {
+      /* wait for the clock to move on */
+    }
+    const before = beforeCommand(coder());
+    writeFileSync(join(project, "app.plain"), "changed by the command\n");
+    expect(afterCommand(before).putBack).toEqual(["app.plain"]);
+    expect(readFileSync(join(project, "app.plain"), "utf8")).toBe("***definitions***\n- :App: is an app.\n");
+  });
+
+  it("leaves what changes while a command of the conversation's own runs - what it writes cannot be known", () => {
+    const before = beforeCommand(coder());
+    const done = conversationCommand();
+    writeFileSync(join(project, "test_scripts", "run_unittests_python.sh"), "python3 -m pytest\n");
+    const result = afterCommand(before);
+    done();
+    expect(result.conversation).toEqual(["test_scripts/run_unittests_python.sh"]);
+    expect(readFileSync(join(project, "test_scripts", "run_unittests_python.sh"), "utf8")).toBe("python3 -m pytest\n");
+  });
+
+  it("leaves a spec diff the conversation applied meanwhile", () => {
+    execFileSync("git", ["init", "-q"], { cwd: project });
+    const before = beforeCommand(coder());
+    applySpecDiff("--- a/app.plain\n+++ b/app.plain\n@@ -1,2 +1,2 @@\n ***definitions***\n-- :App: is an app.\n+- :App: is a better app.\n", project);
+    const result = afterCommand(before);
+    expect(result.conversation).toEqual(["app.plain"]);
+    expect(readFileSync(join(project, "app.plain"), "utf8")).toContain("a better app");
+  });
+});
+
 describe("what the role may change", () => {
   it("is left alone: its own code, its installed dependencies, its notes", () => {
     const before = beforeCommand(coder());
@@ -132,7 +184,7 @@ describe("what the role may change", () => {
     writeFileSync(join(app, "code", "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
     writeFileSync(join(app, "code", ".turri-notes.md"), "- a note\n");
     const result = afterCommand(before);
-    expect(result).toEqual({ putBack: [], left: [], lost: [] });
+    expect(result).toEqual({ putBack: [], left: [], lost: [], conversation: [] });
     expect(readFileSync(join(app, "code", "app.py"), "utf8")).toBe("print('better')\n");
   });
 });
@@ -140,8 +192,8 @@ describe("what the role may change", () => {
 describe("what the agent is told", () => {
   it("names what was put back, and why - and nothing at all when nothing was", async () => {
     const { auditMessage } = await import("../../src/grow/audit.ts");
-    expect(auditMessage({ putBack: [], left: [], lost: [] })).toBeUndefined();
-    const message = auditMessage({ putBack: ["app.plain", "plain_modules/web/code/web.py"], left: [], lost: [] })!;
+    expect(auditMessage({ putBack: [], left: [], lost: [], conversation: [] })).toBeUndefined();
+    const message = auditMessage({ putBack: ["app.plain", "plain_modules/web/code/web.py"], left: [], lost: [], conversation: [] })!;
     expect(message).toContain("turri put back app.plain, plain_modules/web/code/web.py");
     expect(message).toMatch(/outside what you may change/);
   });

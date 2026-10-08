@@ -62,7 +62,7 @@ start says how many stacks there are, and **`/stdlib`** lists them, each with wh
 [the standard library](authoring-plain.md#the-standard-library)).
 
 The agent does this work with these tools, never by running turri's command line - or
-another pi - through its shell: that would be a separate, headless run outside the regeneration
+another pi - through its shell: that would be a separate, headless run outside regen
 and `/halt`. The harness refuses such a command unless your message asks for the
 command line ("run it headless", "use the CLI", or the command itself). pi configuring itself -
 `pi install`, `update`, `list`, `config`, `auth`, its settings - is not affected.
@@ -105,11 +105,11 @@ come waits for a free slot, and says so.
   the diff, `↕ 28 lines` says how many, as GitHub does - `↑` above the first - and names the section
   the lines under it are in when it is another than the one above, `↕ 28 lines · ***functional specs***`,
   as GitHub names a hunk's function: each section is named once.
-- **The side panel** (`ctrl+h`, as it was left; **`/regeneration`** on the regeneration - `/regen` for short, `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
+- **The side panel** (`ctrl+h`, as it was left; **`/regen`** on regen - `/regeneration`, its old name, and `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time.
-  It opens on the **regeneration**: the spec itself, in full, with how far the code has grown into it drawn
+  It opens on **regen**: the spec itself, in full, with how far the code has grown into it drawn
   onto it.
 
   Every item of the spec - a definition, a req, a functional spec with its sub-bullets and acceptance tests,
@@ -127,9 +127,9 @@ come waits for a free slot, and says so.
   | `−` | taken out of the spec, still in the code: a struck-through red ghost, with the code record's text, until the pulse that takes it out lands |
 
   Pulses are numbered as they start in a module, from 1 each session; a halt names the one that did not
-  land. The column beside the mark is `⊨` - satisfies - in brand blue when the functional spec is conformance tested as it
-  reads now: more than tested, its code is shown end to end to do what the spec says. It is dimmed when the
-  conformance tests were written for an earlier text, struck through for a spec taken out, a spinner while
+  land. The column beside the mark is `◆` in brand blue when the functional spec is conformance tested as it
+  reads now: more than tested, its code is shown end to end to do what the spec says. It is a hollow `◇`, dimmed, when
+  the conformance tests were written for an earlier text, struck through for a spec taken out, a spinner while
   a conformance pulse writes them, and - as beside the mark - the number of the conformance pulse planned to write
   them, dimmed: scheduled ahead of the code by `bind` too. Under `conformance-tests: chosen` a functional spec not chosen has none, and
   shows none. Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or
@@ -153,9 +153,10 @@ come waits for a free slot, and says so.
   the first - the rest closed until opened; the top line is the module the cursor is in. Under a module opened,
   after its own text, is what it is built from, in two groups, each closed until opened: **imported** - a
   folded block a file it imports, `▸ from stdlib/backend/python-fastapi · 7 reqs · all built` - and
-  **required** - the modules it requires, down its chain, nearest first, each a module row of its own, read from
-  the codebase built on it, whose record has every module's items. A module another one requires is shown
-  there, under it, not at the top. A map longer than the screen has a minimap down its right edge, a cell a slice in the colour of
+  **required** - the module it requires, a module row of its own, read from the codebase built on it, whose
+  record has every module's items; opened, it has its own groups under it in turn, so the chain nests as the
+  specs write it. A module another one requires is shown there, under it, not at the top; the module in focus
+  starts open with every module above it. A map longer than the screen has a minimap down its right edge, a cell a slice in the colour of
   its most pressing mark, the slice shown solid. The map is read from the files - the code record, the
   `.plain` files, the tests record - so it is right the moment turri opens a project, before anything runs;
   the work loop's plan adds the pulses on top. It maps the files asked to build this conversation, else

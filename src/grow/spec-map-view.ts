@@ -16,9 +16,9 @@ import type { TranscriptStyle } from "./transcript-view.ts";
  * acceptance tests, the pulse that brings it, its conformance tests, and - a definition - the built specs that use it.
  * Every module of the map is a row of its own - its strip, its count, its status - opened and closed like a block: the
  * module in focus open, the rest closed until opened. Under a module opened, after its own text, what it is built from
- * in two groups: the files it imports, a folded block each, and the modules it requires - down its chain, nearest
- * first - each a module row of its own; all closed until opened. A module another one requires is shown there, not
- * at the top.
+ * in two groups: the files it imports, a folded block each, and the module it requires - a module row of its own, with
+ * what it is built from under it in turn, so the chain nests as it is written; all closed until opened. A module another
+ * one requires is shown there, not at the top.
  */
 
 export interface SpecMapState {
@@ -95,9 +95,11 @@ function markText(item: MarkedItem, style: TranscriptStyle, now: number): string
 
 /**
  * The mark of a functional spec its conformance tests pass for: more than tested - its code is shown, end to end, to
- * do what the spec says. ⊨ is "satisfies": the code satisfies the spec.
+ * do what the spec says. Filled, for the spec as it reads now; hollow (CONFORMED), for an earlier text - so current and
+ * stale read apart without colour.
  */
-export const CONFORMS = "⊨";
+export const CONFORMS = "◆";
+export const CONFORMED = "◇";
 
 function testsText(item: MarkedItem, style: TranscriptStyle, now: number): string {
   // A test req's own mark says it: it is the conformance tests' alone.
@@ -106,7 +108,7 @@ function testsText(item: MarkedItem, style: TranscriptStyle, now: number): strin
   // Planned, as the mark beside it is: the pulse's number, dimmer than the spinner.
   if (item.testsPulse !== undefined) return style.muted(String(item.testsPulse.number));
   if (item.tests === "now") return (style.conforms ?? style.success ?? style.added)(CONFORMS);
-  if (item.tests === "older") return style.muted(CONFORMS);
+  if (item.tests === "older") return style.muted(CONFORMED);
   if (item.tests === "removed") return style.error(strike(CONFORMS));
   return " ";
 }
@@ -308,10 +310,11 @@ function importSummary(items: MarkedItem[]): string {
   const counts = [
     [DEFINITIONS, "definition"],
     [NON_FUNCTIONAL_REQUIREMENTS, "req"],
-    [FUNCTIONAL_REQUIREMENTS, "functional spec"],
+    [FUNCTIONAL_REQUIREMENTS, "functionality"],
   ] as const;
   const kinds = counts.map(([section, name]) => ({ name, count: items.filter((item) => item.section === section && item.state !== "removed").length })).filter((kind) => kind.count > 0);
-  const size = kinds.length === 1 ? `${kinds[0]!.count} ${kinds[0]!.name}${kinds[0]!.count === 1 ? "" : "s"}` : `${items.filter((item) => item.state !== "removed" && item.state !== "test").length} items`;
+  const plural = (name: string) => (name === "functionality" ? "functionalities" : `${name}s`);
+  const size = kinds.length === 1 ? `${kinds[0]!.count} ${kinds[0]!.count === 1 ? kinds[0]!.name : plural(kinds[0]!.name)}` : `${items.filter((item) => item.state !== "removed" && item.state !== "test").length} items`;
   const changing = items.filter((item) => item.state === "new" || item.state === "changed" || item.state === "removed");
   if (changing.length === 0) return `${size} · all built`;
   const pulses = new Set(changing.map((item) => (item.pulse === undefined ? undefined : item.pulse.number)));
@@ -322,8 +325,9 @@ function importSummary(items: MarkedItem[]): string {
 
 /**
  * The rows, top to bottom: each module not required by another, and - open - its own items, then the files it
- * imports and the modules it requires, each group under its heading. The module in focus is open - and the module it
- * is required by, so it can be seen - and the rest closed, unless opened or closed by hand.
+ * imports and the module it requires, each group under its heading, the required module's own groups under it in turn.
+ * The module in focus is open - and every module above it, so it can be seen - and the rest closed, unless opened or
+ * closed by hand.
  */
 export function specMapRows(pages: MarkedPage[], state: SpecMapState): MapRow[] {
   const focus = focusOf(pages);
@@ -337,7 +341,8 @@ export function specMapRows(pages: MarkedPage[], state: SpecMapState): MapRow[] 
   const required = new Set(pages.flatMap(below));
   const reveal = state.reveal;
   const rows: MapRow[] = [];
-  const moduleRows = (page: MarkedPage, path: string, depth: number, chain: MarkedPage[]) => {
+  const moduleRows = (page: MarkedPage, path: string, depth: number, above: MarkedPage[]) => {
+    const chain = below(page);
     const holds = (target: MarkedPage | undefined) => target !== undefined && (target === page || chain.includes(target));
     const revealed = reveal !== undefined ? pages.find((entry) => entry.plainFile === reveal.file) : undefined;
     const open = (holds(revealed) ? true : undefined) ?? state.modules.get(path) ?? holds(focus);
@@ -356,11 +361,13 @@ export function specMapRows(pages: MarkedPage[], state: SpecMapState): MapRow[] 
       rows.push({ kind: "import", page, file, key: `import\n${key}`, open: opened, depth });
       if (opened) rows.push(...items.map(item));
     }
-    // Its chain, flattened: each module below it once, without a chain of its own again.
-    if (chain.length > 0) rows.push({ kind: "group", page, key: `group\n${path}\nrequired`, label: `required (${chain.length})`, depth });
-    for (const lower of chain) moduleRows(lower, `${path}\n${lower.plainFile}`, depth + 1, []);
+    // The module it requires, with what that is built from under it in turn - never one already above it.
+    const next = page.requires !== undefined ? byModule.get(page.requires) : undefined;
+    if (next === undefined || next === page || above.includes(next)) return;
+    rows.push({ kind: "group", page, key: `group\n${path}\nrequired`, label: "required (1)", depth });
+    moduleRows(next, `${path}\n${next.plainFile}`, depth + 1, [...above, page]);
   };
-  for (const page of pages) if (!required.has(page)) moduleRows(page, page.plainFile, 0, below(page));
+  for (const page of pages) if (!required.has(page)) moduleRows(page, page.plainFile, 0, []);
   if (reveal !== undefined) {
     const found = rows.find((row) => row.kind === "item" && row.page.plainFile === reveal.file && row.item.key === reveal.key);
     if (found !== undefined) state.cursorKey = found.key;
@@ -521,9 +528,9 @@ function moduleLine(page: MarkedPage, open: boolean, here: boolean, width: numbe
 export function specMapHeader(page: MarkedPage, width: number, style: TranscriptStyle, waiting = ""): string {
   const { built, total } = countOf(page);
   const strip = progressStrip(page, style);
-  const count = total > 0 ? `${built} of ${total} functional spec${total === 1 ? "" : "s"} built · ` : "";
+  const count = total > 0 ? `${built} of ${total} ${total === 1 ? "functionality" : "functionalities"} built · ` : "";
   const status = page.stuck ? style.error(`! ${page.status}`) : page.status;
-  return truncateToWidth(`${style.heading("Regeneration")}  ${basename(page.plainFile)}${strip !== "" ? `   ${strip}` : ""}  ${count}${status}${waiting}`, width);
+  return truncateToWidth(`${style.heading("regen")}  ${basename(page.plainFile)}${strip !== "" ? `   ${strip}` : ""}  ${count}${status}${waiting}`, width);
 }
 /**
  * The minimap: a column down the right edge, a cell for each slice of the page - the most pressing mark in it - and

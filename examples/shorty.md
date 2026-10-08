@@ -54,16 +54,16 @@ Each module is grown on two tracks. The **code** track grows the functional spec
 tests. The **conformance** track writes the black-box tests for what is built and runs the whole suite. A
 conformance pulse starts once the module's code is built, and nothing is built on the module until it passes.
 
-In the regeneration (`ctrl+h`) the second column is the conformance track's:
+In regen (`ctrl+h`) the second column is the conformance track's:
 
 ```
-  ✓ ⊨ │ - A :User: can create a :Link: via `POST /links` with the JSON body `{"url", "alias"?, "expires_at"?}`.
-  ✓ ⊨ │ - Opening `GET /{code}` redirects to the :Link:'s URL with `302` and adds one to its clicks.
+  ✓ ◆ │ - A :User: can create a :Link: via `POST /links` with the JSON body `{"url", "alias"?, "expires_at"?}`.
+  ✓ ◆ │ - Opening `GET /{code}` redirects to the :Link:'s URL with `302` and adds one to its clicks.
   ✓ 6 │ - A :Link: past its `expires_at` returns `410` `gone` on `GET /{code}`, and is not counted.
   ⠋   │ - A :User: can list their :Link: items via `GET /links`, newest first, each with its clicks.
 ```
 
-`⊨` means "satisfies": the conformance tests pass for the functional spec as it reads now. A number is the
+`◆` means the conformance tests pass for the functionality as it reads now. A number is the
 conformance pulse planned to write its tests, and a spinner means they are being written now.
 
 A conformance test that fails is not simply made to pass. A judge first works out what is wrong: the code, the
@@ -83,7 +83,7 @@ turri bind shorty.plain 2 3
 ```
 
 When their code is not built yet, the conformance pulse is scheduled ahead of it. It shows a number in the
-regeneration's second column and starts once the code is built.
+regen's second column and starts once the code is built.
 
 ## 5. Try it
 
@@ -101,9 +101,9 @@ curl -si localhost:3000/<code>
 
 > Codes should be 6 characters, not 7.
 
-That is a change to a definition, not a feature. In the regeneration the definition gets the number of the pulse
+That is a change to a definition, not a feature. In regen the definition gets the number of the pulse
 that changes it. Every functional spec that uses it is grown again with it, and its conformance tests are written
-again: `⊨` dims, then comes back once they pass for the new text.
+again: `◆` turns into a dimmed, hollow `◇`, then fills in again once they pass for the new text.
 
 ## Where next
 

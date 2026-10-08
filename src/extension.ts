@@ -7,6 +7,7 @@ import "./terminal-images.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { conversationCommand, conversationSettled, conversationWriting } from "./grow/conversation-writes.ts";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
@@ -251,11 +252,32 @@ export default function (pi: ExtensionAPI) {
   });
   pi.on("tool_call", (event) => {
     const command = (event.input as { command?: unknown }).command;
-    if (event.toolName !== "bash" || typeof command !== "string") return undefined;
-    const what = selfInvocation(command);
-    if (what === undefined || askedForCommandLine(lastUserMessage)) return undefined;
-    return { block: true, reason: refusal(what) };
+    if (event.toolName === "bash" && typeof command === "string") {
+      const what = selfInvocation(command);
+      if (what !== undefined && !askedForCommandLine(lastUserMessage)) return { block: true, reason: refusal(what) };
+    }
+    markConversationWrite(event.toolCallId, event.toolName, event.input as Record<string, unknown>);
+    return undefined;
   });
+  // What the conversation writes in the project while a pulse's agent runs a command is its own: the audit after that
+  // command leaves it, rather than putting it back as the agent's (conversation-writes.ts).
+  const conversationWrites = new Map<string, () => void>();
+  const markConversationWrite = (id: string, tool: string, input: Record<string, unknown>) => {
+    const path = typeof input.path === "string" ? input.path : undefined;
+    if ((tool === "edit" || tool === "write") && path !== undefined) conversationWrites.set(id, conversationWriting([resolve(cwd, path)]));
+    else if (tool === "bash" || tool === "powershell") conversationWrites.set(id, conversationCommand());
+  };
+  pi.on("tool_result", (event) => {
+    conversationWrites.get(event.toolCallId)?.();
+    conversationWrites.delete(event.toolCallId);
+    return undefined;
+  });
+  const settleConversation = () => {
+    for (const done of conversationWrites.values()) done();
+    conversationWrites.clear();
+    conversationSettled();
+  };
+  pi.on("agent_end", settleConversation);
 
   // A turn's own model calls happen inside pi's agent loop, outside any tool, so the
   // capture is bracketed around the turn itself. Without this, every model call writes
@@ -1482,13 +1504,13 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     );
   };
 
-  // The side panel's two views: /regeneration opens it on the regeneration - the spec, with how far the code has grown
-  // into it - and /pulses on every pulse, growing, planned and finished, and what each grows. /regen is its short form,
-  // and /growth, which once listed the pulses in the chat, opens it too. What the agents did is in each pulse's log.
+  // The side panel's two views: /regen opens it on regen - the spec, with how far the code has grown into it - and
+  // /pulses on every pulse, growing, planned and finished, and what each grows. /regeneration, its old name, and /growth,
+  // which once listed the pulses in the chat, open it too. What the agents did is in each pulse's log.
   for (const [name, description, view] of [
-    ["regeneration", `The regeneration, in the side panel: every item of the spec, built, growing, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
-    ["regen", "The regeneration, in the side panel: the short form of /regeneration.", "map"],
-    ["growth", "The regeneration, in the side panel: the same as /regeneration.", "map"],
+    ["regen", `regen, in the side panel: every item of the spec, built, growing, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
+    ["regeneration", "regen, in the side panel: the same as /regen, by its old name.", "map"],
+    ["growth", "regen, in the side panel: the same as /regen.", "map"],
     ["pulses", `The pulses, in the side panel: every pulse, growing, planned and finished, and what each grows. ${PANEL_KEY} opens the panel too.`, "pulses"],
   ] as const) {
     pi.registerCommand(name, {
@@ -1501,7 +1523,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   }
 
   pi.registerShortcut(PANEL_KEY, {
-    description: "Open the side panel - the regeneration and the pulses - or go back to it",
+    description: "Open the side panel - regen and the pulses - or go back to it",
     handler: async (ctx) => {
       if (!ctx.hasUI) return;
       openPanel(ctx);
@@ -1943,9 +1965,9 @@ export const TURRI_IDENTITY = [
   "- A pulse is one unit of work growing the code - a spec diff grown in a codebase, or its conformance tests. It was",
   "  called a job, and still is in places: the job_id a tool takes is a pulse's id, and parallel-jobs and",
   "  allow-to-stop-jobs in config.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
-  "- The regeneration is the side panel (/regeneration, or ctrl+h): the spec with each item marked built, growing,",
-  "  planned or waiting - and behind it the pulses (/pulses), every pulse growing, planned and finished.",
-  "  It was the job queue, or the job panel.",
+  "- regen is the side panel (/regen, or ctrl+h): the spec with each functionality and item marked built, growing,",
+  "  planned or waiting - and behind it the pulses (/pulses), every pulse growing, planned and finished. Say regen,",
+  "  lowercase. It was the regeneration, the job queue, or the job panel.",
   "- mutate, in a skill's activity, is write_spec_diff: a spec change written and grown in one step.",
   "</turri>",
 ].join("\n");

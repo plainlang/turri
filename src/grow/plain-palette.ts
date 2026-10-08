@@ -91,7 +91,7 @@ const fillWith = (hex: string, text: string, truecolor: boolean): string => {
 };
 
 /**
- * Brand blue, for what is shown to do what its spec says - the regeneration's ⊨. Brand blue itself on a light surface, 9.72:1
+ * Brand blue, for what is shown to do what its spec says - regen's ◆. Brand blue itself on a light surface, 9.72:1
  * on white; on a dark one, where it is illegible (1.97:1 on brand black - see docs/theming.md), its tint 55% of the way
  * to white, 7.34:1 on brand black.
  */
