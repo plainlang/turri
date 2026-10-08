@@ -1,12 +1,12 @@
-# Walkthrough: growing cognio
+# A backend and a web app: cognio
 
-No project of your own yet? Follow this one. You will build **cognio** - a Strava for students, where they post
-their study sessions, follow one another and give each other kudos - from an empty folder to a running backend
-and web app, without writing a line of code or of spec yourself. Along the way you will see everything **turri**
-does: the interview, the specs it writes, the pulses that grow the code, the regeneration that shows how far
-it has grown, and what happens when you change your mind.
+You will build **cognio**, a Strava for students. They post their study sessions, follow one another and give each
+other kudos. It is a FastAPI backend and a React web app, grown from an empty folder without writing a line of code
+or spec yourself.
 
-It takes an hour or so, most of it the agents' time, not yours.
+This example shows everything **turri** does, step by step: the interview, the specs it writes, the pulses that grow
+the code, the regeneration that shows how far it has grown, and what happens when you change your mind. It takes an
+hour or so, most of it the agents' time.
 
 ## 1. Before you start
 
@@ -107,7 +107,7 @@ Regeneration  backend.plain   ██████████▓▓▓▓░░�
 
 `✓` is built, the spinner is growing now, a number is the pulse planned to grow it, and `·` is not planned yet - the
 top line says why. `↑` `↓` move, `enter` opens an item, `p` turns to the pulses themselves, and `ctrl+h` or `esc`
-goes back to the chat. What every mark means: [the side panel](using.md).
+goes back to the chat. What every mark means: [the side panel](../docs/using.md).
 
 ## 5. Try it
 
@@ -159,7 +159,8 @@ A few more things to ask for along the way:
 
 ## Where next
 
-- [Using **turri**](using.md) - the conversation, the skills and tools, the side panel, the command line.
-- [Authoring \*\*\*plain](authoring-plain.md) - how specs are written, and the skills that write them.
-- [Growing](growing.md) - what a pulse does, step by step.
-- [The project config](config.md) - every key of `config.yaml`.
+- [The other examples](README.md) - a CLI, a backend service with conformance tests, an integration.
+- [Using **turri**](../docs/using.md) - the conversation, the skills and tools, the side panel, the command line.
+- [Authoring \*\*\*plain](../docs/authoring-plain.md) - how specs are written, and the skills that write them.
+- [Growing](../docs/growing.md) - what a pulse does, step by step.
+- [The project config](../docs/config.md) - every key of `config.yaml`.

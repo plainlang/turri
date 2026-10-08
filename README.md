@@ -48,9 +48,7 @@ uncomment one to try it; [the project config](docs/config.md) has them all.
 
 Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
 
-No project of your own yet? [**The walkthrough**](docs/walkthrough.md) grows one with you, step by step: cognio,
-a Strava for students, from an empty folder to a running FastAPI backend and React web app - the interview, the
-specs, the pulses, the regeneration, and changing your mind.
+No project of your own yet? Grow one of [**the examples**](examples/README.md) with turri, step by step.
 
 Rather not install Node and the rest? **turri** also runs in Docker, from one image: [turri in Docker](docker/README.md).
 
@@ -246,7 +244,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | | |
 | --- | --- |
 | [Installation](docs/installation.md) | setup and doctor, what turri needs of this machine, **turri** in every `pi`, environment variables |
-| [Walkthrough](docs/walkthrough.md) | cognio, grown step by step from an empty folder: the interview, the specs, the pulses, the regeneration, changing your mind |
+| [Examples](examples/README.md) | projects to grow with turri step by step: cognio from an empty folder, a CLI, a backend service with conformance tests, a REST API integration |
 | [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and the regeneration, choosing models, the command line |
 | [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
