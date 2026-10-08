@@ -54,7 +54,7 @@ import { sectionsOf } from "./state.ts";
 import { inheritedRecord, readRecord, withResourceDigests, writeCodeRecord } from "./records.ts";
 import { changesBetween, sameSpec, serializeTree } from "./spec-steps.ts";
 import { untilUnitTestsReviewed } from "./unit-review.ts";
-import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
+import { configForSpec, inheritModel, modelOnly, modelSpec, splitModelSpec } from "../config.ts";
 import {
   findTestRemovals,
   inventoryTests,
@@ -469,7 +469,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // The debugger's model: its own role's, when the config names one, else a stronger one than the agent it helps -
     // the judge model when the config sets it, else the harness model.
     const projectConfig = configForSpec(tip.plainFile);
-    const debuggerModel = modelSpec(inheritModel(projectConfig.judgeModel, inheritModel(projectConfig.harnessModel, splitModelSpec(options.model))));
+    const debuggerModel = modelSpec(inheritModel(projectConfig.judgeModel, inheritModel(projectConfig.harnessModel, modelOnly(options.model))));
     const untilPassing = async (): Promise<boolean> => {
       for (; followUp < MAX_FOLLOW_UPS; followUp += 1) {
         // A steer that came between its turns: its own turn, then the tests run again.
@@ -580,7 +580,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
         ...(scripts.runOn === "copy" ? { unitScript: scripts.unit! } : {}),
-        model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, splitModelSpec(options.model))),
+        model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, modelOnly(options.model))),
         send: async (next) => {
           response = await ask(executor, next, options.onDelta);
         },

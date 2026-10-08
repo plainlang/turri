@@ -5,14 +5,26 @@ optional: with no file at all, turri finds the testing scripts on its own, turns
 tests on wherever a module has test reqs, and runs on pi's configured model. A project whose
 modules are on different stacks adds a file per module, `config.<module>.yaml`, beside it.
 
-`turri init-config` starts one: the two models, a strong one to talk to and a smaller one to write the code.
-They are an example, not a requirement - any model [pi](https://pi.dev) supports works, signed in any way pi
-supports; what we recommend is that split, a capable model to talk to and a smaller, cheaper one for the coding.
+`turri init-config` starts one: the two models, a strong one to talk to and a smaller one to write the code. It
+asks which vendor's models you use - `--vendor` says it without asking, and with neither, as from a script, it is
+`other`:
 
-```yaml
-harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
-coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
-```
+| vendor | harness-model | coding-model | key pi reads |
+| --- | --- | --- | --- |
+| `anthropic` | `anthropic/claude-opus-5-5` | `anthropic/claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
+| `openai` | `openai/gpt-6-astra` | `openai/gpt-6-luna` | `OPENAI_API_KEY` |
+| `google` | `google/gemini-3.1-pro-preview` | `google/gemini-3.1-flash-lite` | `GEMINI_API_KEY` |
+| `other` | `anthropic/claude-opus-5-5` | `google/gemini-3.1-flash-lite` | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` |
+
+Each is written with how hard it thinks - `harness-model: openai/gpt-6-astra:medium`, `coding-model:
+openai/gpt-6-luna:low` - so the file shows it. The reviews and judges run on the coding model but think medium (see
+[models per role](#models-per-role)).
+
+They are an example, not a requirement - any model [pi](https://pi.dev) supports works, signed in any way pi
+supports; `other` is the starting point for another provider. What we recommend is that split, a capable model to
+talk to and a smaller, cheaper one for the coding. Once written, it says what to do next: the key to set in your
+shell - or `/login` in turri, which pi keeps in `~/.pi/agent/auth.json` - and that the file belongs to that folder:
+turri reads the nearest `config.yaml` upwards from where it starts, so one written anywhere else is not seen.
 
 Below them it puts every other key, commented out - each with what it does, what it is unset, and an example
 value - so you can see what there is and try one by uncommenting it.
@@ -114,6 +126,13 @@ little. A turn limit is the role's own, else `default`'s, else `turn-limit:`, el
 wins over all of them. A `config.<module>.yaml` lays its own `models:` over the project's, role by role - all but
 `chat`, the project's alone.
 
+A role whose thinking nothing names - neither its entry, `default`'s, nor a `:level` on the model it runs on - thinks
+as its kind of work needs: **low** for the agents that do the work (`coding`, `conformance`, `explorer`, `release`),
+which work from specs that leave little to guess and take many turns, and **medium** for the ones that judge
+(`reviewer`, `test-reviewer`, `judge`, `arbiter`, `debugger`, `planner`, `chooser`, `diagnosis`), where a wrong
+call costs pulses. A judging role that falls back on the coding model takes its model alone, not its thinking. The
+conversation keeps its own level, as pi sets it.
+
 The thinking level reaches the model as each provider takes it. OpenAI's models on Bedrock are sent it as their
 reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`) by turri itself, as pi sends them none.
 
@@ -143,8 +162,8 @@ judge-model: google/gemini-3.1-pro:high   # the same, as one string
 harness-model: anthropic/claude-opus-5-5  # a model alone
 ```
 
-What a model leaves out it takes from the one it inherits: `judge-model` from `coding-model`,
-`coding-model` from `harness-model`. So with only a harness model, everything runs on it;
+What a model leaves out it takes from the one it inherits: `judge-model` from `coding-model` - its model, not its
+thinking, which the judging roles have their own of - and `coding-model` from `harness-model`. So with only a harness model, everything runs on it;
 `coding-model: {thinking: low}` renders on the harness model, thinking less.
 
 They are defaults. What is asked for wins over them:

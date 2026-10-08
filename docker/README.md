@@ -23,16 +23,25 @@ In your project's folder, mounted at `/work`:
 
 ```bash
 cd ~/my-project
-docker run --rm -v "$PWD:/work" turri init-config     # once: writes config.yaml
+docker run -it --rm -v "$PWD:/work" turri init-config     # once: asks your vendor, writes config.yaml
 docker run -it --rm -v "$PWD:/work" -e ANTHROPIC_API_KEY -e GEMINI_API_KEY \
   --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
   turri
 ```
 
+To skip the question, name the vendor - `anthropic`, `openai`, `google` or `other`. With nothing to ask, it needs no `-it`:
+
+```bash
+docker run --rm -v "$PWD:/work" turri init-config --vendor anthropic
+```
+
+Without `-it` and without `--vendor`, it does not ask: it writes `other`, a mix of Anthropic and Google.
+
 On Windows, in PowerShell, write `${PWD}` for `$PWD` and end the continued lines with a backtick `` ` `` instead of
 `\`.
 
-- **Keys.** `init-config` picks an Anthropic model to talk to and a Google one for the coding, so both keys are passed.
+- **Keys.** `init-config` says which key its models need - for other, an Anthropic model to talk to and a Google one
+  for the coding, so both keys are passed here.
   An `-e NAME` hands on the variable only if it is set in your shell: export each key first, pass the ones your
   `config.yaml`'s models need, or skip them and type `/login` once **turri** has started. What `/login` saves lives
   in the container and goes with it - mount a folder at `/home/node/.pi` to keep it.

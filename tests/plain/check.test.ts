@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,6 +22,19 @@ const VALID = `***implementation reqs***
 `;
 
 describe("checkPlainFile", () => {
+  it("sees a linked resource written after a check that did not find it - in a folder of its own - and one taken away", () => {
+    const spec = "***definitions***\n\n- :Api: is the API in [resources/provider/openapi.yaml](resources/provider/openapi.yaml).\n\n***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- Call the :Api:.\n";
+    writeFileSync(join(dir, "app.plain"), spec);
+    // Checked before the resource is written - as a check run beside the write that makes it.
+    expect(checkPlainFile(join(dir, "app.plain")).error).toContain("Link resources/provider/openapi.yaml does not exist");
+    mkdirSync(join(dir, "resources", "provider"), { recursive: true });
+    writeFileSync(join(dir, "resources", "provider", "openapi.yaml"), "openapi: 3.1.0\n");
+    expect(checkPlainFile(join(dir, "app.plain")).ok).toBe(true);
+    unlinkSync(join(dir, "resources", "provider", "openapi.yaml"));
+    expect(checkPlainFile(join(dir, "app.plain")).ok).toBe(false);
+  });
+
+
   it("passes a valid spec and reports its functionalities", () => {
     writeFileSync(join(dir, "app.plain"), VALID);
     const result = checkPlainFile(join(dir, "app.plain"));

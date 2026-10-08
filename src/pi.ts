@@ -11,7 +11,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
-import { configModuleOfBuild, inheritModel, readProjectConfig, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
+import { configModuleOfBuild, inheritModel, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
 import { maskToolResults } from "./grow/masking.ts";
 import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool } from "./grow/environment-error.ts";
 import { MODULES_DIR, projectRootOf, sessionsDir } from "./grow/paths.ts";
@@ -43,6 +43,14 @@ let thinkingSource: (() => ThinkingLevel | undefined) | undefined;
  */
 export function inheritThinkingLevel(source: () => ThinkingLevel | undefined): void {
   thinkingSource = source;
+}
+
+/**
+ * How hard an agent thinks: the level the config or the model it is given names; else its role's (ROLE_THINKING) - the
+ * work thinks little, the judgement more; else the conversation's, for an agent with no role.
+ */
+export function agentThinking(named: ThinkingLevel | undefined, role: AgentRole | undefined, conversation: () => ThinkingLevel | undefined): ThinkingLevel | undefined {
+  return named ?? (role !== undefined ? ROLE_THINKING[role] : undefined) ?? conversation();
 }
 
 function inheritedThinkingLevel(): ThinkingLevel | undefined {
@@ -816,9 +824,8 @@ export async function createExecutor(opts: {
     await session.setModel(model);
   }
 
-  // After the model: switching models picks a thinking level of its own. The one given with the
-  // model wins; otherwise the conversation's.
-  const thinking = chosen.thinking ?? inheritedThinkingLevel();
+  // After the model: switching models picks a thinking level of its own.
+  const thinking = agentThinking(chosen.thinking, opts.role, inheritedThinkingLevel);
   if (thinking !== undefined) session.setThinkingLevel(thinking);
 
   if (opts.images !== undefined && opts.images.length > 0) {

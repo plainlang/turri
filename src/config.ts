@@ -99,6 +99,27 @@ export interface ModelChoice {
 export const AGENT_ROLES = ["chat", "chooser", "planner", "diagnosis", "release", "coding", "conformance", "explorer", "reviewer", "test-reviewer", "judge", "arbiter", "debugger"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
+/**
+ * How hard each role thinks when nothing names a level - not the config's `models:`, nor a `:level` on the model it is
+ * given. The agents that do the work - write the code and the tests, explore, release - think little: they work from a
+ * spec that leaves little to guess, and every turn of theirs is many. The ones that judge - review, weigh, plan, find a
+ * cause - think more: a wrong call there costs pulses. The conversation keeps its own level, pi's.
+ */
+export const ROLE_THINKING: Partial<Record<AgentRole, ThinkingLevel>> = {
+  coding: "low",
+  conformance: "low",
+  explorer: "low",
+  release: "low",
+  reviewer: "medium",
+  "test-reviewer": "medium",
+  judge: "medium",
+  arbiter: "medium",
+  debugger: "medium",
+  planner: "medium",
+  chooser: "medium",
+  diagnosis: "medium",
+};
+
 /** The roles on the conversation's side: without their own entry they take the chat's model, not `default`. */
 const CHAT_SIDE: readonly AgentRole[] = ["chat", "chooser", "planner", "diagnosis", "release"];
 
@@ -133,6 +154,15 @@ export function splitModelSpec(spec: string | undefined): ModelChoice {
   return { model: given };
 }
 
+/**
+ * A model spec's model alone, its thinking left behind: what a judging role falls back on when it runs on the coding
+ * model - the model, not how hard the coding agent was told to think. Its role's level (ROLE_THINKING) applies instead.
+ */
+export function modelOnly(spec: string | undefined): ModelChoice {
+  const { model } = splitModelSpec(spec);
+  return model !== undefined ? { model } : {};
+}
+
 /** A choice with what it leaves out taken from the one it inherits from - or that one, when it is not given at all. */
 export function inheritModel(own: ModelChoice | undefined, from: ModelChoice | undefined): ModelChoice | undefined {
   if (own === undefined) return from;
@@ -154,7 +184,9 @@ export function projectModels(config: Pick<ProjectConfig, "harnessModel" | "codi
   const models = config.models ?? {};
   const harness = inheritModel(choiceOf(models.chat), config.harnessModel);
   const coding = inheritModel(choiceOf(models.coding), inheritModel(config.codingModel, inheritModel(choiceOf(models.default), harness)));
-  return { harness, coding, judge: inheritModel(choiceOf(models.judge), inheritModel(config.judgeModel, inheritModel(choiceOf(models.default), coding))) };
+  // The judge falls back on the coding model, not on how hard it thinks: a judging role thinks as ROLE_THINKING has it.
+  const codingModel = coding?.model !== undefined ? { model: coding.model } : undefined;
+  return { harness, coding, judge: inheritModel(choiceOf(models.judge), inheritModel(config.judgeModel, inheritModel(choiceOf(models.default), codingModel))) };
 }
 
 /** A role entry's model and thinking alone. */

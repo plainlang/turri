@@ -22,12 +22,13 @@ mkdir ~/cognio && cd ~/cognio
 turri init-config
 ```
 
-`init-config` writes a `config.yaml` with the two models **turri** works with - and, below them, every other key
-commented out with what it does, to read and try later:
+`init-config` asks which vendor's models you use - Anthropic, OpenAI, Google, or other - and writes a `config.yaml`
+with two of theirs, the two models **turri** works with - and, below them, every other key commented out with what
+it does, to read and try later. Choose other, and it is a mix:
 
 ```yaml
-harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
-coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
+harness-model: anthropic/claude-opus-5-5:medium  # you talk to it: it writes the specs and plans the work
+coding-model: google/gemini-3.1-flash-lite:low   # it writes the code
 ```
 
 The one you talk to does the thinking - it interviews you, writes the specs and plans the work - so it is worth a
@@ -36,7 +37,8 @@ strong one. The coding agents work from specs that leave little to guess, so a s
 These two are only an example: you are not tied to a vendor. **turri** runs on [pi](https://pi.dev), so any model
 pi supports works, signed in any way pi supports - an API key, `/login` with a subscription, a cloud account such
 as Amazon Bedrock. Keep the split - a capable model to talk to, a smaller one for the coding - and change the two
-lines to the models you have. Sign in to their providers, then start **turri**:
+lines to the models you have. `init-config` tells you which keys to set, or to `/login`. Sign in to their providers,
+then start **turri** - in this folder: it reads the `config.yaml` here, not one anywhere else:
 
 ```bash
 export ANTHROPIC_API_KEY=...   # or skip these, and type /login once turri has started

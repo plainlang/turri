@@ -97,9 +97,52 @@ function hasScheme(target: string): boolean {
 function linkedFile(target: string, dirs: string[]): string {
   for (const dir of dirs) {
     const candidate = resolve(dir, target);
+    consulted?.add(candidate);
     if (existsSync(candidate)) return candidate;
   }
+  consulted?.add(resolve(target));
   return target;
+}
+
+/**
+ * The linked files a parse looked for, found or not, while one runs: a kept parse holds while each is as it was - a
+ * resource written after a parse that did not find it is seen, though it is in a folder the fingerprint does not walk.
+ */
+let consulted: Set<string> | undefined;
+
+/** What the linked files a parse looked for are now: there or not, their size and time. */
+function linkedStamp(paths: string[]): string {
+  return paths
+    .map((path) => {
+      try {
+        const stat = statSync(path);
+        return `${path}:${stat.size}:${stat.mtimeMs}`;
+      } catch {
+        return `${path}:-`;
+      }
+    })
+    .join("\n");
+}
+
+/** A parse, with every linked file it looked for gathered as it ran. */
+function parseNoting(run: () => ParsedModule): { parsed?: ParsedModule; error?: unknown; linked: string[] } {
+  const outer = consulted;
+  const mine = new Set<string>();
+  consulted = mine;
+  try {
+    return { parsed: run(), linked: [...mine] };
+  } catch (error) {
+    return { error, linked: [...mine] };
+  } finally {
+    // A parse inside another's - an import, a required module - is part of what the outer one looked for too.
+    if (outer !== undefined) for (const path of mine) outer.add(path);
+    consulted = outer;
+  }
+}
+
+/** A kept parse that still holds: nothing it could read has changed, the linked files it looked for included. */
+function stillHolds(kept: KeptParse | undefined, fingerprint: string | undefined): kept is KeptParse {
+  return kept !== undefined && fingerprint !== undefined && kept.fingerprint === fingerprint && linkedStamp(kept.linked) === kept.linkedStamp;
 }
 
 export function checkSectionForLinkedResources(section: AnyNode, dirs: string[] = []): void {
@@ -766,21 +809,16 @@ export function plainFileParser(
   if (activeCache === undefined) {
     // Between calls: the parse from before, while nothing it could have read has changed since.
     const fingerprint = filesFingerprint(templateDirs);
-    const kept = fingerprint !== undefined ? lastParses.get(key) : undefined;
-    if (kept !== undefined && kept.fingerprint === fingerprint) {
+    const kept = lastParses.get(key);
+    if (stillHolds(kept, fingerprint)) {
       if (kept.error !== undefined) throw kept.error;
       return structuredClone(kept.parsed!);
     }
-    let parsed: ParsedModule;
-    try {
-      parsed = parseModule(plainSourceFileName, templateDirs, new Map(), options);
-    } catch (error) {
-      // A spec that does not parse does not parse again until it changes: it is not parsed again to say so.
-      if (fingerprint !== undefined) remember(key, { fingerprint, error });
-      throw error;
-    }
-    if (fingerprint !== undefined) remember(key, { fingerprint, parsed: structuredClone(parsed) });
-    return parsed;
+    const result = parseNoting(() => parseModule(plainSourceFileName, templateDirs, new Map(), options));
+    // A spec that does not parse does not parse again until it, or a file it links, changes: it is not parsed again to say so.
+    if (fingerprint !== undefined) remember(key, { fingerprint, linked: result.linked, linkedStamp: linkedStamp(result.linked), ...(result.error !== undefined ? { error: result.error } : { parsed: structuredClone(result.parsed!) }) });
+    if (result.error !== undefined) throw result.error;
+    return result.parsed!;
   }
   let parsed = activeCache.get(key);
   if (parsed === undefined) {
@@ -791,18 +829,16 @@ export function plainFileParser(
       fingerprint = filesFingerprint(templateDirs);
       activeCache.fingerprints.set(dirsKey, fingerprint);
     }
-    const kept = fingerprint !== undefined ? lastParses.get(key) : undefined;
-    if (kept !== undefined && kept.fingerprint === fingerprint) {
+    const kept = lastParses.get(key);
+    if (stillHolds(kept, fingerprint)) {
       if (kept.error !== undefined) throw kept.error;
       parsed = structuredClone(kept.parsed!);
     } else {
-      try {
-        parsed = parseModule(plainSourceFileName, templateDirs, activeCache.modules, options);
-      } catch (error) {
-        if (fingerprint !== undefined) remember(key, { fingerprint, error });
-        throw error;
-      }
-      if (fingerprint !== undefined) remember(key, { fingerprint, parsed: structuredClone(parsed) });
+      const modules = activeCache.modules;
+      const result = parseNoting(() => parseModule(plainSourceFileName, templateDirs, modules, options));
+      if (fingerprint !== undefined) remember(key, { fingerprint, linked: result.linked, linkedStamp: linkedStamp(result.linked), ...(result.error !== undefined ? { error: result.error } : { parsed: structuredClone(result.parsed!) }) });
+      if (result.error !== undefined) throw result.error;
+      parsed = result.parsed!;
     }
     activeCache.set(key, parsed);
   }
@@ -832,14 +868,23 @@ let activeCache: (Map<string, ParsedModule> & { modules: Map<string, ParsedModul
 
 /**
  * Parses kept between calls, each with what the files it could have read were when it was made: every file directly
- * in the template folders and the current one - its name, size and modification time, and a .plain file's text.
+ * in the template folders and the current one - its name, size and modification time, and a .plain file's text - and
+ * every linked file it looked for, there or not.
  * The same fingerprint, the same parse: a spec is parsed again only once something it could read has changed. A
  * copy is handed out, so no caller can change what is kept. Bounded, oldest out first.
  */
-const lastParses = new Map<string, { fingerprint: string; parsed?: ParsedModule; error?: unknown }>();
+interface KeptParse {
+  fingerprint: string;
+  /** The linked files it looked for, and what they were then. */
+  linked: string[];
+  linkedStamp: string;
+  parsed?: ParsedModule;
+  error?: unknown;
+}
+const lastParses = new Map<string, KeptParse>();
 const KEPT_PARSES = 200;
 
-function remember(key: string, entry: { fingerprint: string; parsed?: ParsedModule; error?: unknown }): void {
+function remember(key: string, entry: KeptParse): void {
   lastParses.delete(key);
   lastParses.set(key, entry);
   while (lastParses.size > KEPT_PARSES) lastParses.delete(lastParses.keys().next().value!);

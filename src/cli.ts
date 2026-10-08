@@ -92,7 +92,7 @@ const ALIASES: Record<string, string> = {
 
 /** Getting the machine ready, and checking it is. */
 const SETUP_COMMANDS: Record<string, string> = {
-  "init-config": "write a quick start config.yaml here: a strong model to talk to, a smaller one to write the code",
+  "init-config": "write a quick start config.yaml here, from the vendor you use: a strong model to talk to, a smaller one to write the code",
   setup: "get this machine ready: check everything, and offer to load turri into every pi",
   doctor: "check what turri needs - in a project, what it needs of this machine - without changing anything",
 };
@@ -129,7 +129,7 @@ if (command === "chat") chat(rest);
 
 if (command === "init-config") {
   const { main } = await import("./init-config.ts");
-  process.exit(main(rest));
+  process.exit(await main(rest));
 }
 
 if (command in SETUP_COMMANDS) {

@@ -26,19 +26,28 @@ Then start it in your project, signed in to your model providers:
 
 ```bash
 cd ~/my-project
-turri init-config
-export ANTHROPIC_API_KEY=...   # a key for each provider you use - or skip these,
-export GEMINI_API_KEY=...      # and type /login in turri once it has started
+turri init-config              # asks which vendor you use: Anthropic, OpenAI, Google, or other
+export ANTHROPIC_API_KEY=...   # the key it names - or skip it, and type /login in turri once it has started
 turri
 ```
 
-`turri init-config` writes the project's `config.yaml`. It sets two models - a capable one you talk to, which writes
-the specs and plans the work, and a smaller, cheaper one that writes the code:
+`turri init-config` asks which vendor's models you use and writes the project's `config.yaml` with two of theirs - a
+capable one you talk to, which writes the specs and plans the work, and a smaller, cheaper one that writes the code.
+For Anthropic:
 
 ```yaml
-harness-model: anthropic/claude-opus-5-5     # you talk to it: it writes the specs and plans the work
-coding-model: google/gemini-3.1-flash-lite   # it writes the code - or openai/gpt-6-luna
+harness-model: anthropic/claude-opus-5-5:medium  # you talk to it: it writes the specs and plans the work
+coding-model: anthropic/claude-haiku-5-5:low     # it writes the code
 ```
+
+To skip the question, name the vendor - `anthropic`, `openai`, `google` or `other`:
+
+```bash
+turri init-config --vendor anthropic
+```
+
+It then says which key to set, or to `/login`, and where the file is: **turri** reads `config.yaml` from the folder
+it starts in, or the nearest one above it - so run `init-config` in your project, not beside your clone of **turri**.
 
 These two are only an example. **turri** runs on [pi](https://pi.dev), so any model pi supports works - Anthropic,
 OpenAI, Google, Amazon Bedrock, OpenRouter, a local one - signed in any way pi supports: an API key, `/login`

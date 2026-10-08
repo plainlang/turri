@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { budgetFor, projectModels, readProjectConfig, roleModel, roleTurnLimitMs } from "../src/config.ts";
+import { AGENT_ROLES, budgetFor, modelOnly, projectModels, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs } from "../src/config.ts";
 
 let root: string;
 beforeEach(() => {
@@ -57,11 +57,12 @@ describe("the project's config.yaml", () => {
     expect(models.judge).toEqual({ model: "google/gemini-3.1-flash-lite", thinking: "xhigh" });
     expect(modelSpec(models.judge)).toBe("google/gemini-3.1-flash-lite:xhigh");
 
-    // Not given at all: the judge is the coding model, the coding model the harness model.
+    // Not given at all: the judge is the coding model - its model alone, thinking as its role does - the coding model
+    // the harness model, its thinking too.
     writeFileSync(join(root, "config.yaml"), "harness-model: google/gemini-3.1-pro:medium\n");
     const inherited = projectModels(readProjectConfig(root));
     expect(inherited.coding).toEqual({ model: "google/gemini-3.1-pro", thinking: "medium" });
-    expect(inherited.judge).toEqual(inherited.coding);
+    expect(inherited.judge).toEqual({ model: "google/gemini-3.1-pro" });
 
     // A model id with a colon of its own is not a thinking level.
     expect(splitModelSpec("amazon-bedrock/anthropic.claude-v2:1")).toEqual({ model: "amazon-bedrock/anthropic.claude-v2:1" });
@@ -170,6 +171,31 @@ describe("conformance-budget:", () => {
     expect(readProjectConfig(root).conformanceBudget).toBeUndefined();
     writeFileSync(join(root, "config.yaml"), "conformance-tests: chosen\n");
     expect(readProjectConfig(root).conformanceBudget).toBeUndefined();
+  });
+});
+
+describe("how hard each role thinks when nothing names a level", () => {
+  it("has the agents that do the work think low, the ones that judge medium, and leaves the conversation its own", () => {
+    for (const role of ["coding", "conformance", "explorer", "release"] as const) expect(ROLE_THINKING[role], role).toBe("low");
+    for (const role of ["reviewer", "test-reviewer", "judge", "arbiter", "debugger", "planner", "chooser", "diagnosis"] as const) expect(ROLE_THINKING[role], role).toBe("medium");
+    expect(ROLE_THINKING.chat).toBeUndefined();
+    expect(AGENT_ROLES.filter((role) => role !== "chat" && ROLE_THINKING[role] === undefined)).toEqual([]);
+  });
+
+  it("is what an agent starts with: below a level the config or its model names, above the conversation's", async () => {
+    const { agentThinking } = await import("../src/pi.ts");
+    const conversation = () => "high" as const;
+    expect(agentThinking(undefined, "coding", conversation)).toBe("low");
+    expect(agentThinking(undefined, "judge", conversation)).toBe("medium");
+    expect(agentThinking("xhigh", "coding", conversation)).toBe("xhigh");
+    expect(agentThinking(undefined, undefined, conversation)).toBe("high");
+  });
+
+  it("gives a judging role falling back on the coding model the model alone, not how hard the coding agent thinks", () => {
+    expect(modelOnly("google/gemini-3.1-flash-lite:low")).toEqual({ model: "google/gemini-3.1-flash-lite" });
+    expect(modelOnly("google/gemini-3.1-flash-lite")).toEqual({ model: "google/gemini-3.1-flash-lite" });
+    expect(modelOnly(":high")).toEqual({});
+    expect(modelOnly(undefined)).toEqual({});
   });
 });
 

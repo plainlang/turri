@@ -68,7 +68,7 @@ import { reportSpecConflict } from "./activity.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import { ARBITER_AFTER, arbitrateReview, dismissedNote, REVIEW_LIMIT } from "./arbiter.ts";
 import { sectionsOf, type RequiredSpec } from "./state.ts";
-import { configForSpec, inheritModel, modelSpec, splitModelSpec } from "../config.ts";
+import { configForSpec, inheritModel, modelOnly, modelSpec, splitModelSpec } from "../config.ts";
 import { defaultBuildDir, modulesRoot, testsDirUnder, projectDirOf } from "./paths.ts";
 import { buildConformancePrompt, functionalitiesByModule, moduleSection, section, sectionModules, specChangeBlock, type SectionModules } from "./prompt.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
@@ -209,7 +209,7 @@ export async function renderConformanceTests(
   const buildDir = resolve(options.buildDir ?? defaultBuildDir(moduleName, projectDirOf(options.plainFile)));
   // The agents that give a verdict - the judge, the test review - may run on a stronger model than the rest.
   const judgeModel =
-    options.judgeModel ?? modelSpec(inheritModel(configForSpec(options.plainFile).judgeModel, splitModelSpec(options.model)));
+    options.judgeModel ?? modelSpec(inheritModel(configForSpec(options.plainFile).judgeModel, modelOnly(options.model)));
   const conformanceDir = resolve(options.conformanceDir ?? conformanceDirFor(moduleName, modulesRoot(projectDirOf(options.plainFile))));
   const stage = (label: string) => {
     if (!options.dryRun) reportStage(`${forChange ? unitOf(moduleName) : unitOf(moduleName, frid)}: ${label}`);
