@@ -103,6 +103,8 @@ function testsText(item: MarkedItem, style: TranscriptStyle, now: number): strin
   // A test req's own mark says it: it is the conformance tests' alone.
   if (item.state === "test") return " ";
   if (item.testing === true) return style.accent(spinner(now));
+  // Planned, as the mark beside it is: the pulse's number, dimmer than the spinner.
+  if (item.testsPulse !== undefined) return style.muted(String(item.testsPulse.number));
   if (item.tests === "now") return (style.conforms ?? style.success ?? style.added)(CONFORMS);
   if (item.tests === "older") return style.muted(CONFORMS);
   if (item.tests === "removed") return style.error(strike(CONFORMS));
@@ -444,7 +446,9 @@ export function specMapLines(
     underImport = false;
     rowStarts.push(lines.length);
     const mark: LineMark = item.state === "removed" ? "removed" : item.mark;
-    const gutter = `${pointer}${markText(item, style, now)} ${testsText(item, style, now)} ${BAR}`;
+    // The tests' column is one wide; a pulse numbered past 9 takes the space after it.
+    const tests = testsText(item, style, now);
+    const gutter = `${pointer}${markText(item, style, now)} ${tests}${" ".repeat(Math.max(0, 2 - visibleWidth(tests)))}${BAR}`;
     const note = annotation(item, page, jobs, style);
     const room = Math.max(10, width - GUTTER - BAR.length - (note === "" ? 0 : visibleWidth(note) + 3));
     const first = firstLine(item.text);

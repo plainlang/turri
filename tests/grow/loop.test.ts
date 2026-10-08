@@ -743,6 +743,15 @@ describe("the work loop", () => {
       const planned = loop.status()[0]!.planned;
       expect(status!.planned.map((job) => job.waitsFor)).toEqual([undefined, undefined, undefined, ["1", "2"]]);
       expect(planned.map((job) => `${job.track} ${job.title}`)).toEqual(["code Say goodbye.", "code Say thanks.", "code Say sorry.", "conformance fs 1, fs 2", "conformance fs 4"]);
+      // The regeneration numbers them among the code's pulses, by the functional specs they are for.
+      expect(loop.mapPlan().codebases[0]!.pulses.map((pulse) => [pulse.number, pulse.track, pulse.specs])).toEqual([
+        [1, "code", undefined],
+        [2, "code", undefined],
+        [3, "code", undefined],
+        [4, "code", undefined],
+        [5, "conformance", ["Say hello.", "Say goodbye."]],
+        [6, "conformance", ["Say sorry."]],
+      ]);
       code.gate.release!();
       await loop.drain();
       expect(order).toEqual(["code 1", "code 2", "code 3", "code 4", "tests 1,2,4"]);

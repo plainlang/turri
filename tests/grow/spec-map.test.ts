@@ -238,6 +238,27 @@ describe("the plan laid over the map", () => {
     expect(marked!.items.every((entry) => entry.testing === true)).toBe(true);
   });
 
+  it("numbers beside each functional spec the conformance pulse planned to write its tests - planned from trees, or scheduled ahead of its code", () => {
+    const first = page(
+      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.\n  - With a password.", "- Log out."] }),
+      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.\n  - With a password.", "- Log out."] }),
+    );
+    const spec = (markdown: string, frid: string) => JSON.stringify({ acceptance_tests: [], frid, markdown });
+    const planned: MapPulse = {
+      number: 4, title: "fs 1", track: "conformance", running: false, rowId: "planned-app-1",
+      before: `["${FUNCTIONAL_REQUIREMENTS}"]\n`,
+      after: `["${FUNCTIONAL_REQUIREMENTS}"]\n${spec("- Register.", "1")}\n`,
+    };
+    // Scheduled by bind before its code is built: no trees, its functional specs named by their first line.
+    const scheduled: MapPulse = { number: 12, title: "Log in.", track: "conformance", running: false, rowId: "planned-app-2", before: "", after: "", specs: ["Log in."] };
+    const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [planned, scheduled] })] });
+    expect(marked!.items.map((entry) => [entry.text.split("\n")[0], entry.testsPulse?.number])).toEqual([["- Register.", 4], ["- Log in.", 12], ["- Log out.", undefined]]);
+    const lines = specMapLines([marked!], createSpecMapState(), 100, style).lines;
+    // Dimmed in the tests' column, as a planned mark is - a number past 9 taking the space before the bar.
+    expect(lines.find((line) => line.includes("- Register."))).toMatch(/✓ 4 │ - Register\./);
+    expect(lines.find((line) => line.includes("- Log in."))).toMatch(/✓ 12│ - Log in\./);
+  });
+
   it("marks a test req from the conformance track: followed by the tests, being written for, or not yet - none where nothing is tested", () => {
     const spec = tree({ [TEST_REQUIREMENTS]: ["- Use pytest.", "- Run against the sandbox."], [FUNCTIONAL_REQUIREMENTS]: ["- Say hello."] });
     const record = tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Say hello."] });

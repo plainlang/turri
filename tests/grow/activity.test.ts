@@ -98,13 +98,13 @@ describe("tool calls as one line", () => {
 });
 
 describe("the panel", () => {
-  it("counts what finished below the queue, newest first, each with its mark, in one line - ctrl+o or not - and is gone when nothing runs or waits", async () => {
+  it("counts what finished, newest first, each with its mark, in one line - ctrl+o or not - and is gone when nothing runs", async () => {
     const jobs = createJobRegistry();
     const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(first.id);
     const second = jobs.start({ kind: "bind", summary: "y", module: "backend", run: async () => ({ report: "", details: { passed: false } }) });
     await jobs.wait(second.id);
-    // Nothing running or waiting: no panel at all.
+    // Nothing running: no panel at all.
     expect(jobPanelLines(jobs.list())).toEqual([]);
     jobs.start({ kind: "regrow", summary: "z", module: "backend", run: () => new Promise(() => {}) });
     const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };

@@ -68,42 +68,28 @@ describe("jobs that write the same module", () => {
     expect(next.status).toBe("running");
   });
 
-  it("show a single queued job on its own line", () => {
+  it("leave what waits out of the panel, compact or expanded - the side panel lists the queue", () => {
     const jobs = createJobRegistry();
     const { run } = gated();
-    const a = jobs.start({ kind: "render", summary: "app 3", lanes: ["m"], run: run("a") });
-    const b = jobs.start({ kind: "render", summary: "app 4", lanes: ["m"], run: run("b") });
-    const lines = jobPanelLines(jobs.list());
-    expect(lines).toContain("  queued  app 4");
-    expect(lines.join("\n")).not.toContain(b.id);
-    expect(lines.join("\n")).not.toContain(`after ${a.id}`);
-  });
-
-  it("count the whole queue in one line while compact, so none of it goes missing", () => {
-    const jobs = createJobRegistry();
-    const { run } = gated();
-    for (let frid = 3; frid <= 12; frid += 1) {
+    for (let frid = 3; frid <= 6; frid += 1) {
       jobs.start({ kind: "render", summary: `app ${frid}`, lanes: ["m"], run: run(`${frid}`) });
     }
-    const lines = jobPanelLines(jobs.list());
-    expect(lines).toContain("  queued (9): app 4 → app 5 → app 6 → app 7 → app 8 → app 9 → app 10 → app 11 → app 12");
-    // The queue counted is all of it: ctrl+o has no more of it to show.
-    expect(lines.at(-1)).toContain("ctrl+o expand · ctrl+h to see what each pulse builds");
-    expect(lines.length).toBeLessThanOrEqual(10);
+    for (const lines of [jobPanelLines(jobs.list()), jobPanelLines(jobs.list(), { expanded: true })]) {
+      expect(lines.join("\n")).toContain("app 3");
+      expect(lines.join("\n")).not.toContain("queued");
+      expect(lines.join("\n")).not.toMatch(/app [456]/);
+    }
+    expect(jobPanelLines(jobs.list(), { expanded: true }).at(-1)).toBe("  ctrl+o to collapse the trace · ctrl+h to view the regeneration panel");
+    expect(jobPanelLines(jobs.list()).at(-1)).toBe("  ctrl+o to expand the trace · ctrl+h to view the regeneration panel");
+    // A blank line sets the help apart from the trace above it.
+    expect(jobPanelLines(jobs.list()).at(-2)).toBe("");
   });
 
-  it("show all activity while expanded, the queue still counted in one line", () => {
+  it("draw no panel while pulses only wait", () => {
     const jobs = createJobRegistry();
     const { run } = gated();
-    const ids = [3, 4, 5, 6].map(
-      (frid) => jobs.start({ kind: "render", summary: `app ${frid}`, lanes: ["m"], run: run(`${frid}`) }).id,
-    );
-    const lines = jobPanelLines(jobs.list(), { expanded: true });
-    expect(lines).toContain("  queued (3): app 4 → app 5 → app 6");
-    expect(lines.join("\n")).not.toContain(ids[3]!);
-    expect(lines.filter((line) => line.startsWith("  queued  "))).toHaveLength(0);
-    // Expanded, the help says how to collapse and where to see more - not the side panel's own keys, which it shows itself.
-    expect(lines.at(-1)).toContain("ctrl+o collapse · ctrl+h to see what each pulse builds");
-    expect(lines.join("\n")).not.toContain("in the side panel:");
+    jobs.start({ kind: "render", summary: "app 3", lanes: ["m"], run: run("a") });
+    const waiting = jobs.list().map((job) => ({ ...job, status: "queued" as const }));
+    expect(jobPanelLines(waiting)).toEqual([]);
   });
 });

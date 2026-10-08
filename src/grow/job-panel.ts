@@ -5,16 +5,14 @@ import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
  * The live panel above the editor while background work runs.
  *
  * One block per running job: what it is and how long it has been going, the stage it is
- * at, what is happening this second, and the last things its agents did. Queued jobs follow.
- * It disappears when nothing is running or waiting - the finished job announces itself in
- * the transcript instead.
+ * at, what is happening this second, and the last things its agents did. What waits is not
+ * in it - the side panel lists the queue. It disappears when nothing is running - the finished
+ * job announces itself in the transcript instead.
  *
  * It is drawn as a component rather than handed over as lines, because pi cuts a list of
- * lines off at ten, and a panel that silently drops the end of the queue is worse than
- * none. Instead it sizes itself: compact by default, so the whole queue is always
- * accounted for even when it is only counted, and the agents' trace in full while tool output is
- * expanded - pi's own ctrl+o, which the person already uses to see more of what the agent did.
- * The queue and what finished stay counted either way: the side panel lists them.
+ * lines off at ten. Instead it sizes itself: compact by default, and the agents' trace in full
+ * while tool output is expanded - pi's own ctrl+o, which the person already uses to see more of
+ * what the agent did. What finished stays counted either way: the side panel lists it.
  */
 
 export const JOB_PANEL_KEY = "turri-jobs";
@@ -156,15 +154,13 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   const expanded = options.expanded === true;
   const inOrder = [...jobs].sort((a, b) => a.sequence - b.sequence);
   const running = inOrder.filter((job) => job.status === "running");
-  const queued = inOrder.filter((job) => job.status === "queued");
-  // Nothing running or waiting: no panel - what finished is in the side panel.
-  if (running.length === 0 && queued.length === 0) return [];
+  // Nothing running: no panel - what waits and what finished are in the side panel.
+  if (running.length === 0) return [];
   const finished = inOrder
     .filter((job) => (job.status === "succeeded" || job.status === "failed" || job.status === "stopped") && job.replacedBy === undefined)
     .sort((a, b) => (b.finishedAt ?? b.sequence) - (a.finishedAt ?? a.sequence) || b.sequence - a.sequence);
 
   const lines: string[] = [];
-  let hidden = false;
 
   for (const job of running) {
     if (lines.length > 0) lines.push("");
@@ -180,7 +176,6 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
       if (!expanded) {
         const more = text.length > 1 ? `  (+${text.length - 1} line${text.length === 2 ? "" : "s"} · ctrl+o)` : "";
         lines.push(`    ${job.building.label}${onIt}: ${(text[0] ?? "").trim()}${more}`);
-        if (text.length > 1) hidden = true;
       } else {
         lines.push(`    ${job.building.label}${onIt}:`);
         for (const line of text.slice(0, EXPANDED_SPEC_LINES)) lines.push(`      │ ${line}`);
@@ -188,25 +183,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
       }
     }
     const activity = expanded ? job.activity : job.activity.slice(-COMPACT_ACTIVITY);
-    if (activity.length < job.activity.length) hidden = true;
     for (const line of activity) lines.push(`      ${line}`);
     if (job.now !== undefined) {
       const seconds = Math.max(0, Math.round((now - job.now.since) / 1000));
       lines.push(`      … ${job.now.label} · ${seconds}s`);
-    }
-  }
-
-  if (queued.length > 0) {
-    if (lines.length > 0) lines.push("");
-    // The queue is the same whether ctrl+o expands the agents' trace or not: the side panel lists it in full.
-    if (queued.length === 1) {
-      for (const job of queued) {
-        lines.push(`  queued  ${pulseName(job)}`);
-        if (job.note !== undefined) lines.push(`          ${job.note}`);
-      }
-    } else {
-      // Counted, then named in order - so however narrow the line gets, the number is there.
-      lines.push(`  queued (${queued.length}): ${queued.map(pulseName).join(" → ")}`);
     }
   }
 
@@ -220,10 +200,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   // Always a line of help: how to see more here, and how to inspect the jobs in the side panel.
   if (options.hints === false) {
     // The side panel shows it all already, and says its own keys.
-  } else if (expanded) {
-    lines.push(`  ctrl+o collapse · ${PANEL_KEY} to see what each pulse builds`);
   } else {
-    lines.push(`  ctrl+o ${hidden ? "for the agents' full trace" : "expand"} · ${PANEL_KEY} to see what each pulse builds`);
+    // Set apart from the trace above it.
+    lines.push("");
+    lines.push(`  ctrl+o to ${expanded ? "collapse" : "expand"} the trace · ${PANEL_KEY} to view the regeneration panel`);
   }
   return lines;
 }

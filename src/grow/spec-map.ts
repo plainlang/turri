@@ -83,6 +83,8 @@ export interface MarkedItem extends MapItem {
   rolledBack?: number;
   /** A conformance pulse is writing its tests now. */
   testing?: boolean;
+  /** The conformance pulse planned to write its tests, not running yet: what its provisional number is read from. */
+  testsPulse?: MapPulse;
 }
 
 export interface MarkedPage extends MapPage {
@@ -424,6 +426,15 @@ function linesOf(pulse: MapPulse) {
   return seen;
 }
 
+/** A functional spec's first line, as a conformance pulse scheduled ahead of its code names it. */
+const headline = (text: string) => (text.trim().split("\n")[0] ?? "").replace(/^-\s*/, "").trim();
+
+/** Whether a conformance pulse writes tests for a functional spec: by its trees, or - scheduled, with none - by the specs it names. */
+function writesTestsFor(pulse: MapPulse, item: MapItem): boolean {
+  if (pulse.specs !== undefined) return pulse.specs.some((text) => headline(text) === headline(item.text));
+  return linesOf(pulse).testing.has(item.text.trim());
+}
+
 /** Whether a pulse grows an item: brings its line now, or takes out its line in the record. */
 function grows(pulse: MapPulse, item: MapItem): boolean {
   if (pulse.track !== "code") return false;
@@ -475,7 +486,12 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
       const testing = conformance !== undefined && item.section === FUNCTIONAL_REQUIREMENTS && item.state !== "removed" && (() => {
         return linesOf(conformance).testing.has(item.text.trim());
       })();
-      const extra = testing ? { testing: true } : {};
+      // Not being tested now: the conformance pulse planned to - its tests written for it as it reads now, or not.
+      const testsPulse =
+        testing || item.section !== FUNCTIONAL_REQUIREMENTS || item.state === "removed"
+          ? undefined
+          : codebase?.pulses.find((pulse) => !pulse.running && pulse.track === "conformance" && writesTestsFor(pulse, item));
+      const extra = testing ? { testing: true } : testsPulse !== undefined ? { testsPulse } : {};
       if (item.state === "test") return { ...item, ...testReqMark(item, codebase, page), ...extra };
       if (item.state === "built") return { ...item, mark: "built", ...extra };
       const pulse = codebase?.pulses.find((candidate) => grows(candidate, item));

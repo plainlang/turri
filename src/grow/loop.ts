@@ -291,6 +291,11 @@ export interface MapPulse {
   /** The trees it goes between, serialized. */
   before: string;
   after: string;
+  /**
+   * A conformance pulse scheduled ahead of its code - not planned, so with no trees: the texts of the functional specs
+   * it writes tests for.
+   */
+  specs?: string[];
 }
 
 /** A codebase as the regeneration reads the loop. */
@@ -1029,7 +1034,7 @@ export function createWorkLoop(options: {
   const statusOf = (state: ModuleState): ModuleStatus => describe(state).status;
 
   /** A codebase's status, and beside each job it lists as planned, the planned job it is - none for one being planned or scheduled. */
-  const describe = (state: ModuleState): { status: ModuleStatus; jobs: Array<PlannedJob | undefined> } => {
+  const describe = (state: ModuleState): { status: ModuleStatus; jobs: Array<PlannedJob | undefined>; scheduled: Array<{ title: string; specs: string[] } | undefined> } => {
     // What runs next: the code's jobs, then the conformance tests' - the module's, once its code is built - the running job first.
     const running = state.running?.planned;
     const own = (jobs: PlannedJob[] | undefined) => (jobs ?? []).filter((job) => job !== running);
@@ -1090,7 +1095,7 @@ export function createWorkLoop(options: {
       ...(state.running === undefined && state.why !== undefined ? { why: state.why } : {}),
       ...(state.running === undefined && state.startOver !== undefined ? { startOver: state.startOver } : {}),
     };
-    return { status, jobs: (state.running !== undefined ? listed.slice(1) : listed).map((item) => item.job) };
+    return { status, jobs: (state.running !== undefined ? listed.slice(1) : listed).map((item) => item.job), scheduled: (state.running !== undefined ? listed.slice(1) : listed).map((item) => (item.entry.waitsFor !== undefined ? { title: item.entry.title, specs: item.entry.cases.add.map((touched) => touched.text) } : undefined)) };
   };
 
   /** Look after a codebase - its chain up to it - from now on; says its state. */
@@ -1323,18 +1328,20 @@ export function createWorkLoop(options: {
         codebases: order.map((key): MapCodebase => {
           const state = modules.get(key)!;
           const tip = tipEntry(state);
-          const { jobs } = describe(state);
+          const { jobs, scheduled } = describe(state);
           const running = state.running;
           let next = running?.number ?? state.pulses ?? 0;
           const pulses: MapPulse[] = [
             ...(running !== undefined
               ? [{ number: running.number, title: running.planned.title, track: running.planned.track, running: true, rowId: running.jobId, before: serializeTree(running.from), after: serializeTree(running.after) }]
               : []),
-            ...jobs.flatMap((job, index) =>
-              job === undefined
-                ? []
-                : [{ number: (next += 1), title: job.title, track: job.track, running: false, rowId: `planned-${tip.moduleName}-${index + 1}`, before: job.step.before, after: job.step.after }],
-            ),
+            ...jobs.flatMap((job, index): MapPulse[] => {
+              const rowId = `planned-${tip.moduleName}-${index + 1}`;
+              // Scheduled ahead of its code: numbered among the rest, its functional specs by their text.
+              const ahead = scheduled[index];
+              if (ahead !== undefined) return [{ number: (next += 1), title: ahead.title, track: "conformance", running: false, rowId, before: "", after: "", specs: ahead.specs }];
+              return job === undefined ? [] : [{ number: (next += 1), title: job.title, track: job.track, running: false, rowId, before: job.step.before, after: job.step.after }];
+            }),
           ];
           const gaveUp = running === undefined && state.why === NO_PLAN ? { why: NO_PLAN } : undefined;
           const stuck = running === undefined && state.halted !== undefined ? { why: state.halted.why, ...(state.halted.pulse !== undefined ? { pulse: state.halted.pulse } : {}) } : gaveUp;

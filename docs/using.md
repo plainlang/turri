@@ -83,11 +83,11 @@ modules or ten. How many run at once is capped by what the machine has room for:
 `parallel-jobs` (see [the project config](config.md#how-many-jobs-at-once)), a pulse whose turn has
 come waits for a free slot, and says so.
 
-- **The panel** above the input, while something runs or waits, shows each running pulse - its module,
-  time and cost, and what its agents are doing - the queue, by module, and what finished, newest first,
-  its mark green, red or amber as in the side panel, each in one line. `ctrl+o` expands the agents' trace
-  alone; the queue and what finished stay counted - the side panel lists them. It shows no spec diff - the
-  side panel does. With nothing running or waiting it is gone.
+- **The panel** above the input, while something runs, shows each running pulse - its module, time and
+  cost, and what its agents are doing - and what finished, newest first, its mark green, red or amber as
+  in the side panel, in one line. `ctrl+o` expands the agents' trace alone; what finished stays counted.
+  What waits is not in it, and it shows no spec diff - the side panel has both. With nothing running it
+  is gone.
 - **A pulse's change** is what its agent works from, not a text diff of the module's file: the items
   `<spec change>` gives the agent - only what the pulse's functional specs use, an import's items as
   well as the module's own, a code pulse's without the test reqs - each in the file it is written in,
@@ -129,8 +129,9 @@ come waits for a free slot, and says so.
   Pulses are numbered as they start in a module, from 1 each session; a halt names the one that did not
   land. The column beside the mark is `⊨` - satisfies - in brand blue when the functional spec is conformance tested as it
   reads now: more than tested, its code is shown end to end to do what the spec says. It is dimmed when the
-  conformance tests were written for an earlier text, struck through for a spec taken out, and a spinner while
-  a conformance pulse writes them. Under `conformance-tests: chosen` a functional spec not chosen has none, and
+  conformance tests were written for an earlier text, struck through for a spec taken out, a spinner while
+  a conformance pulse writes them, and - as beside the mark - the number of the conformance pulse planned to write
+  them, dimmed: scheduled ahead of the code by `bind` too. Under `conformance-tests: chosen` a functional spec not chosen has none, and
   shows none. Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or
   `bind` turned them on this session. A test req is the conformance tests', never built into the code, so its
   mark is theirs:
