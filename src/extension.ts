@@ -58,6 +58,7 @@ import { loadRules, renderRulesBlock } from "./rules.ts";
 import { registerTurriConfig } from "./config-command.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { askWithPeek, peekKeyListener, type AskUser, type Peek } from "./ask.ts";
+import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
   createJobRegistry,
   defaultParallelJobs,
@@ -124,6 +125,8 @@ function askUserVia(
   ctx: ExtensionContext,
   onExchange: (question: string, answer: string, said?: string) => void,
   peek?: Peek,
+  /** Given, "/btw ..." typed as an answer is a side question: answered with this, and the question asked again. */
+  aside?: (question: string) => Promise<string>,
 ): AskUser {
   return async (request) => {
     if (!ctx.hasUI) {
@@ -135,14 +138,16 @@ function askUserVia(
     const unhook = hookPeekKey(ctx);
     try {
       // Once something has grown, every question says ctrl+h is safe to press; a skill's, once something grows, invites them to look.
-      const answer = await askWithPeek(
-        request,
-        {
-          select: (title, options) => ctx.ui.select(title, options),
-          input: (title) => ctx.ui.input(title),
-        },
-        peek ?? questionPeek?.asPeek(ctx),
-      );
+      const asking: AskUser = (asked) =>
+        askWithPeek(
+          asked,
+          {
+            select: (title, options) => ctx.ui.select(title, options),
+            input: (title) => ctx.ui.input(title),
+          },
+          peek ?? questionPeek?.asPeek(ctx),
+        );
+      const answer = aside !== undefined ? await askWithAsides(request, asking, aside) : await asking(request);
       onExchange(request.question, answer, request.context);
       return answer;
     } finally {
@@ -410,6 +415,7 @@ export default function (pi: ExtensionAPI) {
   deployStates.set(jobs, deployState);
   registerDeploy(pi, cwd, jobs, deployState);
   registerSteering(pi, cwd);
+  registerSideQuestions(pi, cwd, jobs);
 
   const { skills, pending } = discoveredSkills;
   if (skills.length === 0) return;
@@ -576,6 +582,8 @@ export default function (pi: ExtensionAPI) {
       // What the run changes in the project - its specs, resources, scripts - is said with its result: a skill that
       // writes nothing is not taken for one that did its work.
       const filesBefore = projectFiles(cwd);
+      // A side question asked while it runs is told what it has done so far.
+      const ended = skillRunStarted({ skill: skill.name, step: () => live.step, trace: () => [...trace], runDir });
       const { result, output: captured } = await captureConsole(() =>
         runSkill({
         skillDir: skill.dir,
@@ -596,7 +604,7 @@ export default function (pi: ExtensionAPI) {
           growing: () => jobs.list().some((job) => job.status === "running"),
           peekable: () => jobs.list().some((job) => job.status !== "queued"),
           open: () => panelOpeners.get(jobs)?.(ctx),
-        }),
+        }, (question) => askOnTheSide(pi, ctx, cwd, jobs, question)),
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
         // growth sees them without knowing a skill started them.
@@ -624,6 +632,7 @@ export default function (pi: ExtensionAPI) {
         },
         }),
       ).finally(() => {
+        ended();
         clearInterval(ticker);
         if (ctx.hasUI) ctx.ui.setWidget("turri-skill", undefined);
       });
@@ -1848,6 +1857,63 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
  * grow/release.ts), installing what it needs in its own shell - nothing is put to the person. What it
  * started is stopped when the session ends.
  */
+const SIDE_ENTRY = "turri_btw";
+
+/**
+ * /btw, a question on the side (btw.ts): answered at once, even while a skill runs - pi runs a command mid-turn - and
+ * shown in the transcript, never in a model's context.
+ */
+function registerSideQuestions(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
+  pi.registerCommand("btw", {
+    description: "Ask turri something on the side - answered now, even mid-skill, and left out of the conversation: /btw <question>",
+    handler: async (args, ctx) => {
+      const question = args.trim();
+      if (question === "") return ctx.ui.notify(BTW_HOW, "info");
+      ctx.ui.notify(`Looking into it: ${question}`, "info");
+      // Not awaited: the editor is free while it is answered, for another /btw or the conversation.
+      void askOnTheSide(pi, ctx, cwd, jobs, question).catch((error: unknown) =>
+        ctx.ui.notify(`The side question could not be answered: ${error instanceof Error ? error.message : String(error)}`, "error"),
+      );
+    },
+  });
+
+  pi.registerEntryRenderer(SIDE_ENTRY, (entry, _options, theme) => {
+    const data = entry.data as { question: string; answer: string } | undefined;
+    if (data === undefined) return undefined;
+    const box = new Box(1, 0);
+    box.addChild(new Text([theme.fg("muted", `btw: ${data.question}`), theme.fg("text", data.answer)].join("\n"), 0, 0));
+    return box;
+  });
+}
+
+/** A side question answered - from the conversation, the skill running, the pulses - and kept in the transcript. */
+async function askOnTheSide(pi: ExtensionAPI, ctx: ExtensionContext, cwd: string, jobs: JobRegistry, question: string): Promise<string> {
+  let entries: unknown[] = [];
+  try {
+    entries = ctx.sessionManager.getEntries();
+  } catch {
+    // Without the conversation it is still answered, from the skill and the project.
+  }
+  const skill = runningSkill();
+  const answer = await answerSideQuestion(
+    {
+      question,
+      conversation: transcriptOf(entries, 24_000),
+      ...(skill !== undefined ? { skill: { name: skill.skill, step: skill.step(), trace: skill.trace(), session: skillSessionText(skill.runDir) } } : {}),
+      pulses: jobs.list().map((job) => `${job.id} ${job.status}: ${job.summary}`),
+      projectDir: cwd,
+      harnessDir: PACKAGE_ROOT,
+    },
+    chatModelOf(ctx),
+  );
+  try {
+    pi.appendEntry(SIDE_ENTRY, { question, answer });
+  } catch {
+    // Shown where it was asked all the same.
+  }
+  return answer;
+}
+
 function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry, state: DeployState) {
   const tools = createDeployTools({
     cwd,

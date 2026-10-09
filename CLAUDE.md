@@ -54,7 +54,7 @@ which drives the work loop as the chat does. The old names (`module`, `regenerat
 `deploy`, `skill`) are aliases. `setup` and `doctor` go to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
-`cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/lineage`, `/engine`, `/turri-config`, ...).
+`cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, ...).
 `/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.yaml line by line and
 applies what turri fixed at its start - the chat's model, the coding model chosen this session, `parallel-jobs` - live.
 

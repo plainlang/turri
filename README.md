@@ -206,6 +206,8 @@ specs, and builds each one as it is written. While it works:
 - the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - the spec, every item marked built, growing, planned or waiting - and `p` turns it to the **pulses** (`/pulses`) - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
 - **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
   module, and the **`drift`** tool says what is left to grow;
+- **`/btw <question>`** asks turri something on the side - answered at once, even in the middle of a skill's interview
+  (typed as the answer, under "Something else…"), and left out of the conversation;
 - **`/turri-config`** changes any setting of the project's `config.yaml` - the models, review, conformance tests,
   how many pulses at once - and says when it takes effect: now, at your next message, or at the next pulse. No
   restart: `/turri-config review false`, or `/turri-config` alone to pick from the list.
