@@ -192,5 +192,17 @@ the stack `<name>`) until turri first writes a setting, which copies them to the
   a spaced hyphen ` - ` rather than an em dash. Test names are sentences about behaviour
   (`it("renames a clashing file instead of overwriting it")`).
 - When behaviour changes, update the `docs/` page that describes it in the same change.
-- Commit subjects are one lowercase sentence (often long) that says what the system now does, not
-  what was edited. See `git log`.
+- Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
+  `<type>[optional scope]: <description>`, then an optional body and optional footers, each after a
+  blank line.
+  - **type:** `feat` for a new feature, `fix` for a bug fix; otherwise `docs`, `refactor`, `perf`,
+    `test`, `build`, `ci`, `chore`, `style` or `revert`.
+  - **scope:** optional, the part of turri it touches, in parentheses - `feat(stacks):`, `fix(regen):`,
+    `docs(config):`.
+  - **description:** lowercase, says what the system now does rather than what was edited, and
+    carries no full stop.
+  - **body:** the why and the details, when the subject alone does not say enough.
+  - **breaking changes:** a `!` before the colon (`feat(config)!: ...`), or a
+    `BREAKING CHANGE: <what changed>` footer - for example, a behaviour existing projects relied on
+    that is gone.
+  - Commits before this convention (see `git log`) are one long lowercase sentence; new ones are not.
