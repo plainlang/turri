@@ -100,7 +100,7 @@ export function checkProject(project: string, machine: { has?: (command: string)
     );
   }
   const scripts = findTestScripts(project);
-  for (const script of [scripts.unit, scripts.conformance]) {
+  for (const script of [scripts.unit, scripts.prepare, scripts.conformance]) {
     if (script === undefined) continue;
     const text = readScript(script);
     if (text === undefined) continue;

@@ -41,7 +41,7 @@ import { checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { whyFailed } from "./grow/diagnose-job.ts";
 import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
-import { createJobPanel, didNotPass, PANEL_KEY, spinner } from "./grow/job-panel.ts";
+import { createJobPanel, didNotPass, keyPressed, PANEL_KEY, spinner } from "./grow/job-panel.ts";
 import { skillAboutLine, skillProgressLine } from "./skill-progress.ts";
 import { createSidePanel } from "./grow/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles } from "./grow/spec-map.ts";
@@ -57,7 +57,7 @@ import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./qui
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { registerTurriConfig } from "./config-command.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
-import { askWithPeek, peekKeyListener, type AskUser, type Peek } from "./ask.ts";
+import { peekKeyListener, runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
 import { registerStacks } from "./stacks.ts";
 import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
@@ -92,10 +92,9 @@ const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  * exchange is therefore reported back, so the interview is visible while it happens and
  * survives in the tool's result afterwards.
  */
-function askUserVia(
+export function askUserVia(
   ctx: ExtensionContext,
   onExchange: (question: string, answer: string, said?: string) => void,
-  peek?: Peek,
   /** Given, "/btw ..." typed as an answer is a side question: answered with this, and the question asked again. */
   aside?: (question: string) => Promise<string>,
 ): AskUser {
@@ -108,18 +107,17 @@ function askUserVia(
     // The question has the keys: ctrl+h is caught here, or it would never reach the shortcut, which only the chat's editor sees.
     const unhook = hookPeekKey(ctx);
     try {
-      // Once something has grown, every question says ctrl+h is safe to press; a skill's, once something grows, invites them to look.
+      // The question, with what the asker gives to read for it - a brief to confirm - above it; what it said of its work
+      // before asking is kept in its record, never put in the dialog.
       const asking: AskUser = (asked) =>
-        askWithPeek(
-          asked,
-          {
-            select: (title, options) => ctx.ui.select(title, options),
-            input: (title) => ctx.ui.input(title),
-          },
-          peek ?? questionPeek?.asPeek(ctx),
-        );
-      const answer = aside !== undefined ? await askWithAsides(request, asking, aside) : await asking(request);
-      onExchange(request.question, answer, request.context);
+        runAsk(asked, {
+          select: (title, options) => ctx.ui.select(title, options),
+          input: (title) => ctx.ui.input(title),
+        });
+      const bare: AskUserRequest = { ...request, said: undefined };
+      const answer = aside !== undefined ? await askWithAsides(bare, asking, aside) : await asking(bare);
+      // Kept: what was shown with it, and what it said before it.
+      onExchange(request.question, answer, [request.context, request.said].map((part) => part?.trim() ?? "").filter((part) => part !== "").join("\n\n") || undefined);
       return answer;
     } finally {
       unhook();
@@ -134,10 +132,6 @@ let questionPeek:
       open(ctx: ExtensionContext): void;
       /** It shows now: its own listener has the keys, ctrl+h among them. */
       shown(): boolean;
-      /** A pulse has started this session: there is something in it to see. */
-      peekable(): boolean;
-      /** For a question the chat model asks: the hint, never the invitation - that is a skill's interview's. */
-      asPeek(ctx: ExtensionContext): Peek;
     }
   | undefined;
 
@@ -575,12 +569,6 @@ export default function (pi: ExtensionAPI) {
           push(`  Q: ${question}`);
           push(`  A: ${answer}`);
           recordExchange(pi, { skill: skill.name, question, answer, ...(said !== undefined && said.trim() !== "" ? { said: said.trim() } : {}) });
-        }, {
-          // Invited once a run: the first question asked while something is growing.
-          invited: false,
-          growing: () => jobs.list().some((job) => job.status === "running"),
-          peekable: () => jobs.list().some((job) => job.status !== "queued"),
-          open: () => panelOpeners.get(jobs)?.(ctx),
         }, (question) => askOnTheSide(pi, ctx, cwd, jobs, question)),
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
@@ -920,7 +908,7 @@ export function machineBlock(cwd: string): string {
       : `behind the command check, ${wall.kind === "seatbelt" ? "Seatbelt" : "bubblewrap"} and the audit`;
   const modules = stackOnMachine(cwd).filter(({ needs }) => needs.length > 0);
   const scripts = findTestScripts(cwd);
-  const misfits = [scripts.unit, scripts.conformance].flatMap((script) => {
+  const misfits = [scripts.unit, scripts.prepare, scripts.conformance].flatMap((script) => {
     if (script === undefined) return [];
     const text = readScript(script);
     const found = text !== undefined ? scriptAgainstMachine(text) : [];
@@ -1036,6 +1024,7 @@ export function projectConfigBlock(root: string): string {
         })(),
         `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each stack's file below names its own" : "none found - every build stops until there is one"}`,
         `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each stack's file" : "none found"}`,
+        scripts.prepare !== undefined ? `- prepare script: ${relative(root, scripts.prepare)} - run on the build before every conformance testing script run, which runs only once it passes` : undefined,
         config.testingScriptsRunOn === "copy"
           ? "- testing-scripts-run-on: copy - the testing scripts run on this machine, on a fresh copy of each module's code; `testing-scripts-run-on: in-place` (the default) runs them on the code in place."
           : "- testing-scripts-run-on: in-place - the testing scripts run on this machine on the code in place, from the project, against the host codebase; `testing-scripts-run-on: copy` runs them on a fresh copy of each module's code.",
@@ -1506,6 +1495,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 
   /** Open the side panel - on the view named, or as it was left. */
   const openPanel = (ctx: ExtensionContext, view?: "map" | "pulses") => {
+    // Found: ctrl+h under the job panel stops breathing.
+    keyPressed("peek");
     if (view !== undefined) mapState.view = view;
     // A pulse that failed or stopped since the panel was last opened: opened as it is, it is on that pulse - what went
     // wrong is what the person opens it to see.
@@ -1648,13 +1639,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   questionPeek = {
     open: (ctx) => openPanel(ctx),
     shown: () => panel !== undefined,
-    peekable: () => jobs.list().some((job) => job.status !== "queued"),
-    asPeek: (ctx) => ({
-      invited: true,
-      growing: () => jobs.list().some((job) => job.status === "running"),
-      peekable: () => jobs.list().some((job) => job.status !== "queued"),
-      open: () => openPanel(ctx),
-    }),
   };
 
   pi.registerShortcut(PANEL_KEY, {

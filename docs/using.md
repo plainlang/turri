@@ -29,10 +29,8 @@ The skills that build from scratch:
 
 Peeking is safe while a question is open - a skill's or the chat's: `ctrl+h` opens the side panel over the question,
 which waits under it as it was - the panel says `your question is waiting`, and `ctrl+h` or `esc` takes you back to
-answer it. (The question has the keys, so turri catches `ctrl+h` itself while one is open.) Once a pulse has started,
-every question says so under it - `ctrl+h peek at the build - this question waits for you` - not before, while regen
-has nothing to show; and the first one a skill asks once something is growing invites you to look, with an option of
-its own, `Peek at what's growing first`, that opens the panel and asks the same question again, waiting under it.
+answer it. (The question has the keys, so turri catches `ctrl+h` itself while one is open.) The dialog holds the question
+alone - no hint and no invitation; the `ctrl+h` under the job panel breathes until it is first pressed.
 
 While a skill runs, a line above the input shows its phases, every one by name - those done ticked, the one it is in
 marked, the rest to come - and where it is: the skill's name at the left edge, `phase 2 of 4` at the right, and its
@@ -101,7 +99,10 @@ come waits for a free slot, and says so.
   it grew, `cognio  … 2 earlier · ✓ 3 regrow: registration · ✓ 4 bind: fs 1–3`, the newest that fit the width -
   then a rule, and under it each running pulse - `cognio · regrow pulse 5 · user search and profiles`, what it grows all lowercase, its
   time and cost, and what its agents are doing. Pulses are numbered within their module, as regen numbers
-  them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module.
+  them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module. The line of keys under
+  it - `ctrl+o to expand the trace · ctrl+h to peek at regen` - has each key breathing, fully there to a little
+  faint and back, until it is first pressed: once `ctrl+o` has opened the trace, or the side panel has been opened,
+  that key is still for the rest of the session and the other breathes on.
   What waits is not in it, and it shows no spec diff - the side panel has both. With nothing running it
   is gone.
 - **A pulse's change** is what its agent works from, not a text diff of the module's file: the items

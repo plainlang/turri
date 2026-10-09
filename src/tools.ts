@@ -102,6 +102,7 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
     promptGuidelines: [
       "Every ask_user call should carry `options` unless the answer genuinely cannot be anticipated; picking from a list is far quicker for the user than typing. A free-form question needs free_form: true.",
       "Use multi_select: true when several answers can apply at once, rather than asking the same question repeatedly.",
+      "The dialog shows the question, its options and `context` alone - nothing you wrote before it. When the user must read something to answer - the brief to confirm, the plan to approve - pass it whole as `context`; never put an account of your work there (what a probe returned, what a regrow did).",
     ],
     parameters: Type.Object({
       question: Type.String({ description: "One question. Never bundle two." }),
@@ -114,6 +115,12 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
       ),
       multi_select: Type.Optional(
         Type.Boolean({ description: "Let the user pick several of the options." }),
+      ),
+      context: Type.Optional(
+        Type.String({
+          description:
+            "What the user must read to answer, shown above the question - the brief to confirm, the plan to approve. Only that: never an account of what you did.",
+        }),
       ),
       free_form: Type.Optional(
         Type.Boolean({
@@ -128,7 +135,8 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
         options: params.options,
         multiSelect: params.multi_select,
         freeForm: params.free_form,
-        ...(said !== undefined ? { context: said() } : {}),
+        ...(params.context !== undefined && params.context.trim() !== "" ? { context: params.context } : {}),
+        ...(said !== undefined ? { said: said() } : {}),
       });
       onAnswered?.();
       return {

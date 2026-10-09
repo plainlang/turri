@@ -85,7 +85,8 @@ to you, as the groundwork step says.
 Then state the brief back in five short bullets - the problem, the primary user, what they can do
 with it, what makes the first version useful, and what the first version leaves out - with the stack
 in a line under them (the user's, or `chosen when it is built` when it is left to you) - and ask one
-`ask_user` question with the options `Build it` and `Change something`. On a change, fold it in and
+`ask_user` question with the options `Build it` and `Change something`, the brief passed whole as its
+`context`: the dialog shows only the question, its options and its `context`. On a change, fold it in and
 ask again. Write nothing to disk in this step.
 
 ### groundwork

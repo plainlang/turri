@@ -72,6 +72,31 @@ describe("finding the testing scripts", () => {
     expect(() => requireTestScripts("app", findTestScripts(root), { conformance: false })).not.toThrow();
   });
 
+  it("finds the optional prepare script the same way - prepare-environment-script:, then the root, then test_scripts/ - and nothing is missing without one", () => {
+    put("test_scripts/run_unittests_java.sh");
+    expect(findTestScripts(root).prepare).toBeUndefined();
+    expect(findTestScripts(root).notes).toBeUndefined();
+    put("test_scripts/prepare_environment_java.sh");
+    expect(findTestScripts(root).prepare).toBe(join(root, "test_scripts", "prepare_environment_java.sh"));
+    put("prepare_environment.sh");
+    expect(findTestScripts(root).prepare).toBe(join(root, "prepare_environment.sh"));
+    put("scripts/prep.sh");
+    put("config.turri.yaml", "prepare-environment-script: scripts/prep.sh\n");
+    expect(findTestScripts(root).prepare).toBe(join(root, "scripts", "prep.sh"));
+  });
+
+  it("does not guess between two prepare scripts in one folder, and leaves them out when conformance is off", async () => {
+    const { withoutConformance } = await import("../../src/grow/test-scripts.ts");
+    put("test_scripts/prepare_environment_java.sh");
+    put("test_scripts/prepare_environment_python.sh");
+    const found = findTestScripts(root);
+    expect(found.prepare).toBeUndefined();
+    expect(found.notes?.prepare).toContain("holds prepare_environment_java.sh, prepare_environment_python.sh - name the one to use");
+    put("test_scripts/prepare_environment_java.sh");
+    rmSync(join(root, "test_scripts", "prepare_environment_python.sh"));
+    expect(withoutConformance(findTestScripts(root)).prepare).toBeUndefined();
+  });
+
   it("belongs to the project that holds the build's plain_modules", () => {
     expect(projectRootFor("/p/specs/app.plain", "/p/plain_modules/app/code")).toBe("/p");
     expect(projectRootFor("/p/specs/app.plain", "/elsewhere/build")).toBe("/p/specs");
@@ -92,6 +117,17 @@ describe("the testing scripts, in an agent's prompt", () => {
     expect(both).toContain("not in your workspace");
     expect(both).toContain("Never copy, recreate or adapt them in the codebase");
     expect(both).toContain("call run_unit_tests and run_conformance_tests");
+  });
+
+  it("show the conformance agents the prepare script before the conformance testing script, and say it runs first", () => {
+    put("test_scripts/run_conformance_tests_java.sh", "mvn test\n");
+    put("test_scripts/prepare_environment_java.sh", "mvn clean install -DskipTests\n");
+    const scripts = findTestScripts(root);
+    const prompt = withTestingScripts("Write the tests.", scripts, ["conformance"], root);
+    expect(prompt.indexOf('<script kind="prepare environment" path="test_scripts/prepare_environment_java.sh">')).toBeLessThan(prompt.indexOf('<script kind="conformance tests"'));
+    expect(prompt).toContain("the prepare script as `<script> <build folder>` and, once it passes, the conformance testing script");
+    // Not the coding agent's: its work is judged by the unit tests alone.
+    expect(withTestingScripts("Write the code.", { ...scripts, unit: scripts.conformance }, ["unit"], root)).not.toContain("prepare environment");
   });
 
   it("carry the unit testing script to the coding agent, and the conformance testing script to the conformance agent alone", async () => {

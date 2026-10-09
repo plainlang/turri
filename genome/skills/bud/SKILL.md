@@ -61,7 +61,8 @@ said answers a question, confirm it in one line instead of asking.
 
 Write nothing to disk. Summarize the feature-intent brief - motivation, affected user, desired
 outcome, observable success criterion, boundary and explicit exclusions - and get explicit
-confirmation. Carry the brief into every later step.
+confirmation, the brief passed whole as `ask_user`'s `context`, which the dialog shows above the
+question. Carry the brief into every later step.
 
 ### scope
 

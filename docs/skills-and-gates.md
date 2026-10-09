@@ -117,10 +117,11 @@ change the step makes and puts its findings on the executor's next tool result.
   from the CLI the options are numbered. Offering choices is required, not optional - a call with
   neither `options` nor `free_form: true` is refused - and every list carries "Something else…".
   `multi_select: true` keeps offering what is left until they are done. The skill's agent talks in a
-  session of its own that the person never sees, so the last thing it said before asking - the
-  brief it asks them to confirm, the plan it lays out - is shown above the question in the dialog,
-  and kept in the run's trace with the answer. Only its last message with words in it: what it said
-  in the turns before - its account of a probe, a regrow - is not.
+  session of its own that the person never sees, so what the person must read to answer - the brief
+  to confirm, the plan to approve - it passes as `ask_user`'s `context`, shown above the question in
+  the dialog; `brood`, `spawn` and `bud` pass their briefs so. Nothing else it wrote is shown there:
+  the last thing it said before asking - its account of a probe, a regrow - is kept with the answer,
+  in the run's trace and the transcript, never in the dialog.
 - **Be asked something on the side.** A skill runs inside one `cultivate` call, so the conversation can answer
   nothing until it returns. `/btw <question>` (`btw.ts`) can: pi runs a command at once, even mid-turn, and it starts
   an agent of its own - fresh, on the chat's model, reading the project and turri and changing nothing - shown the

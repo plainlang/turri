@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Color, foregroundAnsi, mixColors, type TerminalColorMode, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
 
 /**
@@ -26,6 +26,40 @@ export const JOB_PANEL_KEY = "turri-jobs";
 export const PANEL_KEY = "ctrl+h";
 
 const TICK_MS = 1000;
+
+/**
+ * Each key in the line under the panel - ctrl+o, ctrl+h - breathes until it is first pressed: fully there, a little
+ * faint, and back, so it reads as something to press, not as text. Once every BREATH_MS, redrawn every BREATH_TICK_MS
+ * while the panel shows and a key still breathes, at most BREATH_FADE of the way from the text's colour to the dim one.
+ * Pressed once, it stays still for the rest of the process; the other breathes on.
+ */
+export const BREATH_MS = 2400;
+const BREATH_TICK_MS = 100;
+const BREATH_FADE = 0.6;
+
+/** The keys of the line, by what they do: pressed once, each stops breathing. */
+export type PanelKey = "trace" | "peek";
+const pressed = new Set<PanelKey>();
+
+/** A key of the line was pressed - ctrl+o, or the side panel opened: it stops breathing. */
+export function keyPressed(key: PanelKey): void {
+  pressed.add(key);
+}
+
+export function breathes(key: PanelKey): boolean {
+  return !pressed.has(key);
+}
+
+/** For tests: every key breathing again. */
+export function resetKeysForTests(): void {
+  pressed.clear();
+}
+
+/** How faint a breathing key is at `now`: 0, fully there, at the start of each breath, BREATH_FADE halfway through. */
+export function breath(now: number): number {
+  const phase = (now % BREATH_MS) / BREATH_MS;
+  return BREATH_FADE * (0.5 - 0.5 * Math.cos(2 * Math.PI * phase));
+}
 /** Tool-call progress arrives many times a second; the screen does not need to. */
 const REDRAW_MS = 100;
 /** Activity lines per running job while compact. */
@@ -184,6 +218,8 @@ export interface PanelOptions {
   hints?: boolean;
   /** How the finished pulses' marks are coloured. */
   marks?: MarkPaint;
+  /** How each key of the line is painted - breathing until it is pressed, in the TUI. */
+  keys?: (key: PanelKey, text: string) => string;
 }
 
 export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[] {
@@ -237,7 +273,8 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   } else {
     // Set apart from the trace above it.
     lines.push("");
-    lines.push(`  ctrl+o to ${expanded ? "collapse" : "expand"} the trace · ${PANEL_KEY} to peek at regen`);
+    const key = options.keys ?? ((_key: PanelKey, text: string) => text);
+    lines.push(`  ${key("trace", `ctrl+o to ${expanded ? "collapse" : "expand"} the trace`)} · ${key("peek", `${PANEL_KEY} to peek at regen`)}`);
   }
   return lines;
 }
@@ -252,6 +289,21 @@ interface PanelTheme {
   /** Whether it is made for a dark or a light surface, and how many colours the terminal has: the diff's palette. */
   appearance?: "dark" | "light";
   getColorMode?(): string;
+  /** Each token's concrete colour - what the line of keys breathes between. */
+  colors?: Readonly<Record<string, Color>>;
+}
+
+/**
+ * The keys of the line, painted at `now`'s breath: one not pressed yet in the text's colour mixed toward the dim one, one
+ * pressed as it is. Plain where the theme has no colours to mix.
+ */
+export function breathing(theme: PanelTheme, now: number): (key: PanelKey, text: string) => string {
+  const text = theme.colors?.text;
+  const dim = theme.colors?.dim ?? theme.colors?.muted;
+  const mode = theme.getColorMode?.();
+  if (text === undefined || dim === undefined || (mode !== "truecolor" && mode !== "256color")) return (_key, line) => line;
+  const ansi = foregroundAnsi(mixColors(text, dim, breath(now)), mode as TerminalColorMode);
+  return (key, line) => (breathes(key) ? `${ansi}${line}\x1b[39m` : line);
 }
 
 /** The parts of pi's TUI the panel needs: enough to draw, redraw, and ask about ctrl+o. */
@@ -282,6 +334,10 @@ export function createJobPanel(list: () => Job[]): JobPanel {
   let tui: Redrawable | undefined;
   let mounted = false;
   let timer: ReturnType<typeof setInterval> | undefined;
+  /** The keys breathing: a redraw a tick of it, while the panel shows and a key still breathes. */
+  let breathTimer: ReturnType<typeof setInterval> | undefined;
+  /** Whether the trace was open when the panel was first drawn. */
+  let firstExpanded: boolean | undefined;
   let pending: ReturnType<typeof setTimeout> | undefined;
 
   const active = () => list().some((job) => job.status === "running" || job.status === "queued");
@@ -300,8 +356,11 @@ export function createJobPanel(list: () => Job[]): JobPanel {
               // Laid out on every render, so ctrl+o takes effect on the very next frame.
               render: (width) => {
                 const expanded = target.getToolsExpanded();
+                // ctrl+o turns the trace open or closed: once it is not as it first was, ctrl+o was pressed.
+                if (firstExpanded === undefined) firstExpanded = expanded;
+                else if (expanded !== firstExpanded) keyPressed("trace");
                 const marks: MarkPaint = { success: (text) => theme.fg("success", text), error: (text) => theme.fg("error", text), warning: (text) => theme.fg("warning", text) };
-                const lines = jobPanelLines(list(), { expanded, width, marks });
+                const lines = jobPanelLines(list(), { expanded, width, marks, keys: breathing(theme, Date.now()) });
                 // Opened, nothing is cut off: every line wraps. Closed, a line each - the panel stays short.
                 return expanded ? lines.flatMap((line) => wrapKeepingIndent(line, width)) : lines.map((line) => truncateToWidth(line, width));
               },
@@ -326,9 +385,21 @@ export function createJobPanel(list: () => Job[]): JobPanel {
     if (mounted && timer === undefined) {
       timer = setInterval(draw, TICK_MS);
       timer.unref?.();
+      breathTimer = setInterval(() => {
+        // Both pressed: nothing breathes, and the panel is drawn as often as before.
+        if (!breathes("trace") && !breathes("peek")) {
+          clearInterval(breathTimer);
+          breathTimer = undefined;
+          return;
+        }
+        tui?.requestRender();
+      }, BREATH_TICK_MS);
+      breathTimer.unref?.();
     } else if (!mounted && timer !== undefined) {
       clearInterval(timer);
       timer = undefined;
+      if (breathTimer !== undefined) clearInterval(breathTimer);
+      breathTimer = undefined;
     }
   };
 

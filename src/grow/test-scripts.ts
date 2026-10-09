@@ -44,8 +44,13 @@ export interface TestScripts {
   unit?: string;
   /** `run_conformance_tests_<lang>.sh <build> <conformance tests>` - the whole suite, at once. */
   conformance?: string;
+  /**
+   * `prepare_environment_<lang>.sh <build>` - optional, as codeplain has it: run on the build before every run of the
+   * conformance testing script, which runs only once it passes. turri never writes one.
+   */
+  prepare?: string;
   /** Why a script was not found where one was looked for: a name in config.turri.yaml, two in a folder. */
-  notes?: Partial<Record<ScriptKind, string>>;
+  notes?: Partial<Record<ScriptKind | "prepare", string>>;
   /** Conformance was turned off: the conformance testing script is not run, found or not. */
   conformanceOff?: boolean;
   /** What the config has them run on: the code in place (the default, unset), or a fresh copy of the code. */
@@ -58,7 +63,7 @@ export interface TestScripts {
  * no agent is shown it.
  */
 export function withoutConformance(scripts: TestScripts): TestScripts {
-  const { conformance: _ignored, ...rest } = scripts;
+  const { conformance: _ignored, prepare: _alsoIgnored, ...rest } = scripts;
   return { ...rest, conformanceOff: true };
 }
 
@@ -71,6 +76,9 @@ const NAMES: Record<ScriptKind, RegExp> = {
 export function scriptKind(name: string): ScriptKind | undefined {
   return (Object.keys(NAMES) as ScriptKind[]).find((kind) => NAMES[kind].test(basename(name)));
 }
+
+/** The name the prepare script has: `prepare_environment_<lang>.sh`. */
+const PREPARE_NAME = /^prepare_environment[^/]*\.sh$/i;
 
 function isFile(path: string): boolean {
   try {
@@ -98,10 +106,10 @@ export function projectRootFor(plainFile: string, buildDir: string): string {
 }
 
 /** The one script of a kind in a folder, by the names the skills give them; two or more say which. */
-function onlyScriptIn(dir: string, kind: ScriptKind): { path?: string; several?: string[] } {
+function onlyScriptIn(dir: string, kind: ScriptKind | "prepare"): { path?: string; several?: string[] } {
   if (!existsSync(dir)) return {};
   const candidates = readdirSync(dir)
-    .filter((name) => scriptKind(name) === kind && isFile(join(dir, name)))
+    .filter((name) => (kind === "prepare" ? PREPARE_NAME.test(name) : scriptKind(name) === kind) && isFile(join(dir, name)))
     .sort();
   if (candidates.length === 1) return { path: join(dir, candidates[0]!) };
   return candidates.length > 1 ? { several: candidates } : {};
@@ -115,12 +123,15 @@ function onlyScriptIn(dir: string, kind: ScriptKind): { path?: string; several?:
  * 2. the project root itself - the one `run_unittests*.sh` / `run_conformance_tests*.sh` there;
  * 3. `test_scripts/` - the one of each there.
  *
+ * The prepare script - `prepare-environment-script:`, else the one `prepare_environment*.sh` - is looked for the same
+ * way, and is optional: without one, the conformance testing script runs alone.
+ *
  * A folder holding two of a kind does not say which is meant: it is skipped, and noted, so the
  * error that stops the build can say to name one in config.turri.yaml.
  */
 export function findTestScripts(root: string, plainFile?: string, buildDir?: string): TestScripts {
   const found: TestScripts = {};
-  const notes: Partial<Record<ScriptKind, string>> = {};
+  const notes: Partial<Record<ScriptKind | "prepare", string>> = {};
   // The stack chosen, its file over the project's, when the project has one for it: its scripts.
   const stack = stackOf(root);
   const config = readProjectConfig(root, stack);
@@ -150,6 +161,26 @@ export function findTestScripts(root: string, plainFile?: string, buildDir?: str
       }
       if (several !== undefined && notes[kind] === undefined) {
         notes[kind] = `${dir === root ? "The project root" : `${SCRIPTS_DIR}/`} holds ${several.join(", ")} - name the one to use in ${nameIn}.`;
+      }
+    }
+  }
+  // Optional: found the same way, and nothing is missing without it.
+  const prepareNamed = config.prepareEnvironmentScript;
+  const preparePath = prepareNamed !== undefined ? resolve(root, prepareNamed.trim()) : undefined;
+  if (preparePath !== undefined && preparePath.split(sep).includes("plain_modules")) {
+    notes.prepare = `${file} names ${prepareNamed!.trim()} as the ${CONFIG_KEYS.prepareEnvironmentScript}, inside plain_modules - where agents write, so it is not used.`;
+  } else if (preparePath !== undefined && isFile(preparePath)) {
+    found.prepare = preparePath;
+  } else {
+    if (preparePath !== undefined) notes.prepare = `${file} names ${prepareNamed!.trim()} as the ${CONFIG_KEYS.prepareEnvironmentScript}, and there is no such file.`;
+    for (const dir of [root, join(root, SCRIPTS_DIR)]) {
+      const { path, several } = onlyScriptIn(dir, "prepare");
+      if (path !== undefined) {
+        found.prepare = path;
+        break;
+      }
+      if (several !== undefined && notes.prepare === undefined) {
+        notes.prepare = `${dir === root ? "The project root" : `${SCRIPTS_DIR}/`} holds ${several.join(", ")} - name the one to use in ${nameIn}, as ${CONFIG_KEYS.prepareEnvironmentScript}:.`;
       }
     }
   }
@@ -233,10 +264,13 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
   const used = kinds.filter((kind) => scripts[kind] !== undefined);
   if (used.length === 0) return prompt;
   const named = (path: string) => (path.startsWith(`${root}${sep}`) ? path.slice(root.length + 1) : basename(path));
-  const rendered = used.map((kind) => {
-    const path = scripts[kind]!;
-    return `<script kind="${kind === "unit" ? "unit tests" : "conformance tests"}" path="${named(path)}">\n${readFileSync(path, "utf8").trimEnd()}\n</script>`;
-  });
+  const script = (kind: string, path: string) => `<script kind="${kind}" path="${named(path)}">\n${readFileSync(path, "utf8").trimEnd()}\n</script>`;
+  // The prepare script runs before the conformance testing script: shown with it, before it.
+  const prepare = used.includes("conformance") ? scripts.prepare : undefined;
+  const rendered = used.flatMap((kind) => [
+    ...(kind === "conformance" && prepare !== undefined ? [script("prepare environment", prepare)] : []),
+    script(kind === "unit" ? "unit tests" : "conformance tests", scripts[kind]!),
+  ]);
 
   const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
   const inPlace = (scripts.runOn ?? readProjectConfig(root).testingScriptsRunOn) !== "copy";
@@ -250,7 +284,11 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
         ? "on this machine, in place, against the host codebase it merges your code into: "
         : "on this machine, on a fresh copy of your work: ") +
       used
-        .map((kind) => (kind === "unit" ? "the unit testing script as `<script> <build folder>`" : "the conformance testing script as `<script> <build folder> <whole conformance suite folder>`"))
+        .map((kind) =>
+          kind === "unit"
+            ? "the unit testing script as `<script> <build folder>`"
+            : `${prepare !== undefined ? "the prepare script as `<script> <build folder>` and, once it passes, " : ""}the conformance testing script as \`<script> <build folder> <whole conformance suite folder>\``,
+        )
         .join(", ") +
       ". Make the tests pass the way the script runs them.",
     `${used.length === 1 ? "It is" : "They are"} shown so you know what runs your tests - not to be run by you. ${used.length === 1 ? "It is" : "They are"} not in your ` +
@@ -512,12 +550,30 @@ export async function runConformanceScript(buildDir: string, testsDirs: string[]
       const code = stageBuild(buildDir, staging.build);
       const count = stageTests(testsDirs, staging.tests);
       reportActivity(`  copying ${code} files of the code and the whole conformance suite (${count} files) for the conformance testing script`);
-      return await runOnCopy(staging.root, scripts.conformance, [staging.build, staging.tests], buildDir);
+      const prepared = scripts.prepare !== undefined ? await runOnCopy(staging.root, scripts.prepare, [staging.build], buildDir) : undefined;
+      if (prepared !== undefined && prepared.exitCode !== 0) return preparationFailed(prepared, scripts.conformance);
+      return withPrepared(await runOnCopy(staging.root, scripts.conformance, [staging.build, staging.tests], buildDir), prepared);
     }
-    return await runScript(project.root, scripts.conformance, [build, tests], buildDir);
+    // The environment first, on the same build the conformance tests get: the conformance testing script runs only once it passes.
+    const prepared = scripts.prepare !== undefined ? await runScript(project.root, scripts.prepare, [build], buildDir) : undefined;
+    if (prepared !== undefined && prepared.exitCode !== 0) return preparationFailed(prepared, scripts.conformance);
+    return withPrepared(await runScript(project.root, scripts.conformance, [build, tests], buildDir), prepared);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }
+}
+
+/** A prepare script that failed: the run, said to be the preparation's - the conformance tests were not run. */
+function preparationFailed(prepared: ScriptRun, conformance: string): ScriptRun {
+  return {
+    ...prepared,
+    output: `${prepared.command} - the project's prepare script, run on the build before ${shown(conformance)} - exited ${prepared.exitCode}, so the conformance tests were not run.\n\n${prepared.output}`,
+  };
+}
+
+/** A conformance run, with a line at its top saying the prepare script ran first and passed. */
+function withPrepared(run: ScriptRun, prepared: ScriptRun | undefined): ScriptRun {
+  return prepared === undefined ? run : { ...run, output: `${prepared.command} prepared the build first, and passed.\n\n${run.output}` };
 }
 
 /**

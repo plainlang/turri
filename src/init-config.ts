@@ -2,7 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { adoptLegacyConfig, CONFIG_FILE, LEGACY_CONFIG_FILE, ROLE_THINKING, type AgentRole } from "./config.ts";
+import { load as loadYaml } from "js-yaml";
+import { adoptLegacyConfig, CONFIG_FILE, CONFIG_KEYS, LEGACY_CONFIG_FILE, ROLE_THINKING, type AgentRole } from "./config.ts";
+import { withTopLevelValue } from "./config-edit.ts";
 
 /**
  * `turri init-config`: a project's first config.turri.yaml - the two models, a strong one to talk to and a smaller one to
@@ -14,8 +16,8 @@ import { adoptLegacyConfig, CONFIG_FILE, LEGACY_CONFIG_FILE, ROLE_THINKING, type
  * else - and how to sign in to the vendor so pi, which turri runs on, can reach the models.
  *
  * Amazon Bedrock serves Anthropic's and OpenAI's models in a geography each - an inference profile, `eu.`, `us.`,
- * `global.` - so it asks which of the two, and where. A config.turri.yaml already there keeps everything but the two models, and a config.yaml turri read
- * until now is copied to it first.
+ * `global.` - so it asks which of the two, and where. A config.turri.yaml already there keeps everything but the two models; a new one takes
+ * from a config.yaml beside it the keys turri reads too.
  */
 
 /** A vendor whose models the quick start config is filled in with. */
@@ -202,9 +204,11 @@ export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoi
     "# release-after-pulse: true",
     "",
     "# The testing scripts, by path from the project root (unset: the one run_unittests*.sh / run_conformance_tests*.sh /",
-    "# run_static_checks*.sh at the root, else in test_scripts/). The static checks are optional and decide nothing.",
+    "# prepare_environment*.sh / run_static_checks*.sh at the root, else in test_scripts/). The static checks are optional and",
+    "# decide nothing; the prepare script is optional, and runs on the build before every conformance testing script run.",
     "# unittests-script: test_scripts/run_unittests_python.sh",
     "# conformance-tests-script: test_scripts/run_conformance_tests_python.sh",
+    "# prepare-environment-script: test_scripts/prepare_environment_python.sh",
     "# static-checks-script: test_scripts/run_static_checks_python.sh",
     "",
     "# What the testing scripts run on: in-place - the code itself; copy - a fresh copy of it (unset: in-place).",
@@ -314,25 +318,64 @@ function whose(vendor: Vendor, bedrock?: BedrockChoice): string {
 }
 
 /**
- * Write the quick start config.turri.yaml in `dir`. One already there keeps everything but its two models, which are set to
- * the vendor's - `force` writes the whole of it again. Says what it did.
+ * What a config.yaml in `folder` says that turri reads too - codeplain's testing scripts, say - by turri's names
+ * (`template_dir` read as `template-dir`), in the file's order; and the keys it leaves, turri reading none of them. The
+ * two models are the vendor's, so they are not taken.
+ */
+export function sharedWithLegacy(folder: string): { carried: Array<[string, unknown]>; left: string[] } {
+  const path = join(folder, LEGACY_CONFIG_FILE);
+  if (!existsSync(path)) return { carried: [], left: [] };
+  let raw: unknown;
+  try {
+    raw = loadYaml(readFileSync(path, "utf8"));
+  } catch {
+    return { carried: [], left: [] };
+  }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { carried: [], left: [] };
+  const known = new Set<string>(Object.values(CONFIG_KEYS));
+  const models = new Set<string>([CONFIG_KEYS.harnessModel, CONFIG_KEYS.codingModel, "model"]);
+  const carried: Array<[string, unknown]> = [];
+  const left: string[] = [];
+  for (const [written, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = written.replace(/_/g, "-");
+    if (models.has(key) || value === null || value === undefined) continue;
+    if (known.has(key)) carried.push([key, value]);
+    else left.push(written);
+  }
+  return { carried, left };
+}
+
+/**
+ * Write the quick start config.turri.yaml in `dir`, with what a config.yaml beside it says that turri reads too. One already
+ * there keeps everything but its two models, which are set to the vendor's - `force` writes the whole of it again. Says
+ * what it did.
  */
 export function initConfig(dir: string, options: { force?: boolean; vendor?: Vendor; bedrock?: BedrockChoice } = {}): { written: boolean; message: string } {
   const folder = resolve(dir);
-  // A project read from config.yaml until now keeps what it says: copied to config.turri.yaml, which is then written.
-  const adopted = adoptLegacyConfig(folder);
+  // The old stacks' files, config.<stack>.yaml, copied to their new names; config.turri.yaml is written below.
+  adoptLegacyConfig(folder, { projectFile: false });
   const path = join(folder, CONFIG_FILE);
   const vendor = options.vendor ?? "other";
   const existing = existsSync(path) && options.force !== true;
   const { harness, coding } = modelsOf(vendor, options.bedrock);
   const lines = modelLines(harness, coding);
-  const config = existing ? withModels(readFileSync(path, "utf8"), lines) : quickStartConfig(vendor, options.bedrock);
+  // A new file takes what a config.yaml beside it - codeplain's - says that turri reads too: its testing scripts, say.
+  const shared = existing ? { carried: [], left: [] } : sharedWithLegacy(folder);
+  const config = existing
+    ? withModels(readFileSync(path, "utf8"), lines)
+    : shared.carried.reduce((text, [key, value]) => withTopLevelValue(text, key, value), quickStartConfig(vendor, options.bedrock));
   writeFileSync(path, config);
   const here = resolve(process.cwd()) === folder;
   return {
     written: true,
     message: [
-      ...(adopted.includes(CONFIG_FILE) ? [`Copied ${LEGACY_CONFIG_FILE} to ${CONFIG_FILE} - turri reads its own file from now on, and leaves ${LEGACY_CONFIG_FILE} as it is.`, ""] : []),
+      ...(shared.carried.length > 0
+        ? [
+            `Took from ${LEGACY_CONFIG_FILE} what turri reads too - ${shared.carried.map(([key]) => key).join(", ")} - and left ${LEGACY_CONFIG_FILE} as it is: turri reads its own file from now on.` +
+              (shared.left.length > 0 ? ` Not taken, turri does not read them: ${shared.left.join(", ")}.` : ""),
+            "",
+          ]
+        : []),
       existing
         ? `Set the two models in ${path} to ${whose(vendor, options.bedrock)} models - everything else in it left as it was (--force writes the whole file again):`
         : `Wrote ${path}, with ${whose(vendor, options.bedrock)} models:`,
@@ -360,8 +403,9 @@ const USAGE = [
   "writes the code, from the vendor you use. Asked when --vendor is not given and this is a terminal; otherwise other -",
   "a mix of Anthropic and Google, the starting point for any provider pi supports. On amazon-bedrock, --maker and",
   "--region say whose models and where (anthropic: global, us, eu, jp, au; openai: global, us) - asked when not given.",
-  "A config.turri.yaml already there keeps everything but its two models; --force writes the whole of it again. A",
-  "config.yaml turri read until now is copied to config.turri.yaml first, and left as it is.",
+  "A config.turri.yaml already there keeps everything but its two models; --force writes the whole of it again. A new",
+  "one takes from a config.yaml beside it - codeplain's - the keys turri reads too, its testing scripts say, and leaves",
+  "config.yaml as it is.",
 ].join("\n");
 
 /** Ask until the answer is one `read` takes. */

@@ -105,7 +105,8 @@ entities, features, technology and testing for the phases that own them.
 
 Summarize the problem, the primary user, the desired outcome, the observable success
 criterion, and the initial boundary with its explicit exclusions. Get explicit confirmation
-of that brief, and carry it into every later phase.
+of that brief - the bullets passed whole as `ask_user`'s `context`, which the dialog shows above the
+question - and carry it into every later phase.
 
 This phase ends on the user's confirmation. There is no gate and no artifact to write.
 

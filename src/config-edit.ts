@@ -96,6 +96,7 @@ export function settings(rules: string[] = []): Setting[] {
     { key: "release-after-pulse", about: "whether every pulse that lands code releases it", kind: "boolean", unset: "false", effect: "next-landing" },
     { key: "unittests-script", about: "the unit testing script, by path from the project root", kind: "path", unset: "the one run_unittests*.sh found", effect: "next-test-run" },
     { key: "conformance-tests-script", about: "the conformance testing script, by path from the project root", kind: "path", unset: "the one run_conformance_tests*.sh found", effect: "next-test-run" },
+    { key: "prepare-environment-script", about: "run on the build before every conformance testing script run, by path from the project root - optional", kind: "path", unset: "the one prepare_environment*.sh found, else none", effect: "next-test-run" },
     { key: "static-checks-script", about: "the static checks script, by path from the project root - optional", kind: "path", unset: "the one run_static_checks*.sh found", effect: "next-test-run" },
     { key: "testing-scripts-run-on", about: "what the testing scripts run on: the code itself, or a fresh copy", kind: "choice", options: ["in-place", "copy"], unset: "in-place", effect: "next-test-run" },
     { key: "parallel-jobs", about: "how many pulses run at once, on modules that share nothing", kind: "number", options: ["1", "2", "3", "4", "6"], min: 1, unset: "half this machine's cores, one to four", effect: "now", projectOnly: true },
@@ -246,6 +247,12 @@ function writtenEntry(entry: Record<string, unknown>): unknown {
   return { ...(model !== undefined ? { model } : {}), ...(thinking !== undefined ? { thinking } : {}), "turn-limit": turnLimit };
 }
 
+/** The file with a top-level key set to a value as it is - a block, such as `models:`, written whole - in its line, or under its commented-out example. */
+export function withTopLevelValue(text: string, key: string, value: unknown): string {
+  const block = value !== null && typeof value === "object" && !Array.isArray(value);
+  return withTopLevel(text, key, block ? dumpYaml({ [key]: value }, { flowLevel: 2, lineWidth: -1 }).trimEnd().split("\n") : [`${key}: ${inline(value)}`]);
+}
+
 /**
  * The file with a setting set to a value, or unset (`undefined`). A top-level one is changed in its line; one under
  * `models:` or `agent-env:` has that block written again whole.
@@ -360,7 +367,8 @@ export function pathOptions(dir: string, key: string): string[] {
     }
   };
   if (key === "module") return list("", (name) => name.endsWith(".plain")).sort();
-  const prefix = key === "unittests-script" ? "run_unittests" : key === "conformance-tests-script" ? "run_conformance_tests" : "run_static_checks";
+  const prefix =
+    key === "unittests-script" ? "run_unittests" : key === "conformance-tests-script" ? "run_conformance_tests" : key === "prepare-environment-script" ? "prepare_environment" : "run_static_checks";
   const script = (name: string) => name.startsWith(prefix) && /\.(sh|ps1)$/.test(name);
   return [...list("", script), ...list("test_scripts", script)].sort();
 }

@@ -24,6 +24,8 @@ Summarize the answers in five short bullets:
 - Observable success criterion
 - Initial boundary and explicit exclusions
 
-Ask the user to confirm or correct the brief. the intent phase finishes only after explicit confirmation.
+Ask the user to confirm or correct the brief with one `ask_user` question, the five bullets passed whole as its
+`context` - the dialog shows only the question, its options and its `context`. The intent phase finishes only after
+explicit confirmation.
 Carry the confirmed brief into the stack and product phases so their questions refine it instead of restarting intent
 discovery.

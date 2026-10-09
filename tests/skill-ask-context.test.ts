@@ -88,7 +88,7 @@ describe("a skill's agent at work", () => {
 });
 
 describe("a skill's question", () => {
-  it("comes with what its agent said since its last question - the brief it asks about - and only that", async () => {
+  it("keeps what its agent said since its last question, for its record - and only that", async () => {
     const { runSkill } = await import("../src/genome.ts");
     const asked: AskUserRequest[] = [];
     await runSkill({
@@ -99,8 +99,8 @@ describe("a skill's question", () => {
       escalate: async () => false,
       askUser: async (request) => (asked.push(request), "Build it"),
     });
-    expect(asked[0]!.context).toBe("- The problem: invoices get lost.\n- The primary user: a freelancer.");
-    expect(asked[1]!.context).toBe("Noted.");
+    expect(asked[0]!.said).toBe("- The problem: invoices get lost.\n- The primary user: a freelancer.");
+    expect(asked[1]!.said).toBe("Noted.");
   });
 
   it("comes with the agent's last message alone, not its account of the work since the last answer - and a message with no words keeps the one before", async () => {
@@ -119,8 +119,8 @@ describe("a skill's question", () => {
     } finally {
       delete (globalThis as { narrating?: boolean }).narrating;
     }
-    expect(asked[0]!.context).toBe("The live account has 4 active and 6 archived contacts.");
-    expect(asked[1]!.context).toBe("Here is the mapping I propose: email lowercased.");
+    expect(asked[0]!.said).toBe("The live account has 4 active and 6 archived contacts.");
+    expect(asked[1]!.said).toBe("Here is the mapping I propose: email lowercased.");
   });
 
   it("is shown below that text in the dialog", async () => {

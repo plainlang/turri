@@ -49,14 +49,45 @@ describe("turri init-config", () => {
     expect(readFileSync(join(dir, "config.turri.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
   });
 
-  it("copies the config.yaml turri read until now to config.turri.yaml and sets the two models there - config.yaml left as it was", () => {
-    writeFileSync(join(dir, "config.yaml"), "module: app.plain\nconformance-tests: false\n");
+  it("takes from a codeplain config.yaml the keys turri reads too - each in its place in the quick start - and leaves the rest, and config.yaml, as they were", () => {
+    const codeplain = [
+      "template_dir: template",
+      "prepare-environment-script: test_scripts/prepare_environment_java.sh",
+      "unittests-script: test_scripts/run_unittests.sh",
+      "conformance-tests-script: test_scripts/run_conformance_tests.sh",
+      "verbose: true",
+      "api: https://api.codeplain.ai",
+      "coding-model: somebody/else",
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, "config.yaml"), codeplain);
     const result = initConfig(dir, { vendor: "openai" });
-    expect(result.message).toContain("Copied config.yaml to config.turri.yaml");
-    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe("module: app.plain\nconformance-tests: false\n");
+    expect(result.message).toContain("Took from config.yaml what turri reads too - prepare-environment-script, unittests-script, conformance-tests-script");
+    expect(result.message).toContain("Not taken, turri does not read them: template_dir, verbose, api.");
+    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(codeplain);
     const text = readFileSync(join(dir, "config.turri.yaml"), "utf8");
-    expect(text).toContain("module: app.plain");
-    expect(text).toContain("openai/gpt-6-luna");
+    // In its place: under its commented-out example, not at the end.
+    expect(text.indexOf("unittests-script: test_scripts/run_unittests.sh")).toBeGreaterThan(text.indexOf("# unittests-script:"));
+    expect(text).not.toContain("api:");
+    expect(text).not.toContain("somebody/else");
+    const config = readProjectConfig(dir);
+    expect(config).toMatchObject({
+      unittestsScript: "test_scripts/run_unittests.sh",
+      conformanceTestsScript: "test_scripts/run_conformance_tests.sh",
+      prepareEnvironmentScript: "test_scripts/prepare_environment_java.sh",
+    });
+    expect(projectModels(config).coding).toEqual({ model: "openai/gpt-6-luna", thinking: "low" });
+  });
+
+  it("takes a block - models:, agent-env: - whole, copies the old stacks' files to their new names, and takes nothing into a config.turri.yaml already there", () => {
+    writeFileSync(join(dir, "config.yaml"), "agent-env:\n  vars: [D365_TENANT_ID]\nreview: false\n");
+    writeFileSync(join(dir, "config.backend.yaml"), "unittests-script: run_unittests_python.sh\n");
+    initConfig(dir, { vendor: "openai" });
+    expect(readProjectConfig(dir)).toMatchObject({ agentEnv: { files: [], vars: ["D365_TENANT_ID"] }, review: false });
+    expect(readFileSync(join(dir, "config.turri.backend.yaml"), "utf8")).toBe("unittests-script: run_unittests_python.sh\n");
+    writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\n");
+    initConfig(dir, { vendor: "openai" });
+    expect(readProjectConfig(dir).conformanceTests).toBeUndefined();
   });
 
   it("replaces a model key where it is, block and all, and puts one that is missing at the top", () => {

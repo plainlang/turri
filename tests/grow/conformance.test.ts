@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderConformanceTests } from "../../src/grow/conformance.ts";
 import { runConformanceScript } from "../../src/grow/test-scripts.ts";
@@ -69,6 +69,46 @@ describe("the harness's run of the conformance testing script", () => {
     expect(readdirSync(buildDir)).toEqual(["app.txt"]);
     expect(readdirSync(conformanceDir)).toEqual([]);
     expect((await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && cat state.txt\n'))).exitCode).not.toBe(0);
+  });
+
+  it("runs the project's prepare script on the build first, as codeplain does - the conformance tests once it passes", async () => {
+    writeFileSync(join(buildDir, "app.txt"), "hello");
+    const prepare = join(project, "test_scripts", "prepare_environment_sh.sh");
+    const scripts = script('cat "/tmp/turri_prepared_$(basename "$1")" && echo "tests=$2"\n');
+    writeFileSync(prepare, 'echo "preparing $1"; echo ready > "/tmp/turri_prepared_$(basename "$1")"\n');
+    try {
+      const result = await runConformanceScript(buildDir, [conformanceDir], { ...scripts, prepare });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain("test_scripts/prepare_environment_sh.sh prepared the build first, and passed.");
+      // Both on the same build: what the prepare script made for it, the conformance testing script finds.
+      expect(result.output).toContain("ready");
+      expect(result.output).toContain(`tests=${conformanceDir}`);
+    } finally {
+      rmSync(`/tmp/turri_prepared_${basename(buildDir)}`, { force: true });
+    }
+  });
+
+  it("does not run the conformance tests when the prepare script fails, and says it was the preparation", async () => {
+    const prepare = join(project, "test_scripts", "prepare_environment_sh.sh");
+    const scripts = script("echo conformance-ran\n");
+    writeFileSync(prepare, "echo mvn failed >&2; exit 4\n");
+    const result = await runConformanceScript(buildDir, [conformanceDir], { ...scripts, prepare });
+    expect(result.exitCode).toBe(4);
+    expect(result.command).toBe("test_scripts/prepare_environment_sh.sh");
+    expect(result.output).toContain("exited 4, so the conformance tests were not run");
+    expect(result.output).toContain("mvn failed");
+    expect(result.output).not.toContain("conformance-ran");
+  });
+
+  it("runs the prepare script on the same fresh copy the conformance tests get, with testing-scripts-run-on: copy", async () => {
+    writeFileSync(join(project, "config.yaml"), "testing-scripts-run-on: copy\n");
+    const prepare = join(project, "test_scripts", "prepare_environment_sh.sh");
+    const scripts = script('cat "$1/prepared.txt"\n');
+    writeFileSync(prepare, 'echo prepared > "$1/prepared.txt"\n');
+    const result = await runConformanceScript(buildDir, [conformanceDir], { ...scripts, prepare });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain("prepared");
+    expect(readdirSync(buildDir)).toEqual([]);
   });
 });
 

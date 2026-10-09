@@ -39,7 +39,9 @@ turri reads the nearest `config.turri.yaml` upwards from where it starts, so one
 Below them it puts every other key, commented out - each with what it does, what it is unset, and an example
 value - so you can see what there is and try one by uncommenting it.
 
-A `config.turri.yaml` already there keeps everything but its two models, which it sets - `--force` writes the whole
+Beside a `config.yaml` - codeplain's - the new file takes from it the keys turri reads too, each in its place, its
+testing scripts above all, and says which it left (see [the old config.yaml](#the-old-configyaml)); `config.yaml`
+is left as it is. A `config.turri.yaml` already there keeps everything but its two models, which it sets - `--force` writes the whole
 file again - and a `config.yaml` turri read until then is copied to it first. It takes a folder other than the current
 one as its argument.
 
@@ -128,6 +130,7 @@ models:                              # each agent role's model, thinking and tur
 | `release-after-pulse` | `true` or `false`: whether every pulse that lands code releases it, in the chat, as its last stage - before the module's next pulse starts, whatever the chat is doing: an agent on the coding model looks for the project's release guidance as the chat does (what was passed to `release` this conversation, AGENTS.md, the project's skills) and, when it says to release after a build, does what it says - see [deploy](deploy.md#after-every-pulse). One release a pulse that lands; a release that fails is said in the pulse's report, and what it landed stays | `false` |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
+| `prepare-environment-script` | optional, as codeplain has it: run as `<script> <build>` before every run of the conformance testing script, which runs only once it passes - see [the testing scripts](growing.md#the-testing-scripts). turri never writes one | the one `prepare_environment*.sh` at the root or in `test_scripts/`, else none |
 | `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](growing.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
 | `max-specs-per-pulse` | the most functional specs the planner groups into one pulse - what builds one feature goes together, up to this many; a stack's file wins | 3 |
@@ -241,6 +244,9 @@ decide when it is done. They are looked for at the project root, in this order:
 2. the one `run_unittests*.sh` / `run_conformance_tests*.sh` in the project root;
 3. the one of each in `test_scripts/`.
 
+The optional prepare script - `prepare-environment-script:`, else the one `prepare_environment*.sh` - is looked for the
+same way, and run on the build before the conformance testing script.
+
 A folder holding two of a kind is not guessed between: name the one to use. A script named inside
 `plain_modules/` is refused - agents write there, so it could be changed by the work it judges. The
 scripts are never linked from the specs. What they are and how they run is in
@@ -334,8 +340,12 @@ turri's settings were once in `config.yaml`, and a stack's in `config.<stack>.ya
 may be another tool's, so turri never writes one. While a project folder has no `config.turri*.yaml`
 at all, turri still reads its `config.yaml`, and each `config.<name>.yaml` as the stack `<name>`.
 
-The first time turri itself writes a setting there - `/turri-config`, `turri init-config` - it copies
-`config.yaml` to `config.turri.yaml` and each `config.<name>.yaml` to `config.turri.<name>.yaml`
-first, leaves the old files as they are, and from then on reads only the new ones. To change a
+The first time turri itself writes a setting there with `/turri-config`, it copies `config.yaml` to
+`config.turri.yaml` and each `config.<name>.yaml` to `config.turri.<name>.yaml` first, leaves the old
+files as they are, and from then on reads only the new ones. `turri init-config` copies the stacks'
+files the same way, but writes `config.turri.yaml` as its quick start, taking from `config.yaml` only
+the keys turri reads too - codeplain's `unittests-script`, `conformance-tests-script` and
+`prepare-environment-script`, say - each in its place in the file, and saying which keys it left:
+`template_dir`, `verbose`, `api`, codeplain's alone. The two models are the vendor's, never taken. To change a
 setting by hand in such a project, do the same: copy the files to their new names, and edit the
 copies - never `config.yaml`.

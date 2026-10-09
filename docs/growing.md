@@ -442,6 +442,7 @@ project's own testing scripts, run by the harness the same way every time:
 | --- | --- | --- |
 | `test_scripts/run_unittests_<lang>.sh` | `run_unittests_<lang>.sh <build>` | whether the unit tests pass |
 | `test_scripts/run_conformance_tests_<lang>.sh` | `run_conformance_tests_<lang>.sh <build> <tests>` | whether the conformance tests pass - the whole suite in `plain_modules/<module>/tests`, every functionality's and those carried up from below, at once |
+| `test_scripts/prepare_environment_<lang>.sh` - optional | `prepare_environment_<lang>.sh <build>`, before every run of the conformance testing script | nothing on its own: it readies the environment the conformance tests run in - a `mvn install` of the build, say - and when it fails, the conformance tests are not run and the run fails as the preparation's |
 
 The `implement-unit-testing-script` and `implement-conformance-testing-script` skills write them.
 They are looked for at the project root - the folder that holds `plain_modules` - in this order:
@@ -464,6 +465,13 @@ scripts are not linked from the specs; a link to one is ignored.
 
 They are required: a build with no unit testing script, or with conformance on and no conformance
 testing script, stops before it starts and says which skill adds it.
+
+**The prepare script** is codeplain's, and optional: turri never writes one, and runs one the project has -
+`prepare-environment-script:` in the config, else the one `prepare_environment*.sh` at the root, else in
+`test_scripts/` - on the build, before every run of the conformance testing script: the harness's own, and the agents'
+`run_conformance_tests`. Both get the same build folder - the code in place, or the same fresh copy - so what it sets up
+for that build, the conformance testing script finds. With conformance off it is not run. The conformance agents are
+shown it, before the conformance testing script.
 
 **Where they run.** On this machine, as you would run them: unfenced - no sandbox, no command check, no audit - in
 your own environment with this machine's toolchains, turri's model providers' API keys alone left out. They are yours,

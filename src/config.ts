@@ -27,6 +27,7 @@ import { projectDirOf } from "./grow/paths.ts";
  * rules-off: [integrations]                                 # ***plain rules to leave out of the prompts, by name (default: none)
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
+ * prepare-environment-script: test_scripts/prepare_environment.sh  # optional: run before the conformance testing script - see test-scripts.ts
  * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters - see test-scripts.ts
  * testing-scripts-run-on: in-place                         # what the testing scripts run on: in-place (default), or copy - see test-scripts.ts
  * turn-limit: 150                                           # seconds each turn of an agent a render starts has (default: 120; 0 for none)
@@ -134,10 +135,11 @@ export function stacksOf(root: string): string[] {
  * config.turri.yaml, and each config.<stack>.yaml to config.turri.<stack>.yaml, so nothing is lost when the old files
  * stop being read. The old files are left as they are. Gives back the files written, by name.
  */
-export function adoptLegacyConfig(root: string): string[] {
+export function adoptLegacyConfig(root: string, options: { projectFile?: boolean } = {}): string[] {
   if (!usesLegacyConfig(root)) return [];
   const copies: Array<[string, string]> = [
-    ...(existsSync(join(root, LEGACY_CONFIG_FILE)) ? [[LEGACY_CONFIG_FILE, CONFIG_FILE] as [string, string]] : []),
+    // `projectFile: false`: the stacks' files alone - turri init-config writes config.turri.yaml itself.
+    ...(options.projectFile !== false && existsSync(join(root, LEGACY_CONFIG_FILE)) ? [[LEGACY_CONFIG_FILE, CONFIG_FILE] as [string, string]] : []),
     ...legacyStacks(root).map((stack) => [legacyStackConfigFile(stack), stackConfigFile(stack)] as [string, string]),
   ];
   for (const [from, to] of copies) copyFileSync(join(root, from), join(root, to));
@@ -398,6 +400,8 @@ export interface ProjectConfig {
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
   conformanceTestsScript?: string;
+  /** Run on the build before every conformance testing script run, as codeplain does: `<script> <build folder>`. */
+  prepareEnvironmentScript?: string;
   /** Path from the root to the static checks script - optional: the coding agent's to run, never a gate. */
   staticChecksScript?: string;
   /**
@@ -451,6 +455,7 @@ export const CONFIG_KEYS = {
   releaseAfterPulse: "release-after-pulse",
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
+  prepareEnvironmentScript: "prepare-environment-script",
   staticChecksScript: "static-checks-script",
   testingScriptsRunOn: "testing-scripts-run-on",
   parallelJobs: "parallel-jobs",
@@ -578,6 +583,7 @@ function readConfigFile(path: string): ProjectConfig {
     releaseAfterPulse: typeof raw[CONFIG_KEYS.releaseAfterPulse] === "boolean" ? (raw[CONFIG_KEYS.releaseAfterPulse] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
+    prepareEnvironmentScript: text(raw[CONFIG_KEYS.prepareEnvironmentScript]),
     staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),
     testingScriptsRunOn: whatScriptsRunOn(raw[CONFIG_KEYS.testingScriptsRunOn]),
     agentEnv: agentEnvSetting(raw[CONFIG_KEYS.agentEnv]),
