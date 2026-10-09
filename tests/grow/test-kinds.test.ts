@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildConformancePrompt } from "../../src/grow/prompt.ts";
-import { acceptanceLabel, conformanceLabel, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "../../src/grow/test-kinds.ts";
+import { acceptanceLabel, conformanceLabel, labelsPrompt, labelsPromptFor, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "../../src/grow/test-kinds.ts";
 
 let tests: string;
 beforeEach(() => {
@@ -44,6 +44,35 @@ describe("telling conformance tests from acceptance tests", () => {
   it("asks for conformance tests only, when the spec gives no acceptance tests", () => {
     writeFileSync(join(tests, "test_x.py"), "# conformance tests of functionality 1\n");
     expect(missingTestLabels(tests, "1", [])).toEqual([]);
+  });
+});
+
+describe("asking for the labels", () => {
+  it("counts a label naming several functionalities for the first alone", () => {
+    writeFileSync(join(tests, "test_conformance_task_manager.py"), "# conformance tests of functionality 1, 2, 3, 4, 5, and 6\n");
+    expect(missingTestLabels(tests, "1", [])).toEqual([]);
+    expect(missingTestLabels(tests, "3", [])).toEqual(['No test file is labelled "conformance tests of functionality 3".']);
+  });
+
+  it("asks for every functionality's missing labels in one request, a line each, keeping the labels there already", () => {
+    const prompt = labelsPromptFor(
+      ["1", "2", "3"].map((frid) => ({ frid, missing: frid === "1" ? [] : [`No test file is labelled "${conformanceLabel(frid)}".`] })),
+      false,
+      false,
+    );
+    expect(prompt).toContain("Missing, for functionalities 2 and 3:");
+    expect(prompt).toContain('No test file is labelled "conformance tests of functionality 2".');
+    expect(prompt).toContain('No test file is labelled "conformance tests of functionality 3".');
+    expect(prompt).toContain("A file that tests several functionalities has one such line for each.");
+    expect(prompt).toContain("counts for the first alone");
+    expect(prompt).toContain("Keep every label and every test that is there already");
+  });
+
+  it("never says the tests pass before anything has checked, and says nothing of acceptance tests when there are none", () => {
+    const none = labelsPrompt("1", ['No test file is labelled "conformance tests of functionality 1".'], false, false);
+    expect(none).not.toContain("The tests pass");
+    expect(none).not.toContain("acceptance test");
+    expect(labelsPrompt("1", ["x"], false, true)).toContain('"acceptance test 1 of functionality 1:"');
   });
 });
 

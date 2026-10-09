@@ -62,19 +62,35 @@ export function missingTestLabels(testsDir: string, frid: string, acceptanceTest
 }
 
 /** Sent back when the labels are missing: which, and how to label them. */
-export function labelsPrompt(frid: string, missing: string[], empty = false): string {
+export function labelsPrompt(frid: string, missing: string[], empty = false, hasAcceptance = true): string {
+  return labelsPromptFor([{ frid, missing }], empty, hasAcceptance);
+}
+
+/**
+ * Sent back when the labels of several functionalities are missing - a spec change that touches them: every one that is
+ * missing, in one request, so none is asked for in place of another.
+ */
+export function labelsPromptFor(items: Array<{ frid: string; missing: string[] }>, empty = false, hasAcceptance = true): string {
+  const pending = items.filter((item) => item.missing.length > 0);
+  const frids = pending.map((item) => item.frid);
+  const which = frids.length === 1 ? `functionality ${frids[0]}` : `functionalities ${frids.slice(0, -1).join(", ")} and ${frids.at(-1)}`;
   return [
     empty
       ? "There are no tests in your tests folder - nothing ran. Whatever a build folder or an earlier report there says, write " +
-        `the conformance tests of functionality ${frid} now, as files in your tests folder, labelled as the two kinds:`
-      : `The tests pass, but they are not labelled as the two kinds they must be kept apart as:`,
+        `the conformance tests of ${which} now, as files in your tests folder, labelled as the kinds they are:`
+      : `The tests are not labelled yet as the kinds they must be kept apart as. Missing, for ${which}:`,
     "",
-    ...missing.map((line) => `- ${line}`),
+    ...pending.flatMap((item) => item.missing.map((line) => `- ${line}`)),
     "",
-    `Every conformance test file of functionality ${frid} has a comment "${conformanceLabel(frid)}" at its top.`,
-    `Every acceptance test is its own test, with a comment right above it: "${acceptanceLabel(frid, 1)}:" and the`,
-    "acceptance test's text. Add what is missing - an acceptance test that is not implemented yet is written as a",
-    "test of its own, not folded into a conformance test - and run the tests again.",
+    "Every functionality's conformance tests carry its own label, in a comment of its own line: " +
+      `"${conformanceLabel(frids[0] ?? "1")}"${frids.length > 1 ? `, "${conformanceLabel(frids[1]!)}", and so on - one line a functionality` : ""}. ` +
+      `A file that tests several functionalities has one such line for each. A label naming several at once - "conformance tests of functionality 1, 2 and 3" - counts for the first alone.`,
+    ...(hasAcceptance
+      ? [
+          `Every acceptance test is its own test, with a comment right above it: "${acceptanceLabel(frids[0] ?? "1", 1)}:" and the acceptance test's text - one not implemented yet is written as a test of its own, not folded into a conformance test.`,
+        ]
+      : []),
+    "Add every label missing above. Keep every label and every test that is there already: adding one functionality's label never takes another's away. Then run the tests again.",
   ].join("\n");
 }
 

@@ -95,7 +95,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         });
         return "Done.";
       }
-      if (prompt.includes("they are not labelled")) {
+      if (prompt.includes("are not labelled yet")) {
         // Sent back for the acceptance test it left out: written as a test of its own.
         await tool("write").execute("id", {
           path: "test_acceptance_hello.py",
@@ -410,7 +410,7 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(writer.prompt).toContain("The acceptance tests of the functional specs the change touches:\n<acceptance tests>\n");
     expect(writer.prompt).toContain("Running the app prints hello and exits 0.");
     // Its first tests leave the acceptance test out: sent back to label it, as a functionality's own run does.
-    expect(asked.some((turn) => turn.role === "conformance agent" && turn.prompt.includes("they are not labelled"))).toBe(true);
+    expect(asked.some((turn) => turn.role === "conformance agent" && turn.prompt.includes("are not labelled yet"))).toBe(true);
     const review = asked.find((turn) => turn.role === "reviewer")!.prompt;
     expect(review).toContain("the functionalities of module `app` the change touches (1)");
     expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");

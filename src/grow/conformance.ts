@@ -21,7 +21,7 @@ import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unans
 import type { JobCases } from "./drift.ts";
 import { CONFORMANCE_COMPACTION } from "./compaction.ts";
 import { NOTES_TURN, notesForSession, passedOutcome, readNotes, reflectOnReview, withNotes } from "./notes.ts";
-import { labelsPrompt, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
+import { labelsPrompt, labelsPromptFor, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
   createScriptTool,
   findTestScripts,
@@ -544,23 +544,25 @@ export async function renderConformanceTests(
           }
           labelAsks += 1;
           stage(listFiles(conformanceDir).length === 0 ? "no tests in the tests folder - the conformance agent writes them" : "labelling the conformance and acceptance tests");
-          response = await askConformance(labelsPrompt(frid!, missing, listFiles(conformanceDir).length === 0), options.onDelta);
+          response = await askConformance(labelsPrompt(frid!, missing, listFiles(conformanceDir).length === 0, (specifications[ACCEPTANCE_TESTS] ?? []).length > 0), options.onDelta);
           continue;
         }
       } else {
-        // A spec change: every functionality it touches, as a functionality's own run would have it.
+        // A spec change: every functionality it touches, as a functionality's own run would have it - every one missing
+        // asked for in one request, checked whole again after each answer, so none is asked for in place of another.
         const pending = touched
           .map((item) => ({ frid: item.frid, missing: missingTestLabels(conformanceDir, item.frid, item.acceptanceTests) }))
-          .find((item) => item.missing.length > 0);
-        if (pending !== undefined) {
+          .filter((item) => item.missing.length > 0);
+        if (pending.length > 0) {
           if (labelAsks >= LABEL_ASKS) {
             stage(`the tests were sent back ${LABEL_ASKS} times to be written and labelled, and still are not - stopping`);
-            unlabelled = pending.missing;
+            unlabelled = pending.flatMap((item) => item.missing);
             break;
           }
           labelAsks += 1;
-          stage(`labelling the conformance and acceptance tests of functionality ${pending.frid}, which the change touches`);
-          response = await askConformance(labelsPrompt(pending.frid, pending.missing, listFiles(conformanceDir).length === 0), options.onDelta);
+          stage(`labelling the conformance and acceptance tests of functionalit${pending.length === 1 ? "y" : "ies"} ${pending.map((item) => item.frid).join(", ")}, which the change touches`);
+          const acceptance = touched.some((item) => item.acceptanceTests.length > 0);
+          response = await askConformance(labelsPromptFor(pending, listFiles(conformanceDir).length === 0, acceptance), options.onDelta);
           continue;
         }
       }
