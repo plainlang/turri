@@ -32,6 +32,8 @@ export function sideQuestionOf(text: string): string | undefined {
 /** The skill running now, as the side agent is told of it. */
 export interface SkillRunNow {
   skill: string;
+  /** Its folder: turri's own, or the project's. */
+  dir: string;
   /** The step it is in, and its attempt - "" before the first. */
   step(): string;
   /** Its trace so far: steps, gates, each question and answer. */
@@ -101,7 +103,7 @@ export interface SideQuestion {
   /** The conversation so far, as text. */
   conversation: string;
   /** The skill running now, if one is. */
-  skill?: { name: string; step: string; trace: string[]; session: string };
+  skill?: { name: string; dir: string; step: string; trace: string[]; session: string };
   /** What is growing and has grown this session, a line a pulse. */
   pulses: string[];
   projectDir: string;
@@ -129,7 +131,7 @@ export function sideQuestionPrompt(side: SideQuestion): string {
       ? [
           "",
           `A skill is running now: ${side.skill.name}${side.skill.step !== "" ? `, in its ${side.skill.step}` : ""}. Its own folder is`,
-          `${side.harnessDir}/genome/skills/${side.skill.name}. What it has done - steps, gates, every question and answer:`,
+          `${side.skill.dir}. What it has done - steps, gates, every question and answer:`,
           "<skill-trace>",
           ...side.skill.trace,
           "</skill-trace>",

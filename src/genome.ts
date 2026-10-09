@@ -15,7 +15,7 @@ import type { JobRegistry } from "./grow/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
 /** The conversation's tools a skill acts on the work loop with - never pi built-ins. */
-const LOOP_TOOLS = ["regrow", "drift", "halt"];
+const LOOP_TOOLS = ["regrow", "drift", "halt", "bind"];
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
 import type { WorkLoop } from "./grow/loop.ts";
@@ -121,6 +121,8 @@ export async function runSkill(opts: {
   // What the agent says between its questions - a brief to confirm, a plan - reaches the person only with
   // the next question: the session it talks in is its own, and nobody reads it.
   let said = "";
+  /** A new message of the agent's has started, and has said nothing yet. */
+  let saidFresh = false;
   if (opts.askUser !== undefined) {
     customTools.push(
       createAskUserTool(
@@ -182,9 +184,18 @@ export async function runSkill(opts: {
       if (line !== undefined) opts.report.activity?.(line);
       return;
     }
+    // Shown with the next question is the last thing it said, not all it said since the last answer: a message of
+    // its own replaces what came before - its account of a probe, a regrow - once it has words in it, so a brief
+    // said just before a bare ask_user call is still shown with it.
+    if (event.type === "message_start") {
+      if ((event.message as { role?: string }).role === "assistant") saidFresh = true;
+      return;
+    }
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
     if (update.type === "text_start") {
+      if (saidFresh) said = "";
+      saidFresh = false;
       if (said.trim() !== "") said += "\n\n";
       opts.report.said?.("", true);
     } else if (update.type === "text_delta") {

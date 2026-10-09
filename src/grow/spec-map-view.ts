@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { highlightLine, roleOf, type PlainRole } from "../plain/highlight.ts";
-import { DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS } from "../plain/spec.ts";
+import { ACCEPTANCE_TEST_HEADING, DEFINITIONS, FUNCTIONAL_REQUIREMENTS, NON_FUNCTIONAL_REQUIREMENTS } from "../plain/spec.ts";
 import type { DiffPaint } from "./diff-view.ts";
 import { spinner } from "./job-panel.ts";
 import type { Job } from "./jobs.ts";
@@ -378,8 +378,13 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
   }
   if (item.state === "changed" && firstLine(item.was ?? "") !== firstLine(item.text)) lines.push(...wrapped(`was: ${firstLine(item.was ?? "")}`, width, style.muted));
   if (item.acceptance.length > 0) {
-    lines.push(`${CONTINUED}${style.muted("acceptance tests:")}`);
-    for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `  ${highlighted(line, style)}`).join("\n"), width));
+    // As the spec has them: nested under the functional spec as deep as its sub-bullets, under a heading of their own
+    // drawn as a section's is.
+    const nested = /^( +)\S/m.exec(item.text.split("\n").slice(1).join("\n"))?.[1] ?? INDENT;
+    const heading = `***${ACCEPTANCE_TEST_HEADING}***`;
+    lines.push(CONTINUED.trimEnd());
+    lines.push(`${CONTINUED}${nested}${style.diff !== undefined ? style.diff.syntax("section", heading) : style.muted(heading)}`);
+    for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `${nested}${highlighted(line, style)}`).join("\n"), width));
   }
   // Where it stands last, under all of its text: what its marks mean for it.
   lines.push(...statusLines(item, page, width, style, now));

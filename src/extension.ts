@@ -58,6 +58,7 @@ import { loadRules, renderRulesBlock } from "./rules.ts";
 import { registerTurriConfig } from "./config-command.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { askWithPeek, peekKeyListener, type AskUser, type Peek } from "./ask.ts";
+import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
   createJobRegistry,
@@ -81,37 +82,6 @@ import {
  * perform it.
  */
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-
-/**
- * Skills ship with this package, so they are found relative to it rather than to the
- * working directory - the point is to run them against whatever project you are in.
- *
- * A skill that does not parse is one that has not been converted to the gated format yet;
- * it is reported rather than silently dropped.
- */
-function discoverSkills(): { skills: Skill[]; pending: string[] } {
-  const root = join(PACKAGE_ROOT, "genome", "skills");
-  let entries: string[];
-  try {
-    entries = readdirSync(root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && (!e.name.startsWith("_") || process.env.FORGE_INCLUDE_FIXTURES === "1"))
-      .map((e) => e.name)
-      .sort();
-  } catch {
-    return { skills: [], pending: [] };
-  }
-
-  const skills: Skill[] = [];
-  const pending: string[] = [];
-  for (const name of entries) {
-    try {
-      skills.push(loadSkill(join(root, name)));
-    } catch {
-      pending.push(name);
-    }
-  }
-  return { skills, pending };
-}
 
 /**
  * Puts a skill step's question to the person, when there is one to ask.
@@ -218,7 +188,8 @@ export function chatAskUserTool() {
 export default function (pi: ExtensionAPI) {
   dropNoise();
   const cwd = process.cwd();
-  const discoveredSkills = discoverSkills();
+  // turri's own skills, and the project's - .turri/skills, .agents/skills (skills.ts).
+  const discoveredSkills = discoverSkills(PACKAGE_ROOT, cwd);
 
   // What the background work is doing right now, drawn above the editor while it runs.
   const panel = createJobPanel(() => shownJobs(jobs));
@@ -417,12 +388,11 @@ export default function (pi: ExtensionAPI) {
   registerSteering(pi, cwd);
   registerSideQuestions(pi, cwd, jobs);
 
-  const { skills, pending } = discoveredSkills;
+  const { skills } = discoveredSkills;
   if (skills.length === 0) return;
 
-  const catalogue = skills.map((s) => `- ${s.name}: ${s.description}`).join("\n");
-  const pendingNote =
-    pending.length > 0 ? `\n\nFailed to load and therefore not runnable: ${pending.join(", ")}.` : "";
+  const catalogue = skills.map(catalogueLine).join("\n");
+  const pendingNote = leftOutNote(discoveredSkills);
 
   pi.registerTool({
     name: "cultivate",
@@ -435,6 +405,8 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "cultivate: run a gated skill - its steps and review gates enforced by turri",
     promptGuidelines: [
       "When a request matches a skill listed in cultivate's description, call cultivate instead of doing the work yourself. Doing it by hand skips the review gates.",
+      // pi lists .agents/skills among its own skills too: read and followed by hand, a skill's gates would be skipped.
+      "A skill cultivate lists may also be among your own skills, from the project's .agents/skills: run it with cultivate all the same, never by reading its SKILL.md and following it.",
       "cultivate returns the reviewed artifact and a trace of every gate decision. Report the artifact to the user; do not rewrite it.",
       "If cultivate fails, say so and stop. Never carry out the skill's work yourself in the conversation - the gates and the judges are the point of running it, and an unreviewed hand-run silently drops them.",
       "Always pass `context` to cultivate, summarising what the user has already told you.",
@@ -583,7 +555,7 @@ export default function (pi: ExtensionAPI) {
       // writes nothing is not taken for one that did its work.
       const filesBefore = projectFiles(cwd);
       // A side question asked while it runs is told what it has done so far.
-      const ended = skillRunStarted({ skill: skill.name, step: () => live.step, trace: () => [...trace], runDir });
+      const ended = skillRunStarted({ skill: skill.name, dir: skill.dir, step: () => live.step, trace: () => [...trace], runDir });
       const { result, output: captured } = await captureConsole(() =>
         runSkill({
         skillDir: skill.dir,
@@ -615,11 +587,12 @@ export default function (pi: ExtensionAPI) {
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // validate too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
-        // The conversation's own regrow, drift and halt, on its loop: a skill waits for nothing, and grows on the model chosen.
+        // The conversation's own regrow, drift, halt and bind, on its loop: a skill waits for nothing, and grows on the model chosen.
         loopTools: [
           regrowTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
           driftTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx) }),
           haltTool({ jobs }),
+          bindTool({ cwd, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
         ],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
@@ -690,7 +663,28 @@ function registerDrift(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
 }
 
 function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
+  pi.registerTool(
+    bindTool({
+      cwd,
+      loop: (ctx) => workLoopFor(jobs, cwd, ctx),
+      model: (ctx, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile),
+      wait: (ctx, asked) => shouldWait(ctx.mode, asked),
+    }),
+  );
+}
+
+/**
+ * bind, for the conversation and for a skill that names it in its allowed-tools - the skill's on the conversation's
+ * loop, its pulses scheduled like any other.
+ */
+function bindTool(options: {
+  cwd: string;
+  loop: (ctx: ExtensionContext) => WorkLoop;
+  model: (ctx: ExtensionContext, plainFile: string, named: string | undefined) => string | undefined;
+  wait: (ctx: ExtensionContext, asked: boolean | undefined) => boolean;
+}) {
+  const { cwd } = options;
+  return defineTool({
     name: "bind",
     label: "Bind conformance tests",
     description:
@@ -723,14 +717,14 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
     async execute(_id, given, _signal, _onUpdate, ctx) {
       const params = fromWorkingDir(cwd, given);
       const plainFile = resolve(params.base, params.plain_file);
-      const model = jobModel(ctx, "spec_changes", params.model, plainFile);
-      const loop = workLoopFor(jobs, cwd, ctx);
+      const model = options.model(ctx, plainFile, params.model);
+      const loop = options.loop(ctx);
       const statuses = await loop.conformance(plainFile, {
         ...(params.frids !== undefined ? { frids: params.frids } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(params.one_by_one === true ? { separately: true } : {}),
       });
-      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
+      return loopReply(loop, statuses, options.wait(ctx, params.wait));
     },
   });
 }
@@ -1899,7 +1893,7 @@ async function askOnTheSide(pi: ExtensionAPI, ctx: ExtensionContext, cwd: string
     {
       question,
       conversation: transcriptOf(entries, 24_000),
-      ...(skill !== undefined ? { skill: { name: skill.skill, step: skill.step(), trace: skill.trace(), session: skillSessionText(skill.runDir) } } : {}),
+      ...(skill !== undefined ? { skill: { name: skill.skill, dir: skill.dir, step: skill.step(), trace: skill.trace(), session: skillSessionText(skill.runDir) } } : {}),
       pulses: jobs.list().map((job) => `${job.id} ${job.status}: ${job.summary}`),
       projectDir: cwd,
       harnessDir: PACKAGE_ROOT,
@@ -2221,7 +2215,7 @@ export const TURRI_IDENTITY = [
 function registerBranding(
   pi: ExtensionAPI,
   ruleCount: number,
-  skills: { skills: Skill[]; pending: string[] },
+  skills: SkillCatalogue,
 ) {
   pi.registerCommand("stdlib", {
     description: "List the ***plain standard library: the stacks a spec can import instead of writing its implementation reqs.",
@@ -2236,6 +2230,8 @@ function registerBranding(
           version: string;
           rules: number;
           skills: number;
+          /** Of them, the project's own. */
+          projectSkills?: number;
           pending: number;
           stdlib?: number;
           cwd: string;
@@ -2250,6 +2246,7 @@ function registerBranding(
       theme.fg(
         "muted",
         `${data.rules} rules · ${data.skills} skill${data.skills === 1 ? "" : "s"}` +
+          (data.projectSkills !== undefined && data.projectSkills > 0 ? ` (${data.projectSkills} the project's)` : "") +
           (data.stdlib !== undefined && data.stdlib > 0 ? ` · ${data.stdlib} stdlib stacks (/stdlib)` : "") +
           (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
       ),
@@ -2273,6 +2270,7 @@ function registerBranding(
         version: packageVersion(),
         rules: ruleCount,
         skills: skills.skills.length,
+        projectSkills: skills.skills.filter((skill) => skill.origin !== "turri").length,
         pending: skills.pending.length,
         stdlib: stdlibStackCount(),
         cwd: ctx.cwd,

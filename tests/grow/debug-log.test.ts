@@ -59,7 +59,7 @@ describe("an agent's debug log", () => {
     const log = startDebugLog(fakeSession(), { cwd: codeDir, label: "app 1 coding agent" })!;
     expect(log.file.startsWith(join(root, ".turri", "debug"))).toBe(true);
     expect(log.file).toMatch(/\d{4}-\d\d-\d\dT[\d-]+Z-app-1-coding-agent\.log$/);
-    expect(readFileSync(join(root, ".turri", ".gitignore"), "utf8")).toBe("*\n");
+    expect(readFileSync(join(root, ".turri", ".gitignore"), "utf8")).toBe("*\n!skills/\n!skills/**\n");
   });
 
   it("gives two agents started at once a file each", () => {

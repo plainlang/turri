@@ -358,6 +358,23 @@ describe("the regeneration drawn", () => {
     expect(text).not.toContain("used by");
   });
 
+  it("opens a functional spec's acceptance tests as the spec has them - nested under it as deep as its sub-bullets, under a heading drawn as a section's", () => {
+    const spec: MarshalledPlainSource = {
+      [FUNCTIONAL_REQUIREMENTS]: [{ markdown: "- Patch the records.\n    - Lookups first.", acceptance_tests: [{ markdown: "- A lookup becomes an `@odata.bind` entry." }, { markdown: "- An empty record patches nothing." }] }],
+    } as MarshalledPlainSource;
+    const [marked] = markSpecMap([page(spec, spec)], noPlan);
+    const state = createSpecMapState();
+    for (const entry of marked!.items) state.open.add(`${marked!.plainFile}\n${entry.key}`);
+    const painted: TranscriptStyle = { ...style, diff: { ...PLAIN_PAINT, syntax: (role, text) => (role === "section" ? `<section>${text}</section>` : text) } };
+    const lines = specMapLines([marked!], state, 120, painted).lines;
+    const heading = lines.findIndex((line) => line.includes("acceptance tests"));
+    expect(lines[heading - 1]!.trimEnd()).toMatch(/│$/);
+    expect(lines[heading]).toContain("│     <section>***acceptance tests***</section>");
+    expect(lines[heading + 1]).toContain("│     - A lookup becomes an `@odata.bind` entry.");
+    expect(lines[heading + 2]).toContain("│     - An empty record patches nothing.");
+    expect(lines.join("\n")).not.toContain("acceptance tests:");
+  });
+
   it("shows the files a module imports under its own text, each closed until opened - the module it requires is a tab of its own", () => {
     const items: MapItem[] = [
       { key: "a", section: FUNCTIONAL_REQUIREMENTS, state: "built", text: "- Say hello.", acceptance: [] },

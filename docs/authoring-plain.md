@@ -211,7 +211,8 @@ What keeps the interview honest is the harness, not the interviewer:
 
 ## The skills
 
-Every skill in `genome/skills/` can be run from a conversation; most are also used by the bigger ones.
+Every skill in `genome/skills/` can be run from a conversation; most are also used by the bigger ones. A project's own,
+in `.turri/skills/` or `.agents/skills/`, can be too (see [skills and gates](skills-and-gates.md#a-projects-own-skills)).
 
 | to… | skills |
 | --- | --- |

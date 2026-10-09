@@ -62,7 +62,7 @@ describe("where a skill run keeps its state", () => {
     const { skillRunDir } = await import("../../src/grow/paths.ts");
     const { existsSync, readFileSync } = await import("node:fs");
     expect(skillRunDir(root, "brood")).toBe(join(root, ".turri", "runs", "brood"));
-    expect(readFileSync(join(root, ".turri", ".gitignore"), "utf8")).toBe("*\n");
+    expect(readFileSync(join(root, ".turri", ".gitignore"), "utf8")).toBe("*\n!skills/\n!skills/**\n");
     expect(existsSync(join(root, ".forge"))).toBe(false);
   });
 

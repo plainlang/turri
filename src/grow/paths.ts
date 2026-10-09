@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -134,7 +134,8 @@ export function projectRootOf(dir: string): string {
 
 /**
  * `.turri` in the project: the harness's own scratch space - copies to try things in,
- * saved agent sessions. Never part of the project's history, so it ignores itself.
+ * saved agent sessions. Never part of the project's history, so it ignores itself - but for `skills/`, the
+ * project's own skills.
  */
 export function scratchDir(dir: string): string {
   const parts = resolve(dir).split(sep);
@@ -169,11 +170,18 @@ export function skillRunDir(cwd: string, skillName: string): string {
   return ensureInScratch(scratch, dir);
 }
 
-/** Make `path`, inside a scratch dir, and see that the scratch dir ignores itself. Returns `path`. */
+/**
+ * What the scratch dir's .gitignore says: everything in it is ignored but `skills/` - the project's own skills
+ * (skills.ts), which are written by hand and kept in its history.
+ */
+export const SCRATCH_IGNORE = "*\n!skills/\n!skills/**\n";
+
+/** Make `path`, inside a scratch dir, and see that the scratch dir ignores itself, its skills apart. Returns `path`. */
 export function ensureInScratch(scratch: string, path: string): string {
   mkdirSync(path, { recursive: true });
   const ignore = join(scratch, ".gitignore");
-  if (!existsSync(ignore)) writeFileSync(ignore, "*\n");
+  // One written before skills were kept here ignored them too: it is brought up to date.
+  if (!existsSync(ignore) || readFileSync(ignore, "utf8") === "*\n") writeFileSync(ignore, SCRATCH_IGNORE);
   return path;
 }
 

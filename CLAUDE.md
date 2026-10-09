@@ -81,8 +81,9 @@ compiles those into a LangGraph `StateGraph` (step -> gate -> route), and `src/j
 independent judge sessions with a quorum. `src/genome.ts` `runSkill()` is the single entry point that
 both the CLI and the `cultivate` tool use. `src/rules.ts` appends every file in `genome/rules/` (the
 authoring rules, ~40k tokens, byte-identical so it stays cached) to spec-writing agents, never to
-coding agents. Skills are found relative to the package, not the cwd. A skill that fails to parse
-is reported as pending, not dropped.
+coding agents. turri's own skills are found relative to the package, not the cwd. A skill that fails to parse
+is reported as pending, not dropped. A project's own skills, in `.turri/skills/` and `.agents/skills/`, are found
+beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` lets `skills/` through.
 
 **Growing the code (`src/grow/`)**, one unit of work at a time:
 

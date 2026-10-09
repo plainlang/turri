@@ -117,9 +117,10 @@ change the step makes and puts its findings on the executor's next tool result.
   from the CLI the options are numbered. Offering choices is required, not optional - a call with
   neither `options` nor `free_form: true` is refused - and every list carries "Something else…".
   `multi_select: true` keeps offering what is left until they are done. The skill's agent talks in a
-  session of its own that the person never sees, so what it said since its last question - the
+  session of its own that the person never sees, so the last thing it said before asking - the
   brief it asks them to confirm, the plan it lays out - is shown above the question in the dialog,
-  and kept in the run's trace with the answer.
+  and kept in the run's trace with the answer. Only its last message with words in it: what it said
+  in the turns before - its account of a probe, a regrow - is not.
 - **Be asked something on the side.** A skill runs inside one `cultivate` call, so the conversation can answer
   nothing until it returns. `/btw <question>` (`btw.ts`) can: pi runs a command at once, even mid-turn, and it starts
   an agent of its own - fresh, on the chat's model, reading the project and turri and changing nothing - shown the
@@ -132,6 +133,9 @@ change the step makes and puts its findings on the executor's next tool result.
   background, one after another. `drift` shows how they stand. The person sees its calls as
   `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `grow/activity.ts`), while its
   agent calls it by the one that says what it takes.
+- **Grow, and bind conformance tests.** A skill that names them in `allowed-tools` gets the conversation's own
+  `regrow`, `drift`, `halt` and `bind`, on its loop: `bind` schedules a conformance pulse for functional specs not built
+  yet, as it does from the chat. The skill never waits for them.
 - **Choose the render model**, when the user says so - `engine`, the same tool the
   conversation has.
 
@@ -144,6 +148,26 @@ its step and how long each has taken, its last few tool calls, and the end of wh
 refreshed every few seconds. pi shows only a running tool's first lines, and a step can take many
 minutes without a new line in the trace. The result the conversation gets back keeps the trace
 alone.
+
+## A project's own skills
+
+A project can have skills of its own, in the same format: a folder a skill, with its `SKILL.md` - steps, gates,
+rubrics in its `references/` - in `.turri/skills/` or `.agents/skills/` of the project's folder (`src/skills.ts`).
+turri finds them as it starts, beside its own, and `cultivate` lists each as the project's, with where it is; `turri
+cultivate <name>` runs one by name, as it does turri's own. They are run as turri's own are: the harness owns their
+steps and gates, and their agents get the tools their frontmatter names.
+
+A name is one skill. turri's own come first, then `.turri/skills/`, then `.agents/skills/`; a skill whose name is taken
+already is left out, and the list says so - a project's `brood` never quietly stands in for turri's, and its gates. A
+skill that does not parse is said to have failed to load, by its folder.
+
+`.turri/` is turri's scratch folder and ignores itself, all but `skills/`: its `.gitignore` is `*`, `!skills/`,
+`!skills/**`, and one written before is brought up to date. pi reads `.agents/skills/` too, as skills of its own the
+chat could follow by hand - the chat is told to run any `cultivate` lists with `cultivate`, so its gates still run.
+
+A skill is found once, as turri starts: one added while it runs is there the next time. A project's skill agent runs
+as turri's do - pi's file tools and `bash` on the machine, no fence - so a project's skills are as trusted as the
+project.
 
 ## Rules
 

@@ -63,14 +63,14 @@ describe("a side question", () => {
     const answer = await answerSideQuestion({
       question: "what is a frid?",
       conversation: "user: Build me an invoice tracker.",
-      skill: { name: "brood", step: "interview, attempt 1", trace: ["step interview (attempt 1)", "  Q: Who uses it?", "  A: freelancers"], session: "assistant: Which stack?" },
+      skill: { name: "release-notes", dir: "/p/.agents/skills/release-notes", step: "interview, attempt 1", trace: ["step interview (attempt 1)", "  Q: Who uses it?", "  A: freelancers"], session: "assistant: Which stack?" },
       pulses: ["ab12 running: app.plain Accounts"],
       projectDir: root,
       harnessDir: root,
     });
     expect(answer).toBe("A frid is a functionality id.");
     expect(seen.task).toContain("user: Build me an invoice tracker.");
-    expect(seen.task).toContain("A skill is running now: brood, in its interview, attempt 1");
+    expect(seen.task).toContain("A skill is running now: release-notes, in its interview, attempt 1. Its own folder is\n/p/.agents/skills/release-notes.");
     expect(seen.task).toContain("  A: freelancers");
     expect(seen.task).toContain("assistant: Which stack?");
     expect(seen.task).toContain("- ab12 running: app.plain Accounts");
@@ -82,7 +82,7 @@ describe("a side question", () => {
   });
 
   it("knows the skill running only until it says it has ended", () => {
-    const ended = skillRunStarted({ skill: "brood", step: () => "", trace: () => [], runDir: root });
+    const ended = skillRunStarted({ skill: "brood", dir: root, step: () => "", trace: () => [], runDir: root });
     expect(runningSkill()?.skill).toBe("brood");
     ended();
     expect(runningSkill()).toBeUndefined();

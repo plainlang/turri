@@ -17,7 +17,7 @@ export interface AskUserRequest {
   /** Deliberately asking without options, for a genuinely open question. */
   freeForm?: boolean;
   /**
-   * What the asker said since its last question - a brief to confirm, the choices it weighed - shown
+   * What the asker said last before asking - a brief to confirm, the choices it weighed - shown
    * above the question. A skill's agent talks in a session of its own that nobody sees, so without it
    * "Is this the right brief?" arrives with no brief.
    */

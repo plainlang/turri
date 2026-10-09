@@ -42,7 +42,8 @@ it does: `stack - the language, frameworks, storage and architecture`. The phase
 `genome/skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
 [authoring \*\*\*plain](authoring-plain.md#the-skills). A skill run that is interrupted can be resumed
-where it stopped.
+where it stopped. A project can have skills of its own, in `.turri/skills/` or `.agents/skills/` - see
+[skills and gates](skills-and-gates.md#a-projects-own-skills).
 
 ## The tools
 
@@ -182,7 +183,8 @@ come waits for a free slot, and says so.
   the work loop's plan adds the pulses on top. It maps the files asked to build this conversation, else
   `module:` in `config.yaml`, else the `.plain` files of the folder that no other one there imports or
   requires - the folder's files looked at again only once one of them, or its config, changes. `↑` `↓` move
-  row by row, `enter` or `space` open and close an item or an import block, `←` `→` go to the next module's
+  row by row, `enter` or `space` open and close an item or an import block - a functional spec opens to its
+  sub-bullets and its `***acceptance tests***`, nested under it as the spec has them - `←` `→` go to the next module's
   tab, `o` and `c` open or close everything shown, `pgup` `pgdn` and the
   wheel scroll, `g`/`G` go to the top and the bottom.
 
@@ -403,7 +405,7 @@ turri regrow <file.plain> 2            # grow functionality 2 again, changed or 
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regrow it
 turri bind <file.plain> 1              # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when
-turri cultivate genome/skills/brood     # run a gated skill directly
+turri cultivate brood                  # run a gated skill directly - by name, the project's too, or by its folder
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
 

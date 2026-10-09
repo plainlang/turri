@@ -1,10 +1,13 @@
 import { createInterface } from "node:readline/promises";
-import { relative } from "node:path";
+import { existsSync } from "node:fs";
+import { join, relative } from "node:path";
 import { describeGates, runSkill } from "./genome.ts";
 import type { Decision, Reporter } from "./graph.ts";
 import { runAsk } from "./ask.ts";
 import { skillRunDir } from "./grow/paths.ts";
 import { loadSkill } from "./skill.ts";
+import { discoverSkills } from "./skills.ts";
+import { PACKAGE_ROOT } from "./environment.ts";
 
 const c = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -62,17 +65,20 @@ async function main() {
   const skillArg = args.filter((arg, i) => !arg.startsWith("--") && i !== modelIndex + 1)[0];
 
   if (!skillArg) {
-    console.error("usage: turri cultivate <path-to-skill-dir> [--model provider/id]");
+    console.error("usage: turri cultivate <skill name | path-to-skill-dir> [--model provider/id]");
     process.exit(1);
   }
 
   const cwd = process.cwd();
-  const skill = loadSkill(skillArg);
+  // A folder with a SKILL.md, or a skill by name: turri's own or the project's (skills.ts).
+  const named = existsSync(join(skillArg, "SKILL.md")) ? undefined : discoverSkills(PACKAGE_ROOT, cwd).skills.find((found) => found.name === skillArg);
+  const skillDir = named?.dir ?? skillArg;
+  const skill = loadSkill(skillDir);
   console.log(c.bold(`skill: ${skill.name}`));
   for (const line of describeGates(skill)) console.log(`  ${c.dim(line)}`);
 
   const result = await runSkill({
-    skillDir: skillArg,
+    skillDir,
     cwd,
     runDir: skillRunDir(cwd, skill.name),
     model,
