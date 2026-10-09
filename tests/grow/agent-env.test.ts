@@ -109,14 +109,17 @@ describe("agent-env: the credentials a project passes to its agents", () => {
     expect(agentEnvironment(module, { hostEnv: host, home }).env.HOME).toBe(join(project, "plain_modules", ".turri", "home", "app"));
   });
 
-  it("adds a module's own to the project's", () => {
-    writeFileSync(join(project, "config.yaml"), "agent-env:\n  vars: [D365_TENANT_ID]\n");
-    writeFileSync(join(project, "config.app.yaml"), "agent-env:\n  vars: [GITHUB_TOKEN]\n");
-    const result = agentEnvironment(module, { hostEnv: host, home });
-    expect(result.passed).toEqual(["D365_TENANT_ID", "GITHUB_TOKEN"]);
-    // Another module has only the project's.
-    mkdirSync(join(project, "plain_modules", "web", "code"), { recursive: true });
-    expect(agentEnvironment(join(project, "plain_modules", "web"), { hostEnv: host, home }).passed).toEqual(["D365_TENANT_ID"]);
+  it("adds the chosen stack's to the project's", async () => {
+    const { chooseStack } = await import("../../src/config.ts");
+    writeFileSync(join(project, "config.turri.yaml"), "agent-env:\n  vars: [D365_TENANT_ID]\n");
+    writeFileSync(join(project, "config.turri.api.yaml"), "agent-env:\n  vars: [GITHUB_TOKEN]\n");
+    expect(agentEnvironment(module, { hostEnv: host, home }).passed).toEqual(["D365_TENANT_ID"]);
+    chooseStack("api");
+    try {
+      expect(agentEnvironment(module, { hostEnv: host, home }).passed).toEqual(["D365_TENANT_ID", "GITHUB_TOKEN"]);
+    } finally {
+      chooseStack(undefined);
+    }
   });
 
   it("reports a credential it names that is not there - no such file, no such variable, an empty one", () => {

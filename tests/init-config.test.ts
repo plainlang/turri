@@ -14,9 +14,9 @@ afterEach(() => {
 });
 
 describe("turri init-config", () => {
-  it("writes a config.yaml with a strong model to talk to and a smaller one to write the code, as turri reads it", () => {
+  it("writes a config.turri.yaml with a strong model to talk to and a smaller one to write the code, as turri reads it", () => {
     expect(initConfig(dir).written).toBe(true);
-    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
+    expect(readFileSync(join(dir, "config.turri.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
     const models = projectModels(readProjectConfig(dir));
     expect(models.harness?.model).toBe("anthropic/claude-opus-5-5");
     expect(models.coding?.model).toBe("google/gemini-3.1-flash-lite");
@@ -24,21 +24,21 @@ describe("turri init-config", () => {
 
   it("has every other key in it commented out - each read as written once uncommented", () => {
     initConfig(dir);
-    const written = readFileSync(join(dir, "config.yaml"), "utf8");
+    const written = readFileSync(join(dir, "config.turri.yaml"), "utf8");
     // Commented out, nothing but the two models is set.
     expect(Object.entries(readProjectConfig(dir)).filter(([, value]) => value !== undefined).map(([key]) => key).sort()).toEqual(["codingModel", "harnessModel"]);
-    writeFileSync(join(dir, "config.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
+    writeFileSync(join(dir, "config.turri.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
     const config = readProjectConfig(dir);
     for (const key of Object.keys(CONFIG_KEYS)) expect(config[key as keyof typeof config], key).toBeDefined();
     expect(Object.keys(config.models ?? {}).sort()).toEqual(["default", ...AGENT_ROLES].sort());
   });
 
-  it("sets only the two models in a config.yaml already there - everything else left as it was - unless told to write it all again", () => {
-    writeFileSync(join(dir, "config.yaml"), "module: app.plain\nharness-model:\n  model: old/one\n  thinking: high\nconformance-tests: false\n");
+  it("sets only the two models in a config.turri.yaml already there - everything else left as it was - unless told to write it all again", () => {
+    writeFileSync(join(dir, "config.turri.yaml"), "module: app.plain\nharness-model:\n  model: old/one\n  thinking: high\nconformance-tests: false\n");
     const result = initConfig(dir, { vendor: "openai" });
     expect(result).toMatchObject({ written: true });
     expect(result.message).toContain("everything else in it left as it was");
-    const text = readFileSync(join(dir, "config.yaml"), "utf8");
+    const text = readFileSync(join(dir, "config.turri.yaml"), "utf8");
     expect(text).toContain("module: app.plain");
     expect(text).toContain("conformance-tests: false");
     expect(text).not.toContain("old/one");
@@ -46,7 +46,17 @@ describe("turri init-config", () => {
     expect(config.module).toBe("app.plain");
     expect(projectModels(config)).toMatchObject({ harness: { model: "openai/gpt-6-astra", thinking: "medium" }, coding: { model: "openai/gpt-6-luna", thinking: "low" } });
     expect(initConfig(dir, { force: true }).written).toBe(true);
-    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
+    expect(readFileSync(join(dir, "config.turri.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
+  });
+
+  it("copies the config.yaml turri read until now to config.turri.yaml and sets the two models there - config.yaml left as it was", () => {
+    writeFileSync(join(dir, "config.yaml"), "module: app.plain\nconformance-tests: false\n");
+    const result = initConfig(dir, { vendor: "openai" });
+    expect(result.message).toContain("Copied config.yaml to config.turri.yaml");
+    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe("module: app.plain\nconformance-tests: false\n");
+    const text = readFileSync(join(dir, "config.turri.yaml"), "utf8");
+    expect(text).toContain("module: app.plain");
+    expect(text).toContain("openai/gpt-6-luna");
   });
 
   it("replaces a model key where it is, block and all, and puts one that is missing at the top", () => {
@@ -91,13 +101,13 @@ describe("turri init-config", () => {
       const sub = join(dir, vendor);
       mkdirSync(sub);
       initConfig(sub, { vendor });
-      const written = readFileSync(join(sub, "config.yaml"), "utf8");
+      const written = readFileSync(join(sub, "config.turri.yaml"), "utf8");
       expect(written).toBe(quickStartConfig(vendor));
       const models = projectModels(readProjectConfig(sub));
       expect(models.harness?.model, vendor).toBe(VENDORS[vendor].harness);
       expect(models.coding?.model, vendor).toBe(VENDORS[vendor].coding);
       // Uncommented, every model named is the vendor's - but for other, a mix of two.
-      writeFileSync(join(sub, "config.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
+      writeFileSync(join(sub, "config.turri.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
       const named = Object.values(readProjectConfig(sub).models ?? {}).map((entry) => entry.model).filter((model) => model !== undefined);
       if (vendor !== "other") for (const model of named) expect(model!.split("/")[0], `${vendor}: ${model}`).toBe(vendor);
     }
@@ -107,7 +117,7 @@ describe("turri init-config", () => {
 
   it("shows how hard each role thinks unless a level is named - the work low, the judging medium - as turri runs them", () => {
     initConfig(dir, { vendor: "anthropic" });
-    const written = readFileSync(join(dir, "config.yaml"), "utf8");
+    const written = readFileSync(join(dir, "config.turri.yaml"), "utf8");
     // The two models carry their level: the one you talk to medium, the coding one low - the judging on it medium.
     expect(written).toMatch(/^harness-model: anthropic\/claude-opus-5-5:medium +#/m);
     expect(written).toMatch(/^coding-model: anthropic\/claude-haiku-5-5:low +#/m);
@@ -117,7 +127,7 @@ describe("turri init-config", () => {
     // The release follows steps: the coding model, thinking low.
     expect(written).toMatch(/^# {3}release: \{ model: anthropic\/claude-haiku-5-5, thinking: low \}/m);
     // Uncommented, each role thinks as turri has it think unset - so the file shows what applies.
-    writeFileSync(join(dir, "config.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
+    writeFileSync(join(dir, "config.turri.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
     const models = readProjectConfig(dir).models ?? {};
     for (const [role, level] of Object.entries(ROLE_THINKING)) expect(models[role as keyof typeof models]?.thinking, role).toBe(level);
   });
@@ -136,7 +146,7 @@ describe("turri init-config", () => {
 
   it("says where it wrote the file, the key pi reads for the vendor or /login, and that turri reads it from that folder alone", () => {
     const { message } = initConfig(dir, { vendor: "openai" });
-    expect(message).toContain(`Wrote ${join(dir, "config.yaml")}, with OpenAI's models:`);
+    expect(message).toContain(`Wrote ${join(dir, "config.turri.yaml")}, with OpenAI's models:`);
     expect(message).toContain("harness-model: openai/gpt-6-astra");
     expect(message).toContain("OPENAI_API_KEY");
     expect(message).toContain("type /login");

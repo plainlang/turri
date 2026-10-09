@@ -7,10 +7,10 @@ code or tests, and the harness decides what runs next and whether the work is do
 ## Where things go
 
 A spec is built in its **project**: the nearest folder, from the spec's own up, that holds a
-`config.yaml`, a module's own `config.<module>.yaml` or a `plain_modules/` - or, with none, the
-spec's own folder. That is where its
-`plain_modules/` is, its `config.yaml` read and its testing scripts found, wherever turri was
-started: a project that keeps its specs in `plain/`, with `plain/config.yaml` and
+`config.turri.yaml`, a stack's `config.turri.<stack>.yaml`, the old `config.yaml` or a `plain_modules/` -
+or, with none, the spec's own folder. That is where its
+`plain_modules/` is, its `config.turri.yaml` read and its testing scripts found, wherever turri was
+started: a project that keeps its specs in `plain/`, with `plain/config.turri.yaml` and
 `plain/plain_modules/`, builds `plain/hubspot.plain` in `plain/plain_modules/hubspot/`, named from
 the folder above. Links in a spec are relative to the spec.
 
@@ -18,8 +18,8 @@ Every path below is in the project. What the person writes:
 
 | | |
 | --- | --- |
-| `config.yaml`, `config.<module>.yaml` | the project config, and a module's own laid over it - see [the project config](config.md) |
-| `test_scripts/run_unittests_<lang>.sh`, `test_scripts/run_conformance_tests_<lang>.sh` | the testing scripts, the only judges of pass or fail - where `config.yaml` names them, else in the project folder, else in `test_scripts/` - see [below](#the-testing-scripts) |
+| `config.turri.yaml`, `config.turri.<stack>.yaml` | the project config, and each stack's, laid over it while the stack is chosen - see [the project config](config.md) |
+| `test_scripts/run_unittests_<lang>.sh`, `test_scripts/run_conformance_tests_<lang>.sh` | the testing scripts, the only judges of pass or fail - where `config.turri.yaml` names them, else in the project folder, else in `test_scripts/` - see [below](#the-testing-scripts) |
 | `AGENTS.md` | optional: a section whose heading names the queue steers how the work is cut - see [how the work is cut into jobs](#how-the-work-is-cut-into-jobs) |
 
 What a module is - each module's folder, its own git history:
@@ -55,12 +55,13 @@ The harness's scratch - each ignores itself, and is never part of a module's his
 | `.turri/deploy/` | the output of what `deploy` started |
 | `dist/<module>/` | what `deploy` puts out: the module's code as its last commit has it, replaced whole each time - see [deploy](deploy.md) |
 
-### Modules on different stacks
+### Parts on different stacks
 
 One project can hold modules that share nothing but a common module - a Python backend and a React
-frontend side by side, each importing `base`, neither requiring the other. Each gets its testing
-scripts, models and conformance in its own `config.<module>.yaml`, laid over `config.yaml`: see
-[the project config](config.md#modules-on-different-stacks).
+frontend side by side, each importing `base`, neither requiring the other. Each stack gets its testing
+scripts, models and conformance in its own `config.turri.<stack>.yaml`, laid over `config.turri.yaml`
+while it is chosen - `/stack backend` in the chat, `--stack backend` on the command line: see
+[the project config](config.md#stacks).
 
 ## One job
 
@@ -415,7 +416,7 @@ false` - left to the next job. Conformance jobs are not steered: they are planne
 A steer shows in the job's view in the panel (what it grows now), in the transcript (`⇢ steered job …`),
 under the job in `regrow`'s answer, and in the job's report.
 
-With `allow-to-stop-jobs: false` in `config.yaml` it is not stopped: it runs to its end and lands what it
+With `allow-to-stop-jobs: false` in `config.turri.yaml` it is not stopped: it runs to its end and lands what it
 was growing, and the next job grows what changed since as a patch on top of it. Something lands as soon as
 it can, and the software evolves job by job - the first build of an integration lands and throws, the next
 patch fills in what was missing - at the cost of growing what the spec has already moved on from. Your own
@@ -445,8 +446,8 @@ project's own testing scripts, run by the harness the same way every time:
 The `implement-unit-testing-script` and `implement-conformance-testing-script` skills write them.
 They are looked for at the project root - the folder that holds `plain_modules` - in this order:
 
-1. `config.yaml` - or the module's own `config.<module>.yaml`, for a project whose modules are on
-   different stacks - naming them by path from the root:
+1. `config.turri.yaml` - with the chosen stack's `config.turri.<stack>.yaml` over it, for a project
+   whose parts are on different stacks - naming them by path from the root:
 
    ```yaml
    unittests-script: test_scripts/run_unittests.sh
@@ -456,9 +457,9 @@ They are looked for at the project root - the folder that holds `plain_modules` 
 2. the root itself: the one `run_unittests*.sh` and `run_conformance_tests*.sh` there;
 3. `test_scripts/`: the one of each there.
 
-The same `config.yaml` holds the project's other defaults - `module`, `model`, `conformance-tests` -
+The same `config.turri.yaml` holds the project's other defaults - `module`, `model`, `conformance-tests` -
 for [unattended runs](headless.md). A folder holding two of a kind is not guessed between: name the
-one to use in `config.yaml`, or in each module's own file. The
+one to use in `config.turri.yaml`, or in each stack's own file. The
 scripts are not linked from the specs; a link to one is ignored.
 
 They are required: a build with no unit testing script, or with conformance on and no conformance
@@ -487,7 +488,7 @@ folder, on the real build and tests folders. A script that finds things from its
 a host codebase, whose scripts merge the generated code into the host and find the host from where they sit - finds
 them. What the script does to the host - copying the package into it - it does, as it is written to.
 
-`testing-scripts-run-on: copy` in the project's `config.yaml` runs them on a fresh copy of the code instead, and of the
+`testing-scripts-run-on: copy` in the project's `config.turri.yaml` runs them on a fresh copy of the code instead, and of the
 whole conformance suite, in `plain_modules/.turri/scripts/`, named for its module and the run, with the project's script
 copied in beside it: the scripts work in `/tmp/<lang>_<basename of the build>`, and every module's build is called
 `code`, so two modules testing at once never share that folder, build output stays out of the code, and nothing a test
@@ -495,7 +496,7 @@ writes reaches it. A script copied there no longer sits beside the project, so o
 does not find them:
 
 ```yaml
-# plain/config.yaml
+# plain/config.turri.yaml
 testing-scripts-run-on: copy
 ```
 
@@ -535,7 +536,7 @@ and the system's folders (`sandboxGapOf` in `environment-error.ts`), the stop sa
 not an install:
 
 > **lunch stopped: turri's sandbox kept its agents from reading `…/mise/installs/node/24.16.0/lib/node_modules/npm/bin/npm-cli.js` - it is on this machine; nothing is missing.**
-> To fix: let the agents read that toolchain - add its folder to `toolchains:` in config.yaml, keeping what is there: `toolchains: [/Users/…/mise/installs/node/24.16.0]`. Nothing needs installing.
+> To fix: let the agents read that toolchain - add its folder to `toolchains:` in config.turri.yaml, keeping what is there: `toolchains: [/Users/…/mise/installs/node/24.16.0]`. Nothing needs installing.
 
 **The conversation heals it.** Told of the stop, it never grows the module again before the cause is fixed - a pulse
 stopped on its environment stops the same way again - and fixes what it can:

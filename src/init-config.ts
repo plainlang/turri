@@ -2,10 +2,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { ROLE_THINKING, type AgentRole } from "./config.ts";
+import { adoptLegacyConfig, CONFIG_FILE, LEGACY_CONFIG_FILE, ROLE_THINKING, type AgentRole } from "./config.ts";
 
 /**
- * `turri init-config`: a project's first config.yaml - the two models, a strong one to talk to and a smaller one to
+ * `turri init-config`: a project's first config.turri.yaml - the two models, a strong one to talk to and a smaller one to
  * write the code - so a new project starts with a choice that works rather than an empty file. It asks which vendor's
  * models you use and fills in theirs; every other key is there too, commented out, each with what it does and an
  * example value: uncommented, each is read as written. docs/config.md has the whole of each.
@@ -14,7 +14,8 @@ import { ROLE_THINKING, type AgentRole } from "./config.ts";
  * else - and how to sign in to the vendor so pi, which turri runs on, can reach the models.
  *
  * Amazon Bedrock serves Anthropic's and OpenAI's models in a geography each - an inference profile, `eu.`, `us.`,
- * `global.` - so it asks which of the two, and where. A config.yaml already there keeps everything but the two models.
+ * `global.` - so it asks which of the two, and where. A config.turri.yaml already there keeps everything but the two models, and a config.yaml turri read
+ * until now is copied to it first.
  */
 
 /** A vendor whose models the quick start config is filled in with. */
@@ -129,7 +130,7 @@ function modelLines(harness: string, coding: string): [string, string] {
 }
 
 /**
- * A config.yaml with its two models set to these lines, and nothing else changed: each key's line - and the lines
+ * A config.turri.yaml with its two models set to these lines, and nothing else changed: each key's line - and the lines
  * indented under it, when it is written as a block - replaced where it is, or put at the top when it is not there.
  */
 export function withModels(text: string, lines: [string, string]): string {
@@ -148,7 +149,7 @@ export function withModels(text: string, lines: [string, string]): string {
   return [...missing, ...out].join("\n");
 }
 
-/** The quick start config.yaml for a vendor's models - for Bedrock, the maker and geography chosen. */
+/** The quick start config.turri.yaml for a vendor's models - for Bedrock, the maker and geography chosen. */
 export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoice): string {
   const { harness, coding, strong } = modelsOf(vendor, bedrock);
   return [
@@ -313,12 +314,14 @@ function whose(vendor: Vendor, bedrock?: BedrockChoice): string {
 }
 
 /**
- * Write the quick start config.yaml in `dir`. One already there keeps everything but its two models, which are set to
+ * Write the quick start config.turri.yaml in `dir`. One already there keeps everything but its two models, which are set to
  * the vendor's - `force` writes the whole of it again. Says what it did.
  */
 export function initConfig(dir: string, options: { force?: boolean; vendor?: Vendor; bedrock?: BedrockChoice } = {}): { written: boolean; message: string } {
   const folder = resolve(dir);
-  const path = join(folder, "config.yaml");
+  // A project read from config.yaml until now keeps what it says: copied to config.turri.yaml, which is then written.
+  const adopted = adoptLegacyConfig(folder);
+  const path = join(folder, CONFIG_FILE);
   const vendor = options.vendor ?? "other";
   const existing = existsSync(path) && options.force !== true;
   const { harness, coding } = modelsOf(vendor, options.bedrock);
@@ -329,6 +332,7 @@ export function initConfig(dir: string, options: { force?: boolean; vendor?: Ven
   return {
     written: true,
     message: [
+      ...(adopted.includes(CONFIG_FILE) ? [`Copied ${LEGACY_CONFIG_FILE} to ${CONFIG_FILE} - turri reads its own file from now on, and leaves ${LEGACY_CONFIG_FILE} as it is.`, ""] : []),
       existing
         ? `Set the two models in ${path} to ${whose(vendor, options.bedrock)} models - everything else in it left as it was (--force writes the whole file again):`
         : `Wrote ${path}, with ${whose(vendor, options.bedrock)} models:`,
@@ -339,7 +343,7 @@ export function initConfig(dir: string, options: { force?: boolean; vendor?: Ven
       "",
       "This config belongs to this folder:",
       `  ${folder}`,
-      "turri reads it when it runs there, or in a folder below it: it uses the nearest config.yaml upwards from where it",
+      `turri reads it when it runs there, or in a folder below it: it uses the nearest ${CONFIG_FILE} upwards from where it`,
       "starts. Started anywhere else - beside a clone of turri, say - turri does not see it: run turri init-config there too.",
       "",
       "Every other key is in it, commented out, with what it does: uncomment one to try it. docs/config.md has them all.",
@@ -352,11 +356,12 @@ export function initConfig(dir: string, options: { force?: boolean; vendor?: Ven
 const USAGE = [
   "usage: turri init-config [--vendor anthropic|openai|google|amazon-bedrock|other] [--maker anthropic|openai] [--region <geography>] [--force] [folder]",
   "",
-  "Write a quick start config.yaml in the folder, the current one by default: the model you talk to and the one that",
+  "Write a quick start config.turri.yaml in the folder, the current one by default: the model you talk to and the one that",
   "writes the code, from the vendor you use. Asked when --vendor is not given and this is a terminal; otherwise other -",
   "a mix of Anthropic and Google, the starting point for any provider pi supports. On amazon-bedrock, --maker and",
   "--region say whose models and where (anthropic: global, us, eu, jp, au; openai: global, us) - asked when not given.",
-  "A config.yaml already there keeps everything but its two models; --force writes the whole of it again.",
+  "A config.turri.yaml already there keeps everything but its two models; --force writes the whole of it again. A",
+  "config.yaml turri read until now is copied to config.turri.yaml first, and left as it is.",
 ].join("\n");
 
 /** Ask until the answer is one `read` takes. */

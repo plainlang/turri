@@ -133,14 +133,16 @@ Write no definitions, no functional specs, no `***test reqs***` and no `***accep
 
 End the phase with the unit tests: their framework, as a `:UnitTests:` requirement, and the unit
 testing script, which every build needs from the first one on. If turri already finds a
-script - named by `unittests-script:` in `config.yaml` at the project root, or the one
+script - named by `unittests-script:` in `config.turri.yaml` at the project root, or the one
 `run_unittests*.sh` in the root or in `test_scripts/` - keep it. Otherwise write
 `test_scripts/run_unittests_<language>.sh` with the `implement-unit-testing-script` skill, for the
 language and framework just settled. Do not link it from the specs. Without it, every build stops
 before it starts. When this module sits in a project beside another on a different stack - a
-frontend beside a backend, sharing only an imported module - its script is named in its own
-`config.<module>.yaml` beside `config.yaml` (`unittests-script:`), not in `config.yaml`, which is
-the project's and holds what the modules share.
+frontend beside a backend, sharing only an imported module - its script is its stack's: name it in
+that stack's `config.turri.<stack>.yaml` beside `config.turri.yaml` (`unittests-script:`) -
+`config.turri.frontend.yaml` for the stack `frontend` - not in `config.turri.yaml`, which is the
+project's and holds what the stacks share. A stack is chosen, never worked out: tell the user to
+choose it with `/stack <stack>` (`--stack <stack>` on the command line) before building this module.
 
 Run `turri validate` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.
@@ -154,7 +156,8 @@ Read `references/testing.md`. Carry the intent brief and the stack in; ask about
 its topics in order. Nothing is built yet, and nothing is built in this phase.
 
 First the decision: are there conformance tests at all? Ask it explicitly, and write the answer to
-`config.yaml` as `conformance-tests:` - the chat and every build follow it. Off, and the phase is
+`config.turri.yaml` as `conformance-tests:` - the chat and every build follow it. A project with
+only a `config.yaml` has it copied to `config.turri.yaml` first; never write `config.yaml`. Off, and the phase is
 done once the user confirms: the product phase's builds then write and run no conformance tests.
 
 On: when the stack came from the standard library, import its conformance template

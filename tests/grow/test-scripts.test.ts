@@ -59,13 +59,13 @@ describe("finding the testing scripts", () => {
     const found = findTestScripts(root);
     expect(found.unit).toBeUndefined();
     expect(() => requireTestScripts("app", found, { conformance: false })).toThrow(
-      /test_scripts\/ holds run_unittests_python.sh, run_unittests_react.sh - name the one to use in config.yaml/,
+      /test_scripts\/ holds run_unittests_python.sh, run_unittests_react.sh - name the one to use in config.turri.yaml/,
     );
   });
 
   it("stops a build with nothing to decide it, saying where it looked", () => {
     expect(() => requireTestScripts("app", findTestScripts(root), { conformance: false })).toThrow(
-      /Stopped before building app: it has no unit testing script[\s\S]*config.yaml[\s\S]*unittests-script: <path>/,
+      /Stopped before building app: it has no unit testing script[\s\S]*config.turri.yaml[\s\S]*unittests-script: <path>/,
     );
     put("run_unittests.sh");
     expect(() => requireTestScripts("app", findTestScripts(root), { conformance: true })).toThrow(/no conformance testing script/);

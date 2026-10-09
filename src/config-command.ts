@@ -1,6 +1,6 @@
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { THINKING_LEVELS } from "./config.ts";
+import { CONFIG_FILE, LEGACY_CONFIG_FILE, THINKING_LEVELS, usesLegacyConfig } from "./config.ts";
 import {
   currentValue,
   dotenvFiles,
@@ -17,7 +17,7 @@ import {
 } from "./config-edit.ts";
 
 /**
- * `/turri-config`: every setting of the project's config.yaml from the chat - `/turri-config` alone lists them,
+ * `/turri-config`: every setting of the project's config.turri.yaml from the chat - `/turri-config` alone lists them,
  * `/turri-config review` asks for review's value, `/turri-config review false` sets it. Each is written into the file
  * and takes effect as it says - now, at your next message, at the next pulse - never only once turri starts again:
  * what turri fixes at its start is changed live here (live).
@@ -34,7 +34,7 @@ export interface LiveHooks {
 }
 
 export interface TurriConfigOptions {
-  /** The folder whose config.yaml the chat reads. */
+  /** The folder whose config.turri.yaml the chat reads. */
   cwd: string;
   /** The ***plain rules there are, by name - what rules-off takes. */
   rules: () => string[];
@@ -81,6 +81,8 @@ export function registerTurriConfig(pi: ExtensionAPI, options: TurriConfigOption
       return;
     }
     const value = "unset" in parsed ? undefined : parsed.value;
+    // The first setting written where the project is still read from config.yaml: copied to config.turri.yaml first.
+    const adopting = usesLegacyConfig(cwd);
     const text = writeSetting(cwd, setting.key, value);
     const notes: string[] = [];
     // What turri fixed at its start, changed now.
@@ -96,9 +98,10 @@ export function registerTurriConfig(pi: ExtensionAPI, options: TurriConfigOption
       const said = options.live.parallelJobs(typeof value === "number" ? value : undefined);
       if (said !== undefined) notes.push(said);
     }
+    if (adopting) notes.push(`${LEGACY_CONFIG_FILE} was copied to ${CONFIG_FILE} first - turri reads its own file from now on, and leaves ${LEGACY_CONFIG_FILE} as it is.`);
     notes.push(...overriddenBy(cwd, text, setting));
     const what = value === undefined ? `${setting.key} unset - ${setting.unset}` : `${setting.key}: ${shownValue(value)}`;
-    ctx.ui.notify([`${what} - written to config.yaml, ${EFFECT_TEXT[setting.effect]}.`, ...notes].join("\n"), "info");
+    ctx.ui.notify([`${what} - written to ${CONFIG_FILE}, ${EFFECT_TEXT[setting.effect]}.`, ...notes].join("\n"), "info");
   };
 
   /** Ask for a setting's value, as its kind takes it: what is typed comes back, or nothing when the dialog is left. */
@@ -160,7 +163,7 @@ export function registerTurriConfig(pi: ExtensionAPI, options: TurriConfigOption
     const all = settings(options.rules());
     const top = all.filter((setting) => !setting.key.startsWith("models."));
     const lines = [...top.map((setting) => listLine(setting, text)), ROLES_ENTRY];
-    const chosen = await ctx.ui.select("/turri-config - the project's config.yaml. Pick a setting to change:", lines);
+    const chosen = await ctx.ui.select(`/turri-config - the project's ${CONFIG_FILE}. Pick a setting to change:`, lines);
     if (chosen === undefined) return undefined;
     if (chosen === ROLES_ENTRY) {
       const roles = all.filter((setting) => setting.key.startsWith("models."));
@@ -171,7 +174,7 @@ export function registerTurriConfig(pi: ExtensionAPI, options: TurriConfigOption
   };
 
   pi.registerCommand("turri-config", {
-    description: "Change a setting of the project's config.yaml",
+    description: `Change a setting of the project's ${CONFIG_FILE}`,
     getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
       const all = settings(options.rules());
       const space = prefix.indexOf(" ");

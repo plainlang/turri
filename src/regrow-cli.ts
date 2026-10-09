@@ -1,4 +1,4 @@
-import { CONFIG_FILE, moduleConfigFile, modulesWithConfig, readProjectConfig } from "./config.ts";
+import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { c } from "./module-report.ts";
 import { parseArgs, runLoop } from "./loop-cli.ts";
 
@@ -11,7 +11,7 @@ followed by the conformance tests of what it grew when they are on. Then it says
 With functional specs named, those are grown again though their spec did not change - as rejuvenate
 does in the chat: their code rewritten or started over, doing what the spec says.
 
-The project's config.yaml, in the current directory, gives the defaults: module (the file to
+The project's config.turri.yaml, in the current directory, gives the defaults: module (the file to
 build when none is given), coding-model (the agents that build), harness-model (the planner), and
 conformance-tests.
 
@@ -44,12 +44,7 @@ const named = positional[0] ?? readProjectConfig(process.cwd()).module;
 // Functional specs named after the file: grown again though their spec did not change.
 const again = positional.slice(1);
 if (!named) {
-  const stacks = modulesWithConfig(process.cwd());
-  console.error(
-    stacks.length > 0
-      ? `${USAGE}\n\nNo file given, and this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}: name the one to build.`
-      : `${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`,
-  );
+  console.error(`${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`);
   process.exit(1);
 }
 runLoop({

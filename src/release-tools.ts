@@ -119,7 +119,7 @@ export function createDeployTools(options: {
       "what to do next.",
     promptSnippet: "release the grown code for the person to try - as the project's release guidance says, or to dist/<module> - then activate it",
     parameters: Type.Object({
-      plain_file: Type.Optional(Type.String({ description: "A .plain file of the module. Default: the project's module from config.yaml." })),
+      plain_file: Type.Optional(Type.String({ description: "A .plain file of the module. Default: the project's module from config.turri.yaml." })),
       in_module: Type.Optional(Type.String({ description: "The codebase to take, when modules built on this one branch" })),
       again: Type.Optional(Type.Boolean({ description: "Release even when the module's last commit is already released - only when what the last release said to do was not done." })),
       guidance: Type.Optional(
@@ -128,7 +128,7 @@ export function createDeployTools(options: {
     }),
     async execute(_id, params) {
       const named = params.plain_file ?? options.defaultPlainFile();
-      if (named === undefined) throw new Error("Which spec? config.yaml names no module: pass plain_file.");
+      if (named === undefined) throw new Error("Which spec? config.turri.yaml names no module: pass plain_file.");
       const plainFile = resolve(options.cwd, named);
       const target = deployTarget(plainFile, params.in_module);
       const guidance = params.guidance?.trim() || undefined;

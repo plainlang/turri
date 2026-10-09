@@ -18,8 +18,11 @@ and tokens on every build.
 
 - `***test reqs***` - one `:ConformanceTests:` requirement per fact, on the template if one exists
   (shared by every module), otherwise on the module. Follow `genome/rules/test-reqs.md`.
-- `config.yaml` at the project root - the `conformance-tests:` decision. Change only that key, and
-  create the file if there is none; everything else in it stays as it is.
+- `config.turri.yaml` at the project root - the `conformance-tests:` decision. Change only that key, and
+  create the file if there is none; everything else in it stays as it is. When the project has only a
+  `config.yaml`, copy it to `config.turri.yaml` first - and each `config.<name>.yaml` to
+  `config.turri.<name>.yaml` - and write the copy: `config.yaml` may be another tool's, and is never
+  written.
 - `test_scripts/` - the conformance testing script.
 
 Write no `***acceptance tests***`, no functional specs and no `***implementation reqs***` here.
@@ -27,7 +30,7 @@ Write no `***acceptance tests***`, no functional specs and no `***implementation
 ## Topics (in order)
 
 1. **Conformance on or off** - ask it explicitly, with what it costs and what it catches; it is a
-   recorded decision, never an inference. Write it to `config.yaml` as `conformance-tests: true` or
+   recorded decision, never an inference. Write it to `config.turri.yaml` as `conformance-tests: true` or
    `conformance-tests: false`. Off: say that no conformance tests will be written or run until it
    is turned on, and go to the end of the phase.
 2. **Framework** - e.g. pytest, JUnit, Jest, Go's `testing`; one that fits the stack. Author it as a
@@ -38,11 +41,14 @@ Write no `***acceptance tests***`, no functional specs and no `***implementation
    real, faked, or mocked at the boundary. Author each decision as its own requirement.
 5. **How the whole suite is run** - the one command that discovers every test. Author it.
 6. **The conformance testing script** - if turri already finds one (named by
-   `conformance-tests-script:` in `config.yaml`, or the one `run_conformance_tests*.sh` in the
+   `conformance-tests-script:` in `config.turri.yaml`, or the one `run_conformance_tests*.sh` in the
    project root or in `test_scripts/`), check it runs the suite the way the test reqs now say, and
    keep it. Otherwise write `test_scripts/run_conformance_tests_<language>.sh` with
    `implement-conformance-testing-script`, to match the test reqs. Never link it from the specs.
-   If `test_scripts/` would hold two of a kind, name the one to use in `config.yaml`.
+   If `test_scripts/` would hold two of a kind, name the one to use in `config.turri.yaml`. In a
+   project whose parts are on different stacks, name each stack's script in its own
+   `config.turri.<stack>.yaml` (`conformance-tests-script:`), and tell the user to choose the stack
+   with `/stack <stack>` (`--stack <stack>` on the command line) before building that part.
 7. **Anything else** - anything about testing the user wants to add or change.
 
 Run `validate` on every module you changed. The product phase's first build needs the test reqs

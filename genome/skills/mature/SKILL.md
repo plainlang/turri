@@ -57,8 +57,8 @@ diff, with `write_spec_diff`.
 ### intake
 
 1. Find the spec: the `.plain` file(s) the user named, or the project's modules. Read them whole,
-   with their `import` and `requires` chains, and the project's `config.yaml` (and
-   `config.<module>.yaml`).
+   with their `import` and `requires` chains, and the project's `config.turri.yaml` (or the old
+   `config.yaml`, when there is no `config.turri.yaml`) and each stack's `config.turri.<stack>.yaml`.
 2. Run `validate` on each, and fix only what stops it parsing - with the file tools, while nothing
    is built from it yet, otherwise with `write_spec_diff`.
 3. Make sure a build can start: the unit testing script (and, with conformance tests on, the

@@ -137,7 +137,7 @@ export function modelFor(choices: ModelChoices, work: RenderWork, chat: string |
 
 /**
  * Where each kind of work runs now, in a line each: chosen in this session, or the default coding
- * model - from `--coding-model` or config.yaml, said which - or the conversation's.
+ * model - from `--coding-model` or config.turri.yaml, said which - or the conversation's.
  */
 export function describeChoices(choices: ModelChoices, chat: string | undefined, project?: { model: string; from: string }): string {
   const fallback = project !== undefined ? `${project.model} (${project.from})` : `${chat ?? "pi's default model"} (the chat's model)`;

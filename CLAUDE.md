@@ -19,7 +19,7 @@ npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one 
 npm run chat                                   # pi with the extension loaded straight from src/
 turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
 turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
-turri init-config                        # a quick start config.yaml in the current folder: the two models, every other key commented out
+turri init-config                        # a quick start config.turri.yaml in the current folder: the two models, every other key commented out
 turri doctor                             # what the machine lacks (bash, the OS sandbox, a model provider; in a project, its toolchains)
 ```
 
@@ -54,8 +54,8 @@ which drives the work loop as the chat does. The old names (`module`, `regenerat
 `deploy`, `skill`) are aliases. `setup` and `doctor` go to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
-`cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, ...).
-`/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.yaml line by line and
+`cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
+`/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.turri.yaml line by line and
 applies what turri fixed at its start - the chat's model, the coding model chosen this session, `parallel-jobs` - live.
 
 **The \*\*\*plain parser (`src/plain/`)** is a faithful port of the Python reference parser
@@ -124,7 +124,7 @@ told mid-turn or at its next turn, its record moved, twice a job at most). `regr
 - `notes.ts`: `code/.turri-notes.md`, the agents' working notes. Agents edit it only through
   the `update_notes` tool, and every line is stamped by the harness.
 - `test-scripts.ts` finds and runs the project's `run_unittests_*.sh` / `run_conformance_tests_*.sh`,
-  from `config.yaml`, then the project root, then `test_scripts/`. A script run is the only thing
+  from `config.turri.yaml` (with the chosen stack's over it), then the project root, then `test_scripts/`. A script run is the only thing
   that decides pass or fail.
 
 **Sandbox.** `confine.ts` rebuilds pi's file tools with a path check (argument and resolved path,
@@ -158,12 +158,18 @@ print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and 
 through an `AsyncLocalStorage` sink in `activity.ts` (`withActivity`, `reportStage`, ...) to
 `job-panel.ts` and the side panel (`jobs-tree.ts`), and to each pulse's log (`job-log.ts`).
 
-**Projects.** A spec is built in its project: the nearest folder upwards holding `config.yaml`, a
-`config.<module>.yaml` or `plain_modules/` (`projectDirOf` in `paths.ts`). `config.yaml`
-(`src/config.ts`) holds `module`, `harness-model`, `coding-model`, `judge-model`,
-`conformance-tests`, `testing-scripts-run-on` and the script paths; a module on a stack of its own lays
-`config.<module>.yaml` over it, found down its `requires` chain (`configForSpec`). `docs/config.md`
-documents every key.
+**Projects.** A spec is built in its project: the nearest folder upwards holding `config.turri.yaml`, a
+`config.turri.<stack>.yaml`, the old `config.yaml` or `plain_modules/` (`projectDirOf` in `paths.ts`).
+`config.turri.yaml` (`src/config.ts`) holds `module`, `harness-model`, `coding-model`, `judge-model`,
+`conformance-tests`, `testing-scripts-run-on` and the script paths. A project whose parts are on different stacks - a
+backend and a frontend, each with its own testing scripts - keeps each stack's settings in `config.turri.<stack>.yaml`,
+laid over `config.turri.yaml` key by key while that stack is chosen; it is chosen, never worked out - `/stack` and the
+chat's `stack` tool (`src/stacks.ts`), `--stack <name>` on any command (`cli.ts`), or `TURRI_STACK` - for the session
+only, a running pulse keeping the one it started with (`chosenStack`, `withStack`, `stackOf` in `config.ts`;
+`configForSpec` reads the project's with the chosen stack's over it). turri never writes a `config.yaml` - it may be
+another tool's: a folder with no `config.turri*.yaml` is still read from `config.yaml` (and `config.<name>.yaml` as
+the stack `<name>`) until turri first writes a setting, which copies them to the new names first (`adoptLegacyConfig`).
+`docs/config.md` documents every key.
 
 ## Testing patterns
 

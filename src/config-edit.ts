@@ -1,10 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dump as dumpYaml, load as loadYaml } from "js-yaml";
-import { AGENT_ROLES, CONFIG_FILE, modulesWithConfig, splitModelSpec, THINKING_LEVELS } from "./config.ts";
+import { adoptLegacyConfig, AGENT_ROLES, CONFIG_FILE, chosenStack, projectConfigFile, stackConfigFileIn, stacksOf, splitModelSpec, THINKING_LEVELS } from "./config.ts";
 
 /**
- * `/turri-config`'s side of config.yaml: every setting turri reads, what it takes - a yes or no, one of a few words, a
+ * `/turri-config`'s side of config.turri.yaml: every setting turri reads, what it takes - a yes or no, one of a few words, a
  * number, a model, a list - and when a change to it takes effect, so the person knows whether to wait for the next
  * pulse or not at all. A change is written into the file line by line, its comments and the commented-out examples
  * kept; `models:` and `agent-env:`, which nest, are written again whole, their own comments lost.
@@ -28,7 +28,7 @@ export interface Setting {
   options?: string[];
   /** The least a number may be. */
   min?: number;
-  /** Set in the project's config.yaml only: a module's own file does not change it. */
+  /** Set in the project's config.turri.yaml only: a stack's file does not change it. */
   projectOnly?: boolean;
 }
 
@@ -307,9 +307,9 @@ export function shownValue(value: unknown): string {
   return inline(value);
 }
 
-/** The project's config.yaml - its text, empty when it is not there yet. */
+/** The project's config.turri.yaml - or the config.yaml it is read from until it has one - its text, empty when there is neither. */
 export function readConfigText(dir: string): string {
-  const path = join(dir, CONFIG_FILE);
+  const path = join(dir, projectConfigFile(dir));
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
@@ -321,9 +321,10 @@ export function overriddenBy(dir: string, text: string, setting: Setting): strin
   if (over !== undefined && currentValue(text, over) !== undefined) notes.push(`${over} is set too, and wins over ${setting.key} - change it with /turri-config ${over}.`);
   if (setting.projectOnly === true) return notes;
   const top = setting.key.split(".")[0]!;
-  for (const module of modulesWithConfig(dir)) {
-    const own = loadMapping(safeRead(join(dir, `config.${module}.yaml`)))[top];
-    if (own !== undefined) notes.push(`config.${module}.yaml sets ${top} too, and wins for ${module}.`);
+  for (const stack of stacksOf(dir)) {
+    const file = stackConfigFileIn(dir, stack);
+    const own = loadMapping(safeRead(join(dir, file)))[top];
+    if (own !== undefined) notes.push(`${file} sets ${top} too, and wins while the stack ${stack} is chosen${chosenStack() === stack ? " - as it is now" : ""}.`);
   }
   return notes;
 }
@@ -336,8 +337,12 @@ function safeRead(path: string): string {
   }
 }
 
-/** Write a setting into the project's config.yaml - made when it is not there - and give back the file as written. */
+/**
+ * Write a setting into the project's config.turri.yaml - made when it is not there, from config.yaml and each stack's
+ * file in the old naming when they are what the project is read from - and give back the file as written.
+ */
 export function writeSetting(dir: string, key: string, value: unknown): string {
+  adoptLegacyConfig(dir);
   const text = withSetting(readConfigText(dir), key, value);
   writeFileSync(join(dir, CONFIG_FILE), text);
   return text;

@@ -12,7 +12,7 @@ import { stdlibCatalogue } from "./stdlib.ts";
 export function loadRules(rulesDir: string, off: readonly string[] = []): Array<{ name: string; content: string }> {
   let entries: string[];
   try {
-    // A project's config.yaml can leave rules out (rules-off): by name, with or without .md.
+    // A project's config.turri.yaml can leave rules out (rules-off): by name, with or without .md.
     const left = new Set(off.map((name) => name.replace(/\.md$/, "")));
     entries = readdirSync(rulesDir).filter((entry) => entry.endsWith(".md") && !left.has(basename(entry, ".md"))).sort();
   } catch {

@@ -15,7 +15,7 @@ import { allocateImageId, Box, type Component, compositeTuiLine, getCapabilities
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
-import { AGENT_ROLES, CONFIG_FILE, configForSpec, moduleConfigFile, modulesWithConfig, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
+import { AGENT_ROLES, chosenStack, CONFIG_FILE, configForSpec, hasProjectConfig, LEGACY_CONFIG_FILE, projectConfigFile, stackConfigFileIn, stackOf, stacksOf, withStack, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./grow/paths.ts";
 import { sweepOrphanedGroups } from "./grow/shell.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine, toolchainsBlock } from "./stack.ts";
@@ -58,6 +58,7 @@ import { loadRules, renderRulesBlock } from "./rules.ts";
 import { registerTurriConfig } from "./config-command.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { askWithPeek, peekKeyListener, type AskUser, type Peek } from "./ask.ts";
+import { registerStacks } from "./stacks.ts";
 import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
@@ -267,7 +268,7 @@ export default function (pi: ExtensionAPI) {
     if (off.join(",") !== rulesKept.off) rulesKept = { off: off.join(","), block: chatRulesBlock(loadRules(join(PACKAGE_ROOT, "genome", "rules"), off)) };
     return rulesKept.block;
   };
-  // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
+  // What the project's config.turri.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
   pi.on("before_agent_start", (event) => ({
     systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock()].filter((part) => part !== "").join("\n\n"),
@@ -325,7 +326,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_settled", endTurnCapture);
 
   // Whether renders write conformance tests, always in sight: read again as each turn starts and
-  // ends, since a turn can change it - `brood`'s testing phase writes it into config.yaml.
+  // ends, since a turn can change it - `brood`'s testing phase writes it into config.turri.yaml.
   const showConformance = (ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
     try {
@@ -387,6 +388,10 @@ export default function (pi: ExtensionAPI) {
   registerDeploy(pi, cwd, jobs, deployState);
   registerSteering(pi, cwd);
   registerSideQuestions(pi, cwd, jobs);
+  // The stack everything is built with: the status bar says it, as it says the conformance.
+  registerStacks(pi, cwd, (ctx) => {
+    if (ctx.hasUI) ctx.ui.setStatus("turri-conformance", conformanceStatus(cwd));
+  });
 
   const { skills } = discoveredSkills;
   if (skills.length === 0) return;
@@ -699,7 +704,7 @@ function bindTool(options: {
       "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
     promptGuidelines: [
-      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.yaml for it, and never rejuvenate a functionality to get them.",
+      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.turri.yaml for it, and never rejuvenate a functionality to get them.",
       "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
       "Conformance tests go in one pulse for all the functional specs tested. Set one_by_one only when the user asks for a pulse a functional spec - one at a time, separately, or the like.",
       "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
@@ -816,15 +821,15 @@ function registerRejuvenate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   });
 }
 
-/** The config a spec is built with - its project's, with its module's own over it - or, with no spec, the session folder's. */
+/** The config a spec is built with - its project's, with the chosen stack's over it - or, with no spec, the session folder's. */
 function configOf(plainFile?: string) {
-  return plainFile !== undefined ? configForSpec(resolve(process.cwd(), plainFile)) : readProjectConfig(process.cwd());
+  return plainFile !== undefined ? configForSpec(resolve(process.cwd(), plainFile)) : readProjectConfig(process.cwd(), stackOf(process.cwd()));
 }
 
 /**
- * Whether renders write conformance tests, for the status bar - and why: the project's config.yaml
- * says so, or, where it says nothing, whether the module has the test reqs they are written from.
- * Nothing when there is no project here.
+ * Whether renders write conformance tests, for the status bar - and why: the project's config, with the chosen stack's
+ * over it, says so, or, where it says nothing, whether the module has the test reqs they are written from - and the
+ * stack chosen, when the project has stacks. Nothing when there is no project here.
  */
 export function conformanceStatus(root: string): string | undefined {
   const project = hasConfig(root)
@@ -834,17 +839,19 @@ export function conformanceStatus(root: string): string | undefined {
         .map((entry) => join(root, entry.name))
         .find(hasConfig);
   if (project === undefined) return undefined;
-  const config = readProjectConfig(project);
-  // Modules on stacks of their own may say otherwise: each as its config has it, when they differ.
-  const modules = modulesWithConfig(project);
-  const perModule = modules.map((module) => [module, readProjectConfig(project, module).conformanceTests] as const);
-  if (perModule.some(([, on]) => on !== config.conformanceTests)) {
-    const state = (on: boolean | "chosen" | undefined) => (on === false ? "off" : on === "chosen" ? "on for the chosen" : on === true ? "on" : "on with test reqs");
-    return `conformance: ${perModule.map(([module, on]) => `${module} ${state(on)}`).join(", ")}`;
-  }
-  if (config.conformanceTests === false) return "conformance off (config.yaml)";
-  if (config.conformanceTests === true) return "conformance on (config.yaml)";
-  if (config.conformanceTests === "chosen") return "conformance on for the chosen (config.yaml)";
+  const stack = stackOf(project);
+  const config = readProjectConfig(project, stack);
+  // The file it is said in: the stack's, when it says otherwise than the project's.
+  const file = stack !== undefined && config.conformanceTests !== readProjectConfig(project).conformanceTests ? stackConfigFileIn(project, stack) : projectConfigFile(project);
+  const status = conformanceOf(project, config, file);
+  if (status === undefined || stacksOf(project).length === 0) return status;
+  return `${status} · stack ${stack ?? "none"} (/stack)`;
+}
+
+function conformanceOf(project: string, config: ReturnType<typeof readProjectConfig>, file: string): string | undefined {
+  if (config.conformanceTests === false) return `conformance off (${file})`;
+  if (config.conformanceTests === true) return `conformance on (${file})`;
+  if (config.conformanceTests === "chosen") return `conformance on for the chosen (${file})`;
   if (config.module === undefined) return "conformance on where there are test reqs";
   try {
     const file = resolve(project, config.module);
@@ -857,7 +864,7 @@ export function conformanceStatus(root: string): string | undefined {
 
 /**
  * How many jobs the chat runs at once: TURRI_PARALLEL_JOBS, else `parallel-jobs:` in the session
- * folder's config.yaml, else half this machine's cores, between one and four.
+ * folder's config.turri.yaml, else half this machine's cores, between one and four.
  */
 export function parallelJobs(cwd: string): number {
   const fromEnv = Number(process.env.TURRI_PARALLEL_JOBS);
@@ -932,19 +939,19 @@ export function machineBlock(cwd: string): string {
   ].join("\n");
 }
 
-/** Whether a folder holds a project's config: config.yaml, or a module's own config.<module>.yaml. */
+/** Whether a folder holds a project's config: config.turri.yaml, a module's own, or the config.turri.yaml read until there is one. */
 function hasConfig(dir: string): boolean {
-  return existsSync(join(dir, CONFIG_FILE)) || modulesWithConfig(dir).length > 0;
+  return hasProjectConfig(dir);
 }
 
 /**
- * The project's config.yaml, for the chat's agent: what it says, and what that means for the
+ * The project's config.turri.yaml, for the chat's agent: what it says, and what that means for the
  * tools - so a question about the project's settings is answered from the file, not from the
  * tools' defaults.
  */
 export function projectConfigBlock(root: string): string {
   // The session's folder, and the projects one folder down - specs kept in plain/, with its own
-  // config.yaml and plain_modules - which its specs are built in when named from here.
+  // config.turri.yaml and plain_modules - which its specs are built in when named from here.
   const projects = [
     ...(hasConfig(root) ? [root] : []),
     ...readdirSync(root, { withFileTypes: true })
@@ -955,31 +962,32 @@ export function projectConfigBlock(root: string): string {
   if (projects.length === 0) return "";
 
   const describe = (dir: string): string[] => {
-    const modules = modulesWithConfig(dir);
+    const stacks = stacksOf(dir);
+    const chosen = stackOf(dir);
     const where = dir === root ? "" : ` (paths relative to ${relative(root, dir)}/)`;
     const at = (name: string) => (dir === root ? name : `${relative(root, dir)}/${name}`);
     return [
       ...settings(
         readProjectConfig(dir),
-        findTestScripts(dir),
-        dir === root ? `${CONFIG_FILE}, for the specs here:` : `${relative(root, dir)}/${CONFIG_FILE}, for the specs in ${relative(root, dir)}/ - built in ${relative(root, dir)}/plain_modules:`,
+        withStack(undefined, () => findTestScripts(dir)),
+        dir === root ? `${projectConfigFile(dir)}, for the specs here:` : `${relative(root, dir)}/${projectConfigFile(dir)}, for the specs in ${relative(root, dir)}/ - built in ${relative(root, dir)}/plain_modules:`,
         where,
-        modules.length > 0 ? "project of modules" : "project",
+        stacks.length > 0 ? "project of stacks" : "project",
       ),
-      // A module on a stack of its own: its file over the project's, for it and the modules built on it.
-      ...modules.flatMap((module) => {
-        const plainFile = join(dir, `${module}.plain`);
-        return [
-          "",
-          ...settings(
-            readProjectConfig(dir, module),
-            findTestScripts(dir, plainFile, join(dir, "plain_modules", module, "code")),
-            `${at(moduleConfigFile(module))}, over ${CONFIG_FILE}, for ${module}.plain and the modules that require it - as they are built:`,
-            where,
-            "module",
-          ),
-        ];
-      }),
+      ...(stacks.length > 0
+        ? ["", `Stacks: ${stacks.join(", ")} - chosen now: ${chosen ?? "none, so the project's file alone"}. Everything is built with the chosen one; switch with the stack tool when the user asks.`]
+        : []),
+      // A stack: its file over the project's, for everything built while it is chosen.
+      ...stacks.flatMap((stack) => [
+        "",
+        ...settings(
+          readProjectConfig(dir, stack),
+          withStack(stack, () => findTestScripts(dir)),
+          `${at(stackConfigFileIn(dir, stack))}, over ${projectConfigFile(dir)}, for everything built while the stack ${stack} is chosen${chosen === stack ? " - as it is now" : ""}:`,
+          where,
+          "stack",
+        ),
+      ]),
     ];
   };
 
@@ -988,14 +996,14 @@ export function projectConfigBlock(root: string): string {
     scripts: ReturnType<typeof findTestScripts>,
     heading: string,
     where: string,
-    /** The project's file, and whether its modules have files of their own - whose scripts are theirs - or a module's. */
-    of: "project" | "project of modules" | "module",
+    /** The project's file, and whether it has stacks - whose scripts are theirs - or a stack's. */
+    of: "project" | "project of stacks" | "stack",
   ): string[] => {
-    const perModule = of === "project of modules";
+    const perModule = of === "project of stacks";
     return [
       heading,
       ...[
-        config.module !== undefined && of !== "module" ? `- module: ${config.module}${where} - the module to build when the user does not name one.` : undefined,
+        config.module !== undefined && of !== "stack" ? `- module: ${config.module}${where} - the module to build when the user does not name one.` : undefined,
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === "chosen"
@@ -1013,7 +1021,7 @@ export function projectConfigBlock(root: string): string {
           return [
             models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless engine chose another in this session.` : undefined,
             models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
-            models.harness !== undefined && of !== "module" ? `- harness-model: ${shown(models.harness)} - the model turri starts with.` : undefined,
+            models.harness !== undefined && of !== "stack" ? `- harness-model: ${shown(models.harness)} - the model turri starts with.` : undefined,
             // The other roles' own, where models: names them.
             ...AGENT_ROLES.filter((role) => role !== "coding" && role !== "chat").flatMap((role) => {
               const own = roleModel(config, role);
@@ -1026,8 +1034,8 @@ export function projectConfigBlock(root: string): string {
             })(),
           ];
         })(),
-        `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each module's file below names its own" : "none found - every build stops until there is one"}`,
-        `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each module's file" : "none found"}`,
+        `- unit testing script: ${scripts.unit !== undefined ? relative(root, scripts.unit) : perModule ? "none for the whole project - each stack's file below names its own" : "none found - every build stops until there is one"}`,
+        `- conformance testing script: ${scripts.conformance !== undefined ? relative(root, scripts.conformance) : perModule ? "none for the whole project - see each stack's file" : "none found"}`,
         config.testingScriptsRunOn === "copy"
           ? "- testing-scripts-run-on: copy - the testing scripts run on this machine, on a fresh copy of each module's code; `testing-scripts-run-on: in-place` (the default) runs them on the code in place."
           : "- testing-scripts-run-on: in-place - the testing scripts run on this machine on the code in place, from the project, against the host codebase; `testing-scripts-run-on: copy` runs them on a fresh copy of each module's code.",
@@ -1037,8 +1045,11 @@ export function projectConfigBlock(root: string): string {
 
   return [
     `<project config>`,
-    `A project's ${CONFIG_FILE} sets how its specs are built - and a module's own config.<module>.yaml, over it, how that module`,
-    "and the ones built on it are: its stack's testing scripts, models and conformance. The render tools follow the one of the spec they build;",
+    `A project's ${CONFIG_FILE} sets how its specs are built - and a stack's config.turri.<stack>.yaml, over it, how everything is built`,
+    "while that stack is chosen: its testing scripts, toolchains, models and conformance - a backend and a frontend each with their own scripts.",
+    "One stack is chosen at a time, for the session: the render tools follow the project's file with the chosen stack's over it;",
+    `a project with no ${CONFIG_FILE} yet is read from its ${LEGACY_CONFIG_FILE} (and config.<stack>.yaml): to change a setting there, copy`,
+    `${LEGACY_CONFIG_FILE} to ${CONFIG_FILE} - and each config.<stack>.yaml to config.turri.<stack>.yaml - first, then edit the copy; never edit ${LEGACY_CONFIG_FILE}.`,
     "answer questions about the project's settings from it, and say when a render will differ from it because the user",
     "asked. Name a spec by its path from here - plain/hubspot.plain - and it is built in its own project.",
     ...projects.flatMap((dir) => ["", ...describe(dir)]),
@@ -1086,7 +1097,7 @@ const LEGACY_MODEL_CHOICE_ENTRY = `${LEGACY_NAME}_render_models`;
  */
 /**
  * The model a render job runs on: the one asked for, or the one chosen in this session for its kind
- * of work, or the project's - `model:` in config.yaml - or the conversation's.
+ * of work, or the project's - `model:` in config.turri.yaml - or the conversation's.
  */
 function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string, plainFile?: string): string | undefined {
   if (named !== undefined && named.trim() !== "") {
@@ -1099,7 +1110,7 @@ function jobModel(ctx: ExtensionContext, work: RenderWork, named?: string, plain
 
 /**
  * The coding model this session starts from, and where it was given: `turri
- * --coding-model`, or `coding-model:` in the project's config.yaml - read afresh, so an edit to the
+ * --coding-model`, or `coding-model:` in the project's config.turri.yaml - read afresh, so an edit to the
  * file holds for the next render.
  */
 function codingModelDefault(plainFile?: string): { named: string; from: string } | undefined {
@@ -1152,7 +1163,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
       "for the rest of this session: for spec changes " +
       "(render spec diff pulses, and the ones write_spec_diff queues), for functionalities (render, module, " +
       "rejuvenate, conformance), or for everything. By default " +
-      "each runs on the model the project's config.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
+      "each runs on the model the project's config.turri.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Pulses already queued keep their model.",
     promptSnippet: "the engine: show or choose the model that grows the code",
@@ -1654,7 +1665,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // /turri-config: every setting of config.yaml from the chat, each taking effect as it says - what turri fixed at its
+  // /turri-config: every setting of config.turri.yaml from the chat, each taking effect as it says - what turri fixed at its
   // start changed here, as it runs.
   registerTurriConfig(pi, {
     cwd,
@@ -1714,7 +1725,7 @@ export const JOB_FINISHED_REACTION = [
   "environment lacks…\" - stops the same way again until that is fixed: never regrow it before. Heal it, then regrow the",
   "module to resume:",
   "- turri's sandbox kept the agents from a folder on this machine: nothing is missing. Add the folder its report names to",
-  "  `toolchains:` in config.yaml - a list, keeping what is there - say so in a line, and resume.",
+  "  `toolchains:` in config.turri.yaml - a list, keeping what is there - say so in a line, and resume.",
   "- the machine lacks a toolchain or a tool - a JDK, Maven, Gradle, Go, uv, Node, a system library: first find out, in your",
   "  shell, whether it is installed somewhere off the PATH (`command -v`, Homebrew's opt folders, /Library/Java/",
   "  JavaVirtualMachines, a version manager the person uses - mise, asdf, sdkman, nvm). Then ask the person with ask_user",
@@ -2204,7 +2215,7 @@ export const TURRI_IDENTITY = [
   "either, and they mean the same:",
   "- A pulse is one unit of work growing the code - a spec diff grown in a codebase, or its conformance tests. It was",
   "  called a job, and still is in places: the job_id a tool takes is a pulse's id, and parallel-jobs and",
-  "  allow-to-stop-jobs in config.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
+  "  allow-to-stop-jobs in config.turri.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
   "- regen is the side panel (/regen, or ctrl+h): the spec with each functionality and item marked built, growing,",
   "  planned or waiting - and behind it the pulses (/pulses), every pulse growing, planned and finished. Say regen,",
   "  lowercase. It was the regeneration, the job queue, or the job panel.",

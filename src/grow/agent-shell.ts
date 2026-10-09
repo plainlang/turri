@@ -1,5 +1,5 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { readProjectConfig, configModuleOfBuild } from "../config.ts";
+import { readProjectConfig, stackOf } from "../config.ts";
 import { reportNote } from "./activity.ts";
 import { agentEnvironment, DARWIN_TEMP_SUFFIX, packageCacheDir, TOOLCHAIN_VARIABLES } from "./agent-env.ts";
 import { afterCommand, auditMessage, beforeCommand } from "./audit.ts";
@@ -66,7 +66,7 @@ export function agentShell(role: ShellRole, options: { wall?: Wall; busy?: (modu
   const project = projectRootOf(workdir);
   const { env } = agentEnvironment(moduleDir);
   const root = projectRootOf(moduleDir);
-  const toolchains = readProjectConfig(root, configModuleOfBuild(root, basename(moduleDir))).toolchains ?? [];
+  const toolchains = readProjectConfig(root, stackOf(root)).toolchains ?? [];
   const machine = machineFor(env, TOOLCHAIN_VARIABLES, toolchains);
   const writable = writableFor(env, moduleDir);
 

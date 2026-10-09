@@ -17,7 +17,7 @@ When writing or editing a `***test reqs***` section in a `.plain` file, always f
 - `:ConformanceTests:` live outside the generated codebase, in one folder, `plain_modules/<module>/tests/` - the module's whole conformance suite, so requirements that shape them belong in test reqs by definition
 - The conformance-test generator reads **only** `***test reqs***` — anything about `:ConformanceTests:` placed elsewhere (e.g. `***implementation reqs***`) is silently ignored
 - Author each `:ConformanceTests:` requirement via `add-test-requirement` and phrase it in terms of `:ConformanceTests:` so the partition stays visible at a glance
-- Do not link the conformance testing script here (or anywhere in the specs; a link to it is ignored). turri finds it in the project root - `conformance-tests-script:` in `config.yaml`, else the one `run_conformance_tests*.sh` in the root, else the one in `test_scripts/` - and shows it to the agents that write the conformance tests itself. Describe the framework and execution command here in words
+- Do not link the conformance testing script here (or anywhere in the specs; a link to it is ignored). turri finds it in the project root - `conformance-tests-script:` in `config.turri.yaml`, else the one `run_conformance_tests*.sh` in the root, else the one in `test_scripts/` - and shows it to the agents that write the conformance tests itself. Describe the framework and execution command here in words
 
 ## What belongs here
 - Test framework: which framework to use (e.g., pytest, Unittest, xUnit)

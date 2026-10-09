@@ -15,7 +15,7 @@ integration its host application takes with the host's own scripts, say. When th
 reads how the code in dist runs, installs what it needs, and starts what serves. Either way it asks
 nothing, and stays in the foreground with the servers' output; Ctrl-C stops them.
 
-The project's config.yaml gives the defaults: module (the file when none is given) and
+The project's config.turri.yaml gives the defaults: module (the file when none is given) and
 harness-model (the agent's model).
 
   --in-module <module>     the codebase to take, when modules built on this one branch
@@ -88,7 +88,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const named = args.plainFile ?? readProjectConfig(process.cwd()).module;
   if (named === undefined) {
-    console.error(`${USAGE}\n\nNo file given, and config.yaml names no module.`);
+    console.error(`${USAGE}\n\nNo file given, and config.turri.yaml names no module.`);
     process.exit(1);
   }
   const plainFile = resolve(named);

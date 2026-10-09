@@ -36,7 +36,7 @@ export ANTHROPIC_API_KEY=...   # the key it names - or skip it, and type /login 
 turri
 ```
 
-`turri init-config` asks which vendor's models you use and writes the project's `config.yaml` with two of theirs - a
+`turri init-config` asks which vendor's models you use and writes the project's `config.turri.yaml` with two of theirs - a
 capable one you talk to, which writes the specs and plans the work, and a smaller, cheaper one that writes the code.
 For Anthropic:
 
@@ -52,8 +52,10 @@ To skip the question, name the vendor - `anthropic`, `openai`, `google`, `amazon
 turri init-config --vendor anthropic
 ```
 
-It then says which key to set, or to `/login`, and where the file is: **turri** reads `config.yaml` from the folder
+It then says which key to set, or to `/login`, and where the file is: **turri** reads `config.turri.yaml` from the folder
 it starts in, or the nearest one above it - so run `init-config` in your project, not beside your clone of **turri**.
+A project with only a `config.yaml` is read from it until **turri** first writes a setting, which copies it to
+`config.turri.yaml` and leaves `config.yaml` as it is.
 Below the two models, the file lists every other setting commented out, each with what it does - uncomment one to
 try it, or change it from the chat with `/turri-config`; [the project config](docs/config.md) has them all. Any other
 model works too: [models](#models).
@@ -172,7 +174,7 @@ to, which writes the specs and plans the work - worth a capable one - and the **
 Luna or Gemini 3.1 Flash Lite. `turri --harness-model` and `--coding-model` choose them for a
 session, and pi's `/model` switches the one you talk to as you go; to keep them for the project,
 set them with `/turri-config harness-model`, `/turri-config coding-model` and so on - each role's too, as
-`models.<role>` - or write them in its `config.yaml`:
+`models.<role>` - or write them in its `config.turri.yaml`:
 
 ```yaml
 harness-model: anthropic/claude-opus-5-5    # the model you talk to: a capable one
@@ -208,9 +210,12 @@ specs, and builds each one as it is written. While it works:
   module, and the **`drift`** tool says what is left to grow;
 - **`/btw <question>`** asks turri something on the side - answered at once, even in the middle of a skill's interview
   (typed as the answer, under "Something else…"), and left out of the conversation;
-- **`/turri-config`** changes any setting of the project's `config.yaml` - the models, review, conformance tests,
+- **`/turri-config`** changes any setting of the project's `config.turri.yaml` - the models, review, conformance tests,
   how many pulses at once - and says when it takes effect: now, at your next message, or at the next pulse. No
-  restart: `/turri-config review false`, or `/turri-config` alone to pick from the list.
+  restart: `/turri-config review false`, or `/turri-config` alone to pick from the list;
+- **`/stack`** chooses the stack to build with, in a project whose backend and frontend each have their own testing
+  scripts in `config.turri.<stack>.yaml` - `/stack backend`, `/stack none` - for the session (`--stack <name>` on the
+  command line).
 
 Other things to ask for:
 
@@ -245,7 +250,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [Installation](docs/installation.md) | setup and doctor, what turri needs of this machine, **turri** in every `pi`, environment variables |
 | [Examples](examples/README.md) | projects to grow with turri step by step: cognio from an empty folder, a CLI, a backend service with conformance tests, a REST API integration |
 | [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and regen, choosing models, the command line |
-| [The project config](docs/config.md) | `config.yaml` and `config.<module>.yaml`: every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
+| [The project config](docs/config.md) | `config.turri.yaml` and each stack's `config.turri.<stack>.yaml`: every key, models and their inheritance, conformance, the testing scripts, stacks and choosing one, the old `config.yaml` |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering a spec overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what a spec is made of, the authoring rules, the skills that write and fix specs, checking a spec |

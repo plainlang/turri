@@ -119,7 +119,7 @@ export function sideQuestionPrompt(side: SideQuestion): string {
     "they go on as they were. If the question is really a change of course - do something else, stop, change an answer -",
     "say how: answer the skill's next question that way, /halt a pulse, or tell turri once the skill is done.",
     "",
-    `The project is ${side.projectDir}: its .plain specs, config.yaml, plain_modules. turri is ${side.harnessDir}: its`,
+    `The project is ${side.projectDir}: its .plain specs, config.turri.yaml, plain_modules. turri is ${side.harnessDir}: its`,
     "source (src/), its skills (genome/skills/), the ***plain authoring rules (genome/rules/) and its docs (docs/).",
     "",
     "Reply with the answer alone, as you would say it - no preamble about how you found it.",

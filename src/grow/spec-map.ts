@@ -532,7 +532,7 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
 }
 
 /**
- * The .plain files the map shows when nothing has been asked for: the project's module from config.yaml, else the
+ * The .plain files the map shows when nothing has been asked for: the project's module from config.turri.yaml, else the
  * .plain files in the folder that no other one there imports or requires.
  */
 export function defaultMapFiles(cwd: string): string[] {

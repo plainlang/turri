@@ -42,7 +42,8 @@ a careful engineer would for this intent - common, well supported, simple - and 
 Never ask about any of the rest. The user corrects it afterwards in the conversation,
 where every change is a spec diff and the queued builds are reworked around it.
 
-Read what is already there first: an existing `.plain` file, `config.yaml`, `template/`,
+Read what is already there first: an existing `.plain` file, `config.turri.yaml` (or the old
+`config.yaml`, with no `config.turri.yaml`), `template/`,
 `test_scripts/`. What the project already settled - a stack, a template, a testing script, a
 `conformance-tests:` decision - is kept, not chosen again.
 
@@ -53,8 +54,10 @@ Read what is already there first: an existing `.plain` file, `config.yaml`, `tem
   `plain_modules/<module>/tests/` (both read-only).
 - One module, unless the intent needs two stacks - a web frontend and an API backend. Then two
   modules side by side, neither requiring the other, sharing what they both mean through one
-  imported module in `template/`. Each names its own testing scripts in its own
-  `config.<module>.yaml` beside `config.yaml` (`unittests-script:`, `conformance-tests-script:`).
+  imported module in `template/`. Each is on a stack of its own, whose testing scripts are named in
+  `config.turri.<stack>.yaml` beside `config.turri.yaml` (`unittests-script:`, `conformance-tests-script:`) -
+  `config.turri.backend.yaml`, `config.turri.frontend.yaml`. A stack is chosen, never worked out: tell the
+  user to choose one with `/stack <stack>` (`--stack <stack>` on the command line) before building its part.
 
 ## Steps
 
@@ -100,13 +103,14 @@ nothing built, and `write_spec_diff` not used.
    for it - a backend, a frontend, a command-line tool or a library (the stdlib rule, in `<plain-rules>`) -
    import that template and write only what the module needs beyond it.
 2. **Unit tests.** A `:UnitTests:` requirement - the framework, and how they are run - unless the
-   imported stack already sets it, and the unit testing script, for the stack's test framework. Keep one turri already finds (named in `config.yaml`, or the one
+   imported stack already sets it, and the unit testing script, for the stack's test framework. Keep one turri already finds (named in `config.turri.yaml`, or the one
    `run_unittests*.sh` in the root or `test_scripts/`); otherwise write
    `test_scripts/run_unittests_<language>.sh` by following the `implement-unit-testing-script`
    skill. Never link it from the specs.
 3. **Conformance tests: off**, so each feature is built fast. Keep a `conformance-tests:` decision
-   `config.yaml` already holds. Otherwise write `conformance-tests: false` into `config.yaml`,
-   changing nothing else in it, and write no `***test reqs***`, import no standard library
+   the project's config already holds - `config.turri.yaml`, or the old `config.yaml`. Otherwise write `conformance-tests: false` into
+   `config.turri.yaml`, changing nothing else in it - a project with only a `config.yaml` has it copied
+   to `config.turri.yaml` first, and `config.yaml` is never written - and write no `***test reqs***`, import no standard library
    conformance template, and write no conformance testing script.
    Only when the user asked for conformance tests, turn them on instead: `conformance-tests: true`,
    the `***test reqs***` - `:ConformanceTests:` requirements for the framework, how the tests reach
@@ -151,7 +155,7 @@ file.
 
 End with the handover, in a few lines: the features in build order, the jobs they were queued as,
 that conformance tests are off unless they were asked for (turning them on later is one line in
-`config.yaml`, `conformance-tests: true`, with the test reqs and the script added in the
+`config.turri.yaml`, `conformance-tests: true`, with the test reqs and the script added in the
 conversation), and what the user can do now - try each feature as its build lands (ask to try it, and the chat
 deploys it), and ask for any change in the conversation. A feature added, changed or dropped is one
 spec diff, and what is left to build is worked out again from the spec.

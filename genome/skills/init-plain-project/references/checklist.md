@@ -21,7 +21,7 @@ Use this to verify the scaffold was produced correctly — never as a substitute
 
 - [ ] Generated `implement-unit-testing-script` (always).
 - [ ] Generated `implement-conformance-testing-script` only if conformance was enabled.
-- [ ] Every generated script is in `test_scripts/`, the only one of its kind there - or named in a `config.yaml` at the root (`unittests-script:`, `conformance-tests-script:`) whose paths resolve. No script is linked from the specs.
+- [ ] Every generated script is in `test_scripts/`, the only one of its kind there - or named in a `config.turri.yaml` at the root (`unittests-script:`, `conformance-tests-script:`) - or, for a part on a stack of its own, in that stack's `config.turri.<stack>.yaml` - whose paths resolve. No script is linked from the specs.
 - [ ] Did **not** run `validate` or `check-plain-env` (out of scope for this skill).
 
 ## Recap

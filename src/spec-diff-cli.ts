@@ -10,7 +10,7 @@ Applies a change to the specs, given as a git diff of the .plain files, and buil
 counterpart of regrow, given a diff. The diff is applied first, unless it is already in; then, as
 turri regrow does, what is left to build is planned into jobs and built.
 
-  --model <provider/id>    model for the agents (default: config.yaml's coding-model)
+  --model <provider/id>    model for the agents (default: config.turri.yaml's coding-model)
   --rejuvenate             rejuvenate, without asking, a codebase grown without a module it now requires`;
 
 const { positional, options } = parseArgs(process.argv.slice(2), ["--rejuvenate", "--start-over"], USAGE);

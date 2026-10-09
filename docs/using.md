@@ -23,7 +23,7 @@ The skills that build from scratch:
 
 | skill | how it works |
 | --- | --- |
-| `brood` | intent, stack, then testing - conformance tests on or off (into `config.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff pulse the moment it is written, with its conformance tests when they are on |
+| `brood` | intent, stack, then testing - conformance tests on or off (into `config.turri.yaml`), their `***test reqs***` and the conformance testing script, which build nothing - then the product feature by feature, where every answer becomes one spec change - a git diff of the `.plain` files, written with `write_spec_diff` and rendered as a render spec diff pulse the moment it is written, with its conformance tests when they are on |
 | `spawn` | its quick twin: asks only what you want to build and which stack - one of the standard library's, your own, or `You choose` - and confirms a five-line brief, then writes the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
 | `mature` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
 
@@ -181,7 +181,7 @@ come waits for a free slot, and says so.
   its most pressing mark, the slice shown solid. The map is read from the files - the code record, the
   `.plain` files, the tests record - so it is right the moment turri opens a project, before anything runs;
   the work loop's plan adds the pulses on top. It maps the files asked to build this conversation, else
-  `module:` in `config.yaml`, else the `.plain` files of the folder that no other one there imports or
+  `module:` in `config.turri.yaml`, else the `.plain` files of the folder that no other one there imports or
   requires - the folder's files looked at again only once one of them, or its config, changes. `↑` `↓` move
   row by row, `enter` or `space` open and close an item or an import block - a functional spec opens to its
   sub-bullets and its `***acceptance tests***`, nested under it as the spec has them - `←` `→` go to the next module's
@@ -210,9 +210,14 @@ come waits for a free slot, and says so.
 - `turri` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the pulses redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
-- **`/turri-config`** changes a setting of the project's `config.yaml` - the models, review, conformance tests, any
+- **`/turri-config`** changes a setting of the project's `config.turri.yaml` - the models, review, conformance tests, any
   key - and says when it takes effect: now, at your next message, or at the next pulse; never only after a restart.
   See [changing it from the chat](config.md#changing-it-from-the-chat).
+- **`/stack`** chooses the stack everything is built with from then on, in a project whose parts are on different
+  stacks: a list of the project's stacks, or `/stack backend`, `/stack none`. The stack's `config.turri.<stack>.yaml`
+  is laid over `config.turri.yaml` - its testing scripts, toolchains, models - for the session; a pulse already
+  running keeps the stack it started with. The chat model switches it too when you ask. See
+  [stacks](config.md#stacks).
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
   server `activate` started; it lists both when no id is given.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
@@ -220,7 +225,7 @@ come waits for a free slot, and says so.
   it runs; see [a whole module](growing.md#a-whole-module). Changes that overlap never pile up: the next pulse
   builds the spec as it is. The pulses planned after the one running are listed behind it, as queued,
   and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
-  A change inside what the running pulse grows - a spec it grows reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a pulse at most. Otherwise a pulse building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.yaml`, which has it land first and the change grown on top. To drop something, take it out of the spec - one spec diff. Stopping a pulse leaves its change
+  A change inside what the running pulse grows - a spec it grows reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a pulse at most. Otherwise a pulse building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.turri.yaml`, which has it land first and the change grown on top. To drop something, take it out of the spec - one spec diff. Stopping a pulse leaves its change
   in the spec: the codebase waits until the spec changes or it is asked for again.
 - **A change to a module below** is made in the codebase at the tip of the chain, where its code
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new
@@ -259,26 +264,32 @@ come waits for a free slot, and says so.
 In `print`, `json` and `rpc` modes the process ends when the answer is written, so the tools wait
 for the work there instead. Pulses live in memory for the session; the work itself is on disk.
 
-## The project's config.yaml
+## The project's config.turri.yaml
 
-The chat reads the project's `config.yaml` afresh every turn and follows it: its agent is told what
+The chat reads the project's `config.turri.yaml` afresh every turn and follows it: its agent is told what
 it sets, and the render tools default to it - `module` when you ask to build without naming one,
 `conformance-tests: false` to render without conformance tests (none written, none of the existing
 ones run) unless you ask for them, `coding-model` for what renders run on, and the testing scripts.
 `harness-model` is what `turri` starts on. What you ask for in the conversation wins.
 Every key, what happens without it, and how the models inherit: [the project config](config.md).
 
-A project whose modules are on different stacks gives each its own `config.<module>.yaml` beside
-`config.yaml` - `config.backend.yaml`, `config.frontend.yaml` - with its testing scripts, models and
-conformance over the project's; the chat is told both, and each render follows its module's. See
-[modules on different stacks](config.md#modules-on-different-stacks).
+A project whose parts are on different stacks gives each stack its own `config.turri.<stack>.yaml`
+beside `config.turri.yaml` - `config.turri.backend.yaml`, `config.turri.frontend.yaml` - with its
+testing scripts, models and conformance over the project's. A stack is chosen, never worked out:
+`/stack backend` before building the backend, `/stack frontend` before the frontend, and every render
+from then on follows the chosen one's; the chat is told each stack's and which is chosen, and the status
+bar shows it. See [stacks](config.md#stacks).
+
+A project with only a `config.yaml` - turri's file before it had its own name, or another tool's - is
+read from it until turri first writes a setting, which copies it to `config.turri.yaml`; see
+[the old config.yaml](config.md#the-old-configyaml).
 
 ## Choosing a model
 
 There are three: the **harness model**, the one you chat with; the **coding model**, the one
 every render runs on - functionalities, conformance tests, repairs, spec changes; and the **judge
 model**, which gives the verdicts in a conformance run - the judge, which says whether the code, the
-tests or the spec is wrong, and the test review. The project's `config.yaml` can give each a model and
+tests or the spec is wrong, and the test review. The project's `config.turri.yaml` can give each a model and
 a thinking level (off, minimal, low, medium, high, xhigh, max):
 
 ```yaml
@@ -315,7 +326,7 @@ for everything" - and the agent calls `engine`, which holds for the rest of the 
 
 It works mid-interview as well: the skill's agent has the same tool. Pulses already queued keep the
 model they were queued with; `"chat"` drops the session's choice, back to the default coding model -
-`--coding-model`, `config.yaml`, or the conversation's. `/engine` shows
+`--coding-model`, `config.turri.yaml`, or the conversation's. `/engine` shows
 what each kind of work runs on. A render tool can also be given a model for one call.
 
 Names are resolved strictly, because pi's own matching guesses and says nothing ("gpt-5" can land

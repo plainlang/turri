@@ -1,9 +1,12 @@
 # The project config
 
-A project says how its specs are built in `config.yaml`, at the project root. Everything in it is
-optional: with no file at all, turri finds the testing scripts on its own, turns conformance
+A project says how its specs are built in `config.turri.yaml`, at the project root. Everything in it
+is optional: with no file at all, turri finds the testing scripts on its own, turns conformance
 tests on wherever a module has test reqs, and runs on pi's configured model. A project whose
-modules are on different stacks adds a file per module, `config.<module>.yaml`, beside it.
+parts are on different stacks - a backend and a frontend - adds a file per stack,
+`config.turri.<stack>.yaml`, beside it, and chooses the stack to build with (see
+[stacks](#stacks)). turri never writes a `config.yaml`: it may be another tool's - codeplain's - and
+is read only by a project that has no file of turri's yet (see [the old config.yaml](#the-old-configyaml)).
 
 `turri init-config` starts one: the two models, a strong one to talk to and a smaller one to write the code. It
 asks which vendor's models you use - `--vendor` says it without asking, and with neither, as from a script, it is
@@ -20,7 +23,7 @@ asks which vendor's models you use - `--vendor` says it without asking, and with
 
 Amazon Bedrock asks two more things - whose models, Anthropic's or OpenAI's (`--maker`), and the region of the
 inference profile they run in (`--region`): `global`, `us`, `eu`, `jp` or `au` for Anthropic's, `global` or `us` for
-OpenAI's. It says which `AWS_REGION` to set for it - pi calls Bedrock in `us-east-1` when none is. A `config.yaml`
+OpenAI's. It says which `AWS_REGION` to set for it - pi calls Bedrock in `us-east-1` when none is. A `config.turri.yaml`
 already there keeps everything but its two models, which it sets; `--force` writes the whole file again.
 
 Each is written with how hard it thinks - `harness-model: openai/gpt-6-astra:medium`, `coding-model:
@@ -31,22 +34,23 @@ They are an example, not a requirement - any model [pi](https://pi.dev) supports
 supports; `other` is the starting point for another provider. What we recommend is that split, a capable model to
 talk to and a smaller, cheaper one for the coding. Once written, it says what to do next: the key to set in your
 shell - or `/login` in turri, which pi keeps in `~/.pi/agent/auth.json` - and that the file belongs to that folder:
-turri reads the nearest `config.yaml` upwards from where it starts, so one written anywhere else is not seen.
+turri reads the nearest `config.turri.yaml` upwards from where it starts, so one written anywhere else is not seen.
 
 Below them it puts every other key, commented out - each with what it does, what it is unset, and an example
 value - so you can see what there is and try one by uncommenting it.
 
-A `config.yaml` already there keeps everything but its two models, which it sets - `--force` writes the whole file
-again - and it takes a folder other than the current one as its argument.
+A `config.turri.yaml` already there keeps everything but its two models, which it sets - `--force` writes the whole
+file again - and a `config.yaml` turri read until then is copied to it first. It takes a folder other than the current
+one as its argument.
 
 ## Where it is read from
 
 A spec belongs to its **project**: the nearest folder, from the spec's own folder up, that holds a
-`config.yaml`, a module's `config.<module>.yaml` or a `plain_modules/`. Without any of them, the
-spec's own folder is the project. That folder's config is the one read, and its `plain_modules/` is
-where the code is built, wherever turri was started. So a project that keeps its specs in
-`plain/`, with `plain/config.yaml`, builds `plain/app.plain` by `plain/config.yaml` even when
-`turri` runs in the folder above.
+`config.turri.yaml`, a stack's `config.turri.<stack>.yaml`, the old `config.yaml` or a `plain_modules/`.
+Without any of them, the spec's own folder is the project. That folder's config is the one read, and
+its `plain_modules/` is where the code is built, wherever turri was started. So a project that keeps
+its specs in `plain/`, with `plain/config.turri.yaml`, builds `plain/app.plain` by
+`plain/config.turri.yaml` even when `turri` runs in the folder above.
 
 When it is read:
 
@@ -59,7 +63,7 @@ When it is read:
 
 ## Changing it from the chat
 
-`/turri-config` changes any key in the chat, and writes it into the `config.yaml` of the folder turri was started in -
+`/turri-config` changes any key in the chat, and writes it into the `config.turri.yaml` of the folder turri was started in -
 its comments, and the commented-out examples, kept. Alone, it lists every key with what it is now, and asks for the
 value of the one you pick the way the key takes it: `true` or `false`, one of its words, a number from a few offered or
 typed, a model from those this machine can reach and then how hard it thinks, a script or a `.plain` file the project
@@ -82,8 +86,9 @@ runs:
 | the next regrow that names no `.plain` file | `module` |
 
 A coding model chosen this session - `--coding-model`, or `engine` - gives way to one set here: the last word wins. It
-says, too, what wins over the change: `models.chat` over `harness-model` (and so on), and a module's own
-`config.<module>.yaml`, which is not changed here.
+says, too, what wins over the change: `models.chat` over `harness-model` (and so on), and a stack's
+`config.turri.<stack>.yaml`, which is not changed here, while that stack is chosen. In a project still read from
+`config.yaml`, the first change copies it to `config.turri.yaml` first - see [the old config.yaml](#the-old-configyaml).
 
 ## The keys
 
@@ -116,7 +121,7 @@ models:                              # each agent role's model, thinking and tur
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
-| `conformance-budget` | under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside those with acceptance tests - a count (`2`) or a share of its functional specs (`30%`, rounded up, at least one). Every choice for the module counts, whenever it was made - ahead of the code, or once it is built; the chooser and the chat model are told what is left, and `turri regrow`'s chooser can choose no more. Your own `bind` is not limited. A module's `config.<module>.yaml` can set its own | no limit |
+| `conformance-budget` | under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside those with acceptance tests - a count (`2`) or a share of its functional specs (`30%`, rounded up, at least one). Every choice for the module counts, whenever it was made - ahead of the code, or once it is built; the chooser and the chat model are told what is left, and `turri regrow`'s chooser can choose no more. Your own `bind` is not limited. A stack's `config.turri.<stack>.yaml` can set its own | no limit |
 | `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
 | `rules-off` | a list of rule names - `integrations`, `concise-specs`, the files of `genome/rules/` without `.md` - left out of the conversation's prompt and every spec-writing agent's: a rule this project's own skills or AGENTS.md replace, such as one that says to probe a live API before any spec is written. The project's alone | none |
 | `allow-to-stop-jobs` | `true` or `false`: whether turri stops a running job the spec has moved on from - a functional spec it grows changed, or a file one links was edited - rolls it back and grows the spec as it now is. `false`: the job runs to its end and lands, and what changed since is grown on top of it by the next job - see [growing the code](growing.md). Your own `halt` stops a job either way | `true` |
@@ -125,17 +130,17 @@ models:                              # each agent role's model, thinking and tur
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
 | `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](growing.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
-| `max-specs-per-pulse` | the most functional specs the planner groups into one pulse - what builds one feature goes together, up to this many; a module's own config wins | 3 |
-| `max-lines-per-pulse` | the most lines of spec in one pulse - its functional specs with the definitions they bring; a group past it is split again, a functional spec a pulse; a module's own config wins | 120 |
+| `max-specs-per-pulse` | the most functional specs the planner groups into one pulse - what builds one feature goes together, up to this many; a stack's file wins | 3 |
+| `max-lines-per-pulse` | the most lines of spec in one pulse - its functional specs with the definitions they bring; a group past it is split again, a functional spec a pulse; a stack's file wins | 120 |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | half this machine's cores, between one and four - see [how many jobs at once](#how-many-jobs-at-once) |
-| `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A module's `config.<module>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
-| `toolchains` | folders of this machine an agent's commands may read beside the system's, the `PATH`'s and those the toolchain variables point at - a toolchain installed somewhere unusual (`[/srv/zig]`). A module's own add to the project's. See [the OS sandbox](sandbox.md#the-os-sandbox) | none |
+| `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A stack's `config.turri.<stack>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
+| `toolchains` | folders of this machine an agent's commands may read beside the system's, the `PATH`'s and those the toolchain variables point at - a toolchain installed somewhere unusual (`[/srv/zig]`). A stack's add to the project's. See [the OS sandbox](sandbox.md#the-os-sandbox) | none |
 | `turn-limit` | seconds each turn of an agent a job starts has, for every role without its own (`models:`); `0` for none. `TURRI_TURN_LIMIT` wins over it. A turn past it ends at its next request to the model - see [growing the code](growing.md) | 120 |
 | `models` | each agent role's own model, thinking and turn limit - see [models per role](#models-per-role) | every role on `coding-model`, the conversation's side on `harness-model` |
 | `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `in-place`: the real build and tests folders, the script at its own path, from the project - so a script that finds a host codebase from its own path finds it. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`, with the script copied beside it; it gives the coding agent `can_it_fail` (see [the testing scripts](growing.md#the-testing-scripts)) | `in-place` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
-does not know is ignored - a codeplain `config.yaml` carries several - and so is a value of the
+does not know is ignored - a codeplain `config.yaml`, read while it is the old file, carries several - and so is a value of the
 wrong type, as if it were not there. `model:`, from before there were separate models, is read as
 `coding-model`.
 
@@ -161,7 +166,7 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 
 What an entry leaves out it takes from `default`: `reviewer: { thinking: low }` runs the default model, thinking
 little. A turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes; `TURRI_TURN_LIMIT`
-wins over all of them. A `config.<module>.yaml` lays its own `models:` over the project's, role by role - all but
+wins over all of them. A stack's `config.turri.<stack>.yaml` lays its own `models:` over the project's, role by role - all but
 `chat`, the project's alone.
 
 A role whose thinking nothing names - neither its entry, `default`'s, nor a `:level` on the model it runs on - thinks
@@ -181,7 +186,7 @@ Modules that share nothing - a backend, a frontend, a worker, ten of them - buil
 pulse's builds and tests running on this machine beside your own work. So the chat runs at most `parallel-jobs` jobs
 at once; a job whose turn has come waits for a free slot past that, and its line says so. Unset, it is half this
 machine's cores, at least one and at most four. `TURRI_PARALLEL_JOBS` wins over the config. It is the project's alone,
-never read from a module's file.
+never read from a stack's file.
 
 The testing scripts all run on this machine, each on a copy of its module's code, so they never
 share files - but they do share its network: two modules whose conformance scripts start a server
@@ -232,7 +237,7 @@ otherwise.
 A build needs a unit testing script - and, with conformance on, a conformance testing script - to
 decide when it is done. They are looked for at the project root, in this order:
 
-1. named in the config - the module's own file first, then `config.yaml` - by path from the root;
+1. named in the config - the chosen stack's file first, then `config.turri.yaml` - by path from the root;
 2. the one `run_unittests*.sh` / `run_conformance_tests*.sh` in the project root;
 3. the one of each in `test_scripts/`.
 
@@ -259,7 +264,7 @@ agent-env:
 ```
 
 What it names reaches every agent with a shell, as environment variables of its commands only - the file stays where
-it is, outside every agent's reach - and never replaces turri's own home, `TMPDIR` or caches. A module's own file adds
+it is, outside every agent's reach - and never replaces turri's own home, `TMPDIR` or caches. A stack's file adds
 to the project's. A file that is not there, or a variable unset or empty, is reported as missing. The testing scripts
 are not affected: they run in your own environment.
 
@@ -269,46 +274,68 @@ refusal an agent is given (and so in the session transcripts, which hold only th
 `read_output`, and in the job and debug logs. A value shorter than four characters is not masked - `1` or `eu` is
 everywhere in ordinary output.
 
-## Modules on different stacks
+## Stacks
 
-One project can hold modules that share nothing but a common module - a Python backend and a React
-frontend side by side, each importing `base` from `template/`, neither requiring the other. Each
-gets a file of its own beside `config.yaml`, named for the module:
+One project can hold parts that share nothing but a common module - a Python backend and a React
+frontend side by side, each importing `base` from `template/`, neither requiring the other - each
+needing its own testing scripts. Each stack gets a file of its own beside `config.turri.yaml`,
+`config.turri.<stack>.yaml`, holding what differs for it - typically its testing scripts, its
+`toolchains:`, its models:
 
 ```
-config.yaml            # the project's: harness-model, coding-model, conformance-tests
-config.backend.yaml    # the backend's testing scripts
-config.frontend.yaml   # the frontend's testing scripts, and a coding model of its own
-backend.plain          # import: [base, python_fastapi_template]
-frontend.plain         # import: [base, react_vite_template]
-template/              # base.plain, python_fastapi_template.plain, react_vite_template.plain
-test_scripts/          # both stacks' scripts
+config.turri.yaml            # the project's: harness-model, coding-model, conformance-tests
+config.turri.backend.yaml    # the stack backend: its testing scripts
+config.turri.frontend.yaml   # the stack frontend: its testing scripts, and a coding model of its own
+backend.plain                # import: [base, python_fastapi_template]
+frontend.plain               # import: [base, react_vite_template]
+template/                    # base.plain, python_fastapi_template.plain, react_vite_template.plain
+test_scripts/                # both stacks' scripts
 ```
 
 ```yaml
-# config.frontend.yaml
+# config.turri.frontend.yaml
 unittests-script: test_scripts/run_unittests_typescript.sh
 conformance-tests-script: test_scripts/run_conformance_tests_typescript.sh
 coding-model:
   thinking: high
 ```
 
-How a module's config is made:
+A stack is chosen, never worked out from the spec:
 
-- **Laid over `config.yaml`, key by key.** What the module's file gives wins; what it leaves out
+- **In the chat**, with `/stack` - a list of the project's stacks and none - or `/stack backend`, `/stack none`.
+  The chat's model has a `stack` tool too, and switches the stack when you ask it to, or for work on a part another
+  stack builds. The status bar shows `· stack <name> (/stack)` when the project has stacks.
+- **On the command line**, with `--stack <name>` on any command - `turri regrow`, `bind`, `spec-diff`, `glimpse`,
+  `release`, `cultivate` - and on `turri --stack backend` for the chat; or with `TURRI_STACK` in the environment.
+
+The choice lasts for the session only: nothing remembers it, and turri started again has none chosen. A stack the
+project has no file for is refused, with the stacks it has. With none chosen, `config.turri.yaml` alone is used.
+
+How a stack's config is made:
+
+- **Laid over `config.turri.yaml`, key by key.** What the stack's file gives wins; what it leaves out
   is the project's. A model it names takes what it leaves out from the project's same model - above,
-  the frontend renders on the project's coding model, thinking `high`.
-- **Down the `requires` chain.** A module without a file of its own takes the file of the first
-  module down its `requires` chain that has one: `backend_admin`, which requires `backend`, is built
-  with `config.backend.yaml`. A chain is one codebase, so it is one stack.
-- **By the codebase it runs in.** What runs in a codebase follows that codebase's module - a
-  required module's spec rebuilt up the chain is tested with the scripts of the module it is rebuilt
-  in.
-- **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:` and `compact-at:` are read only from
-  `config.yaml` - there is one conversation, one module built when none is named, one machine. `agent-env:` and
-  `toolchains:` in a module's file add to the project's. An import module is never built and has no config.
+  with the stack frontend chosen, everything renders on the project's coding model, thinking `high`.
+- **For everything built while it is chosen.** Every pulse that starts, every test run and every
+  script found from then on is the chosen stack's; a pulse already running keeps the stack it
+  started with. Choose the stack before building the part it is for: `/stack backend`, then
+  `regrow backend.plain`.
+- **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:`, `rules-off:` and `compact-at:` are read
+  only from `config.turri.yaml` - there is one conversation, one module built when none is named, one machine.
+  `agent-env:` and `toolchains:` in a stack's file add to the project's.
 
-With module files and no `module:`, building without naming a file lists the modules and asks for
-one: `turri regrow backend.plain`. The chat is told each module's config as it holds, and the
-status bar shows conformance per module when they differ. The skills that write testing scripts put
-each module's in its own file once a project has two stacks.
+The chat is told each stack's config and the one chosen. The skills that write testing scripts put
+each stack's in its own file once a project has two stacks, and say which stack to choose before
+building each part.
+
+## The old config.yaml
+
+turri's settings were once in `config.yaml`, and a stack's in `config.<stack>.yaml`. A `config.yaml`
+may be another tool's, so turri never writes one. While a project folder has no `config.turri*.yaml`
+at all, turri still reads its `config.yaml`, and each `config.<name>.yaml` as the stack `<name>`.
+
+The first time turri itself writes a setting there - `/turri-config`, `turri init-config` - it copies
+`config.yaml` to `config.turri.yaml` and each `config.<name>.yaml` to `config.turri.<name>.yaml`
+first, leaves the old files as they are, and from then on reads only the new ones. To change a
+setting by hand in such a project, do the same: copy the files to their new names, and edit the
+copies - never `config.yaml`.

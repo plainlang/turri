@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { defineTool, type ExtensionContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { CONFIG_FILE, moduleConfigFile, modulesWithConfig, readProjectConfig } from "./config.ts";
+import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { checkPlainFile } from "./plain/check.ts";
 import { describeDrift, describeModules, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
 import type { JobRegistry } from "./grow/jobs.ts";
@@ -135,18 +135,11 @@ export interface LoopToolsOptions {
   wait?: (ctx: ExtensionContext, asked?: boolean) => boolean;
 }
 
-/** The module to act on: the .plain file named, or the one the project's config.yaml names. */
+/** The module to act on: the .plain file named, or the one the project's config.turri.yaml names. */
 function plainFileOf(cwd: string, given: { plain_file?: string; working_dir?: string }, what: string): string {
   const located = fromWorkingDir(cwd, given);
   const named = located.plain_file ?? readProjectConfig(located.base).module;
-  if (named === undefined) {
-    const stacks = modulesWithConfig(located.base);
-    throw new Error(
-      stacks.length > 0
-        ? `Name the .plain file to ${what}: this project has modules with configs of their own - ${stacks.map((module) => `${module} (${moduleConfigFile(module)})`).join(", ")}.`
-        : `Name the .plain file to ${what}, or set module: in ${CONFIG_FILE}.`,
-    );
-  }
+  if (named === undefined) throw new Error(`Name the .plain file to ${what}, or set module: in ${CONFIG_FILE}.`);
   return resolve(located.base, named);
 }
 
@@ -171,7 +164,7 @@ export function regrowTool(options: LoopToolsOptions & { loop: (ctx: ExtensionCo
       "Never stop pulses and start them again yourself to follow a spec change: regrow does it.",
     ],
     parameters: Type.Object({
-      plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" })),
+      plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
       working_dir: WORKING_DIR_PARAM,
       guidance: GUIDANCE_PARAM,
       model: MODEL_PARAM,
@@ -205,7 +198,7 @@ export function driftTool(options: LoopToolsOptions & { loop: (ctx: ExtensionCon
       "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last grown. To see the next pulse's prompt as well, use glimpse.",
     ],
     parameters: Type.Object({
-      plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.yaml names" })),
+      plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
       working_dir: WORKING_DIR_PARAM,
     }),
     async execute(_id, given, _signal, _onUpdate, ctx) {

@@ -11,7 +11,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
-import { configModuleOfBuild, inheritModel, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
+import { inheritModel, stackOf, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
 import { maskToolResults } from "./grow/masking.ts";
 import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool, sandboxGapOf } from "./grow/environment-error.ts";
 import { MODULES_DIR, projectRootOf, sessionsDir } from "./grow/paths.ts";
@@ -512,7 +512,7 @@ export function refuseIfBlind(model: { provider: string; id: string; input?: rea
   if (model === undefined || model.input?.includes("image") === true) return;
   throw new ModelCannotReadImagesError(
     `The spec links ${count === 1 ? "an image" : `${count} images`} (PNG or JPEG), and ${model.provider}/${model.id} cannot read images. ` +
-      "Set coding-model in config.yaml to a model that reads images, or describe what the image shows in a text file and link that instead.",
+      "Set coding-model in config.turri.yaml to a model that reads images, or describe what the image shows in a text file and link that instead.",
   );
 }
 
@@ -849,15 +849,11 @@ export async function createExecutor(opts: {
   return session;
 }
 
-/** The project's compact-at, for an agent working in `cwd`: from its config.yaml, else the default. */
-/** The config an agent working in `cwd` is under: its module's own over the project's, inside plain_modules/<module>. */
+/** The config an agent working in `cwd` is under: the project's, with the chosen stack's over it. */
 function configForCwd(cwd: string): ProjectConfig {
   try {
     const root = projectRootOf(cwd);
-    const parts = resolve(cwd).split(sep);
-    const index = parts.lastIndexOf(MODULES_DIR);
-    const module = index >= 0 && parts.length > index + 1 ? configModuleOfBuild(root, parts[index + 1]!) : undefined;
-    return readProjectConfig(root, module);
+    return readProjectConfig(root, stackOf(root));
   } catch {
     return {};
   }

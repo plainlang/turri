@@ -100,7 +100,7 @@ export function diagnosisPrompt(options: {
     "out why, and what has to be done so it passes - the person is told exactly what you say.",
     "",
     "You can read, and change nothing:",
-    `- the project, in ${options.projectDir}: its .plain specs and templates, config.yaml, the testing scripts, and`,
+    `- the project, in ${options.projectDir}: its .plain specs and templates, config.turri.yaml, the testing scripts, and`,
     "  plain_modules - each module's code and conformance tests, the notes (.turri-notes.md in the code), the full",
     "  outputs of the test runs (plain_modules/.turri/logs), and every agent's own log",
     `  (${options.projectDir}/.turri/debug) - newest last;`,

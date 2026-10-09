@@ -9,7 +9,7 @@ module inherits, a failure fixed in the test or the code, whichever is wrong. Ev
 tested goes in one pulse, as far as the size guardrail lets.
 
   --one-by-one             a pulse a functional spec instead
-  --model <provider/id>    model for the agents (default: config.yaml's coding-model)`;
+  --model <provider/id>    model for the agents (default: config.turri.yaml's coding-model)`;
 
 const { positional, options } = parseArgs(process.argv.slice(2), ["--one-by-one"], USAGE);
 const [plainFile, ...frids] = positional;

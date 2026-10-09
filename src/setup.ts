@@ -16,6 +16,7 @@ import {
 } from "./environment.ts";
 import { sandboxAvailable, type Wall } from "./grow/os-sandbox.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
+import { hasProjectConfig } from "./config.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine } from "./stack.ts";
 
 /**
@@ -166,7 +167,7 @@ async function allChecks(): Promise<Check[]> {
   const checks: Check[] = [checkNode(), checkShell(), checkSandbox(), await checkProvider(), checkPath(), checkGlobal(), checkTemplates()];
   // In a project: what it needs of this machine.
   const project = process.cwd();
-  if (existsSync(join(project, "config.yaml")) || existsSync(join(project, "plain_modules"))) checks.push(...checkProject(project));
+  if (hasProjectConfig(project) || existsSync(join(project, "plain_modules"))) checks.push(...checkProject(project));
   return checks;
 }
 

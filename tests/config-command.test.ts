@@ -45,14 +45,23 @@ function setUp(answers: string[] = []) {
 }
 
 describe("/turri-config", () => {
-  it("sets a setting given whole, in config.yaml, and says when it takes effect", async () => {
+  it("sets a setting given whole, in config.turri.yaml, and says when it takes effect", async () => {
     const { run, said } = setUp();
     await run("review false");
-    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe("review: false\n");
-    expect(said[0]).toBe("review: false - written to config.yaml, in effect from the next pulse - one running now keeps what it started with.");
+    expect(readFileSync(join(dir, "config.turri.yaml"), "utf8")).toBe("review: false\n");
+    expect(said[0]).toBe("review: false - written to config.turri.yaml, in effect from the next pulse - one running now keeps what it started with.");
     await run("review unset");
     expect(readProjectConfig(dir).review).toBeUndefined();
     expect(said[1]).toContain("review unset - true");
+  });
+
+  it("copies the config.yaml turri read until now to config.turri.yaml before its first setting, and says so", async () => {
+    writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\n");
+    const { run, said } = setUp();
+    await run("review false");
+    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe("conformance-tests: false\n");
+    expect(readFileSync(join(dir, "config.turri.yaml"), "utf8")).toBe("conformance-tests: false\nreview: false\n");
+    expect(said[0]).toContain("config.yaml was copied to config.turri.yaml first");
   });
 
   it("lists every setting with what it is now, then asks for the value as the setting takes it", async () => {

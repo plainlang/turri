@@ -2,7 +2,7 @@ import { fixMethod } from "./prompt.ts";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
-import { CONFIG_FILE, CONFIG_KEYS, configModuleOf, configModuleOfBuild, moduleConfigFile, readProjectConfig } from "../config.ts";
+import { CONFIG_FILE, CONFIG_KEYS, projectConfigFile, readProjectConfig, stackConfigFileIn, stackOf } from "../config.ts";
 import { reportActivity, reportLogNote, reportNote } from "./activity.ts";
 import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -44,7 +44,7 @@ export interface TestScripts {
   unit?: string;
   /** `run_conformance_tests_<lang>.sh <build> <conformance tests>` - the whole suite, at once. */
   conformance?: string;
-  /** Why a script was not found where one was looked for: a name in config.yaml, two in a folder. */
+  /** Why a script was not found where one was looked for: a name in config.turri.yaml, two in a folder. */
   notes?: Partial<Record<ScriptKind, string>>;
   /** Conformance was turned off: the conformance testing script is not run, found or not. */
   conformanceOff?: boolean;
@@ -80,7 +80,7 @@ function isFile(path: string): boolean {
   }
 }
 
-/** The key in the project's config.yaml that names each script. */
+/** The key in the project's config.turri.yaml that names each script. */
 const SCRIPT_KEYS: Record<ScriptKind, string> = {
   unit: CONFIG_KEYS.unittestsScript,
   conformance: CONFIG_KEYS.conformanceTestsScript,
@@ -110,27 +110,23 @@ function onlyScriptIn(dir: string, kind: ScriptKind): { path?: string; several?:
 /**
  * The project's testing scripts, looked for in this order:
  *
- * 1. `config.yaml` at the project root - `unittests-script:` and `conformance-tests-script:`,
- *    paths from the root;
+ * 1. `config.turri.yaml` at the project root, with the chosen stack's `config.turri.<stack>.yaml` over it -
+ *    `unittests-script:` and `conformance-tests-script:`, paths from the root;
  * 2. the project root itself - the one `run_unittests*.sh` / `run_conformance_tests*.sh` there;
  * 3. `test_scripts/` - the one of each there.
  *
  * A folder holding two of a kind does not say which is meant: it is skipped, and noted, so the
- * error that stops the build can say to name one in config.yaml.
+ * error that stops the build can say to name one in config.turri.yaml.
  */
 export function findTestScripts(root: string, plainFile?: string, buildDir?: string): TestScripts {
   const found: TestScripts = {};
   const notes: Partial<Record<ScriptKind, string>> = {};
-  // The module's own config file over the project's, when it has one - its stack's scripts: the
-  // codebase's it runs in, else the spec's.
-  const inModules = buildDir !== undefined && resolve(buildDir).split(sep).includes("plain_modules");
-  const module =
-    (inModules ? configModuleOfBuild(root, basename(dirname(resolve(buildDir!)))) : undefined) ??
-    (plainFile !== undefined ? configModuleOf(root, plainFile) : undefined);
-  const config = readProjectConfig(root, module);
-  const file = module !== undefined ? `${moduleConfigFile(module)} (over ${CONFIG_FILE})` : CONFIG_FILE;
-  // Where a module's script is named: its own file, once the project has several stacks.
-  const nameIn = module !== undefined ? moduleConfigFile(module) : plainFile !== undefined ? `${CONFIG_FILE} - or, for one module of several stacks, config.${basename(plainFile, ".plain")}.yaml` : CONFIG_FILE;
+  // The stack chosen, its file over the project's, when the project has one for it: its scripts.
+  const stack = stackOf(root);
+  const config = readProjectConfig(root, stack);
+  const file = stack !== undefined ? `${stackConfigFileIn(root, stack)} (over ${projectConfigFile(root)})` : projectConfigFile(root);
+  // Where a script is named: the stack's file, once one is chosen.
+  const nameIn = stack !== undefined ? stackConfigFileIn(root, stack) : `${CONFIG_FILE} - or, for a project of several stacks, the stack's config.turri.<stack>.yaml`;
   if (config.testingScriptsRunOn !== undefined) found.runOn = config.testingScriptsRunOn;
   for (const kind of Object.keys(SCRIPT_KEYS) as ScriptKind[]) {
     const named = kind === "unit" ? config.unittestsScript : config.conformanceTestsScript;
@@ -167,11 +163,7 @@ export function findTestScripts(root: string, plainFile?: string, buildDir?: str
  * it to check its work before the tests do. `run_static_checks_<lang>.sh <build>`, as the unit testing script is run.
  */
 export function findStaticChecks(root: string, plainFile?: string, buildDir?: string): string | undefined {
-  const inModules = buildDir !== undefined && resolve(buildDir).split(sep).includes("plain_modules");
-  const module =
-    (inModules ? configModuleOfBuild(root, basename(dirname(resolve(buildDir!)))) : undefined) ??
-    (plainFile !== undefined ? configModuleOf(root, plainFile) : undefined);
-  const named = readProjectConfig(root, module).staticChecksScript;
+  const named = readProjectConfig(root, stackOf(root)).staticChecksScript;
   if (named !== undefined) {
     const path = resolve(root, named.trim());
     // Agents write in plain_modules: a script there could be changed by the work it checks.
@@ -208,7 +200,7 @@ export class MissingTestScriptError extends Error {
         "What to change in the project:",
         `- Add one with the \`${skill}\` skill: it writes \`${SCRIPTS_DIR}/${file}_<language>.sh\`.`,
         `- It is looked for in \`${CONFIG_FILE}\` at the project root (\`${SCRIPT_KEYS[kind]}: <path>\`) - or the module's own`,
-        `  \`config.<module>.yaml\` beside it, for a project whose modules are on different stacks - then in the root,`,
+        `  \`config.turri.<stack>.yaml\` beside it, the stack chosen with /stack or --stack, for a project of several stacks - then in the root,`,
         `  then in \`${SCRIPTS_DIR}/\` - one ${file}*.sh in either folder is used.`,
         "",
         "Then build again.",
@@ -354,9 +346,8 @@ function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const parts = resolve(buildDir).split(sep);
   const index = parts.lastIndexOf("plain_modules");
   const root = index > 0 ? parts.slice(0, index).join(sep) : dirname(resolve(buildDir));
-  // The module's own config file decides, when it has one: plain_modules/<module>/code.
-  const module = configModuleOfBuild(root, basename(dirname(resolve(buildDir))));
-  return { root, inPlace: readProjectConfig(root, module).testingScriptsRunOn !== "copy" };
+  // The stack chosen decides, when it says.
+  return { root, inPlace: readProjectConfig(root, stackOf(root)).testingScriptsRunOn !== "copy" };
 }
 
 /** The model providers' keys, kept out of what runs on this machine: the tests are agents' code. */

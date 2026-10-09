@@ -92,7 +92,7 @@ const ALIASES: Record<string, string> = {
 
 /** Getting the machine ready, and checking it is. */
 const SETUP_COMMANDS: Record<string, string> = {
-  "init-config": "write a quick start config.yaml here, from the vendor you use: a strong model to talk to, a smaller one to write the code",
+  "init-config": "write a quick start config.turri.yaml here, from the vendor you use: a strong model to talk to, a smaller one to write the code",
   setup: "get this machine ready: check everything, and offer to load turri into every pi",
   doctor: "check what turri needs - in a project, what it needs of this machine - without changing anything",
 };
@@ -102,6 +102,7 @@ const USAGE = [
   "       turri <command> [args]",
   "",
   `  ${"options".padEnd(12)} --harness-model <m>  the model you chat with   --coding-model <m>  the model renders run on`,
+  `  ${"".padEnd(12)} --stack <name>  build with config.turri.<name>.yaml over config.turri.yaml - here and in every command`,
   `  ${"".padEnd(12)} --use-theme <t>  another theme than turri-dark - and every option of pi's own`,
   "",
   ...Object.entries(COMMANDS).map(([name, { blurb }]) => `  ${name.padEnd(12)} ${blurb}`),
@@ -115,7 +116,30 @@ const USAGE = [
 ].join("\n");
 
 dropNoise();
-const [command, ...rest] = process.argv.slice(2);
+// --stack <name>, for any command and for the conversation: the stack everything is built with (stacks.ts), taken out
+// before the rest is read - a command never sees it.
+const argv = await withoutStack(process.argv.slice(2));
+const [command, ...rest] = argv;
+
+async function withoutStack(args: string[]): Promise<string[]> {
+  const kept: string[] = [];
+  let stack: string | undefined;
+  for (let at = 0; at < args.length; at += 1) {
+    const arg = args[at]!;
+    if (arg === "--stack") stack = args[++at] ?? "";
+    else if (arg.startsWith("--stack=")) stack = arg.slice("--stack=".length);
+    else kept.push(arg);
+  }
+  if (stack === undefined) return kept;
+  const { switchStack } = await import("./stacks.ts");
+  try {
+    switchStack(process.cwd(), stack);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+  return kept;
+}
 
 if (command === "-h" || command === "--help") {
   console.log(USAGE);
@@ -124,7 +148,7 @@ if (command === "-h" || command === "--help") {
 
 // turri alone is the conversation, and so is turri with pi's options - `turri -c`, `turri --harness-model <m>`. It was
 // `turri chat`, which still opens it. A word turri does not know is an error below, not a conversation started on it.
-if (command === undefined || command.startsWith("-")) chat(process.argv.slice(2));
+if (command === undefined || command.startsWith("-")) chat(argv);
 if (command === "chat") chat(rest);
 
 if (command === "init-config") {

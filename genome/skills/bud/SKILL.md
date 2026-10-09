@@ -69,8 +69,9 @@ Keep this short: enough to ask the first product question, not a design on paper
 
 1. Find the `.plain` file(s) the feature belongs to, and read them whole, following their `import`
    and `requires` chains: every definition, implementation and test req, functional spec and
-   acceptance test the feature will sit beside. Read `config.yaml` (and a module's own
-   `config.<module>.yaml`) for whether conformance tests are on.
+   acceptance test the feature will sit beside. Read `config.turri.yaml` (or the old `config.yaml`,
+   when there is no `config.turri.yaml`) and the chosen stack's `config.turri.<stack>.yaml` for
+   whether conformance tests are on.
 2. Ask which module only if it is genuinely ambiguous; otherwise do not.
 3. Look at what is built and queued (`drift`), so you know which specs already have code and
    which builds are still waiting - a change to either is still just a spec diff.

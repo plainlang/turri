@@ -24,8 +24,8 @@ pages go into each part.
 | what turri needs of this machine, and what `turri doctor` checks | [installation](installation.md#what-turri-setup-checks) |
 | how to start a project, or add a feature, in a conversation | [using](using.md#in-a-conversation) |
 | which model renders, and how to change it | [using](using.md#choosing-a-model), [the project config](config.md#models) |
-| what `config.yaml` can set, and what happens without it | [the project config](config.md) |
-| how a backend and a frontend on different stacks share one project | [the project config](config.md#modules-on-different-stacks) |
+| what `config.turri.yaml` can set, and what happens without it | [the project config](config.md) |
+| how a backend and a frontend on different stacks share one project | [the project config](config.md#stacks) |
 | which ready-made stacks a spec can import - a FastAPI backend, a React frontend | [the standard library](authoring-plain.md#the-standard-library) |
 | everything an agent was sent and did, to debug it | [using](using.md#agent-logs) |
 | how to render a spec overnight, and resume it | [running unattended](headless.md) |
@@ -46,7 +46,7 @@ pages go into each part.
 | --- | --- |
 | [Installation](installation.md) | setup and doctor, what turri needs of this machine, turri in every `pi`, environment variables |
 | [Using turri](using.md) | the conversation, the tools, background jobs, choosing a model, module history, the command line |
-| [The project config](config.md) | `config.yaml` and `config.<module>.yaml`: where they are read from, every key, models and their inheritance, conformance, the testing scripts, modules on different stacks |
+| [The project config](config.md) | `config.turri.yaml` and each stack's `config.turri.<stack>.yaml`: where they are read from, every key, models and their inheritance, conformance, the testing scripts, stacks and choosing one, the old `config.yaml` |
 | [Deploy](deploy.md) | trying what is built: dist/<module>, the last commit, starting it on your machine, `turri release` |
 | [Running unattended](headless.md) | rendering overnight or in CI: before you leave it, the command, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](authoring-plain.md) | a \*\*\*plain project, what a spec is made of, the rules, writing specs with the agent, the skills, checking a spec |

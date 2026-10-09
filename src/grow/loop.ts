@@ -983,7 +983,7 @@ export function createWorkLoop(options: {
           reportActivity(`  ${tip.moduleName}: ${state.why}`);
           options.registry.stop(
             state.running.jobId,
-            `Stopped by turri, not by you: ${why}, which it was growing from. What it had done is rolled back, and the spec as it is now is grown instead. To have a running pulse finish first and the change grown on top of it, set allow-to-stop-jobs: false in config.yaml.`,
+            `Stopped by turri, not by you: ${why}, which it was growing from. What it had done is rolled back, and the spec as it is now is grown instead. To have a running pulse finish first and the change grown on top of it, set allow-to-stop-jobs: false in config.turri.yaml.`,
           );
           return;
         }

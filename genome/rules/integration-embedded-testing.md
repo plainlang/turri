@@ -270,7 +270,7 @@ Use them as a template when adding a new embedded integration in Java / Maven â€
 1. Copy the two scripts from a working embedded-integration module into the project's `test_scripts/`
 2. Search-and-replace the package segment everywhere it appears â€” including the test-filter argument (the most commonly missed spot)
 3. `chmod +x` both (and verify ACLs on Windows for the `.ps1` siblings)
-4. Do not link them from the specs: turri finds them in the project root - `config.yaml` (`unittests-script:`, `conformance-tests-script:`), else the one of each kind in the root, else in `test_scripts/` - and shows them to the agents itself. If `test_scripts/` ends up with two scripts of one kind, name the one to use in `config.yaml`.
+4. Do not link them from the specs: turri finds them in the project root - `config.turri.yaml` (`unittests-script:`, `conformance-tests-script:`), else the one of each kind in the root, else in `test_scripts/` - and shows them to the agents itself. If `test_scripts/` ends up with two scripts of one kind, name the one to use in `config.turri.yaml`.
 5. Smoke-test by running each script manually with the renderer's output folder as `$1` (and the conformance-tests folder as `$2` for the conformance runner). Confirm exit codes match what the renderer expects
 
 For non-Java languages, the skills [`implement-unit-testing-script`](../skills/implement-unit-testing-script/SKILL.md), and [`implement-conformance-testing-script`](../skills/implement-conformance-testing-script/SKILL.md) adapt the contract above to Python, Node.js, Go, Rust, Flutter, and others. Always route script creation through these skills so the cross-cutting rules above are applied uniformly.

@@ -46,7 +46,7 @@ nohup turri regrow app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1
 
 Or run it in `tmux` / `screen` to look in on it. `tail -f render.log` follows it either way.
 
-The project's `config.yaml`, in the folder you run it from, can give the defaults, so a run can
+The project's `config.turri.yaml`, in the folder you run it from, can give the defaults, so a run can
 be just `turri regrow`:
 
 ```yaml
@@ -62,16 +62,19 @@ The same file names the [testing scripts](growing.md#the-testing-scripts); every
 [the project config](config.md). Options on the command
 line win over it; `turri regrow`, `spec-diff`, `regenerate` and `conformance` take its
 `coding-model` too, and `--coding-model` means the same as `--model` on every one of them.
-A module on a stack of its own takes its settings from `config.<module>.yaml` over `config.yaml`
-([modules on different stacks](config.md#modules-on-different-stacks)); with several and no
-`module:`, name the file: `turri regrow backend.plain`.
+A project whose parts are on different stacks keeps each stack's settings in
+`config.turri.<stack>.yaml` beside it ([stacks](config.md#stacks)). Choose the one to build with
+`--stack <name>` - on any command: `regrow`, `bind`, `spec-diff`, `glimpse`, `release`, `cultivate` -
+or `TURRI_STACK`: `turri regrow backend.plain --stack backend`. With none chosen,
+`config.turri.yaml` alone is used; a stack the project has no file for is refused.
 
 Useful options - `turri regrow --help` lists all of them:
 
 | | |
 | --- | --- |
-| `--model <provider/id>` | the model every agent runs on (`--coding-model` too), with `:level` for its thinking (`provider/id:high`); default, `config.yaml`'s `coding-model`, then its `harness-model`, then pi's configured model |
-| `--judge-model <provider/id>` | `conformance`: the model of the judge and the test review; default, `config.yaml`'s `judge-model`, then the coding model |
+| `--model <provider/id>` | the model every agent runs on (`--coding-model` too), with `:level` for its thinking (`provider/id:high`); default, `config.turri.yaml`'s `coding-model`, then its `harness-model`, then pi's configured model |
+| `--judge-model <provider/id>` | `conformance`: the model of the judge and the test review; default, `config.turri.yaml`'s `judge-model`, then the coding model |
+| `--stack <name>` | build with the stack's `config.turri.<name>.yaml` over `config.turri.yaml`; default, `TURRI_STACK`, else none |
 | `--to <frid>` | queue functionalities only up to this one |
 | `--only` | build just this module, not the ones it requires |
 | `--build-dir <dir>` | where the code goes; default `plain_modules/<module>/code` |
@@ -80,7 +83,7 @@ Useful options - `turri regrow --help` lists all of them:
 is built in line, when it no longer matches the spec, then one render functionality job per
 functional spec not built, each with its conformance job - and runs them all to the end, the queue
 master reworking them as in the chat (see [a whole module](growing.md#a-whole-module)).
-Conformance tests follow `conformance-tests:` in `config.yaml`.
+Conformance tests follow `conformance-tests:` in `config.turri.yaml`.
 
 ## In the morning
 

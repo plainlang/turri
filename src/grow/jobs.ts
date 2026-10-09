@@ -4,6 +4,7 @@ import { withPulse } from "./shell.ts";
 import { describeEnvironmentError, EnvironmentError, missingCredentials } from "./environment-error.ts";
 import { addAgentReport, describeAgents, JobStoppedError, withActivity, type AgentReport, type AgentTally, type BuildingSpec, type SpecConflict, type TranscriptEntry, type UsageReport } from "./activity.ts";
 import { startJobLog, type JobLog } from "./job-log.ts";
+import { chosenStack, withStack } from "../config.ts";
 
 /**
  * Background jobs for conversation mode.
@@ -433,8 +434,9 @@ export function createJobRegistry(options?: {
           }
           log = startJobLog(job, claimed);
           if (log !== undefined) job.logFile = log.file;
-          // What the job's agents start runs until it ends, and no longer (withPulse).
-          return guarded ? runGuarded() : runOnce();
+          // What the job's agents start runs until it ends, and no longer (withPulse) - with the stack chosen as it
+          // starts, whatever is chosen while it runs.
+          return withStack(chosenStack(), () => (guarded ? runGuarded() : runOnce()));
         })
         .then(
           (outcome) => {

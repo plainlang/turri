@@ -44,7 +44,7 @@ that release said to do was not done.
 
 - **The module on top.** Code accumulates up a `requires` chain: a module starts from a copy of the
   code of the one it requires. So deploy always takes the module on top of the spec's chain - the
-  project's `module` from `config.yaml` unless another spec is named. Before the module on top has
+  project's `module` from `config.turri.yaml` unless another spec is named. Before the module on top has
   anything built, it takes the nearest one below it that has, and says so.
 - **Its last commit.** Each `plain_modules/<module>` is a git repository (`.plaingit`), and every unit
   of work starts from a commit and ends with one. What a pulse is writing right now is half-done, so it
@@ -79,7 +79,7 @@ What it started is listed by the `growth` tool and by **`/halt`**, and stopped b
 
 ## After every pulse
 
-With `release-after-pulse: true` in `config.yaml`, turri releases what each pulse lands itself, as the
+With `release-after-pulse: true` in `config.turri.yaml`, turri releases what each pulse lands itself, as the
 pulse's last stage (`releasing what this pulse landed`): the pulse ends once it is released, so the
 module's next pulse starts on what is out, and the chat - waiting on your answer to a question, say - has
 no part in it. One release a pulse that lands, in order.
