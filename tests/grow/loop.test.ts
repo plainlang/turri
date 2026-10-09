@@ -870,6 +870,20 @@ describe("the work loop", () => {
       expect(tests.ran.slice(2).map((job) => job.patch)).toEqual([["1"], ["2"], ["3"]]);
     });
 
+    it("asked for in groups of the person's own - 1-2, then 3-4 - are written a pulse a group, never two groups in one", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks.", "Say sorry."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      await loop.bringUp("app.plain");
+      await loop.drain();
+      const [status] = await loop.conformance("app.plain", { groups: [["1", "2"], ["3", "4"]] });
+      // The first group's pulse has started; the second is a pulse of its own, after it.
+      expect(status!.planned.filter((job) => job.track === "conformance").map((job) => job.title)).toEqual(["Say thanks.; Say sorry."]);
+      await loop.drain();
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "2"], ["3", "4"]]);
+    });
+
     it("scheduled together, are planned as their group with no agent asked - the code's work still is", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks."]));
       const code = runner();

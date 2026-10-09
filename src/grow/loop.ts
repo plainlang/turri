@@ -158,6 +158,8 @@ interface ModuleState {
   conformance?: { chosen?: Set<string> };
   /** The conformance tests a job a functional spec, as the person asked when they asked for them - not one job for all. */
   conformanceSeparately?: boolean;
+  /** The groups the person asked for the conformance tests in, by frid - 1-3 and 4-6: never two in one job. */
+  conformanceGroups?: string[][];
   /**
    * Conformance tests the conversation scheduled, one group a request, for functional specs not all built yet -
    * `unbuilt`, those that are not, as of the last look. A group is chosen once the code record has every one of
@@ -255,7 +257,7 @@ export interface WorkLoop {
    * code as it is built, in the codebases where its code lives: for this session, whatever the config says. Asked
    * again, it clears a halt. Says what it planned.
    */
-  conformance(plainFile: string, options?: { frids?: string[]; model?: string; separately?: boolean }): Promise<ModuleStatus[]>;
+  conformance(plainFile: string, options?: { frids?: string[]; model?: string; separately?: boolean; groups?: string[][] }): Promise<ModuleStatus[]>;
   /**
    * Start over the codebases of a spec's module that now require a module their code was not built on (see
    * `ModuleStatus.startOver`): their code and conformance tests taken out - committed, so their history keeps
@@ -665,7 +667,9 @@ export function createWorkLoop(options: {
     // How big a pulse may be: the module's config, else the defaults.
     const config = configForSpec(tip.plainFile);
     const limits = { specs: config.maxSpecsPerPulse ?? MAX_SPECS_PER_JOB, lines: config.maxLinesPerPulse ?? MAX_LINES_PER_JOB };
-    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, limits, ...(separately ? { separately } : {}) };
+    // The conformance tests the person asked for in groups of their own - 1-3, then 4-6: a group never shares a job with another.
+    const groups = track === "conformance" && state.conformanceGroups !== undefined && state.conformanceGroups.length > 0 ? state.conformanceGroups : undefined;
+    const input: PlanInput = { base: from, current, specFile, specText, steering, track, moduleName: tip.moduleName, limits, ...(separately ? { separately } : {}), ...(groups !== undefined ? { groups } : {}) };
     const model = typeof options.plannerModel === "function" ? options.plannerModel() : options.plannerModel;
     const agents = options.planner === false ? undefined : (options.planner ?? llmChunkAgents({ cwd: options.cwd, model: model ?? state.model, label: `${basename(tip.plainFile)} planner` }));
     reportStage(`${tip.moduleName}: planning the ${track === "code" ? "work" : "conformance tests"} into pulses`);
@@ -1052,6 +1056,7 @@ export function createWorkLoop(options: {
       } else {
         state.conformancePlan = undefined;
         state.together = undefined;
+        state.conformanceGroups = undefined;
       }
     }
     if (!codeLeft) {
@@ -1246,7 +1251,10 @@ export function createWorkLoop(options: {
         chainsFor(file).flatMap((chain) => toBuild(chain).map((entry) => track(chain.slice(0, chain.indexOf(entry) + 1), file, request))),
       );
       const tip = states.at(-1);
-      const asks = request.frids !== undefined && request.frids.length > 0 ? [...new Set(request.frids)] : undefined;
+      // In groups of the person's own - 1-3 and 4-6: every functional spec of them asked for, each group a pulse of its own.
+      const groups = request.groups?.map((group) => [...new Set(group)]).filter((group) => group.length > 0);
+      const named = [...(request.frids ?? []), ...(groups ?? []).flat()];
+      const asks = named.length > 0 ? [...new Set(named)] : undefined;
       // Refused before anything is chosen: a functional spec the spec does not have is built by no code job, so its tests could never be written.
       const specs = tip !== undefined && asks !== undefined ? scheduledSpecs(tip, asks) : undefined;
       for (const state of states) {
@@ -1262,6 +1270,10 @@ export function createWorkLoop(options: {
         const separately = request.separately === true;
         if ((state.conformanceSeparately === true) !== separately) state.conformancePlan = undefined;
         state.conformanceSeparately = separately;
+        if (state === tip && groups !== undefined && groups.length > 0) {
+          state.conformanceGroups = [...(state.conformanceGroups ?? []), ...groups];
+          state.conformancePlan = undefined;
+        }
         state.conformanceHalted = undefined;
         state.halted = undefined;
       }

@@ -57,6 +57,11 @@ export interface PlanInput {
    * in one job, as far as the guardrail (`max-lines-per-pulse`) lets.
    */
   separately?: boolean;
+  /**
+   * For the conformance tests: the functional specs asked for together, a group a request - `bind` called for 1-3, then
+   * for 4-6. Never two groups in one job; the functional specs in none are tested together, as before.
+   */
+  groups?: string[][];
   /** How big a pulse may be - the config's `max-specs-per-pulse` and `max-lines-per-pulse`; unset, MAX_SPECS_PER_JOB and MAX_LINES_PER_JOB. */
   limits?: PulseLimits;
 }
@@ -396,8 +401,9 @@ function anchored(draft: DraftJob[], net: SpecChange[]): DraftJob[] {
 
 /**
  * How the conformance tests are cut, with no agent: every functional spec tested in one job - those of one module
- * together - a new job begun only where the next functional spec would take the job's functional specs and the
- * definitions they bring past `maxLines`; or, `separately`, a job a functional spec, as the person asked.
+ * together - a new job begun where the next functional spec was asked for in another group (`groups`: bind called for
+ * 1-3, then for 4-6), or would take the job's functional specs and the definitions they bring past `maxLines`; or,
+ * `separately`, a job a functional spec, as the person asked.
  * `size`: the movable lines of the last group of a grouping, its definitions placed.
  */
 function conformanceGroups(
@@ -406,12 +412,16 @@ function conformanceGroups(
   maxLines: number,
   size: (groups: Array<{ specs: number[]; title: string }>) => number,
   titleOfSpec: (number: number) => string,
+  /** The group a functional spec was asked for in - none, -1: a job never takes two. */
+  askedIn: (spec: NewSpec) => number = () => -1,
 ): Array<{ specs: number[]; title: string }> {
   const groups: Array<{ specs: number[] }> = [];
   for (const spec of specs) {
     const last = groups.at(-1);
-    const sameModule = last !== undefined && specs.find((other) => other.number === last.specs[0])?.module === spec.module;
-    if (!separately && last !== undefined && sameModule) {
+    const first = last !== undefined ? specs.find((other) => other.number === last.specs[0]) : undefined;
+    const sameModule = first !== undefined && first.module === spec.module;
+    const sameAsk = first !== undefined && askedIn(first) === askedIn(spec);
+    if (!separately && last !== undefined && sameModule && sameAsk) {
       const trial = [...groups.slice(0, -1), { specs: [...last.specs, spec.number] }].map((group) => ({ ...group, title: "" }));
       if (size(trial) <= maxLines) {
         last.specs.push(spec.number);
@@ -421,6 +431,20 @@ function conformanceGroups(
     groups.push({ specs: [spec.number] });
   }
   return groups.map((group) => ({ specs: group.specs, title: group.specs.map(titleOfSpec).join("; ") }));
+}
+
+/** A functional spec's id, as the tree it is in has it - a conformance item's `frid` - or nothing when it says none. */
+function fridOf(change: SpecChange): string | undefined {
+  for (const side of [change.after, change.before]) {
+    if (side === undefined) continue;
+    try {
+      const frid = (JSON.parse(side) as { frid?: unknown }).frid;
+      if (typeof frid === "string" && frid !== "") return frid;
+    } catch {
+      // Not an item with an id.
+    }
+  }
+  return undefined;
 }
 
 async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Promise<DraftJob[]> {
@@ -476,11 +500,21 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
   const conformance = input.track === "conformance";
   const grouped = conformance ? undefined : ((await agents?.group(numbered, (answer) => groupProblems(numbered, answer, maxSpecs), input.steering, maxSpecs).catch(() => undefined)) ?? undefined);
   const groups = conformance
-    ? conformanceGroups(numbered, input.separately === true, maxLines, (list) => {
-        const trial = chunksFor(list);
-        placeDefinitions(trial, definitions);
-        return movableSize(trial.at(-1)!);
-      }, (number) => titleOf(bySpec.get(number)!))
+    ? conformanceGroups(
+        numbered,
+        input.separately === true,
+        maxLines,
+        (list) => {
+          const trial = chunksFor(list);
+          placeDefinitions(trial, definitions);
+          return movableSize(trial.at(-1)!);
+        },
+        (number) => titleOf(bySpec.get(number)!),
+        (spec) => {
+          const frid = fridOf(bySpec.get(spec.number)!);
+          return frid === undefined ? -1 : (input.groups ?? []).findIndex((group) => group.includes(frid));
+        },
+      )
     : grouped !== undefined && groupProblems(numbered, grouped, maxSpecs).length === 0
       ? grouped.groups
       : numbered.map((spec, index) => ({ specs: [spec.number], title: titleOf(specs[index]!) }));

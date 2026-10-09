@@ -695,12 +695,18 @@ function bindTool(options: {
       "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.turri.yaml for it, and never rejuvenate a functionality to get them.",
       "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regrow returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
       "Conformance tests go in one pulse for all the functional specs tested. Set one_by_one only when the user asks for a pulse a functional spec - one at a time, separately, or the like.",
+      "When the user asks for the conformance tests in pulses of their own grouping - 1-3 and 4-6 - pass those groups as groups, in one call: each group is a pulse of its own, never sharing one with another. Without groups, every functional spec named goes in one pulse.",
       "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
     ],
     parameters: Type.Object({
       plain_file: Type.String({ description: "A .plain file of the module" }),
       working_dir: WORKING_DIR_PARAM,
       frids: Type.Optional(Type.Array(Type.String(), { description: "The functional specs to test, by id - added to those chosen before. Omitted: every one" })),
+      groups: Type.Optional(
+        Type.Array(Type.Array(Type.String()), {
+          description: "Only when the user asks for them in pulses of their own grouping: the functional specs by id, a list a pulse - [[\"1\",\"2\",\"3\"],[\"4\",\"5\",\"6\"]]. Each is tested in a pulse of its own; they are added to those chosen, as frids are",
+        }),
+      ),
       one_by_one: Type.Optional(
         Type.Boolean({ description: "Only when the user asks for it: a pulse a functional spec. Omitted: every functional spec tested in one pulse, as far as the size guardrail lets" }),
       ),
@@ -714,6 +720,7 @@ function bindTool(options: {
       const loop = options.loop(ctx);
       const statuses = await loop.conformance(plainFile, {
         ...(params.frids !== undefined ? { frids: params.frids } : {}),
+        ...(params.groups !== undefined ? { groups: params.groups } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(params.one_by_one === true ? { separately: true } : {}),
       });

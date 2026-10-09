@@ -688,7 +688,9 @@ module's own together, as far as a guardrail lets: a new job begins only where t
 the job's functional specs and the definitions they bring past 120 lines. The reqs they are written against go
 with the first job, and do not count. When the person asks for it - one at a time, separately - `bind`'s
 `one_by_one` (`turri bind --one-by-one`) makes it a job a functional spec instead, until conformance tests are asked
-for again without it. Only work that
+for again without it. And when the person asks for them in pulses of their own grouping - 1-3 and 4-6 - `bind`'s
+`groups` gives each group a job of its own: a job never takes functional specs of two groups, and within a group the
+guardrail still cuts. Only work that
 touches no functional spec at all, the test reqs changed say, is a job without one. A module's conformance jobs run
 on its lane once its code is built - every code job of it landed - so the module is tested once, as built: one
 explorer, one run of the whole suite, rather than a conformance cycle after each code job; and they pass before
@@ -757,8 +759,12 @@ labels number them.
 
 The labels are checked, not trusted: before a passing run counts, the harness reads the tests and
 sends the agent back for a functionality with no labelled conformance tests, or for any acceptance
-test that has no test of its own. Anyone reading the tests - or the next agent - sees at a glance
-which is which, and which acceptance test a test implements.
+test that has no test of its own. Each functionality has a label of its own, on a line of its own: a
+file that tests several carries one line for each, and a label naming several at once - `conformance tests
+of functionality 1, 2 and 3` - counts for the first alone. For a spec change that touches several
+functionalities, everything missing - every functionality's - is asked for in one request, the agent told
+to keep the labels there already, and the whole set checked again after each answer. Anyone reading the
+tests - or the next agent - sees at a glance which is which, and which acceptance test a test implements.
 
 ### Rendered apart from the code
 
