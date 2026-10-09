@@ -5,6 +5,9 @@
  * the TUI and the CLI, and so it can be tested without a terminal.
  */
 
+import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
+import { PANEL_KEY } from "./grow/job-panel.ts";
+
 export interface AskUserRequest {
   question: string;
   /** Concrete choices. Selecting beats typing whenever the answer space is known. */
@@ -136,6 +139,8 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
 export interface Peek {
   /** Whether something is growing now - a pulse running: there is something to look at. */
   growing(): boolean;
+  /** Whether there is anything to peek at: a pulse has started this session. Before, regen is empty, and no hint is given. */
+  peekable(): boolean;
   /** Open the panel on what is growing. It takes the keys; the question asked next waits under it. */
   open(): void;
   /** Already invited, this interview: the invitation is made once. */
@@ -149,12 +154,18 @@ export const PEEK_INVITE = "Your first feature is growing now. Press ctrl+h any 
 /** The option the invitation adds: pick it, and the panel opens with this question waiting under it. */
 export const PEEK_OPTION = "Peek at what's growing first (ctrl+h) - this question waits";
 
-/** A question asked with the hint under it, and - once something is growing, the first time - the invitation to look. */
+/**
+ * A question asked with the hint under it - once there is something to peek at - and, once something is growing, the
+ * first time, the invitation to look.
+ */
 export async function askWithPeek(request: AskUserRequest, io: AskUserIO, peek?: Peek): Promise<string> {
-  const hinted: AskUserIO = {
-    select: (title, options) => io.select(`${title}\n\n${PEEK_HINT}`, options),
-    input: (title) => io.input(`${title}\n\n${PEEK_HINT}`),
-  };
+  const hint = peek?.peekable() === true;
+  const hinted: AskUserIO = hint
+    ? {
+        select: (title, options) => io.select(`${title}\n\n${PEEK_HINT}`, options),
+        input: (title) => io.input(`${title}\n\n${PEEK_HINT}`),
+      }
+    : io;
   if (peek === undefined || peek.invited || !peek.growing()) return runAsk(request, hinted);
   peek.invited = true;
   const context = [PEEK_INVITE, request.context?.trim() ?? ""].filter((part) => part !== "").join("\n\n");
@@ -164,4 +175,17 @@ export async function askWithPeek(request: AskUserRequest, io: AskUserIO, peek?:
   // They looked: the panel shows, and the same question - as it was asked - waits under it for when they come back.
   peek.open();
   return runAsk(request, hinted);
+}
+
+/**
+ * While a question is open, what catches ctrl+h on the terminal's input: pi gives an extension's shortcut only the keys
+ * its editor sees, and a question has the focus. It opens the side panel - the question waits under it - unless the
+ * panel shows already: its own listener has ctrl+h then, to close it. A key's release and its repeats are left alone.
+ */
+export function peekKeyListener(panel: { open(): void; shown(): boolean }): (data: string) => { consume: true } | undefined {
+  return (data) => {
+    if (isKeyRelease(data) || isKeyRepeat(data) || !matchesKey(data, PANEL_KEY) || panel.shown()) return undefined;
+    panel.open();
+    return { consume: true };
+  };
 }

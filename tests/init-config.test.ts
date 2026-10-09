@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ROLES, CONFIG_KEYS, projectModels, readProjectConfig, ROLE_THINKING } from "../src/config.ts";
-import { initConfig, main, QUICK_START_CONFIG, quickStartConfig, VENDORS, vendorOf, type Vendor } from "../src/init-config.ts";
+import { BEDROCK_REGIONS, bedrockMakerOf, bedrockModels, bedrockRegionOf, initConfig, main, QUICK_START_CONFIG, quickStartConfig, VENDORS, vendorOf, withModels, type Vendor } from "../src/init-config.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -33,14 +33,57 @@ describe("turri init-config", () => {
     expect(Object.keys(config.models ?? {}).sort()).toEqual(["default", ...AGENT_ROLES].sort());
   });
 
-  it("leaves a config.yaml already there as it is, unless told to write it again", () => {
-    writeFileSync(join(dir, "config.yaml"), "module: app.plain\n");
-    const result = initConfig(dir);
-    expect(result).toMatchObject({ written: false });
-    expect(result.message).toContain("--force");
-    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe("module: app.plain\n");
+  it("sets only the two models in a config.yaml already there - everything else left as it was - unless told to write it all again", () => {
+    writeFileSync(join(dir, "config.yaml"), "module: app.plain\nharness-model:\n  model: old/one\n  thinking: high\nconformance-tests: false\n");
+    const result = initConfig(dir, { vendor: "openai" });
+    expect(result).toMatchObject({ written: true });
+    expect(result.message).toContain("everything else in it left as it was");
+    const text = readFileSync(join(dir, "config.yaml"), "utf8");
+    expect(text).toContain("module: app.plain");
+    expect(text).toContain("conformance-tests: false");
+    expect(text).not.toContain("old/one");
+    const config = readProjectConfig(dir);
+    expect(config.module).toBe("app.plain");
+    expect(projectModels(config)).toMatchObject({ harness: { model: "openai/gpt-6-astra", thinking: "medium" }, coding: { model: "openai/gpt-6-luna", thinking: "low" } });
     expect(initConfig(dir, { force: true }).written).toBe(true);
     expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
+  });
+
+  it("replaces a model key where it is, block and all, and puts one that is missing at the top", () => {
+    const lines: [string, string] = ["harness-model: a/b:medium", "coding-model: c/d:low"];
+    expect(withModels("x: 1\nharness-model:\n  model: o/p\ny: 2\n", lines)).toBe("coding-model: c/d:low\nx: 1\nharness-model: a/b:medium\ny: 2\n");
+  });
+
+  it("fills in Amazon Bedrock's models for the maker and the region chosen - Opus and Haiku, or Astra and Luna - the coding one thinking low", () => {
+    expect(bedrockModels({ maker: "anthropic", region: "eu" })).toMatchObject({ harness: "amazon-bedrock/eu.anthropic.claude-opus-5-5", coding: "amazon-bedrock/eu.anthropic.claude-haiku-5-5" });
+    expect(bedrockModels({ maker: "openai", region: "us" })).toMatchObject({ harness: "amazon-bedrock/us.openai.gpt-6-astra", coding: "amazon-bedrock/us.openai.gpt-6-luna" });
+    const { message } = initConfig(dir, { vendor: "amazon-bedrock", bedrock: { maker: "anthropic", region: "eu" } });
+    expect(message).toContain("Anthropic's on Amazon Bedrock (eu) models");
+    expect(message).toContain("AWS_PROFILE");
+    expect(message).toContain("AWS_BEARER_TOKEN_BEDROCK");
+    expect(message).toContain("AWS_REGION=eu-central-1");
+    expect(projectModels(readProjectConfig(dir))).toMatchObject({
+      harness: { model: "amazon-bedrock/eu.anthropic.claude-opus-5-5", thinking: "medium" },
+      coding: { model: "amazon-bedrock/eu.anthropic.claude-haiku-5-5", thinking: "low" },
+    });
+    // Only the regions each maker's models are served in.
+    expect(BEDROCK_REGIONS.openai).toEqual(["global", "us"]);
+    expect(bedrockRegionOf("openai", "eu")).toBeUndefined();
+    expect(bedrockRegionOf("anthropic", "3")).toBe("eu");
+    expect(bedrockMakerOf("2")).toBe("openai");
+    expect(bedrockMakerOf("google")).toBeUndefined();
+  });
+
+  it("takes Amazon Bedrock's maker and region from --maker and --region without asking, and refuses a region the maker's models are not in", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await main([dir, "--vendor", "bedrock", "--maker", "openai", "--region=us"])).toBe(0);
+      expect(projectModels(readProjectConfig(dir)).coding?.model).toBe("amazon-bedrock/us.openai.gpt-6-luna");
+      expect(await main([dir, "--vendor", "amazon-bedrock", "--maker", "openai", "--region", "eu"])).toBe(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("fills in the vendor's own models - each read as turri reads them, every role example its vendor's too", () => {
@@ -83,8 +126,11 @@ describe("turri init-config", () => {
     expect(vendorOf("1")).toBe("anthropic");
     expect(vendorOf(" OpenAI ")).toBe("openai");
     expect(vendorOf("3")).toBe("google");
+    expect(vendorOf("4")).toBe("amazon-bedrock");
+    expect(vendorOf("bedrock")).toBe("amazon-bedrock");
+    expect(vendorOf("5")).toBe("other");
     expect(vendorOf("other")).toBe("other");
-    expect(vendorOf("5")).toBeUndefined();
+    expect(vendorOf("6")).toBeUndefined();
     expect(vendorOf("mistral")).toBeUndefined();
   });
 

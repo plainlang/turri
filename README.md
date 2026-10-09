@@ -19,14 +19,19 @@ OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) -
 ```bash
 git clone git@github.com:plainlang/turri.git && cd turri
 npm install && npm link   # puts `turri` on your PATH
-turri setup               # checks the machine
+turri setup               # checks the machine, and offers to load turri into every pi
 ```
+
+`setup` checks for Node 22.19+, bash, the OS sandbox and a model provider for pi; in a project, the toolchains its
+modules need and what its testing scripts run against this machine. It changes nothing without asking: when a check
+fails - the OS sandbox does not start, say - it says why, and the command for you to run. `turri doctor` runs the
+same checks later. What each check means: [installation](docs/installation.md).
 
 Then start it in your project, signed in to your model providers:
 
 ```bash
 cd ~/my-project
-turri init-config              # asks which vendor you use: Anthropic, OpenAI, Google, or other
+turri init-config              # asks which vendor you use: Anthropic, OpenAI, Google, Amazon Bedrock, or other
 export ANTHROPIC_API_KEY=...   # the key it names - or skip it, and type /login in turri once it has started
 turri
 ```
@@ -40,7 +45,8 @@ harness-model: anthropic/claude-opus-5-5:medium  # you talk to it: it writes the
 coding-model: anthropic/claude-haiku-5-5:low     # it writes the code
 ```
 
-To skip the question, name the vendor - `anthropic`, `openai`, `google` or `other`:
+To skip the question, name the vendor - `anthropic`, `openai`, `google`, `amazon-bedrock` (with `--maker` and
+`--region`) or `other`:
 
 ```bash
 turri init-config --vendor anthropic
@@ -48,12 +54,8 @@ turri init-config --vendor anthropic
 
 It then says which key to set, or to `/login`, and where the file is: **turri** reads `config.yaml` from the folder
 it starts in, or the nearest one above it - so run `init-config` in your project, not beside your clone of **turri**.
-
-These two are only an example. **turri** runs on [pi](https://pi.dev), so any model pi supports works - Anthropic,
-OpenAI, Google, Amazon Bedrock, OpenRouter, a local one - signed in any way pi supports: an API key, `/login`
-with a subscription, a cloud account. If you use other providers, change the two lines before you run `turri`, and
-sign in to those instead. Below them, the file lists every other setting commented out, each with what it does -
-uncomment one to try it; [the project config](docs/config.md) has them all.
+Below the two models, the file lists every other setting commented out, each with what it does - uncomment one to
+try it; [the project config](docs/config.md) has them all. Any other model works too: [models](#models).
 
 Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
 
@@ -61,8 +63,7 @@ No project of your own yet? Grow one of [**the examples**](examples/README.md) w
 
 Rather not install Node and the rest? **turri** also runs in Docker, from one image: [turri in Docker](docker/README.md).
 
-What `setup` checks and where **turri** runs: [install](#install); choosing models:
-[models](#models); what to do next: [use](#use).
+Choosing models: [models](#models); what to do next: [use](#use).
 
 ## Why
 
@@ -158,30 +159,12 @@ So the tools speak its language: **`regrow`** grows the code again from the spec
 the code has moved from it, **`rejuvenate`** grows again what is grown - functional specs, or a codebase back from the start - and **`lineage`**
 shows every generation of a module and what each grew from.
 
-## Install
-
-It needs git, bash and [Node](https://nodejs.org/en/download) 22.19 or newer, wherever pi runs - macOS, Linux, WSL,
-native Windows best effort with Git Bash - and bubblewrap on Linux for the OS sandbox. Ubuntu's and Debian's own
-`nodejs` packages are older: take Node from nodejs.org, nvm or NodeSource.
-
-```bash
-git clone git@github.com:plainlang/turri.git && cd turri
-npm install
-npm link              # puts `turri` on your PATH
-turri setup     # checks the machine, and offers to load turri into every pi
-```
-
-`setup` checks for Node 22.19+, bash, the OS sandbox - and why none starts, with the fix - and a model provider for pi;
-in a project, it checks the toolchains its modules need and what its testing scripts run against this machine.
-`turri doctor` runs the same checks later without changing anything.
-
-Details, and what each check means: [installation](docs/installation.md).
-
 ## Models
 
-**turri** is built on [pi](https://github.com/earendil-works/pi), so a model is reached as pi
-reaches it - `/login`, in `turri` as in `pi`, or the provider's API key in the environment (`ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) - and named as pi names it, `provider/model-id`, with
+`init-config`'s models are only a starting point. **turri** is built on [pi](https://github.com/earendil-works/pi),
+so any model pi supports works - Anthropic, OpenAI, Google, Amazon Bedrock, OpenRouter, a local one. A model is reached
+as pi reaches it - `/login`, in `turri` as in `pi`, the provider's API key in the environment (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `GEMINI_API_KEY`, ...), or a cloud account - and named as pi names it, `provider/model-id`, with
 `:high`, `:low` and so on for how hard it thinks. It uses three: the **harness** model you talk
 to, which writes the specs and plans the work - worth a capable one - and the **coding** and
 **judge** models its agents build and judge with, which can be smaller and cheaper, such as GPT-6

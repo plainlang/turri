@@ -27,11 +27,12 @@ The skills that build from scratch:
 | `spawn` | its quick twin: asks only what you want to build and which stack - one of the standard library's, your own, or `You choose` - and confirms a five-line brief, then writes the stack and the unit tests itself - conformance tests off, unless you ask for them - and writes the product feature by feature on its own, each feature a spec diff queued as it is written - after which you keep talking, and every change you ask for is a spec diff, and what is left to build is worked out again from the spec |
 | `mature` | for a spec you already have, rough or hand-written: on its own until it is fully rendered - renders what is not built, watches the agents building it, and when one struggles on something the spec leaves open, settles it in the spec as a spec diff, stops that build and renders it again; decides open choices itself and marks them in its report |
 
-Peeking is safe while a skill asks you something: `ctrl+h` opens the side panel over the question, which waits under it
-as it was - the panel says `your question is waiting`, and `ctrl+h` or `esc` takes you back to answer it. Every question
-says so under it - `ctrl+h peek at the build - this question waits for you` - and the first one a skill asks once
-something is growing invites you to look, with an option of its own, `Peek at what's growing first`, that opens the
-panel and asks the same question again, waiting under it.
+Peeking is safe while a question is open - a skill's or the chat's: `ctrl+h` opens the side panel over the question,
+which waits under it as it was - the panel says `your question is waiting`, and `ctrl+h` or `esc` takes you back to
+answer it. (The question has the keys, so turri catches `ctrl+h` itself while one is open.) Once a pulse has started,
+every question says so under it - `ctrl+h peek at the build - this question waits for you` - not before, while regen
+has nothing to show; and the first one a skill asks once something is growing invites you to look, with an option of
+its own, `Peek at what's growing first`, that opens the panel and asks the same question again, waiting under it.
 
 While a skill runs, a line above the input shows its phases, every one by name - those done ticked, the one it is in
 marked, the rest to come - and where it is: the skill's name at the left edge, `phase 2 of 4` at the right, and its

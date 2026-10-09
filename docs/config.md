@@ -14,7 +14,14 @@ asks which vendor's models you use - `--vendor` says it without asking, and with
 | `anthropic` | `anthropic/claude-opus-5-5` | `anthropic/claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
 | `openai` | `openai/gpt-6-astra` | `openai/gpt-6-luna` | `OPENAI_API_KEY` |
 | `google` | `google/gemini-3.1-pro-preview` | `google/gemini-3.1-flash-lite` | `GEMINI_API_KEY` |
+| `amazon-bedrock`, Anthropic | `amazon-bedrock/<region>.anthropic.claude-opus-5-5` | `amazon-bedrock/<region>.anthropic.claude-haiku-5-5` | `AWS_PROFILE` or `AWS_BEARER_TOKEN_BEDROCK`, and `AWS_REGION` |
+| `amazon-bedrock`, OpenAI | `amazon-bedrock/<region>.openai.gpt-6-astra` | `amazon-bedrock/<region>.openai.gpt-6-luna` | `AWS_PROFILE` or `AWS_BEARER_TOKEN_BEDROCK`, and `AWS_REGION` |
 | `other` | `anthropic/claude-opus-5-5` | `google/gemini-3.1-flash-lite` | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` |
+
+Amazon Bedrock asks two more things - whose models, Anthropic's or OpenAI's (`--maker`), and the region of the
+inference profile they run in (`--region`): `global`, `us`, `eu`, `jp` or `au` for Anthropic's, `global` or `us` for
+OpenAI's. It says which `AWS_REGION` to set for it - pi calls Bedrock in `us-east-1` when none is. A `config.yaml`
+already there keeps everything but its two models, which it sets; `--force` writes the whole file again.
 
 Each is written with how hard it thinks - `harness-model: openai/gpt-6-astra:medium`, `coding-model:
 openai/gpt-6-luna:low` - so the file shows it. The reviews and judges run on the coding model but think medium (see

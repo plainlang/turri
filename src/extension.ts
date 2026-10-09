@@ -56,7 +56,7 @@ import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
-import { askWithPeek, type AskUser, type Peek } from "./ask.ts";
+import { askWithPeek, peekKeyListener, type AskUser, type Peek } from "./ask.ts";
 import {
   createJobRegistry,
   defaultParallelJobs,
@@ -130,22 +130,60 @@ function askUserVia(
     }
 
     ctx.ui.setWorkingMessage("waiting for your answer");
+    // The question has the keys: ctrl+h is caught here, or it would never reach the shortcut, which only the chat's editor sees.
+    const unhook = hookPeekKey(ctx);
     try {
-      // Every question says ctrl+h is safe to press; a skill's, once something grows, invites them to look.
+      // Once something has grown, every question says ctrl+h is safe to press; a skill's, once something grows, invites them to look.
       const answer = await askWithPeek(
         request,
         {
           select: (title, options) => ctx.ui.select(title, options),
           input: (title) => ctx.ui.input(title),
         },
-        peek,
+        peek ?? questionPeek?.asPeek(ctx),
       );
       onExchange(request.question, answer, request.context);
       return answer;
     } finally {
+      unhook();
       ctx.ui.setWorkingMessage();
     }
   };
+}
+
+/** The side panel, as a question open in the chat reaches it: set once the extension has its panel. */
+let questionPeek:
+  | {
+      open(ctx: ExtensionContext): void;
+      /** It shows now: its own listener has the keys, ctrl+h among them. */
+      shown(): boolean;
+      /** A pulse has started this session: there is something in it to see. */
+      peekable(): boolean;
+      /** For a question the chat model asks: the hint, never the invitation - that is a skill's interview's. */
+      asPeek(ctx: ExtensionContext): Peek;
+    }
+  | undefined;
+
+/** A widget with nothing to draw: below the editor, it takes no line. */
+const PEEK_KEY_WIDGET = "turri-peek-key";
+
+/**
+ * While a question is open, ctrl+h opens the side panel over it - the question waits under it. pi gives an extension's
+ * shortcut only the keys its editor sees, and a question has the focus: the key is caught on the terminal's input
+ * instead. While the panel shows, its own listener has ctrl+h - to close it - and this lets it be.
+ */
+function hookPeekKey(ctx: ExtensionContext): () => void {
+  if (questionPeek === undefined) return () => {};
+  const peek = questionPeek;
+  ctx.ui.setWidget(
+    PEEK_KEY_WIDGET,
+    (tui) => {
+      const unlisten = tui.addInputListener(peekKeyListener({ open: () => peek.open(ctx), shown: () => peek.shown() }));
+      return { render: () => [], invalidate() {}, dispose: unlisten };
+    },
+    { placement: "belowEditor" },
+  );
+  return () => ctx.ui.setWidget(PEEK_KEY_WIDGET, undefined);
 }
 
 /**
@@ -549,6 +587,7 @@ export default function (pi: ExtensionAPI) {
           // Invited once a run: the first question asked while something is growing.
           invited: false,
           growing: () => jobs.list().some((job) => job.status === "running"),
+          peekable: () => jobs.list().some((job) => job.status !== "queued"),
           open: () => panelOpeners.get(jobs)?.(ctx),
         }),
         model: conversationModel(ctx),
@@ -1585,6 +1624,17 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   }
 
   panelOpeners.set(jobs, (ctx) => openPanel(ctx));
+  questionPeek = {
+    open: (ctx) => openPanel(ctx),
+    shown: () => panel !== undefined,
+    peekable: () => jobs.list().some((job) => job.status !== "queued"),
+    asPeek: (ctx) => ({
+      invited: true,
+      growing: () => jobs.list().some((job) => job.status === "running"),
+      peekable: () => jobs.list().some((job) => job.status !== "queued"),
+      open: () => openPanel(ctx),
+    }),
+  };
 
   pi.registerShortcut(PANEL_KEY, {
     description: "Peek at regen and the pulses - a question waiting in the chat waits for you - or go back to it",
