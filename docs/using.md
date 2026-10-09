@@ -95,8 +95,8 @@ modules or ten. How many run at once is capped by what the machine has room for:
 come waits for a free slot, and says so.
 
 - **The panel** above the input, while something runs, shows on top what finished - a line a module, its
-  pulses oldest first, each with its mark (green, red or amber, as in the side panel), number, kind and what
-  it grew, `cognio  … 2 earlier · ✓ 3 regrow: registration · ✓ 4 bind: fs 1–3`, the newest that fit the width -
+  pulses oldest first, each with its mark (green, red or amber, as in the side panel), number and kind - what
+  it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regrow · ✓ 4 bind`, the newest that fit the width -
   then a rule, and under it each running pulse - `cognio · regrow pulse 5 · user search and profiles`, what it grows all lowercase, its
   time and cost, and what its agents are doing. Pulses are numbered within their module, as regen numbers
   them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module. The line of keys under

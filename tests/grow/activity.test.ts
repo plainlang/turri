@@ -98,7 +98,7 @@ describe("tool calls as one line", () => {
 });
 
 describe("the panel", () => {
-  it("lists what finished on top, a line a module, each pulse with its mark, number, kind and title - a rule under it - and is gone when nothing runs", async () => {
+  it("lists what finished on top, a line a module, each pulse with its mark, number and kind alone - a rule under it - and is gone when nothing runs", async () => {
     const jobs = createJobRegistry();
     const first = jobs.start({ kind: "regrow", summary: "x", module: "backend", pulse: 1, title: "Registration", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(first.id);
@@ -112,8 +112,8 @@ describe("the panel", () => {
     const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };
     const lines = jobPanelLines(jobs.list(), { marks, width: 80 });
     // What a pulse grows is said all lowercase.
-    expect(lines[0]).toBe("  backend  <ok>✓ 1 regrow: registration · <bad>✗ 2 bind: fs 1");
-    expect(lines[1]).toBe("  web      <ok>✓ 1 regrow: home page");
+    expect(lines[0]).toBe("  backend  <ok>✓ 1 regrow · <bad>✗ 2 bind");
+    expect(lines[1]).toBe("  web      <ok>✓ 1 regrow");
     expect(lines[2]).toBe(`  ${"─".repeat(76)}`);
     // What runs is below the rule, by the input: its module, its kind and number, what it grows.
     expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regrow pulse 3 · log in with :user: · \d+s$/);
@@ -128,10 +128,10 @@ describe("the panel", () => {
       await jobs.wait(job.id);
     }
     jobs.start({ kind: "regrow", summary: "z", module: "cognio", pulse: 6, title: "profiles", run: () => new Promise(() => {}) });
-    const line = jobPanelLines(jobs.list(), { width: 70 })[0]!;
-    expect(line).toBe("  cognio  … 3 earlier · ✓ 4 regrow: log in · ✓ 5 regrow: search");
-    expect(line.length).toBeLessThanOrEqual(70);
-    expect(jobPanelLines(jobs.list())[0]).toContain("✓ 1 regrow: description");
+    const line = jobPanelLines(jobs.list(), { width: 60 })[0]!;
+    expect(line).toBe("  cognio  … 2 earlier · ✓ 3 regrow · ✓ 4 regrow · ✓ 5 regrow");
+    expect(line.length).toBeLessThanOrEqual(60);
+    expect(jobPanelLines(jobs.list())[0]).toBe("  cognio  ✓ 1 regrow · ✓ 2 regrow · ✓ 3 regrow · ✓ 4 regrow · ✓ 5 regrow");
   });
 
   it("shows running jobs by module, time and cost, with their activity and not their stage - and what finished, above them", async () => {

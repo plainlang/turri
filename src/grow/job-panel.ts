@@ -89,11 +89,10 @@ export function pulseTitle(job: Job): string | undefined {
   return job.title?.toLowerCase();
 }
 
-/** A finished pulse in its module's line: its mark, number, kind and what it grew - `✓ 3 regrow: registration`. */
+/** A finished pulse in its module's line: its mark, number and kind - `✓ 3 regrow`. What it grew is in the side panel. */
 function finishedItem(job: Job, marks: MarkPaint): string {
   if (job.module === undefined || job.pulse === undefined) return `${finishedMark(job, marks)} ${pulseName(job)}`;
-  const title = pulseTitle(job);
-  return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}${title !== undefined ? `: ${title}` : ""}`;
+  return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}`;
 }
 
 /**
