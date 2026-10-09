@@ -36,8 +36,8 @@ turri reads the nearest `config.yaml` upwards from where it starts, so one writt
 Below them it puts every other key, commented out - each with what it does, what it is unset, and an example
 value - so you can see what there is and try one by uncommenting it.
 
-It never writes over a `config.yaml` already there - `--force` does - and takes a folder other than the current
-one as its argument.
+A `config.yaml` already there keeps everything but its two models, which it sets - `--force` writes the whole file
+again - and it takes a folder other than the current one as its argument.
 
 ## Where it is read from
 
@@ -56,6 +56,34 @@ When it is read:
   down.
 - **On the command line**, once, when the command starts. `turri regrow` takes `module:` from
   the folder it is run in, and the rest from the spec's own project.
+
+## Changing it from the chat
+
+`/turri-config` changes any key in the chat, and writes it into the `config.yaml` of the folder turri was started in -
+its comments, and the commented-out examples, kept. Alone, it lists every key with what it is now, and asks for the
+value of the one you pick the way the key takes it: `true` or `false`, one of its words, a number from a few offered or
+typed, a model from those this machine can reach and then how hard it thinks, a script or a `.plain` file the project
+has, rules ticked on and off. `/turri-config review` asks for review's value; `/turri-config review false` sets it, and
+`/turri-config review unset` takes it out, back to its default. Completion offers the keys, then each one's values.
+Each role's model and turn limit is `models.<role>` and `models.<role>.turn-limit` - `models.coding`,
+`models.planner.turn-limit`.
+
+Each change says when it takes effect. None needs turri started again - what turri fixes as it starts is changed as it
+runs:
+
+| when | keys |
+| --- | --- |
+| now | `harness-model` and `models.chat` - the conversation switches to it; `parallel-jobs` - a pulse waiting for a slot starts if there is one now; `allow-to-stop-jobs` |
+| your next message | `rules-off` - for the conversation; a skill's agents from the next skill run |
+| the next pulse - one running keeps what it started with | `coding-model`, `judge-model`, every other `models.<role>`, `review`, `turn-limit`, `compact-at`, `agent-env`, `toolchains` |
+| the next time the work is planned | `conformance-tests`, `conformance-budget`, `max-specs-per-pulse`, `max-lines-per-pulse` |
+| the next test run - the running pulse's too | the testing scripts, `testing-scripts-run-on` |
+| the next pulse that lands - the running one too | `release-after-pulse` |
+| the next regrow that names no `.plain` file | `module` |
+
+A coding model chosen this session - `--coding-model`, or `engine` - gives way to one set here: the last word wins. It
+says, too, what wins over the change: `models.chat` over `harness-model` (and so on), and a module's own
+`config.<module>.yaml`, which is not changed here.
 
 ## The keys
 

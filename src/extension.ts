@@ -55,6 +55,7 @@ import { describeSpecConflict } from "./grow/stop-report.ts";
 import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock } from "./rules.ts";
+import { registerTurriConfig } from "./config-command.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { askWithPeek, peekKeyListener, type AskUser, type Peek } from "./ask.ts";
 import {
@@ -283,11 +284,17 @@ export default function (pi: ExtensionAPI) {
   // With them, the instruction to do turri's work with its tools rather than its command
   // line - enforced below, not only asked for.
   const rules = loadRules(join(PACKAGE_ROOT, "genome", "rules"), readProjectConfig(cwd).rulesOff ?? []);
-  const rulesBlock = chatRulesBlock(rules);
+  // Laid out again once rules-off changes - /turri-config changes it as turri runs - and the same block in between.
+  let rulesKept = { off: (readProjectConfig(cwd).rulesOff ?? []).join(","), block: chatRulesBlock(rules) };
+  const rulesBlock = (): string => {
+    const off = readProjectConfig(cwd).rulesOff ?? [];
+    if (off.join(",") !== rulesKept.off) rulesKept = { off: off.join(","), block: chatRulesBlock(loadRules(join(PACKAGE_ROOT, "genome", "rules"), off)) };
+    return rulesKept.block;
+  };
   // What the project's config.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock].filter((part) => part !== "").join("\n\n"),
+    systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock()].filter((part) => part !== "").join("\n\n"),
   }));
 
   // The conversation's agent does not run turri again through its shell, unless the person
@@ -1643,6 +1650,47 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       openPanel(ctx);
     },
   });
+
+  // /turri-config: every setting of config.yaml from the chat, each taking effect as it says - what turri fixed at its
+  // start changed here, as it runs.
+  registerTurriConfig(pi, {
+    cwd,
+    rules: () => loadRules(join(PACKAGE_ROOT, "genome", "rules")).map((rule) => rule.name),
+    chatSpec: () => modelSpec(projectModels(readProjectConfig(cwd)).harness),
+    live: {
+      chatModel: async (spec, ctx) => {
+        if (spec === undefined) return "The conversation keeps the model it runs on now; turri starts on pi's own choice next time.";
+        const { model, thinking } = splitModelSpec(spec);
+        if (model !== undefined) {
+          const resolved = resolveModel(model, ctx.modelRegistry);
+          if (!resolved.ok) return `The conversation keeps its model: ${model} cannot be used here.\n${describeResolution(resolved)}`;
+          const slash = resolved.model.indexOf("/");
+          const found = ctx.modelRegistry.find(resolved.model.slice(0, slash), resolved.model.slice(slash + 1));
+          if (found === undefined || !(await pi.setModel(found))) return `The conversation keeps its model: ${resolved.model} could not be switched to.`;
+        }
+        if (thinking !== undefined) pi.setThinkingLevel(thinking);
+        return `The conversation runs on ${spec} now.`;
+      },
+      codingModel: () => {
+        const dropped: string[] = [];
+        // What the session chose wins over the file; changed in the file, the file's holds from now on.
+        if (process.env[CODING_MODEL_ENV] !== undefined) {
+          dropped.push(`--coding-model ${process.env[CODING_MODEL_ENV]}`);
+          delete process.env[CODING_MODEL_ENV];
+        }
+        for (const work of Object.keys(chosenModels) as Array<keyof ModelChoices>) {
+          dropped.push(`the engine's ${work === "all" ? "" : `${work.replace(/_/g, " ")} `}model ${chosenModels[work]}`);
+          delete chosenModels[work];
+        }
+        return dropped.length === 0 ? undefined : `Chosen this session, and given way to the config: ${dropped.join("; ")}.`;
+      },
+      parallelJobs: (count) => {
+        const limit = count ?? parallelJobs(cwd);
+        jobs.setMaxRunning(limit);
+        return `Up to ${limit} pulse${limit === 1 ? "" : "s"} run at once now.`;
+      },
+    },
+  });
 }
 
 export { fromWorkingDir };
@@ -2139,6 +2187,8 @@ function registerBranding(
           (data.stdlib !== undefined && data.stdlib > 0 ? ` · ${data.stdlib} stdlib stacks (/stdlib)` : "") +
           (data.pending > 0 ? theme.fg("warning", `  (${data.pending} failed to load)`) : ""),
       ),
+      // Where the settings are changed, without leaving the chat.
+      theme.fg("muted", "configure with /turri-config"),
       theme.fg("dim", data.cwd),
       // Where every command an agent runs will run - or that none can.
       ...(data.sandbox

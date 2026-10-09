@@ -55,7 +55,8 @@ turri init-config --vendor anthropic
 It then says which key to set, or to `/login`, and where the file is: **turri** reads `config.yaml` from the folder
 it starts in, or the nearest one above it - so run `init-config` in your project, not beside your clone of **turri**.
 Below the two models, the file lists every other setting commented out, each with what it does - uncomment one to
-try it; [the project config](docs/config.md) has them all. Any other model works too: [models](#models).
+try it, or change it from the chat with `/turri-config`; [the project config](docs/config.md) has them all. Any other
+model works too: [models](#models).
 
 Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
 
@@ -170,7 +171,8 @@ to, which writes the specs and plans the work - worth a capable one - and the **
 **judge** models its agents build and judge with, which can be smaller and cheaper, such as GPT-6
 Luna or Gemini 3.1 Flash Lite. `turri --harness-model` and `--coding-model` choose them for a
 session, and pi's `/model` switches the one you talk to as you go; to keep them for the project,
-write them in its `config.yaml`:
+set them with `/turri-config harness-model`, `/turri-config coding-model` and so on - each role's too, as
+`models.<role>` - or write them in its `config.yaml`:
 
 ```yaml
 harness-model: anthropic/claude-opus-5-5    # the model you talk to: a capable one
@@ -203,7 +205,10 @@ specs, and builds each one as it is written. While it works:
   `dist/<module>` and **`activate`** starts it, installing what it needs - nothing to approve;
 - the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - the spec, every item marked built, growing, planned or waiting - and `p` turns it to the **pulses** (`/pulses`) - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
 - **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
-  module, and the **`drift`** tool says what is left to grow.
+  module, and the **`drift`** tool says what is left to grow;
+- **`/turri-config`** changes any setting of the project's `config.yaml` - the models, review, conformance tests,
+  how many pulses at once - and says when it takes effect: now, at your next message, or at the next pulse. No
+  restart: `/turri-config review false`, or `/turri-config` alone to pick from the list.
 
 Other things to ask for:
 

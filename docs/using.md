@@ -208,6 +208,9 @@ come waits for a free slot, and says so.
 - `turri` runs pi in fullscreen mode, so the conversation stays where you scroll it while
   the pulses redraw (PgUp/PgDn, the wheel); `--tui-mode regular` goes back to the terminal's own
   scrollback.
+- **`/turri-config`** changes a setting of the project's `config.yaml` - the models, review, conformance tests, any
+  key - and says when it takes effect: now, at your next message, or at the next pulse; never only after a restart.
+  See [changing it from the chat](config.md#changing-it-from-the-chat).
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
   server `activate` started; it lists both when no id is given.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from

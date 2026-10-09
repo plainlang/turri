@@ -123,6 +123,8 @@ export interface StartJobInput {
 
 export interface JobRegistry {
   start(input: StartJobInput): Job;
+  /** How many jobs may run at once from now on - undefined for no limit. Raised, jobs waiting for a slot start. */
+  setMaxRunning(count: number | undefined): void;
   /**
    * Stop a job. A queued one never starts; a running one has its agent's turn aborted and
    * ends as stopped. Returns the job, or undefined when there is no such job or it has
@@ -167,7 +169,7 @@ export function createJobRegistry(options?: {
 }): JobRegistry {
   const jobs = new Map<string, Job>();
   // The slots: how many jobs run, and the ones whose lanes are free waiting for one, in the order they got there.
-  const limit = options?.maxRunning !== undefined && options.maxRunning >= 1 ? Math.floor(options.maxRunning) : undefined;
+  let limit = options?.maxRunning !== undefined && options.maxRunning >= 1 ? Math.floor(options.maxRunning) : undefined;
   let active = 0;
   const waiters: Array<() => void> = [];
   const takeSlot = () =>
@@ -197,6 +199,11 @@ export function createJobRegistry(options?: {
   let sequence = 0;
 
   return {
+    setMaxRunning(count) {
+      limit = count !== undefined && count >= 1 ? Math.floor(count) : undefined;
+      // Raised: the jobs waiting for a slot that now has room start.
+      while (waiters.length > 0 && (limit === undefined || active < limit)) waiters.shift()!();
+    },
     start(input) {
       const id = randomUUID().slice(0, 8);
       const claimed = [...new Set(input.lanes ?? [])];
