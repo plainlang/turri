@@ -11,7 +11,7 @@ import type { TranscriptStyle } from "./transcript-view.ts";
 /**
  * The regeneration drawn: a page a module, an item a row - see spec-map.ts for what each mark means.
  *
- * Each item's first line, with its mark in the gutter and its conformance tests beside it; a changed item's changed
+ * Each item's first line, with its one mark in the gutter - its rung on the ladder; a changed item's changed
  * sub-bullets under it, word by word; an item taken out as a struck-through ghost. Enter opens an item: all of it, its
  * acceptance tests, the pulse that brings it, its conformance tests, and - a definition - the built specs that use it.
  * One module is shown at a time, a tab a module of the chain - ←→ go from one to the next: the module growing now, until
@@ -119,52 +119,84 @@ const strike = (text: string) => `\x1b[9m${text}\x1b[29m`;
 /** How far a group, and what is in it, is indented under its module. */
 const INDENT = "  ";
 
-/** The gutter before the bar: the cursor, the mark, the tests. */
-const GUTTER = 6;
+/**
+ * Where an item stands, as one mark on a ladder every item climbs: planned, working, regenerated, bound - and needs
+ * you, off it - named in the legend in the panel's corner. The same mark means the same thing whatever the config says
+ * of conformance tests: a functional spec regenerated and not bound is hollow whether its tests are on, off or not
+ * chosen, so changing that changes no mark.
+ */
+export const LADDER = {
+  toRegenerate: "○",
+  regenerated: "◇",
+  bound: "◆",
+  needsYou: "!",
+  takenOut: "−",
+} as const;
+
+/** An item's rung: what its one mark shows. Working is regenerating, binding or taking out alike. */
+export type Rung = "toRegenerate" | "working" | "regenerated" | "bound" | "needsYou" | "takenOut" | "none";
+
+export function rungOf(item: MarkedItem): Rung {
+  if (item.state === "removed") return item.mark === "growing" ? "working" : "takenOut";
+  if (item.mark === "growing" || item.testing === true) return "working";
+  if (item.mark === "stuck") return "needsYou";
+  if (item.mark === "none") return "none";
+  // A test req is the conformance tests' alone: it is followed by them, bound, or not yet.
+  if (item.state === "test") return item.mark === "built" ? "bound" : "toRegenerate";
+  if (item.mark === "built") return item.tests === "now" ? "bound" : "regenerated";
+  return "toRegenerate";
+}
+
+/** The gutter before the bar - the status column: the cursor and the mark, under its heading. */
+const STATUS_HEADING = "status";
+const GUTTER = STATUS_HEADING.length + 2;
 const BAR = "│ ";
 const CONTINUED = `${" ".repeat(GUTTER)}${BAR}`;
 
-function markText(item: MarkedItem, style: TranscriptStyle, now: number): string {
-  const glyph =
-    item.state === "removed"
-      ? style.error("−")
-      : item.mark === "built"
-        ? (style.success ?? style.added)("✓")
-        : item.mark === "growing"
-          ? style.accent(spinner(now))
-          : item.mark === "planned"
-            ? // Provisional: dimmer than the one growing.
-              style.muted(String(item.pulse!.number))
-            : item.mark === "planning"
-              ? style.accent("…")
-              : item.mark === "stuck"
-                ? style.error("!")
-                : item.mark === "waiting"
-                  ? style.muted("·")
-                  : " ";
-  const width = visibleWidth(glyph);
-  return `${" ".repeat(Math.max(0, 2 - width))}${glyph}`;
-}
-
-/**
- * The mark of a functional spec its conformance tests pass for: more than tested - its code is shown, end to end, to
- * do what the spec says. Filled, for the spec as it reads now; hollow (CONFORMED), for an earlier text - so current and
- * stale read apart without colour.
- */
-export const CONFORMS = "◆";
-export const CONFORMED = "◇";
-
-function testsText(item: MarkedItem, style: TranscriptStyle, now: number): string {
-  // A test req's own mark says it: it is the conformance tests' alone.
-  if (item.state === "test") return " ";
-  if (item.testing === true) return style.accent(spinner(now));
-  // Planned, as the mark beside it is: the pulse's number, dimmer than the spinner.
-  if (item.testsPulse !== undefined) return style.muted(String(item.testsPulse.number));
-  if (item.tests === "now") return (style.conforms ?? style.success ?? style.added)(CONFORMS);
-  if (item.tests === "older") return style.muted(CONFORMED);
-  if (item.tests === "removed") return style.error(strike(CONFORMS));
+function rungGlyph(rung: Rung, style: TranscriptStyle, now: number): string {
+  const green = style.success ?? style.added;
+  if (rung === "working") return style.accent(spinner(now));
+  if (rung === "regenerated") return green(LADDER.regenerated);
+  if (rung === "bound") return green(LADDER.bound);
+  if (rung === "needsYou") return style.error(LADDER.needsYou);
+  if (rung === "takenOut") return style.error(LADDER.takenOut);
+  if (rung === "toRegenerate") return style.muted(LADDER.toRegenerate);
   return " ";
 }
+
+/** An item's mark, under the middle of the status column's heading; the cursor goes before it. */
+function markText(item: MarkedItem, style: TranscriptStyle, now: number): string {
+  // With the cursor before it and the space before the bar after it, as wide as the column.
+  return `  ${rungGlyph(rungOf(item), style, now)}${" ".repeat(GUTTER - 5)}`;
+}
+
+/** The two columns' headings, over the map - status, and the module's file - and a line of space under them. */
+export function columnHeadings(page: MarkedPage, width: number, style: TranscriptStyle): string[] {
+  return [truncateToWidth(`${style.muted(` ${STATUS_HEADING} `)}${BAR}${style.heading(basename(page.plainFile))}`, width), CONTINUED.trimEnd()];
+}
+
+/** The legend, a line a mark, up the ladder: planned, working, regenerated, bound - and needs you, off it. */
+const LEGEND: Array<[Rung, string]> = [
+  ["toRegenerate", "planned"],
+  ["working", "working"],
+  ["regenerated", "regenerated"],
+  ["bound", "bound"],
+  ["needsYou", "needs you"],
+  ["takenOut", "to take out"],
+];
+
+/**
+ * The legend's lines, for the panel's lower right corner: every rung of the ladder, always - what a mark means never
+ * depends on the page - and to take out only where the page has something to take out.
+ */
+export function legendLines(page: MarkedPage, style: TranscriptStyle): string[] {
+  const removing = page.items.some((item) => rungOf(item) === "takenOut");
+  return LEGEND.filter(([rung]) => rung !== "takenOut" || removing).map(([rung, name]) => `${rungGlyph(rung, style, 0)} ${style.muted(name)}`);
+}
+
+/** What the person is needed for, and how: the line under a page's first `!`, and its top line's end. */
+export const DISCUSS_KEY = "d";
+const needsLine = (page: MarkedPage) => `needs you - ${page.status} · ${DISCUSS_KEY} to talk it through in the chat`;
 
 /** Each character's role in a line of ***plain, as plyn highlights it - kept, the map redraws every half second. */
 const rolesSeen = new Map<string, Array<PlainRole | undefined>>();
@@ -319,66 +351,8 @@ function wrapped(text: string, width: number, colour: (text: string) => string =
     .map((line) => `${CONTINUED}${colour(line)}`);
 }
 
-/** All of an item, opened: its text against the code's, its acceptance tests, and why it is not growing when it is not. */
-/**
- * Where an opened item stands, a line a track with its mark - what the code has of it (regenerated), and for a functional
- * spec what its conformance tests have (bound) - so the marks in the gutter explain themselves.
- */
-function statusLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, now: number): string[] {
-  const pulse = item.pulse?.number;
-  const why = page.codebase?.stuck?.why ?? page.status;
-  const code =
-    item.state === "test"
-      ? item.mark === "built"
-        ? "followed - the conformance tests are written to it as it reads now"
-        : item.mark === "growing"
-          ? "the conformance tests are being written to it now"
-          : item.mark === "planned"
-            ? `the conformance tests are written to it in pulse ${pulse}`
-            : item.mark === "none"
-              ? "no conformance tests are written here"
-              : "not followed yet - the conformance tests are written to it once the code is built"
-      : item.state === "removed"
-        ? item.mark === "growing"
-          ? "being taken out of the code now"
-          : item.mark === "planned"
-            ? `taken out of the spec - taken out of the code in pulse ${pulse}`
-            : `taken out of the spec, still in the code: ${why}`
-        : item.mark === "built"
-          ? "regenerated - the code is built from it as it reads now"
-          : item.mark === "growing"
-            ? `being regenerated now, in pulse ${pulse}`
-            : item.mark === "planned"
-              ? `not regenerated yet - to be regenerated in pulse ${pulse}`
-              : item.mark === "planning"
-                ? "not regenerated yet - being planned into pulses now"
-                : item.rolledBack !== undefined
-                  ? `not regenerated - pulse ${item.rolledBack} was regenerating it, and was rolled back: ${why}`
-                  : item.mark === "stuck"
-                    ? `not regenerated - ${why}`
-                    : `not regenerated yet - not planned: ${page.status}`;
-  // Not the spec's own text: dimmed, its mark in its colour - and a halt in red.
-  const lines = wrapped(`${markText(item, style, now).trim()} ${(item.mark === "stuck" ? style.error : style.muted)(code)}`, width);
-  // A functional spec's conformance tests, where they are on.
-  const conformanceOn = page.codebase?.conformance ?? page.conformance !== false;
-  if (item.section === FUNCTIONAL_REQUIREMENTS && item.state !== "removed" && item.state !== "test" && (conformanceOn || item.tests !== undefined)) {
-    const tests =
-      item.testing === true
-        ? "being bound now - its conformance tests are being written and run"
-        : item.testsPulse !== undefined
-          ? `not bound yet - to be bound in pulse ${item.testsPulse.number}, its conformance tests written and run`
-          : item.tests === "now"
-            ? "bound - its conformance tests pass: the code is shown, end to end, to do what it says"
-            : item.tests === "older"
-              ? "bound to an earlier text - its conformance tests are written again for it as it reads now"
-              : "not bound - no conformance tests for it yet";
-    const glyph = testsText(item, style, now).trim() || style.muted("·");
-    lines.push(...wrapped(`${glyph} ${style.muted(tests)}`, width));
-  }
-  return lines;
-}
-
-function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, now: number): string[] {
+/** All of an item, opened: the rest of its text against the code's, and its acceptance tests. Where it stands is beside its mark. */
+function detailLines(item: MarkedItem, width: number, style: TranscriptStyle): string[] {
   const lines: string[] = [];
   // The rest of its text - its first line is the row - against the record's, for a change.
   const rest = item.state === "changed" ? lineDiff(item.was ?? "", item.text).slice(1) : item.text.split("\n").slice(1).map((line) => ({ was: line, now: line }));
@@ -386,7 +360,6 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
     const drawn = item.state === "removed" ? style.removed(strike(line.now ?? "")) : item.state === "changed" ? diffLine(line, style) : highlighted(line.now ?? "", style);
     lines.push(...wrapped(drawn, width));
   }
-  if (item.state === "changed" && firstLine(item.was ?? "") !== firstLine(item.text)) lines.push(...wrapped(`was: ${firstLine(item.was ?? "")}`, width, style.muted));
   if (item.acceptance.length > 0) {
     // As the spec has them: nested under the functional spec as deep as its sub-bullets, under a heading of their own
     // drawn as a section's is.
@@ -396,8 +369,6 @@ function detailLines(item: MarkedItem, page: MarkedPage, width: number, style: T
     lines.push(`${CONTINUED}${nested}${style.diff !== undefined ? style.diff.syntax("section", heading) : style.muted(heading)}`);
     for (const test of item.acceptance) lines.push(...wrapped(test.split("\n").map((line) => `${nested}${highlighted(line, style)}`).join("\n"), width));
   }
-  // Where it stands last, under all of its text: what its marks mean for it.
-  lines.push(...statusLines(item, page, width, style, now));
   return lines;
 }
 
@@ -484,6 +455,8 @@ export function specMapLines(
   let section: string | undefined;
   // Straight under an import block's line: its first heading needs no blank line before it.
   let underImport = false;
+  // Whether what the module needs the person for is said yet, under its first `!`.
+  let toldWhy = false;
   rows.forEach((row, index) => {
     const here = index === state.cursor;
     const pointer = here ? style.accent("›") : " ";
@@ -519,9 +492,7 @@ export function specMapLines(
     underImport = false;
     rowStarts.push(lines.length);
     const mark: LineMark = item.state === "removed" ? "removed" : item.mark;
-    // The tests' column is one wide; a pulse numbered past 9 takes the space after it.
-    const tests = testsText(item, style, now);
-    const gutter = `${pointer}${markText(item, style, now)} ${tests}${" ".repeat(Math.max(0, 2 - visibleWidth(tests)))}${BAR}`;
+    const gutter = `${pointer}${markText(item, style, now)} ${BAR}`;
     // Nothing is written to its right: where it stands is in its mark, and in its lines once opened.
     const room = Math.max(10, width - GUTTER - BAR.length);
     const first = firstLine(item.text);
@@ -537,8 +508,13 @@ export function specMapLines(
     const [head = "", ...rest] = hanging(drawn, first, room);
     add(`${gutter}${head}`, mark);
     for (const line of rest) add(`${CONTINUED}${line}`, mark);
+    // The first item that needs the person says what for, and how to go about it - opened or closed.
+    if (page.stuck && !toldWhy && rungOf(item) === "needsYou") {
+      toldWhy = true;
+      for (const line of wrapped(needsLine(page), width, style.error)) add(line, mark);
+    }
     if (state.open.has(row.key)) {
-      for (const detail of detailLines(item, page, width, style, now)) add(detail, mark);
+      for (const detail of detailLines(item, width, style)) add(detail, mark);
       return;
     }
     // A changed item shows what changed in it, closed too: its changed sub-bullets, word by word.
@@ -590,8 +566,10 @@ export function specMapHeader(page: MarkedPage, width: number, style: Transcript
   const { built, total } = countOf(page);
   const strip = progressStrip(page, style);
   const count = total > 0 ? `${built} of ${total} ${total === 1 ? "functionality" : "functionalities"} built · ` : "";
-  const status = page.stuck ? style.error(`! ${page.status}`) : page.status;
-  return truncateToWidth(`${style.heading("regen")}  ${basename(page.plainFile)}${strip !== "" ? `   ${strip}` : ""}  ${count}${status}${waiting}`, width);
+  // Short, never cut off: what for, and how, is under the first `!`.
+  const status = page.stuck ? style.error(`${LADDER.needsYou} needs you`) : page.status;
+  // The module's file heads its column, under this line.
+  return truncateToWidth(`${style.heading("regen")}${strip !== "" ? `  ${strip}` : ""}  ${count}${status}${waiting}`, width);
 }
 /**
  * The minimap: a column down the right edge, a cell for each slice of the page - the most pressing mark in it - and

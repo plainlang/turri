@@ -1035,6 +1035,55 @@ describe("a codebase built without a module it now requires", () => {
   });
 });
 
+describe("a module being planned", () => {
+  it("is shown at once - the registry told as the plan begins and once it is made, the row saying since when", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const registry = createJobRegistry();
+    const seen: Array<Array<{ id: string; since?: number }>> = [];
+    let loop: ReturnType<typeof createWorkLoop> | undefined;
+    registry.notify = () => seen.push(loop!.planned().map((job) => ({ id: job.id, ...(job.planning !== undefined ? { since: job.planning.since } : {}) })));
+    loop = createWorkLoop({ registry, cwd: dir, planner: false, run: runner().run });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen[0]).toEqual([{ id: "planned-app-1", since: expect.any(Number) }]);
+    expect(seen[1]!.some((row) => row.since !== undefined)).toBe(false);
+  });
+});
+
+describe("a module regenerated from scratch", () => {
+  it("has its code taken out, kept in its history, and all of it regenerated from its spec - built though nothing changed", async () => {
+    const { historyLog } = await import("../../src/grow/lineage.ts");
+    const { existsSync } = await import("node:fs");
+    writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+    const { ran, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(ran).toHaveLength(2);
+    // Built from the spec as it is: asked again, nothing grows.
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(ran).toHaveLength(2);
+
+    await loop.fromScratch("app.plain");
+    await loop.drain();
+    expect(ran).toHaveLength(4);
+    expect(historyLog(codeDir())).toContain("start from scratch: asked to be regenerated from scratch");
+    expect(existsSync(join(codeDir(), "app.py"))).toBe(true);
+    expect(loop.status().find((entry) => entry.module === "app")).toMatchObject({ planned: [], why: "built from the spec as it is" });
+  });
+
+  it("builds a module never built, as regenerate does", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { ran, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    await loop.fromScratch("app.plain");
+    await loop.drain();
+    expect(ran).toHaveLength(1);
+  });
+});
+
 describe("a preview of the next job", () => {
   it("plans on a loop of its own and starts nothing - the job each codebase would start, with its coding agent's prompt - and copies nothing up", async () => {
     const { previewJobs } = await import("../../src/grow/loop.ts");

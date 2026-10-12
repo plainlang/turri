@@ -443,11 +443,17 @@ function grows(pulse: MapPulse, item: MapItem): boolean {
   return item.line !== undefined && lines.after.has(item.line) && !lines.before.has(item.line);
 }
 
-/** What the loop's reason for a halt says, short: "halted - pulse 3 didn't land". */
-function haltText(stuck: NonNullable<MapCodebase["stuck"]>): string {
-  if (stuck.pulse !== undefined) return `halted - pulse ${stuck.pulse.number} ${/was stopped/.test(stuck.why) ? "was stopped" : /did not start/.test(stuck.why) ? "didn't start" : /did not pass/.test(stuck.why) ? "didn't pass" : "didn't land"}`;
+/**
+ * What a module needs the person for, short, from the loop's reason for a halt: "pulse 3 didn't land - its unit tests
+ * never passed". What to do about it is the chat's to work out with them.
+ */
+function needsText(stuck: NonNullable<MapCodebase["stuck"]>): string {
+  if (stuck.pulse !== undefined) {
+    const what = /was stopped/.test(stuck.why) ? "was stopped" : /did not start/.test(stuck.why) ? "didn't start" : /did not pass/.test(stuck.why) ? "didn't pass" : "didn't land";
+    return `pulse ${stuck.pulse.number} ${what}${stuck.cause !== undefined ? ` - ${stuck.cause}` : ""}`;
+  }
   if (/planner found no way/.test(stuck.why)) return "the planner couldn't cut it into pulses";
-  return `halted - ${stuck.why.split(" - ")[0]}`;
+  return stuck.why.split(" - ")[0]!;
 }
 
 /**
@@ -521,7 +527,7 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
             : codebase.waitsFor !== undefined
               ? `waits for ${codebase.waitsFor}`
               : codebase.stuck !== undefined
-                ? haltText(codebase.stuck)
+                ? needsText(codebase.stuck)
                 : pulses.length > 0
                   ? `pulse ${pulses[0]!.number} of ${last} next`
                   : differing === 0

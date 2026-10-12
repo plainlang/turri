@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { describeToolCall, describeToolResult, reportActivity, reportNow, reportStage } from "../../src/grow/activity.ts";
-import { createJobRegistry } from "../../src/grow/jobs.ts";
+import { createJobRegistry, type Job } from "../../src/grow/jobs.ts";
 import { jobPanelLines } from "../../src/grow/job-panel.ts";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -119,6 +119,15 @@ describe("the panel", () => {
     expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regenerate pulse 3 · log in with :user: · \d+s$/);
     // ctrl+o expands the agents' trace, not what finished: the side panel lists each.
     expect(jobPanelLines(jobs.list(), { expanded: true, marks, width: 80 }).slice(0, 2)).toEqual(lines.slice(0, 2));
+  });
+
+  it("shows a module being planned at once, nothing running yet - the planner takes a while", () => {
+    const planning = { id: "planned-shorty-1", kind: "regenerate", summary: "shorty.plain the work", module: "shorty", status: "queued", sequence: 1, queuedAt: 0, startedAt: 0, waitingOn: [], tail: "", activity: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, agents: [], transcript: [], planning: { since: 1_000 } } as unknown as Job;
+    const lines = jobPanelLines([planning], { now: 13_000 });
+    expect(lines[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] shorty · planning the pulses · 12s$/);
+    expect(lines[1]).toBe("    the planner is cutting the work into pulses - the first starts once it is done");
+    // A queued pulse alone - planned, not being planned - is no work going on: no panel.
+    expect(jobPanelLines([{ ...planning, planning: undefined }])).toEqual([]);
   });
 
   it("fits a module's line to the width with its newest pulses, the rest counted as earlier", async () => {

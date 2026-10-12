@@ -29,6 +29,17 @@ const diff = (line: string) => `--- a/app.plain\n+++ b/app.plain\n@@ -1 +1,2 @@\
 const rowsOf = (jobs: Job[], state = createJobsTreeState()) => jobsTreeRows(jobs, state).map((row) => (row.kind === "section" ? `[${row.section} ${row.count}]` : row.kind === "file" ? `${row.job.id}/${row.file}` : row.job.id));
 
 describe("the jobs tree", () => {
+  it("shows how long a running or finished pulse took, and no time for a queued one - it has not started", () => {
+    const jobs = [job("b", "running", { module: "app", startedAt: Date.now() - 42_000 }), job("c", "queued", { module: "app" }), job("d", "succeeded", { module: "app", startedAt: 0, finishedAt: 90_000 })];
+    const state = createJobsTreeState();
+    state.open.finished = true;
+    const lines = jobsTreeLines(jobs, state, 120, PLAIN).lines;
+    expect(lines.find((line) => line.includes(" b") || line.includes("· 42s"))).toMatch(/· 4[23]s$/);
+    const queued = lines[lines.findIndex((line) => line.startsWith("▾ queued") || line.includes("queued (1)")) + 1]!;
+    expect(queued).not.toMatch(/\d+s/);
+    expect(lines.join("\n")).toContain("· 1m 30s");
+  });
+
   it("lists running, queued and finished, running and queued open and finished closed - finished newest first", () => {
     const jobs = [job("a", "succeeded", { finishedAt: 1 }), job("b", "running"), job("c", "queued"), job("d", "failed", { finishedAt: 2 })];
     expect(rowsOf(jobs)).toEqual(["[running 1]", "b", "[queued 1]", "c", "[finished 2]"]);
@@ -76,7 +87,7 @@ describe("the jobs tree", () => {
     const jobs = [job("c", "queued", { module: "app", diff: diff("Users give kudos."), waitingOn: ["b"], usage })];
     const state = createJobsTreeState();
     const closed = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(closed).toMatch(/▸ · app regenerate · .+ · \$0\.50$/m);
+    expect(closed).toMatch(/▸ · app regenerate · \$0\.50$/m);
     expect(closed).not.toContain("app.plain");
     expect(closed).not.toContain("+ - Users give kudos.");
     state.cursor = 2; // [running], [queued], c

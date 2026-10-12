@@ -98,7 +98,9 @@ come waits for a free slot, and says so.
   pulses oldest first, each with its mark (green, red or amber, as in the side panel), number and kind - what
   it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regenerate · ✓ 4 bind`, the newest that fit the width -
   then a rule, and under it each running pulse - `cognio · regenerate pulse 5 · user search and profiles`, what it grows all lowercase, its
-  time and cost, and what its agents are doing. Pulses are numbered within their module, as regen numbers
+  time and cost, and what its agents are doing. A module whose work is being planned into pulses shows at once,
+  before any pulse runs - `shorty · planning the pulses · 12s` - the planner is an agent, and takes a while; a
+  `/regenerate` says it began the moment it is sent. Pulses are numbered within their module, as regen numbers
   them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module. The line of keys under
   it - `ctrl+o to expand the trace · ctrl+h to peek at regen` - has each key breathing, fully there to a little
   faint and back, until it is first pressed: once `ctrl+o` has opened the trace, or the side panel has been opened,
@@ -133,42 +135,48 @@ come waits for a free slot, and says so.
 
   Every item of the spec - a definition, a req, a functional spec with its sub-bullets and acceptance tests,
   what turri plans and diffs by - is a row in the file's order, its \*\*\*plain highlighted as plyn highlights it
-  (as a spec diff is) and wrapped to the width, never cut short, and has one mark in the gutter:
+  (as a spec diff is) and wrapped to the width, never cut short. The map has two columns, each headed on the
+  line over it with a line of space under it: **status**, a mark a row - its rung on a ladder every item climbs - and the module's file, its
+  spec. The top of the panel is where it is seen first: the top line, the module tabs, and the keys - each view's,
+  `d talk it through in the chat` first when the module needs you - wrapped, never cut short, a line of space between
+  the top line and the keys; then straight under them a rule, a line of space, and the columns' headings. The pulses view has its
+  keys at the top too, and a line of space under its rule. The legend is a box of its own in the upper right corner, over what is under it, a line a
+  mark, up the ladder. It names every rung, whatever the page shows - to take out only where something is - and a
+  panel under 60 columns wide has none.
 
-  | Mark | Means |
-  | --- | --- |
-  | `✓` | built: the code record has it as the spec does |
-  | `⠋` | growing now, in the running pulse |
-  | `4` | planned, in that pulse - dimmer than the one growing: the numbers move whenever the plan is made again |
-  | `·` | differs from the code, with no plan behind it - the top line says why |
-  | `…` | the planner is cutting it into pulses now |
-  | `!` | stuck: in the pulse that did not land and halted the module ("rolled back · was pulse 3"), or the planner found no plan |
-  | `−` | taken out of the spec, still in the code: a struck-through red ghost, with the code record's text, until the pulse that takes it out lands |
+  | Mark | Legend | Means |
+  | --- | --- | --- |
+  | `○` | planned | it differs from the code - planned into a pulse, being planned, or waiting; the top line says which |
+  | `⠋` | working | being regenerated now, its conformance tests being written, or being taken out |
+  | `◇` | regenerated | the code is built from it as it reads now |
+  | `◆` | bound | regenerated, and its conformance tests pass - its code is shown, end to end, to do what the spec says |
+  | `!` | needs you | in the pulse that did not land and halted the module, or the planner found no plan |
+  | `−` | to take out | taken out of the spec, still in the code - a struck-through red ghost, with the code record's text, until the pulse that takes it out lands |
 
-  Pulses are numbered as they start in a module, from 1 each session; a halt names the one that did not
-  land. The column beside the mark is `◆` in brand blue when the functional spec is conformance tested as it
-  reads now: more than tested, its code is shown end to end to do what the spec says. It is a hollow `◇`, dimmed, when
-  the conformance tests were written for an earlier text, struck through for a spec taken out, a spinner while
-  a conformance pulse writes them, and - as beside the mark - the number of the conformance pulse planned to write
-  them, dimmed: scheduled ahead of the code by `bind` too. Under `conformance-tests: chosen` a functional spec not chosen has none, and
-  shows none. Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or
-  `bind` turned them on this session. A test req is the conformance tests', never built into the code, so its
-  mark is theirs:
-  `✓` once the conformance tests follow it as it reads now, a spinner while a conformance pulse writes them
-  for it, that pulse's number while it is planned, `·` until then - and none where no conformance test is
-  written at all.
+  `◇` and `◆` are both green, and mean the same whatever `conformance-tests:` says: a functional spec regenerated
+  and not bound is `◇` with its conformance tests on, off or not chosen, so changing the setting changes no mark.
+  Tests written for an earlier text leave it at `◇`. Definitions and reqs are never bound: `◇` is as far as they go.
+  Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or `bind` turned
+  them on this session. A test req is the conformance tests', never built into the code: `◆` once they follow it
+  as it reads now, `⠋` while a conformance pulse writes them for it, `○` until then - and no mark where no
+  conformance test is written at all. No pulse numbers are drawn in the gutter - they move whenever the plan is
+  made again; `p` on an item goes to the pulse that brings it.
+
+  **Needs you.** The top line ends `! needs you`, in red, and under the first `!` of the module is what for, and
+  how: `needs you - pulse 3 didn't land - its unit tests never passed · d to talk it through in the chat`. `d` closes
+  the panel and asks the chat, in your words, what went wrong and what to do about it, with turri's reason for
+  the halt; the chat works it out with you - a diagnosis, a change to the spec, the machine set up - and
+  regenerates. Pulses are numbered as they start in a module, from 1 each session.
 
   A changed item shows what changed in it: its first line word by word - what is gone struck through in red,
   what is new in green, what is kept highlighted as it reads now - and, under it, only the sub-bullets that changed. A spec never built that is taken
-  out is simply gone. The top line has the file, a strip of its functional specs - built, growing, planned,
+  out is simply gone. The top line has a strip of the module's functional specs - built, growing, planned,
   waiting - and how many are built, then what is happening: `pulse 3 of 8 growing`, or why nothing is -
   `not asked to build - regenerate plans it` (turri was just opened, or nothing has asked for the module: the
-  plan lives in memory and is made again on the next regeneration), `planning`, `waits for backend`, and in red
-  `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: all of
-  its text against the code's and its acceptance tests, and under them, dimmed, where it stands - a line a mark,
-  its marks in words: `✓ regenerated - the code is built from it as it reads now`, `2 not regenerated yet - to be
-  regenerated in pulse 2`, and for a functional spec `◆ bound - its conformance tests pass` or `· not bound - no
-  conformance tests for it yet`.
+  plan lives in memory and is made again on the next regeneration), `planning`, `waits for backend`, or
+  `! needs you`. `enter` opens an item: all of
+  its text against the code's, and its acceptance tests. Where it stands is beside its mark, and is not said again
+  under it.
 
   One module is shown at a time, with a tab for each module of the chain on the line under the top line, in
   the chain's order - the module it is built on to the left: `d365_version_api  [d365_http_client]  d365_utils
@@ -191,7 +199,7 @@ come waits for a free slot, and says so.
 
   `p` goes to the **pulses** - and back - onto the pulse that grows the item under the cursor, and
   back onto the first item the pulse under the cursor grows. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
-  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · bind pulse 2`) - what it grows is in it, opened - its time and its cost - a
+  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · bind pulse 2`) - what it grows is in it, opened - its time (none while it is queued: it has not started) and its cost - a
   finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
   Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
   and what each spent, and whether it did not pass. Under it is a row
@@ -219,11 +227,15 @@ come waits for a free slot, and says so.
   is laid over `config.turri.yaml` - its testing scripts, toolchains, models - for the session; a pulse already
   running keeps the stack it started with. The chat model switches it too when you ask. See
   [stacks](config.md#stacks).
-- **`/regenerate [module | file.plain] [how to cut the work]`** regenerates a module from its spec as it is now, as
+- **`/regenerate [module | file.plain] [from scratch] [how to cut the work]`** regenerates a module from its spec as it is now, as
   the `regenerate` tool does: what is left to grow is planned into pulses - one functional spec at a time, a few
   together or the whole module in one, as the planner judges - and the first starts. Words after the module are
   guidance for that plan (`/regenerate app models first`). With no module named: the one `module:` in
-  `config.turri.yaml` names, else the folder's top modules, to pick from.
+  `config.turri.yaml` names, else the folder's top modules, to pick from. Asked for from scratch - `from scratch`,
+  `start over`, `delete the module` - it asks first, then deletes the module's code and conformance tests in every
+  codebase where they live, committed so `/lineage` keeps them, and regenerates the whole module from its spec,
+  built though nothing in it changed: `/regenerate shorty from scratch`. The chat's `regenerate` does the same with
+  `from_scratch`, when you ask for it; `turri regenerate --from-scratch` on the command line, not with `--dry-run`.
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
   server `activate` started; it lists both when no id is given.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
@@ -419,6 +431,7 @@ turri drift <file.plain>               # what is left to grow - no model, starts
 turri regenerate <file.plain>              # grow what the code is not grown from yet, and what it requires
 turri glimpse <file.plain>             # plan it, and print the first job's prompt - starts nothing
 turri regenerate <file.plain> 2            # grow functionality 2 again, changed or not
+turri regenerate <file.plain> --from-scratch   # delete the module's code and tests (its lineage keeps them), regenerate all of it
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regenerate it
 turri bind <file.plain> 1              # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when

@@ -17,6 +17,7 @@ conformance-tests.
 
   --dry-run                plan the work and print the prompt of the first job, and run nothing (turri glimpse)
   --rejuvenate             rejuvenate, without asking, a codebase grown without a module it now requires
+  --from-scratch           delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it
   --build-dir <dir>        default: plain_modules/<module>/code
   --model <provider/id>    model for the agents
 
@@ -36,7 +37,7 @@ const GONE: Record<string, string> = {
   "template-dir": "set PLAIN_TEMPLATE_DIRS",
 };
 
-const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run", "--rejuvenate", "--start-over"], USAGE);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run", "--rejuvenate", "--start-over", "--from-scratch"], USAGE);
 for (const [name, instead] of Object.entries(GONE)) {
   if (options[name] !== undefined) console.log(c.dim(`--${name} is no longer an option: ${instead}.`));
 }
@@ -45,6 +46,11 @@ const named = positional[0] ?? readProjectConfig(process.cwd()).module;
 const again = positional.slice(1);
 if (!named) {
   console.error(`${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`);
+  process.exit(1);
+}
+// A dry run starts nothing, and from scratch deletes before it plans: the two do not go together.
+if (options["from-scratch"] !== undefined && options["dry-run"] !== undefined) {
+  console.error("--from-scratch deletes the module's code before anything is planned: it cannot be a dry run.");
   process.exit(1);
 }
 runLoop({
@@ -56,7 +62,9 @@ runLoop({
   ask: (loop) =>
     again.length > 0
       ? loop.growAgain(named, again, options.model !== undefined ? { model: options.model } : {})
-      : loop.bringUp(named, options.model !== undefined ? { model: options.model } : {}),
+      : options["from-scratch"] !== undefined
+        ? loop.fromScratch(named, options.model !== undefined ? { model: options.model } : {})
+        : loop.bringUp(named, options.model !== undefined ? { model: options.model } : {}),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);

@@ -1,8 +1,8 @@
-import { Key, matchesKey, truncateToWidth, visibleWidth, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { Job } from "./jobs.ts";
 import { createJobsTreeState, jobsTreeLines, jobsTreeRows, keepCursorInView, scrollTree, treeKey, type JobsTreeState, type TreeRow } from "./jobs-tree.ts";
 import type { MarkedPage } from "./spec-map.ts";
-import { createSpecMapState, minimap, shownPage, specMapHeader, specMapLines, switchTab, tabBar, type MapRow, type SpecMapState } from "./spec-map-view.ts";
+import { columnHeadings, createSpecMapState, DISCUSS_KEY, legendLines, minimap, shownPage, specMapHeader, specMapLines, switchTab, tabBar, type MapRow, type SpecMapState } from "./spec-map-view.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
 
 /**
@@ -29,6 +29,11 @@ export interface SidePanelOptions {
   waiting?: () => boolean;
   /** Close the panel. */
   close: () => void;
+  /**
+   * A module needs the person - `!`: the panel closes, and the chat takes it up with them - what went wrong, and what
+   * to do about it. Not given: the key is not offered.
+   */
+  discuss?: (page: MarkedPage) => void;
   /** The key that opens and closes it, shown in the footer. */
   key: string;
   /** The pulse list's tree - what is open, where the cursor is - kept across openings of the panel. */
@@ -60,37 +65,87 @@ export function createSidePanel(options: SidePanelOptions) {
     // A question asked while it showed waits in the chat, unanswered: the person is told it is there.
     options.waiting?.() === true ? `   ${style.warning?.("your question is waiting") ?? style.accent("your question is waiting")} - ${options.key} or esc to answer it, as you left it` : "";
 
+  /** The top of a view, where it is seen first: its title, a line of space, and the keys, in `room` - wrapped, never cut short. */
+  const topBlock = (title: string[], keys: string[], room: number): string[] => [
+    ...title.flatMap((line) => wrapTextWithAnsi(line, room)),
+    "",
+    ...keyLines(keys, room).map(style.muted),
+  ];
+
+  /** The legend in a box of its own, for the panel's upper right corner. */
+  const legendBox = (legend: string[]): string[] => {
+    if (legend.length === 0) return [];
+    const inner = Math.max(...legend.map(visibleWidth));
+    return [
+      style.muted(`┌${"─".repeat(inner + 2)}┐`),
+      ...legend.map((entry) => `${style.muted("│")} ${entry}${" ".repeat(inner - visibleWidth(entry))} ${style.muted("│")}`),
+      style.muted(`└${"─".repeat(inner + 2)}┘`),
+    ];
+  };
+
+  /** The box laid over the upper right corner: what is under it cut where it starts, with no ellipsis. */
+  const overBox = (lines: string[], box: string[], width: number): string[] => {
+    if (box.length === 0) return lines;
+    const room = width - visibleWidth(box[0]!) - 1;
+    return lines.map((line, index) => {
+      if (index >= box.length) return line;
+      const left = truncateToWidth(line, room, "");
+      return `${left}${" ".repeat(Math.max(0, room - visibleWidth(left)))} ${box[index]}`;
+    });
+  };
+
+  /** The keys, as many to a line as fit, a line broken only between two keys - one too long alone wrapped. */
+  const keyLines = (keys: string[], room: number): string[] => {
+    const lines: string[] = [];
+    for (const key of keys) {
+      const last = lines.at(-1);
+      if (last !== undefined && visibleWidth(`${last} · ${key}`) <= room) lines[lines.length - 1] = `${last} · ${key}`;
+      else lines.push(...wrapTextWithAnsi(key, room));
+    }
+    return lines;
+  };
+
+  /** The rule under the top. */
+  const rule = (width: number) => style.muted("─".repeat(Math.max(1, width)));
+
   const renderPulses = (width: number, rows: number): string[] => {
-    const bodyHeight = rows - 3;
+    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", ...(options.map !== undefined ? ["p regen"] : []), `esc or ${options.key} back to the chat`];
+    const top = topBlock([`${style.heading("pulses")}${waitingNote()}`], keys, width);
+    // Under the top: the rule, and a line of space - as the map has.
+    const bodyHeight = Math.max(3, rows - top.length - 2);
     lastBodyHeight = bodyHeight;
     // The tree scrolls to keep the cursor in sight, and only that far.
     const tree_ = jobsTreeLines(options.jobs(), tree, width, style);
     drawnTree = { rows: tree_.rows, rowStarts: tree_.rowStarts, lineCount: tree_.lines.length };
     keepCursorInView(tree, tree_.rowStarts, tree_.lines.length, bodyHeight);
     const visible = tree_.lines.slice(tree.top, tree.top + bodyHeight);
-    const where = tree_.lines.length > bodyHeight ? `${tree.top + 1}-${Math.min(tree_.lines.length, tree.top + bodyHeight)} of ${tree_.lines.length}` : "all shown";
     while (visible.length < bodyHeight) visible.push("");
-    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", ...(options.map !== undefined ? ["p regen"] : []), `esc or ${options.key} back to the chat`];
-    return [
-      truncateToWidth(`${style.heading("Pulses")}${waitingNote()}`, width),
-      style.muted("─".repeat(Math.max(1, width))),
-      ...visible.map((line) => truncateToWidth(line, width)),
-      style.muted(truncateToWidth(`${where}  —  ${keys.join(" · ")}`, width)),
-    ];
+    return [...top, rule(width), "", ...visible.map((line) => truncateToWidth(line, width))];
   };
 
   const renderMap = (width: number, rows: number): string[] => {
     pages = options.map!();
     const now = Date.now();
     if (pages.length === 0) {
-      lastBodyHeight = rows - 3;
+      const top = topBlock([`${style.heading("regen")}${waitingNote()}`], ["p pulses", `esc or ${options.key} back to the chat`], width);
+      lastBodyHeight = Math.max(3, rows - top.length - 1);
       drawnMap = { rows: [], rowStarts: [], lineCount: 0 };
-      const body = [style.muted("  No .plain file to map: name one to regenerate, or set module: in config.turri.yaml."), ...new Array<string>(Math.max(0, rows - 4)).fill("")];
-      return [truncateToWidth(`${style.heading("regen")}${waitingNote()}`, width), style.muted("─".repeat(Math.max(1, width))), ...body, style.muted(truncateToWidth(`p pulses · esc or ${options.key} back to the chat`, width))];
+      const body = [style.muted("  No .plain file to map: name one to regenerate, or set module: in config.turri.yaml."), ...new Array<string>(Math.max(0, lastBodyHeight - 1)).fill("")];
+      return [...top, rule(width), ...body];
     }
     // A chain of modules: a tab each, on a line of their own under the top line.
     const tabbed = pages.length > 1;
-    const bodyHeight = Math.max(3, rows - 3 - (tabbed ? 1 : 0));
+    const page = shownPage(pages, map)!;
+    const discuss = page.stuck && options.discuss !== undefined ? [`${DISCUSS_KEY} talk it through in the chat`] : [];
+    const keys = [...discuss, "↑↓ move", "enter open/close", ...(tabbed ? ["←→ module"] : []), "o/c all", "pgup pgdn", "p pulses", `esc or ${options.key} back to the chat`];
+    // The legend's box in the upper right corner, over what is under it; too narrow a panel has none.
+    const box = width >= 60 ? legendBox(legendLines(page, style)) : [];
+    const room = box.length > 0 ? width - visibleWidth(box[0]!) - 1 : width;
+    // The top line whole - it wraps beside the box; the tabs fit themselves, counting what does not fit.
+    const title = [specMapHeader(page, Number.MAX_SAFE_INTEGER, style, waitingNote()), ...(tabbed ? [tabBar(pages, page, room, style, now)] : [])];
+    const top = topBlock(title, keys, room);
+    // Under the top: the rule, a line of space, and the columns' headings - two lines.
+    const bodyHeight = Math.max(3, rows - top.length - 4);
     lastBodyHeight = bodyHeight;
     // A long map has a minimap down its right edge: the content gives it two columns.
     const first = specMapLines(pages, map, width, style, options.jobs(), now);
@@ -106,17 +161,8 @@ export function createSidePanel(options: SidePanelOptions) {
           return visible.map((line, row) => `${line}${" ".repeat(Math.max(0, width - 2 - visibleWidth(line)))} ${strip[row]}`);
         })()
       : visible;
-    // The top line is the module shown.
-    const page = shownPage(pages, map)!;
-    const where = drawn.lines.length > bodyHeight ? `${map.top + 1}-${Math.min(drawn.lines.length, map.top + bodyHeight)} of ${drawn.lines.length}` : "all shown";
-    const keys = ["↑↓ move", "enter open/close", ...(tabbed ? ["←→ module"] : []), "o/c all", "pgup pgdn", "p pulses", `esc or ${options.key} back to the chat`];
-    return [
-      specMapHeader(page, width, style, waitingNote()),
-      ...(tabbed ? [tabBar(pages, page, width, style, now)] : []),
-      style.muted("─".repeat(Math.max(1, width))),
-      ...body,
-      style.muted(truncateToWidth(`${where}  —  ${keys.join(" · ")}`, width)),
-    ];
+    // The rule beside the box stops short of it.
+    return overBox([...top, rule(top.length < box.length ? room - 1 : width), "", ...columnHeadings(page, width, style), ...body], box, width);
   };
 
   /** From the map to the pulse list: onto the pulse that grows the item under the cursor, when one does. */
@@ -174,6 +220,10 @@ export function createSidePanel(options: SidePanelOptions) {
     else if (matchesKey(data, Key.right)) switchTab(pages, map, 1);
     else if (matchesKey(data, Key.left)) switchTab(pages, map, -1);
     else if (data === "o" || data === "c") for (const entry of rows) toggle(entry, data === "o");
+    else if (data === DISCUSS_KEY && options.discuss !== undefined) {
+      const shown = shownPage(pages, map);
+      if (shown?.stuck === true) options.discuss(shown);
+    }
     else if (matchesKey(data, Key.pageUp)) scrollMap(-page);
     else if (matchesKey(data, Key.pageDown)) scrollMap(page);
     else if (matchesKey(data, Key.home) || data === "g") move(0);
@@ -192,13 +242,13 @@ export function createSidePanel(options: SidePanelOptions) {
         return map.view === "map" && options.map !== undefined ? renderMap(width, rows) : renderPulses(width, rows);
       } catch (error) {
         // A frame that throws is never drawn - nor is anything after it: the screen would freeze. What failed is shown instead.
-        const lines = (error instanceof Error ? (error.stack ?? error.message) : String(error)).split("\n").slice(0, rows - 4);
+        const top = topBlock([`${style.heading(map.view === "map" ? "regen" : "pulses")}${waitingNote()}`], [...(options.map !== undefined ? ["p the other view"] : []), `esc or ${options.key} back to the chat`], width);
+        const lines = (error instanceof Error ? (error.stack ?? error.message) : String(error)).split("\n").slice(0, Math.max(1, rows - top.length - 1));
         return [
-          truncateToWidth(`${style.heading(map.view === "map" ? "regen" : "Pulses")}${waitingNote()}`, width),
-          style.muted("─".repeat(Math.max(1, width))),
+          ...top,
+          rule(width),
           ...lines.map((line, index) => truncateToWidth(index === 0 ? style.error(`could not be drawn: ${line}`) : style.muted(line), width)),
-          ...new Array<string>(Math.max(0, rows - 3 - lines.length)).fill(""),
-          style.muted(truncateToWidth(`${options.map !== undefined ? "p the other view · " : ""}esc or ${options.key} back to the chat`, width)),
+          ...new Array<string>(Math.max(0, rows - top.length - 1 - lines.length)).fill(""),
         ];
       }
     },

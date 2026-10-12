@@ -143,6 +143,14 @@ function plainFileOf(cwd: string, given: { plain_file?: string; working_dir?: st
   return resolve(located.base, named);
 }
 
+/** Whether a /regenerate's words ask for the module from scratch: its code deleted, and all of it grown again. */
+export function asksFromScratch(words: string): boolean {
+  return FROM_SCRATCH.test(words);
+}
+
+const FROM_SCRATCH =
+  /\b(from (scratch|nothing|zero|the (start|beginning|ground up))|start(ing)? (it )?(over|afresh)|afresh|anew|clean slate|(delete|wipe|remove|drop|throw away)\b.{0,30}\b(module|code|codebase|everything|all of it))/i;
+
 /** regenerate: grow a module's code up to its spec as it is now. */
 export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: ExtensionContext) => WorkLoop }): AnyTool {
   return defineTool({
@@ -162,11 +170,18 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
       "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regenerate. When they want what is grown grown again as its spec stands - better made, on another model - that is rejuvenate.",
       "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and grows again every functional spec that uses what links it.",
       "Never stop pulses and start them again yourself to follow a spec change: regenerate does it.",
+      "Set from_scratch only when the user asks for the module to be regenerated from scratch - started over, its code deleted - in this conversation: never to fix a pulse that did not land.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
       working_dir: WORKING_DIR_PARAM,
       guidance: GUIDANCE_PARAM,
+      from_scratch: Type.Optional(
+        Type.Boolean({
+          description:
+            "Only when the user asks for it: the module's code and conformance tests deleted - committed first, so its lineage keeps them - and the whole module regenerated from its spec",
+        }),
+      ),
       model: MODEL_PARAM,
       wait: WAIT_PARAM,
     }),
@@ -177,7 +192,7 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
       const model = options.model !== undefined ? options.model(ctx, plainFile, given.model) : given.model;
       const loop = options.loop(ctx);
       const request = { ...(model !== undefined ? { model } : {}), ...(given.guidance !== undefined ? { guidance: given.guidance } : {}) };
-      const statuses = await loop.bringUp(plainFile, request);
+      const statuses = given.from_scratch === true ? await loop.fromScratch(plainFile, request) : await loop.bringUp(plainFile, request);
       return loopReply(loop, statuses, options.wait !== undefined ? options.wait(ctx, given.wait) : given.wait === true);
     },
   });

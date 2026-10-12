@@ -170,13 +170,15 @@ interface ModuleState {
   together?: TouchedSpec[][];
   /** The track being planned into jobs now, nothing running: what is next is shown while it is. */
   planning?: Track;
+  /** When the planning now going on began: what the live panel counts from. */
+  planningSince?: number;
   /** The conformance tests halted, the code going on: until the spec or the code changes from `key`, or they are asked for again. */
   conformanceHalted?: { why: string; key: string };
   /**
    * Nothing runs here until the spec changes from `specKey`, or it is asked for again. `pulse`: the one that did not
    * land - its number, and the trees it went between - for the regeneration to say which items it was growing.
    */
-  halted?: { why: string; specKey: string; pulse?: { number: number; before: string; after: string } };
+  halted?: { why: string; specKey: string; pulse?: { number: number; before: string; after: string }; cause?: string };
   /** How many pulses have started here this session: the next is numbered one more. */
   pulses?: number;
   /** The spec as the last look read it. */
@@ -265,6 +267,12 @@ export interface WorkLoop {
    * agreed. Says what it planned.
    */
   startOver(plainFile: string, options?: { model?: string }): Promise<ModuleStatus[]>;
+  /**
+   * Regenerate a spec's module from scratch: every codebase where its code lives taken back to nothing - its code and
+   * conformance tests taken out, committed so its history keeps them - and the module brought up from its spec, planned
+   * into pulses as any work is. Destructive: asked for only when the person asked for it. Says what it planned.
+   */
+  fromScratch(plainFile: string, options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
   /** Every codebase the loop looks after, bottom of each chain first. */
   status(): ModuleStatus[];
   /**
@@ -317,8 +325,11 @@ export interface MapCodebase {
   conformance: boolean;
   /** Why nothing runs there, when nothing does. */
   why?: string;
-  /** Halted, or the planner found no plan: it needs the person. `pulse`, the pulse that did not land. */
-  stuck?: { why: string; pulse?: { number: number; before: string; after: string } };
+  /**
+   * Halted, or the planner found no plan: it needs the person. `pulse`, the pulse that did not land; `cause`, what went
+   * wrong in it, in a few words - its tests never passed, the machine lacks a toolchain.
+   */
+  stuck?: { why: string; pulse?: { number: number; before: string; after: string }; cause?: string };
 }
 
 export interface MapPlan {
@@ -688,10 +699,15 @@ export function createWorkLoop(options: {
   /** Plan a track: while the planner works, the codebase says so rather than showing nothing - or, a job running, the old plan. */
   const planIdle = async (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, track: Track): Promise<{ jobs: PlannedJob[]; notes: string[] }> => {
     state.planning = track;
+    state.planningSince = Date.now();
+    // Planning takes a while - the planner is an agent: what shows the work says so at once, not when the first pulse starts.
+    options.registry.notify?.();
     try {
       return await plan(state, spec, from, track);
     } finally {
       state.planning = undefined;
+      state.planningSince = undefined;
+      options.registry.notify?.();
     }
   };
 
@@ -814,7 +830,27 @@ export function createWorkLoop(options: {
   };
 
   /** A pulse as a halt keeps it: its number, and the trees it went between. */
+  // A codebase taken back to nothing, and what the loop held of it - plans, halts - with it: built again from the start.
+  const startAgain = (entry: ChainEntry, why: string) => {
+    startFromScratch(entry, why);
+    const state = modules.get(entry.buildDir);
+    if (state === undefined) return;
+    state.plan = undefined;
+    state.conformancePlan = undefined;
+    state.halted = undefined;
+    state.conformanceHalted = undefined;
+    state.startOver = undefined;
+  };
   const pulseOf = (running: NonNullable<ModuleState["running"]>) => ({ number: running.number, before: serializeTree(running.from), after: serializeTree(running.after) });
+  // What went wrong in a pulse that did not land, in a few words: the tests it stopped at, else its error's first line.
+  const causeOf = (job: Job | undefined): { cause?: string } => {
+    const stoppedAt = (job?.details as { stoppedAt?: unknown } | undefined)?.stoppedAt;
+    if (stoppedAt === "unit tests" || stoppedAt === "conformance" || stoppedAt === "regression") {
+      return { cause: stoppedAt === "unit tests" ? "its unit tests never passed" : stoppedAt === "conformance" ? "its conformance tests never passed" : "the whole conformance suite never passed" };
+    }
+    const error = job?.error?.split("\n").find((line) => line.trim() !== "")?.trim();
+    return error !== undefined ? { cause: error } : {};
+  };
 
   const settle = (state: ModuleState, settled: Job | undefined) => {
     const running = state.running;
@@ -840,7 +876,7 @@ export function createWorkLoop(options: {
         } catch {
           /* a spec that does not parse halts it all the same */
         }
-        state.halted = { why: `${why} - nothing more is built on it until its conformance tests pass`, specKey: key, pulse: pulseOf(running) };
+        state.halted = { why: `${why} - nothing more is built on it until its conformance tests pass`, specKey: key, pulse: pulseOf(running), ...(settled?.status === "stopped" ? {} : causeOf(settled)) };
       }
     } else if (running !== undefined && !landed) {
       // What it wrote and never committed is gone: code, tests and record agree again.
@@ -854,7 +890,7 @@ export function createWorkLoop(options: {
           /* a spec that does not parse halts it all the same */
         }
         const why = settled?.status === "stopped" ? `pulse ${running.jobId} was stopped` : `pulse ${running.jobId} ("${running.planned.title}") did not land`;
-        state.halted = { why: `${why} - it runs again once the spec changes, or the module is asked for again`, specKey: key, pulse: pulseOf(running) };
+        state.halted = { why: `${why} - it runs again once the spec changes, or the module is asked for again`, specKey: key, pulse: pulseOf(running), ...(settled?.status === "stopped" ? {} : causeOf(settled)) };
       }
     } else {
       const own = running?.planned.track === "conformance" ? state.conformancePlan : state.plan;
@@ -1293,17 +1329,17 @@ export function createWorkLoop(options: {
       for (const { entry } of rebuild.values()) {
         if (modules.get(entry.buildDir)?.running !== undefined) throw new Error(`${entry.moduleName} has a pulse running: ask again once it is done.`);
       }
-      for (const { entry, requires } of rebuild.values()) {
-        startFromScratch(entry, `it now requires ${requires.join(", ")}, which its code was not built on`);
-        const state = modules.get(entry.buildDir);
-        if (state !== undefined) {
-          state.plan = undefined;
-          state.conformancePlan = undefined;
-          state.halted = undefined;
-          state.conformanceHalted = undefined;
-          state.startOver = undefined;
-        }
+      for (const { entry, requires } of rebuild.values()) startAgain(entry, `it now requires ${requires.join(", ")}, which its code was not built on`);
+      return loop.bringUp(plainFile, request);
+    },
+    async fromScratch(plainFile, request = {}) {
+      const file = resolve(options.cwd, plainFile);
+      // Where its code lives: the tips its module is built in, or - none built yet - its own codebase.
+      const codebases = chainsFor(file).map(tipOf);
+      for (const entry of codebases) {
+        if (modules.get(entry.buildDir)?.running !== undefined) throw new Error(`${entry.moduleName} has a pulse running: halt it, or ask again once it is done.`);
       }
+      for (const entry of codebases) if (started(entry)) startAgain(entry, "asked to be regenerated from scratch");
       return loop.bringUp(plainFile, request);
     },
     status() {
@@ -1364,6 +1400,7 @@ export function createWorkLoop(options: {
             before !== undefined ? [before] : [],
             job.track === "conformance",
           );
+          if (job.planning === true) planned.planning = { since: state.planningSince ?? now };
           before = planned.id;
           lastOf.set(tip.moduleName, planned.id);
           return planned;
@@ -1399,7 +1436,7 @@ export function createWorkLoop(options: {
             }),
           ];
           const gaveUp = running === undefined && state.why === NO_PLAN ? { why: NO_PLAN } : undefined;
-          const stuck = running === undefined && state.halted !== undefined ? { why: state.halted.why, ...(state.halted.pulse !== undefined ? { pulse: state.halted.pulse } : {}) } : gaveUp;
+          const stuck = running === undefined && state.halted !== undefined ? { why: state.halted.why, ...(state.halted.pulse !== undefined ? { pulse: state.halted.pulse } : {}), ...(state.halted.cause !== undefined ? { cause: state.halted.cause } : {}) } : gaveUp;
           return {
             module: tip.moduleName,
             plainFile: tip.plainFile,

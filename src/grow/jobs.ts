@@ -44,6 +44,8 @@ export interface Job {
   queuedAt: number;
   /** When the work itself began - after any wait in the queue. */
   startedAt: number;
+  /** A row of the work loop's, not a pulse: its module's work being planned into pulses now, since then. */
+  planning?: { since: number };
   /** While queued: the jobs it is waiting for. */
   waitingOn: string[];
   finishedAt?: number;
@@ -134,6 +136,8 @@ export interface JobRegistry {
   stop(id: string, reason?: string): Job | undefined;
   get(id: string): Job | undefined;
   list(): Job[];
+  /** Something shown with the jobs changed, though no job did - a plan begun or made: what shows them redraws. */
+  notify?(): void;
   /** Resolves when the job settles. Used by callers that asked to wait. */
   wait(id: string): Promise<Job>;
 }
@@ -152,6 +156,8 @@ export function createJobRegistry(options?: {
   onFinish?: (job: Job) => void;
   /** A job started, moved to another stage, or did something. */
   onChange?: (job: Job) => void;
+  /** Something shown with the jobs changed, no job with it - see `notify`. */
+  onNotify?: () => void;
   tailChars?: number;
   /**
    * How many times a job that fails - its work throws, or reports it did not pass - is run again.
@@ -506,6 +512,13 @@ export function createJobRegistry(options?: {
 
     list() {
       return [...jobs.values()].sort((a, b) => b.sequence - a.sequence);
+    },
+    notify() {
+      try {
+        options?.onNotify?.();
+      } catch {
+        /* a display that throws must not take the work down */
+      }
     },
 
     async wait(id) {

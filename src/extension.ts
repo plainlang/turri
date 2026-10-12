@@ -22,7 +22,7 @@ import { readScript, scriptAgainstMachine, stackOnMachine, toolchainsBlock } fro
 import { sandboxAvailable, sandboxSummary } from "./grow/os-sandbox.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
-import { driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regenerateTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
+import { asksFromScratch, driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regenerateTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
 import { createWebTools } from "./grow/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./genome.ts";
 import type { Reporter } from "./graph.ts";
@@ -214,6 +214,8 @@ export default function (pi: ExtensionAPI) {
   // What release has shipped, module by module: release does nothing for a module whose last commit it already shipped.
   const deployState = createDeployState();
   const jobs: JobRegistry = createJobRegistry({
+    // The loop's plan changed - a module being planned, or planned: the live panel shows it at once.
+    onNotify: () => panel.refresh(),
     // A job that fails is run once more; failing again, it and every job behind it fail, and the
     // harness - which can read the skills, the rules, the code, the tests and turri itself -
     // works out why, and what has to be done.
@@ -688,7 +690,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   // by the planner: one functional spec at a time, a few together or the whole module in one, as it judges. What
   // follows the module is guidance for that plan, in the person's words.
   pi.registerCommand("regenerate", {
-    description: "Regenerate a module from its spec as it is now, in pulses the planner cuts: /regenerate [module | file.plain] [how to cut the work]",
+    description: "Regenerate a module from its spec as it is now, in pulses the planner cuts - or from scratch: /regenerate [module | file.plain] [from scratch] [how to cut the work]",
     handler: async (args, ctx) => {
       const [first = "", ...rest] = args.trim().split(/\s+/).filter((word) => word !== "");
       const named = first !== "" ? plainFileNamed(cwd, first) : undefined;
@@ -717,13 +719,31 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
         if (ctx.hasUI) ctx.ui.notify(`${relative(cwd, plainFile) || plainFile} does not parse, so nothing can grow from it yet: ${check.error}`, "error");
         return;
       }
+      // From scratch - started over, its code deleted - asked in the person's words: confirmed first, as it deletes.
+      const scratch = asksFromScratch(guidance);
+      const module = basename(plainFile).replace(/\.plain$/, "");
+      if (scratch && ctx.hasUI) {
+        const agreed = await ctx.ui.confirm(
+          `Regenerate ${module} from scratch?`,
+          `Its code and conformance tests are deleted - committed first, so /lineage ${module} keeps them - and the whole module is regenerated from its spec.`,
+        );
+        if (!agreed) return;
+      }
       const loop = workLoopFor(jobs, cwd, ctx);
       const model = jobModel(ctx, "spec_changes", undefined, plainFile);
-      const statuses = await loop.bringUp(plainFile, { ...(model !== undefined ? { model } : {}), ...(guidance !== "" ? { guidance } : {}) });
-      if (ctx.hasUI) ctx.ui.notify(describeModules(statuses), "info");
+      const request = { ...(model !== undefined ? { model } : {}), ...(guidance !== "" ? { guidance } : {}) };
+      // Said at once: what follows takes a while - the planner is an agent - and the live panel shows it as it goes.
+      if (ctx.hasUI) ctx.ui.notify(scratch ? `Deleting ${module}'s code, then planning all of it again…` : `Planning ${module}'s pulses…`, "info");
+      try {
+        const statuses = scratch ? await loop.fromScratch(plainFile, request) : await loop.bringUp(plainFile, request);
+        if (ctx.hasUI) ctx.ui.notify(describeModules(statuses), "info");
+      } catch (error) {
+        if (ctx.hasUI) ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+      }
     },
   });
 }
+
 
 /** The .plain file a /regenerate argument names - a path, or a module's name in the folder - if it names one. */
 function plainFileNamed(cwd: string, word: string): string | undefined {
@@ -1622,6 +1642,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           },
           back: close,
           close,
+          // A module that needs the person: the chat takes it up with them, in their words - what went wrong, and what now.
+          discuss: (page) => {
+            close();
+            const why = page.codebase?.stuck?.why;
+            pi.sendUserMessage(
+              `regen says ${page.module} needs me: ${page.status}. What went wrong, and what do we do about it?${why !== undefined ? `\n\n(turri's reason: ${why})` : ""}`,
+              { deliverAs: "followUp" },
+            );
+          },
           // Something took the keys' focus while the panel showed - a question in the chat - and waits there.
           waiting: () => {
             const focused = (tui as unknown as { getFocusedComponent?(): unknown }).getFocusedComponent?.() ?? null;

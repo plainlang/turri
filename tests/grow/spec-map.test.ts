@@ -9,7 +9,7 @@ import { recordHistory } from "../../src/grow/lineage.ts";
 import { writeCodeRecord } from "../../src/grow/records.ts";
 import { createSidePanel } from "../../src/grow/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles, importLabel, layOut, markSpecMap, pageItems, readSpecMap, type MapItem, type MapPage, type MarkedPage } from "../../src/grow/spec-map.ts";
-import { createSpecMapState, focusOf, lineDiff, specMapHeader, specMapLines, switchTab, tabBar, wordDiff } from "../../src/grow/spec-map-view.ts";
+import { createSpecMapState, columnHeadings, focusOf, legendLines, lineDiff, rungOf, specMapHeader, specMapLines, switchTab, tabBar, wordDiff } from "../../src/grow/spec-map-view.ts";
 import type { TranscriptStyle } from "../../src/grow/transcript-view.ts";
 import { PLAIN_PAINT } from "../../src/grow/diff-view.ts";
 
@@ -183,6 +183,8 @@ describe("the plan laid over the map", () => {
       ["- Follow someone.", "planned", 4],
       ["- Post a photo.", "waiting", undefined],
     ]);
+    // Planned and waiting alike are one mark - the top line says which.
+    expect(marked!.items.map(rungOf)).toEqual(["regenerated", "takenOut", "working", "toRegenerate", "toRegenerate"]);
     expect(marked!.status).toBe("pulse 3 of 4 growing");
   });
 
@@ -200,7 +202,7 @@ describe("the plan laid over the map", () => {
     expect(marked!.status).toBe("planning");
   });
 
-  it("marks the items of a pulse that did not land stuck and rolled back, the rest waiting, and says the module is halted", () => {
+  it("marks the items of a pulse that did not land stuck and rolled back, the rest waiting, and says what the module needs the person for", () => {
     const first = page(spec, record);
     const login = first.items.find((entry) => entry.text === "- Log in.")!;
     const failed = pulseOf([login], 3, false);
@@ -210,10 +212,16 @@ describe("the plan laid over the map", () => {
     });
     expect(marked!.items.find((entry) => entry.text === "- Log in.")).toMatchObject({ mark: "stuck", rolledBack: 3 });
     expect(marked!.items.find((entry) => entry.text === "- Follow someone.")!.mark).toBe("waiting");
-    expect(marked!).toMatchObject({ status: "halted - pulse 3 didn't land", stuck: true });
+    expect(marked!).toMatchObject({ status: "pulse 3 didn't land", stuck: true });
     // Nothing is written to the right of an item: where it stands is in its mark, and in its lines once opened.
     const lines = specMapLines([marked!], createSpecMapState(), 160, style).lines;
-    expect(lines.find((line) => line.includes("- Log in."))!.trimEnd().endsWith("- Log in.")).toBe(true);
+    const row = lines.findIndex((line) => line.includes("- Log in."));
+    expect(lines[row]!.trimEnd().endsWith("- Log in.")).toBe(true);
+    expect(lines[row]).toMatch(/^ {3}! {4}│ /);
+    // Under the first item that needs the person: what for, and how to go about it.
+    expect(lines[row + 1]).toBe(`${" ".repeat(8)}│ needs you - pulse 3 didn't land · d to talk it through in the chat`);
+    expect(lines.filter((line) => line.includes("needs you -"))).toHaveLength(1);
+    expect(specMapHeader(marked!, 200, style).endsWith("! needs you")).toBe(true);
     expect(lines.join("\n")).not.toContain("←");
   });
 
@@ -222,6 +230,15 @@ describe("the plan laid over the map", () => {
     const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { stuck: { why: "the planner found no way to cut the work into pulses that hold together" } })] });
     expect(marked!.items.filter((entry) => entry.state !== "built").every((entry) => entry.mark === "stuck")).toBe(true);
     expect(marked!.status).toBe("the planner couldn't cut it into pulses");
+  });
+
+  it("says what went wrong in the pulse that did not land, when the loop knows", () => {
+    const first = page(spec, record);
+    const login = first.items.find((entry) => entry.text === "- Log in.")!;
+    const failed = pulseOf([login], 3, false);
+    const stuck = { why: `pulse abc ("log in") did not land - it runs again once the spec changes`, pulse: { number: 3, before: failed.before, after: failed.after }, cause: "its unit tests never passed" };
+    const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { stuck })] });
+    expect(marked!.status).toBe("pulse 3 didn't land - its unit tests never passed");
   });
 
   it("spins beside each functional spec a running conformance pulse writes tests for - its acceptance tests changed too", () => {
@@ -236,6 +253,7 @@ describe("the plan laid over the map", () => {
     const changed = conformance([spec("- Register.", "1", []), spec("- Log in.", "2", ["- Wrong password gives 401."])], [spec("- Register.", "1", []), spec("- Log in.", "2", ["- Wrong password gives 403."])]);
     let [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [changed] })] });
     expect(marked!.items.map((entry) => [entry.text, entry.testing === true])).toEqual([["- Register.", false], ["- Log in.", true]]);
+    expect(marked!.items.map(rungOf)).toEqual(["regenerated", "working"]);
     // The count is of all the module's pulses; what the running one does comes after it.
     expect(marked!.status).toBe("pulse 2 of 2 growing · conformance tests");
     // Only a definition changed: every one is tested again.
@@ -244,7 +262,7 @@ describe("the plan laid over the map", () => {
     expect(marked!.items.every((entry) => entry.testing === true)).toBe(true);
   });
 
-  it("numbers beside each functional spec the conformance pulse planned to write its tests - planned from trees, or scheduled ahead of its code", () => {
+  it("knows the conformance pulse planned to write each functional spec's tests - planned from trees, or scheduled ahead of its code - and draws the spec regenerated, unnumbered", () => {
     const first = page(
       tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.\n  - With a password.", "- Log out."] }),
       tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.\n  - With a password.", "- Log out."] }),
@@ -260,9 +278,9 @@ describe("the plan laid over the map", () => {
     const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [planned, scheduled] })] });
     expect(marked!.items.map((entry) => [entry.text.split("\n")[0], entry.testsPulse?.number])).toEqual([["- Register.", 4], ["- Log in.", 12], ["- Log out.", undefined]]);
     const lines = specMapLines([marked!], createSpecMapState(), 100, style).lines;
-    // Dimmed in the tests' column, as a planned mark is - a number past 9 taking the space before the bar.
-    expect(lines.find((line) => line.includes("- Register."))).toMatch(/✓ 4 │ - Register\./);
-    expect(lines.find((line) => line.includes("- Log in."))).toMatch(/✓ 12│ - Log in\./);
+    // A number moves whenever the plan is made again: the row shows where the spec stands, its pulse once opened.
+    expect(lines.find((line) => line.includes("- Register."))).toMatch(/^[ ›] {2}◇ {4}│ - Register\./);
+    expect(lines.find((line) => line.includes("- Log in."))).toMatch(/^ {3}◇ {4}│ - Log in\./);
   });
 
   it("marks a test req from the conformance track: followed by the tests, being written for, or not yet - none where nothing is tested", () => {
@@ -327,11 +345,11 @@ describe("the regeneration drawn", () => {
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(60);
     // Each line after the first starts under the text, past "- ".
-    expect(rows[1]).toMatch(/^ {6}│ {3}\S/);
+    expect(rows[1]).toMatch(/^ {8}│ {3}\S/);
     expect(rows.map((row) => row.slice(row.indexOf("│") + 2).trim()).join(" ")).toBe(long);
   });
 
-  it("opens an item to its text and acceptance tests, then where it stands - regenerated, and for a functionality bound - its marks in words", () => {
+  it("opens an item to the rest of its text and its acceptance tests - where it stands is beside its mark, not repeated under it", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201.", "- A :User: can log in."] }),
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can log in."] }),
@@ -343,15 +361,10 @@ describe("the regeneration drawn", () => {
     for (const entry of marked!.items) state.open.add(`${marked!.plainFile}\n${entry.key}`);
     const lines = specMapLines([marked!], state, 120, style).lines;
     const text = lines.join("\n");
-    // Each line with the mark it explains: the code's, then the conformance tests'.
-    expect(text).toContain("│ ✓ regenerated - the code is built from it as it reads now");
-    expect(text).toContain("│ 2 not regenerated yet - to be regenerated in pulse 2");
-    expect(text).toContain("│ · not bound - no conformance tests for it yet");
-    expect(text).toContain("│ ◆ bound - its conformance tests pass: the code is shown, end to end, to do what it says");
-    // A definition is not bound: only what the code has of it.
-    const user = lines.findIndex((line) => line.includes(":User: is a person."));
-    expect(lines[user + 1]).toContain("✓ regenerated");
-    expect(lines[user + 2]).not.toContain("bound");
+    expect(text).not.toMatch(/│ [◇○◆] /);
+    // Nor what its first line was: the word diff on the row says it.
+    expect(text).not.toContain("was:");
+    expect(text).not.toContain("not regenerated yet");
     // A changed item's lines that did not change are the spec's, as any: not dimmed.
     const changed = page(
       tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Read the contacts.\n  - Active contacts first.\n  - In the order received."] }),
@@ -363,13 +376,7 @@ describe("the regeneration drawn", () => {
     const shownChange = specMapLines([markedChange!], openChange, 120, { ...style, muted: (t: string) => `<dim>${t}</dim>` }).lines.join("\n");
     expect(shownChange).toContain("│   - In the order received.");
     expect(shownChange).not.toContain("<dim>  - In the order received.</dim>");
-    // Not the spec's own text: dimmed, the mark beside it in its own colour.
-    const dimmed = specMapLines([marked!], state, 120, { ...style, muted: (t: string) => `<dim>${t}</dim>` }).lines.join("\n");
-    expect(dimmed).toContain("│ ✓ <dim>regenerated - the code is built from it as it reads now</dim>");
-    expect(dimmed).toContain("<dim>not bound - no conformance tests for it yet</dim>");
-    // Below all of its text: its sub-bullets first, where it stands last.
     expect(text).toContain("  - The response is 201.");
-    expect(text.indexOf("  - The response is 201.")).toBeLessThan(text.indexOf("2 not regenerated yet - to be regenerated in pulse 2"));
     expect(text).not.toContain("used by");
   });
 
@@ -442,10 +449,11 @@ describe("the regeneration drawn", () => {
     expect(names.filter((name) => name !== focus.module).some((name) => lines.includes(`- ${name} works.`))).toBe(false);
   });
 
-  it("heads the map with the module shown, its count and status", () => {
+  it("heads the map with its count and status, and its two columns with status and the module's file", () => {
     const top = markSpecMap([{ ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two.", "- Three."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] })), module: "top", plainFile: join(dir, "top.plain") }], noPlan)[0]!;
     const head = specMapHeader(top, 160, style);
-    expect(head).toContain("regen  top.plain");
+    expect(head).not.toContain("top.plain");
+    expect(columnHeadings(top, 160, style)).toEqual([" status │ top.plain", "        │"]);
     expect(head).toContain("1 of 2 functionalities built · not asked to build - regenerate plans it");
   });
 
@@ -493,20 +501,88 @@ describe("the side panel's two views", () => {
     panel.handleInput("\x1b[B");
     panel.handleInput("p");
     const pulses = panel.render(100);
-    expect(pulses[0]).toContain("Pulses");
+    expect(pulses[0]).toMatch(/^pulses/);
+    // A line of space under the rule, before the first section.
+    const rule = pulses.findIndex((line) => /^─+$/.test(line));
+    expect(pulses[rule + 1]).toBe("");
+    expect(pulses[rule + 2]).toMatch(/running \(\d+\)/);
     expect(pulses.find((line) => line.startsWith("›"))).toContain("app regenerate");
     panel.handleInput("p");
     const map = panel.render(100);
     expect(map.find((line) => line.startsWith("›"))).toContain("- Log in.");
   });
 
+  it("draws one mark a row on the ladder - planned, working, regenerated, bound - the same whatever the config says of conformance tests, named in the legend in the corner", () => {
+    const first = page(
+      tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.", "- Log out.", "- Search."] }),
+      tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.", "- Log out."] }),
+      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register."] }),
+    );
+    const rungs = (conformance: boolean) => markSpecMap([{ ...first, conformance }], noPlan)[0]!.items.map((entry) => [entry.text, rungOf(entry)]);
+    expect(rungs(true)).toEqual([
+      ["- :User: is a person.", "regenerated"],
+      ["- Register.", "bound"],
+      ["- Log in.", "regenerated"],
+      ["- Log out.", "regenerated"],
+      ["- Search.", "toRegenerate"],
+    ]);
+    expect(rungs(false)).toEqual(rungs(true));
+    const [marked] = markSpecMap([first], noPlan);
+    const lines = specMapLines([marked!], createSpecMapState(), 100, style).lines;
+    // A mark alone, under the status column's heading.
+    expect(lines.find((line) => line.includes("- Register."))).toMatch(/^[ ›] {2}◆ {4}│ - Register\./);
+    expect(lines.find((line) => line.includes("- Log in."))).toMatch(/^[ ›] {2}◇ {4}│ - Log in\./);
+    expect(lines.find((line) => line.includes("- Search."))).toMatch(/^[ ›] {2}○ {4}│ - Search\./);
+    // The legend: up the ladder, every rung whatever the page has - to take out only where something is.
+    expect(legendLines(marked!, style)).toEqual(["○ planned", "⠋ working", "◇ regenerated", "◆ bound", "! needs you"]);
+    const panel = createSidePanel({ jobs: () => [], map: () => [marked!], rows: () => 20, style, back() {}, close() {}, key: "ctrl+h" });
+    const drawn = panel.render(100);
+    // In the upper right corner, beside the title and the keys - the keys at the top, where they are seen first.
+    const plain = drawn.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
+    const legend = ["○ planned", "⠋ working", "◇ regenerated", "◆ bound", "! needs you"];
+    // A box in the upper right corner, the panel's first lines beside it.
+    expect(plain[0]).toMatch(/ ┌─+┐$/);
+    expect(plain.slice(1, 6).map((line) => line.slice(line.lastIndexOf("│ ", line.length - 2) + 2, -1).trim())).toEqual(legend);
+    expect(plain[6]).toMatch(/ └─+┘$/);
+    // The top line wraps beside it, never cut short; the keys under it - at the top, where they are seen first - and
+    // the rule straight under them, stopping short of the box.
+    expect(plain.join("\n")).not.toContain("...");
+    const rule = plain.findIndex((line) => /^─+ +│/.test(line));
+    expect(plain.slice(0, rule).join(" ")).toContain("↑↓ move");
+    // A line of space under the title, and under the rule.
+    const blankBeside = (line: string) => line.split(/[│┌└]/)[0]!.trim() === "";
+    expect(blankBeside(plain[plain.findIndex((line) => line.startsWith("↑↓ move")) - 1]!)).toBe(true);
+    expect(blankBeside(plain[rule + 1]!)).toBe(true);
+    expect(plain[rule + 2]).toMatch(/^ status │ app\.plain/);
+  });
+
+  it("hands a module that needs the person to the chat on d, and offers the key only then", () => {
+    const first = page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register."] }));
+    const login = first.items.find((entry) => entry.text === "- Log in.")!;
+    const failed = pulseOf([login], 3, false);
+    const stuck = markSpecMap([first], { files: [], codebases: [codebase(first, { stuck: { why: "pulse abc did not land", pulse: { number: 3, before: failed.before, after: failed.after } } })] });
+    const discussed: string[] = [];
+    let marked = markSpecMap([first], noPlan);
+    const panel = createSidePanel({ jobs: () => [], map: () => marked, rows: () => 20, style, back() {}, close() {}, key: "ctrl+h", discuss: (shown) => discussed.push(shown.status) });
+    expect(panel.render(100).join("\n")).not.toContain("d talk it through");
+    panel.handleInput("d");
+    expect(discussed).toEqual([]);
+    marked = stuck;
+    const lines = panel.render(100);
+    expect(lines[0]).toContain("! needs you");
+    expect(lines[2]).toMatch(/^d talk it through in the chat · /);
+    panel.handleInput("d");
+    expect(discussed).toEqual(["pulse 3 didn't land"]);
+  });
+
   it("shows what failed when the map cannot be drawn, rather than throwing - a frame that throws freezes the screen", () => {
     const panel = createSidePanel({ jobs: () => [], map: () => { throw new Error("the plan could not be read"); }, rows: () => 20, style, back() {}, close() {}, key: "ctrl+h" });
     const lines = panel.render(100);
     expect(lines).toHaveLength(20);
-    expect(lines[2]).toContain("could not be drawn: Error: the plan could not be read");
+    expect(lines.find((line) => line.includes("could not be drawn"))).toContain("could not be drawn: Error: the plan could not be read");
+    expect(lines[2]).toContain("p the other view · esc or ctrl+h back to the chat");
     panel.handleInput("p");
-    expect(panel.render(100)[0]).toContain("Pulses");
+    expect(panel.render(100)[0]).toMatch(/^pulses/);
   });
 
   it("reads a plan that fails as a page saying so", () => {
@@ -522,15 +598,16 @@ describe("the side panel's two views", () => {
     const panel = createSidePanel({ jobs: () => [], map: () => marked, rows: () => 20, style, back() {}, close() {}, key: "ctrl+h" });
     // The module asked for is shown, its tab marked, the other beside it.
     let lines = panel.render(100);
-    expect(lines[0]).toContain("top.plain");
-    expect(lines[1]).toBe("base  [top]");
+    const heading = () => lines.find((line) => line.startsWith(" status │"))?.split("  ")[0];
+    expect(heading()).toBe(" status │ top.plain");
+    expect(lines[1]).toMatch(/^base {2}\[top\] /);
     expect(lines.join("\n")).toContain("- Two.");
     expect(lines.join("\n")).not.toContain("- One.");
     // ← to the module it is built on.
     panel.handleInput("\x1b[D");
     lines = panel.render(100);
-    expect(lines[0]).toContain("base.plain");
-    expect(lines[1]).toBe("[base]  top");
+    expect(heading()).toBe(" status │ base.plain");
+    expect(lines[1]).toMatch(/^\[base\] {2}top /);
     expect(lines.join("\n")).toContain("- One.");
     // Enter opens the item under the cursor.
     panel.handleInput("\r");
@@ -538,7 +615,7 @@ describe("the side panel's two views", () => {
     // Another module starts growing: the tab chosen gives way, and it is shown.
     const two = top.items[0]!;
     marked = markSpecMap([base, top], { files: [], codebases: [codebase(base, { pulses: [pulseOf([two], 1, true)] })] });
-    expect(panel.render(100)[1]).toMatch(/^base {2}\[\S+ top\]$/);
+    expect(panel.render(100)[1]).toMatch(/^base {2}\[\S+ top\] /);
   });
 });
 
@@ -591,7 +668,7 @@ describe("the work loop's plan for the map", () => {
     expect(plan.codebases[0]!.stuck).toMatchObject({ pulse: { number: 1 } });
     const [marked] = markSpecMap(readSpecMap(plan.files), plan);
     expect(marked!.items.find((entry) => entry.text === "- Say hello.")).toMatchObject({ mark: "stuck", rolledBack: 1 });
-    expect(marked!.status).toBe("halted - pulse 1 didn't land");
+    expect(marked!.status).toMatch(/^pulse 1 didn't land/);
   });
 });
 

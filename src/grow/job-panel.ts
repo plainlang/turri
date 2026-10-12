@@ -226,8 +226,10 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
   const expanded = options.expanded === true;
   const inOrder = [...jobs].sort((a, b) => a.sequence - b.sequence);
   const running = inOrder.filter((job) => job.status === "running");
-  // Nothing running: no panel - what waits and what finished are in the side panel.
-  if (running.length === 0) return [];
+  // A module whose work is being planned: the planner is an agent, and takes a while - shown at once, as work going on.
+  const planning = inOrder.filter((job) => job.status === "queued" && job.planning !== undefined);
+  // Nothing running or being planned: no panel - what waits and what finished are in the side panel.
+  if (running.length === 0 && planning.length === 0) return [];
   const finished = inOrder.filter((job) => (job.status === "succeeded" || job.status === "failed" || job.status === "stopped") && job.replacedBy === undefined);
 
   const lines: string[] = [];
@@ -264,6 +266,12 @@ export function jobPanelLines(jobs: Job[], options: PanelOptions = {}): string[]
       const seconds = Math.max(0, Math.round((now - job.now.since) / 1000));
       lines.push(`      … ${job.now.label} · ${seconds}s`);
     }
+  }
+
+  for (const job of planning) {
+    if (lines.length > 0 && running.length > 0) lines.push("");
+    lines.push(`${spinner(now)} ${job.module ?? job.summary} · planning the pulses · ${formatElapsed(now - job.planning!.since)}`);
+    lines.push("    the planner is cutting the work into pulses - the first starts once it is done");
   }
 
   // Always a line of help: how to see more here, and how to inspect the jobs in the side panel.

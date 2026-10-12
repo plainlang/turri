@@ -87,7 +87,7 @@ describe("the side panel", () => {
     const text = () => panel.render(100).join("\n");
 
     // Jobs first: the queue, with what finished - and, opened, what each was about.
-    expect(text()).toContain("Pulses");
+    expect(text()).toMatch(/^pulses/);
     expect(text()).toContain("▸ finished (1)");
     openFinished(panel);
     expect(text()).toContain("▾ finished (1)");
@@ -122,7 +122,7 @@ describe("the side panel", () => {
     expect(panel.render(120)[0]).not.toContain("waiting");
     waiting = true;
     expect(panel.render(120)[0]).toContain("your question is waiting - ctrl+h or esc to answer it, as you left it");
-    expect(panel.render(120).at(-1)).toContain("esc or ctrl+h back to the chat");
+    expect(panel.render(120)[2]).toContain("esc or ctrl+h back to the chat");
     panel.handleInput("\x1b");
     expect(back).toBe(1);
   });
