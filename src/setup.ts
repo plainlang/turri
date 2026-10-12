@@ -137,7 +137,7 @@ function checkPath(): Check {
         name: "turri on PATH",
         detail: "not found",
         // A clone has its sources; the package from npm has only what was compiled from them.
-        fix: existsSync(join(PACKAGE_ROOT, "src")) ? `cd ${PACKAGE_ROOT} && npm link` : "npm install -g turri",
+        fix: existsSync(join(PACKAGE_ROOT, "src")) ? `cd ${PACKAGE_ROOT} && npm link` : "npm install -g @turri-rs/cli",
       };
 }
 

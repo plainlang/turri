@@ -9,7 +9,7 @@ it runs and audited after, on every platform; under them an OS sandbox fences it
 macOS, always there, and bubblewrap on Linux and WSL 2 - `apt install bubblewrap`, or your distribution's package.
 
 ```bash
-npm install -g turri   # puts `turri` on your PATH
+npm install -g @turri-rs/cli   # puts `turri` on your PATH
 turri doctor           # checks the machine: what turri needs, and what is missing
 ```
 
@@ -20,6 +20,9 @@ cd ~/my-project
 turri init-config   # a config.turri.yaml with the model you talk to and the one that writes the code, every other setting at its default
 turri               # pi, with turri's tools, skills and themes loaded
 ```
+
+The package is `@turri-rs/cli` - rs for regenerative software; npm keeps the name `turri` back, as too like another
+package's - and the command it puts on your PATH is `turri`.
 
 ## From a clone
 
@@ -55,7 +58,7 @@ It checks, in order, and says exactly what to run for anything missing:
 | bash | every command an agent runs, and every testing script, runs with it | on Windows, Git for Windows; elsewhere, the system's package manager |
 | the OS sandbox | the wall under the command check and the audit | macOS has Seatbelt; on Linux, `apt install bubblewrap`. Where it does not start it says why and how to give it one - user namespaces off (Docker: a user that is not root, `--security-opt seccomp=unconfined`), AppArmor in the way (Docker: `--security-opt apparmor=unconfined`; Ubuntu 24.04: `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), Docker's masked `/proc` (`--security-opt systempaths=unconfined`, or nothing: turri binds the container's `/proc` instead). Without one, the check and the audit hold alone |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
-| `turri` on PATH | so it runs from any project | `npm install -g turri`, or `npm link` in a clone |
+| `turri` on PATH | so it runs from any project | `npm install -g @turri-rs/cli`, or `npm link` in a clone |
 | turri and `pi` apart | `turri` starts pi with turri; a plain `pi` stays pi | an older `turri setup` wrote a file that loads turri into every `pi` - `doctor` offers to remove it |
 
 In a project - a folder with `config.turri.yaml` (or the old `config.yaml`) or `plain_modules` - it checks what the project needs of this machine too:

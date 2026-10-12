@@ -27,7 +27,7 @@ over `tsconfig.build.json`) compiles `src/` into `dist/`, file for file - each f
 in `src/` beside them. `npm pack` and `npm publish` run it first (`prepack`), and the package holds `dist/`, not
 `src/`. `bin/turri.mjs` runs `src/cli.ts` where there is one and `dist/cli.js` otherwise; `cli.ts` starts pi with
 the launcher and extension beside itself, whichever they are. To try the package as users get it:
-`npm pack`, then `npm install -g ./turri-<version>.tgz`.
+`npm pack`, then `npm install -g ./turri-rs-cli-<version>.tgz`.
 
 ## Layout
 

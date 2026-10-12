@@ -17,7 +17,7 @@ agents use this machine's toolchains, fenced by a command check and an audit eve
 OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) - see [installation](docs/installation.md#installation).
 
 ```bash
-npm install -g turri      # puts `turri` on your PATH
+npm install -g @turri-rs/cli # puts `turri` on your PATH
 turri doctor              # checks the machine
 ```
 

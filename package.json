@@ -1,5 +1,5 @@
 {
-  "name": "turri",
+  "name": "@turri-rs/cli",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -52,6 +52,9 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^5.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "assets",
