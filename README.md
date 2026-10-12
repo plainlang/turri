@@ -2,6 +2,12 @@
 
 <h1 align="center">turri<br>the first coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@turri-rs/cli"><img src="https://img.shields.io/npm/v/@turri-rs/cli?label=npm" alt="npm version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@turri-rs/cli" alt="MIT licence"></a>
+  <a href="https://nodejs.org/en/download"><img src="https://img.shields.io/node/v/@turri-rs/cli" alt="Node version"></a>
+</p>
+
 You and **turri** write down what the system should do, as [\*\*\*plain](https://plainlang.org/) specs. **turri** builds
 the code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
