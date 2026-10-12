@@ -107,7 +107,12 @@ nothing built, and `write_spec_diff` not used.
    imported stack already sets it, and the unit testing script, for the stack's test framework. Keep one turri already finds (named in `config.turri.yaml`, or the one
    `run_unittests*.sh` in the root or `test_scripts/`); otherwise write
    `test_scripts/run_unittests_<language>.sh` by following the `implement-unit-testing-script`
-   skill. Never link it from the specs.
+   skill. Never link it from the specs. Beside it, the static checks script: keep one turri already
+   finds (`static-checks-script:`, or the one `run_static_checks*.sh` in the root or `test_scripts/`);
+   otherwise follow `implement-static-checks-script` - for Python, TypeScript, Go or Rust it copies the
+   language's asset to `test_scripts/run_static_checks_<language>.sh`; another stack gets one only when
+   its reqs name a formatter, linter or type checker. turri formats the code with it before every unit
+   test run, and its checks count as the unit tests do.
 3. **Conformance tests: off**, so each feature is built fast. Keep a `conformance-tests:` decision
    the project's config already holds - `config.turri.yaml`, or the old `config.yaml`. Otherwise write `conformance-tests: false` into
    `config.turri.yaml`, changing nothing else in it - a project with only a `config.yaml` has it copied
