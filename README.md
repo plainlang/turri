@@ -17,10 +17,11 @@ agents use this machine's toolchains, fenced by a command check and an audit eve
 OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) - see [installation](docs/installation.md#installation).
 
 ```bash
-git clone git@github.com:plainlang/turri.git && cd turri
-npm install && npm link   # puts `turri` on your PATH
+npm install -g turri      # puts `turri` on your PATH
 turri doctor              # checks the machine
 ```
+
+To work on turri itself, run it from a clone instead - see [installation](docs/installation.md#from-a-clone).
 
 `doctor` checks for Node 22.19+, bash, the OS sandbox and a model provider for pi; in a project, the toolchains its
 modules need, what its testing scripts run against this machine, and that each model `config.turri.yaml` names
@@ -264,7 +265,4 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 
 ## License
 
-turri is proprietary software of Codeplain Inc., licensed - not sold - to the people Codeplain gives
-access to: clone it and use it as a user, for your own projects. The specs you write and the code it
-generates for you are yours, to use and sell as you like - but not to replicate turri with. turri itself
-may not be shared, sold, modified, distributed or leaked. See [LICENSE](LICENSE).
+turri is open source, under the [MIT licence](LICENSE).

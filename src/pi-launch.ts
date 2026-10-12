@@ -1,7 +1,6 @@
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { main, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { PACKAGE_ROOT } from "./environment.ts";
 import "./terminal-images.ts";
 
 /**
@@ -21,8 +20,8 @@ if (!args.includes("--verbose")) {
 // pi's own keys stand: a new line is shift+enter or ctrl+j. turri's side panel is on ctrl+h (job-panel.ts PANEL_KEY).
 
 // What pi's CLI does before main: the process title, pi's environment markers, the HTTP
-// dispatcher. Not exported, so loaded from the file.
-const setup = pathToFileURL(join(PACKAGE_ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli", "setup.js")).href;
+// dispatcher. Not exported, so loaded from the file - beside pi's entry point, wherever npm put it.
+const setup = pathToFileURL(join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "cli", "setup.js")).href;
 const { setupCli } = (await import(setup)) as { setupCli: () => void };
 setupCli();
 

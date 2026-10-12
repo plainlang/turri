@@ -132,7 +132,13 @@ function checkPath(): Check {
   const found = turriOnPath();
   return found
     ? { level: "ok", name: "turri on PATH", detail: found }
-    : { level: "limited", name: "turri on PATH", detail: "not found", fix: `cd ${PACKAGE_ROOT} && npm link` };
+    : {
+        level: "limited",
+        name: "turri on PATH",
+        detail: "not found",
+        // A clone has its sources; the package from npm has only what was compiled from them.
+        fix: existsSync(join(PACKAGE_ROOT, "src")) ? `cd ${PACKAGE_ROOT} && npm link` : "npm install -g turri",
+      };
 }
 
 /**

@@ -1,9 +1,14 @@
 {
   "name": "turri",
   "version": "0.1.0",
-  "private": true,
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/plainlang/turri.git"
+  },
+  "homepage": "https://github.com/plainlang/turri#readme",
+  "bugs": "https://github.com/plainlang/turri/issues",
   "description": "An agent that builds code from ***plain specifications, with harness-enforced review and conformance gates.",
   "engines": {
     "node": ">=22.19"
@@ -23,7 +28,8 @@
     "regrow": "tsx src/regrow-cli.ts",
     "validate": "tsx src/validate-cli.ts",
     "doctor": "node bin/turri.mjs doctor",
-    "doctor": "node bin/turri.mjs doctor",
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
     "grammar:sync": "node scripts/sync-plyn-grammar.mjs"
   },
   "dependencies": {
@@ -50,7 +56,7 @@
   "files": [
     "assets",
     "bin",
-    "src",
+    "dist",
     ".pi",
     "genome",
     "stdlib",

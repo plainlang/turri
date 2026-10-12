@@ -5,3 +5,4 @@ build/
 conformance/
 .stryker-tmp/
 reports/mutation/
+dist/

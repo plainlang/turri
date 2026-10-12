@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// The launcher: plain JavaScript, so it runs on any Node and can say what is wrong before the
-// TypeScript sources - which need Node to run .ts files itself - are loaded.
+// The launcher: plain JavaScript, so it runs on any Node and can say what is wrong before turri itself is loaded -
+// the TypeScript sources in a clone, which Node runs itself, or in an installed package the files compiled from them
+// (npm run build), as Node runs no .ts file inside node_modules.
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 19)) {
   console.error(
@@ -23,4 +24,6 @@ try {
   );
   process.exit(1);
 }
-await import("../src/cli.ts");
+const { existsSync } = await import("node:fs");
+const sources = new URL("../src/cli.ts", import.meta.url);
+await import(existsSync(sources) ? sources.href : new URL("../dist/cli.js", import.meta.url).href);

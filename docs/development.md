@@ -21,6 +21,14 @@ workers, and a test-name filter that matches vitest 5's names - again after ever
 Working on turri itself, `npm link` points the global `turri` at this clone, so edits
 take effect immediately. `npm run chat` starts pi with the extension loaded from `src/`.
 
+The package on npm is built: Node runs no `.ts` file inside a `node_modules`, so `npm run build` (`scripts/build.mjs`,
+over `tsconfig.build.json`) compiles `src/` into `dist/`, file for file - each file as deep as its source, so it finds
+`genome/`, `stdlib/` and `.pi/` the same way - with its imports' `.ts` rewritten to `.js`, and copies the other files
+in `src/` beside them. `npm pack` and `npm publish` run it first (`prepack`), and the package holds `dist/`, not
+`src/`. `bin/turri.mjs` runs `src/cli.ts` where there is one and `dist/cli.js` otherwise; `cli.ts` starts pi with
+the launcher and extension beside itself, whichever they are. To try the package as users get it:
+`npm pack`, then `npm install -g ./turri-<version>.tgz`.
+
 ## Layout
 
 | path | what it is |

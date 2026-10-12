@@ -9,10 +9,8 @@ it runs and audited after, on every platform; under them an OS sandbox fences it
 macOS, always there, and bubblewrap on Linux and WSL 2 - `apt install bubblewrap`, or your distribution's package.
 
 ```bash
-git clone git@github.com:plainlang/turri.git && cd turri
-npm install
-npm link              # puts `turri` on your PATH, pointing at this clone
-turri doctor    # checks the machine: what turri needs, and what is missing
+npm install -g turri   # puts `turri` on your PATH
+turri doctor           # checks the machine: what turri needs, and what is missing
 ```
 
 Then, in the project that holds your specs:
@@ -23,9 +21,20 @@ turri init-config   # a config.turri.yaml with the model you talk to and the one
 turri               # pi, with turri's tools, skills and themes loaded
 ```
 
-`npm link` has to be a link, not `npm install -g`: Node will not run `.ts` files from inside a
-`node_modules`, and a copying global install puts them there. The link points at this working
-copy, so edits here take effect immediately.
+## From a clone
+
+To work on turri itself, put the clone on your PATH instead:
+
+```bash
+git clone git@github.com:plainlang/turri.git && cd turri
+npm install
+npm link              # puts `turri` on your PATH, pointing at this clone
+```
+
+A clone runs its TypeScript sources directly - Node strips the types - so edits take effect immediately. The package
+on npm runs JavaScript compiled from them instead (`npm run build`, into `dist/`, run by `npm pack` and `npm publish`
+before they pack), as Node runs no `.ts` file inside a `node_modules`. `bin/turri.mjs` runs `src/` where there is one,
+and `dist/` otherwise.
 
 ## In Docker
 
@@ -42,11 +51,11 @@ It checks, in order, and says exactly what to run for anything missing:
 
 | what | why | if it is missing |
 | --- | --- | --- |
-| Node 22.19+ | turri runs its `.ts` sources directly, and pi needs 22.19 | install a newer Node |
+| Node 22.19+ | pi needs 22.19, as does a clone running turri's `.ts` sources directly | install a newer Node |
 | bash | every command an agent runs, and every testing script, runs with it | on Windows, Git for Windows; elsewhere, the system's package manager |
 | the OS sandbox | the wall under the command check and the audit | macOS has Seatbelt; on Linux, `apt install bubblewrap`. Where it does not start it says why and how to give it one - user namespaces off (Docker: a user that is not root, `--security-opt seccomp=unconfined`), AppArmor in the way (Docker: `--security-opt apparmor=unconfined`; Ubuntu 24.04: `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`), Docker's masked `/proc` (`--security-opt systempaths=unconfined`, or nothing: turri binds the container's `/proc` instead). Without one, the check and the audit hold alone |
 | a model provider | the agents need a model | run `pi` and `/login`, or set an API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) |
-| `turri` on PATH | so it runs from any project | `npm link` in this clone |
+| `turri` on PATH | so it runs from any project | `npm install -g turri`, or `npm link` in a clone |
 | turri and `pi` apart | `turri` starts pi with turri; a plain `pi` stays pi | an older `turri setup` wrote a file that loads turri into every `pi` - `doctor` offers to remove it |
 
 In a project - a folder with `config.turri.yaml` (or the old `config.yaml`) or `plain_modules` - it checks what the project needs of this machine too:

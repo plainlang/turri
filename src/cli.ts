@@ -12,8 +12,8 @@ import "./legacy.ts";
 // A project built under the old names is brought over the first time it is found.
 import "./grow/migrate.ts";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CODING_MODEL_ENV, chatModels } from "./chat-models.ts";
 import { readProjectConfig } from "./config.ts";
 import { extensionInstalledGlobally, PACKAGE_ROOT, themesInstalledGlobally } from "./environment.ts";
@@ -25,6 +25,23 @@ import { dropNoise } from "./quiet.ts";
  * Saves both a global pi install and the `-e <absolute path>` that a project-local
  * extension otherwise needs before the project is trusted.
  */
+/**
+ * Where this file is, and how its siblings are named: the sources in a clone (`src/*.ts`), the compiled files in an
+ * installed package (`dist/*.js`).
+ */
+const HERE = dirname(fileURLToPath(import.meta.url));
+const OWN_EXTENSION = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
+
+/** Whether pi is installed where Node finds it - beside turri, or wherever npm hoisted it. */
+function piInstalled(): boolean {
+  try {
+    import.meta.resolve("@earendil-works/pi-coding-agent");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The theme `turri` starts in. */
 const DEFAULT_THEME = "turri-dark";
 
@@ -34,18 +51,18 @@ function renamedThemes(value: string): string {
 }
 
 function chat(args: string[]): never {
-  if (!existsSync(join(PACKAGE_ROOT, "node_modules", "@earendil-works", "pi-coding-agent"))) {
-    console.error(`pi is not installed in ${PACKAGE_ROOT}. Run npm install there first.`);
+  if (!piInstalled()) {
+    console.error(`pi is not installed beside turri (${PACKAGE_ROOT}). Run npm install there, or install turri again.`);
     process.exit(1);
   }
   // pi itself, through a launcher that leaves out pi's startup header - see pi-launch.ts.
-  const launcher = join(PACKAGE_ROOT, "src", "pi-launch.ts");
+  const launcher = join(HERE, `pi-launch${OWN_EXTENSION}`);
 
   // Loading the same extension twice is an error in pi, not a no-op, so the explicit -e is left out while an older
   // turri's file still loads turri into every pi - turri doctor offers to remove it.
   const extension = extensionInstalledGlobally()
     ? []
-    : ["-e", join(PACKAGE_ROOT, "src", "extension.ts")];
+    : ["-e", join(HERE, `extension${OWN_EXTENSION}`)];
   const themes = themesInstalledGlobally() ? [] : ["--theme", join(PACKAGE_ROOT, ".pi", "themes")];
   // turri's own theme, unless this run names another. For this run only: pi's settings
   // are left as they are, so a plain `pi` keeps its theme.

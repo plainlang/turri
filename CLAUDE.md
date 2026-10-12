@@ -13,6 +13,7 @@ before changing the harness.
 ```bash
 npm install && npm link                        # `turri` on PATH, pointing at this clone (edits apply at once)
 npm run typecheck                              # tsc --noEmit - covers src/ only, not tests/
+npm run build                                  # src/ compiled into dist/ - the npm package only; npm pack runs it
 npm test                                       # the whole vitest suite, about a minute
 npx vitest run tests/grow/records.test.ts    # one file
 npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
@@ -31,7 +32,9 @@ in turri. The suite takes about a minute.
 ## TypeScript runs unbuilt
 
 `bin/turri.mjs` checks for Node >= 22.19 and imports `src/cli.ts` directly. Node's own type
-stripping runs the sources and nothing compiles them. So:
+stripping runs the sources and nothing compiles them - except for the npm package, where Node will
+not strip types inside `node_modules`: `npm run build` compiles `src/` into `dist/` file for file,
+and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 
 - imports use explicit `.ts` extensions;
 - don't use syntax that type stripping can't erase: parameter properties
