@@ -316,6 +316,21 @@ describe("the regeneration drawn", () => {
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
   });
 
+  it("wraps an item too long for the width, its lines after the first hanging past the bullet, never cutting it short", () => {
+    const long = "- :UserAdmin: is the local administration entry point whose successful provisioning output follows `[resource]user-created.schema.json` exactly.";
+    const first = page(tree({ [DEFINITIONS]: [long] }), tree({ [DEFINITIONS]: [long] }));
+    const [marked] = markSpecMap([first], noPlan);
+    const lines = specMapLines([marked!], createSpecMapState(), 60, style).lines;
+    const at = lines.findIndex((line) => line.includes(":UserAdmin:"));
+    const rows = lines.slice(at).filter((line) => line.includes("│"));
+    expect(lines.join("\n")).not.toContain("…");
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(60);
+    // Each line after the first starts under the text, past "- ".
+    expect(rows[1]).toMatch(/^ {6}│ {3}\S/);
+    expect(rows.map((row) => row.slice(row.indexOf("│") + 2).trim()).join(" ")).toBe(long);
+  });
+
   it("opens an item to its text and acceptance tests, then where it stands - regenerated, and for a functionality bound - its marks in words", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201.", "- A :User: can log in."] }),

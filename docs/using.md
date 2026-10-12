@@ -133,7 +133,7 @@ come waits for a free slot, and says so.
 
   Every item of the spec - a definition, a req, a functional spec with its sub-bullets and acceptance tests,
   what turri plans and diffs by - is a row in the file's order, its \*\*\*plain highlighted as plyn highlights it
-  (as a spec diff is), and has one mark in the gutter:
+  (as a spec diff is) and wrapped to the width, never cut short, and has one mark in the gutter:
 
   | Mark | Means |
   | --- | --- |

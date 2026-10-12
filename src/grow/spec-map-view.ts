@@ -302,6 +302,16 @@ function diffLine(line: { was?: string; now?: string }, style: TranscriptStyle):
 /** The pulse's running job, for how long it has run. */
 const firstLine = (text: string) => text.split("\n")[0] ?? "";
 
+/**
+ * A line of the spec wrapped to `room`: the lines after the first indented past its bullet (`- `, `1. `) - `plain`, the
+ * line without its colours, says how far.
+ */
+function hanging(drawn: string, plain: string, room: number): string[] {
+  const hang = /^\s*(?:[-*+]|\d+[.)])?\s*/.exec(plain)?.[0].length ?? 0;
+  const lines = wrapTextWithAnsi(drawn, Math.max(10, room - hang));
+  return lines.map((line, index) => (index === 0 ? line : `${" ".repeat(hang)}${line}`));
+}
+
 function wrapped(text: string, width: number, colour: (text: string) => string = (line) => line): string[] {
   return text
     .split("\n")
@@ -522,9 +532,11 @@ export function specMapLines(
         : item.state === "changed" && wasFirst !== first
           ? wordDiff(wasFirst, first, style)
           : highlighted(first, style);
-    const text = truncateToWidth(drawn, room, "…");
-    const line = `${gutter}${text}`;
-    add(line, mark);
+    // Wrapped, never cut short: what follows a `…` is what a person came to read. The lines after the first hang
+    // under the item's text, past its bullet.
+    const [head = "", ...rest] = hanging(drawn, first, room);
+    add(`${gutter}${head}`, mark);
+    for (const line of rest) add(`${CONTINUED}${line}`, mark);
     if (state.open.has(row.key)) {
       for (const detail of detailLines(item, page, width, style, now)) add(detail, mark);
       return;
@@ -534,7 +546,9 @@ export function specMapLines(
       const changed = lineDiff(item.was ?? "", item.text)
         .slice(1)
         .filter((line) => line.was !== line.now);
-      for (const line of changed.slice(0, 4)) add(truncateToWidth(`${CONTINUED}${diffLine(line, style)}`, width, "…"), mark);
+      for (const line of changed.slice(0, 4)) {
+        for (const part of hanging(diffLine(line, style), line.now ?? line.was ?? "", room)) add(`${CONTINUED}${part}`, mark);
+      }
       if (changed.length > 4) add(`${CONTINUED}${style.muted(`… ${changed.length - 4} more - enter opens it`)}`, mark);
     }
   });
