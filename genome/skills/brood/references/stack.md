@@ -2,6 +2,15 @@
 
 Gather the technical stack **and** the project's structure/architecture. This phase affects only `***implementation reqs***`, and ends with the unit testing script every build needs — the rest of testing comes later. Run the core loop from `SKILL.md` for each topic below, in order: ask, then write the requirement into the `.plain` file with the ordinary file tools. Nothing is built in this phase. When the user has no preference, propose a sensible default that fits earlier answers and ask them to confirm.
 
+The questioning level caps this phase's questions (light 3, medium 5, thorough 10, or best
+judgement - `SKILL.md`, "How many questions"), and so sets how broad each is. Every level reaches
+all the topics, in order: light in a few broad questions - the stack, say, then storage and
+outside services together, then the remaining constraints, each with what fits the brief
+proposed; thorough a topic or two a question, with follow-ups. Every topic left unasked once the
+questions are over gets the default that fits the intent brief and the answers so far, written as a
+requirement like any other and named as your choice in the closing summary. The unit testing script
+is written whatever the level.
+
 ## Author target for this phase
 
 Write each requirement into `***implementation reqs***`:

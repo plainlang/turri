@@ -23,9 +23,16 @@ about ≤200 LOC, define-before-use and language-agnostic wording can actually b
 ## Every loop iteration
 
 - [ ] **[record]** Asked exactly one focused question each iteration — not two bundled together.
-- [ ] **[both]** Every answer became exactly one spec change, written with `write_spec_diff` - never an edit of the `.plain` file by other means - and each change started a render spec diff job, whatever sections it touched.
+- [ ] **[both]** Every answer became at least one spec change - one for each feature it covered - written with `write_spec_diff` before the next question, never an edit of the `.plain` file by other means, and each change started a render spec diff job, whatever sections it touched.
 - [ ] **[disk]** Each concept was introduced with, or before, the first functional spec that uses it - not in a separate pass of definitions.
-- [ ] **[record]** An answer that decomposed into several concepts or functionalities became several questions, one change each — not a batch written from one answer.
+- [ ] **[record]** An answer that covered several features became several changes, one each - not a batch written as one. What the interviewer decided is its own change too: one decision, one change, never folded into an answered one.
+
+## The questioning level
+
+- [ ] **[record]** The record names the questioning level chosen at the start, and the phase kept to it: no more questions than it allows (light 3, medium 5, thorough 10), the closing confirmation not counted; under best judgement, the questions ended when the interviewer judged the product settled.
+- [ ] **[record]** The questions were as broad as the level says - broad at light, narrow at thorough - and between them reached every topic of the phase: the level changed their depth, not their reach.
+- [ ] **[record]** Every spec change written without a question is marked in the record as decided by the interviewer, was said in one line, and is named in the closing summary.
+- [ ] **[both]** What the interviewer decided stays within the confirmed intent brief: no feature the brief and the answers do not call for.
 - [ ] **[both]** Any answer that contradicted something already written was fixed in place before the next question, as a diff with `fixes_earlier` — no stale spec left on disk.
 - [ ] **[record]** Said in one line what each change put on disk, and moved on without asking for approval of it.
 

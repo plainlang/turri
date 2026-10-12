@@ -84,6 +84,16 @@ export interface Skill {
    * writes the specs on its own.
    */
   paced: boolean;
+  /**
+   * The phases the questioning level caps (`metadata.questioning`, questioning.ts): when there are any, the harness asks
+   * the level first, and each of them asks at most as many questions as it allows. Empty: no level is asked.
+   */
+  questioning: string[];
+  /**
+   * The steps where each answer is a spec change (`metadata.spec-diff-per-answer`): the next question waits until the
+   * last answer is written with `write_spec_diff`, and changes the agent decides itself need no answer before them.
+   */
+  diffPerAnswer: string[];
 }
 
 interface RawContinuous {
@@ -207,6 +217,22 @@ export function loadSkill(skillDir: string): Skill {
     }
   }
 
+  const questioning = (data.metadata as { questioning?: unknown } | undefined)?.questioning;
+  const capped = Array.isArray(questioning) ? questioning.map(String) : [];
+  for (const stepName of capped) {
+    if (!steps.some((s) => s.name === stepName)) {
+      throw new Error(`${name}: 'metadata.questioning' names unknown step '${stepName}'`);
+    }
+  }
+
+  const perAnswer = (data.metadata as Record<string, unknown> | undefined)?.["spec-diff-per-answer"];
+  const diffPerAnswer = Array.isArray(perAnswer) ? perAnswer.map(String) : [];
+  for (const stepName of diffPerAnswer) {
+    if (!steps.some((s) => s.name === stepName)) {
+      throw new Error(`${name}: 'metadata.spec-diff-per-answer' names unknown step '${stepName}'`);
+    }
+  }
+
   for (const stepName of gatesByStep.keys()) {
     if (!steps.some((s) => s.name === stepName)) {
       throw new Error(`${name}: gate references unknown step '${stepName}'`);
@@ -221,6 +247,8 @@ export function loadSkill(skillDir: string): Skill {
     allowedTools: Array.isArray(data["allowed-tools"]) ? (data["allowed-tools"] as string[]) : [],
     steps,
     paced: (data.metadata as { paced?: unknown } | undefined)?.paced !== false,
+    questioning: capped,
+    diffPerAnswer,
   };
 }
 

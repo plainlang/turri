@@ -30,7 +30,8 @@ Write no `***acceptance tests***`, no functional specs and no `***implementation
 ## Topics (in order)
 
 1. **Conformance on or off** - ask it explicitly, with what it costs and what it catches; it is a
-   recorded decision, never an inference. Write it to `config.turri.yaml` as `conformance-tests: true` or
+   recorded decision, never an inference. Ask it even when `config.turri.yaml` already has
+   `conformance-tests:` - offer what it says as the first option. Write it to `config.turri.yaml` as `conformance-tests: true` or
    `conformance-tests: false`. Off: say that no conformance tests will be written or run until it
    is turned on, and go to the end of the phase.
 2. **Framework** - e.g. pytest, JUnit, Jest, Go's `testing`; one that fits the stack. Author it as a

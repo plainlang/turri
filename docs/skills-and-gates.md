@@ -51,6 +51,23 @@ declares gates today.
 last one - one answer, one change, as an interview writes them. `spawn` is unpaced: the tool tells it so, and after
 each change to write the next at once, not to carry on with an interview it does not have.
 
+`questioning:` under `metadata:` names the steps the questioning level caps (`src/questioning.ts`) - `brood`'s
+`[stack, product]`. When there are any and someone to ask, the harness itself asks the first question of the first
+step: how many questions those steps may ask - light (3), medium (5), thorough (10) or best judgement - and tells the
+agent the answer beside each step's instructions, with how broad each question is to be: broad at light, a whole area
+at once, narrow at thorough, an edge case at a time. Every level covers the same ground, in less or more depth. In a
+capped step `ask_user` refuses a question past the cap; the step's closing confirmation, asked with
+`confirms_phase: true`, is never counted. `end_questions` ends the step's questions sooner - best judgement's only
+end. What the questions leave open, the agent decides itself and says what it chose. The level, and how many
+questions each step has asked, are kept in the run's `run.json`, so a resumed run keeps them. A step it does not name,
+or a run with nobody to ask, is not capped.
+
+`spec-diff-per-answer:` under `metadata:` names the steps where every answer is a spec change - `brood`'s
+`[product]`, at every questioning level. There `ask_user` refuses the next question until the last answer is written
+with `write_spec_diff` (a confirmation, or a question dismissed, owes nothing), and `write_spec_diff` no longer waits
+for an answer before a change: the agent writes as many as the step needs, those it decides itself included. The
+level limits the questions, never the spec changes.
+
 A step ends when its agent's turn does. A turn that ends on a question in the reply would end the step there, half
 done, on a question no one reads - the person sees only what `ask_user` asks. So such a step is sent back, twice at
 most: to ask with `ask_user` if the question is truly the person's, or, in an unpaced skill, to decide it itself -

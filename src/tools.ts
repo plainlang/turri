@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
+import type { Questioning } from "./questioning.ts";
 
 /**
  * Personal tools.
@@ -90,7 +91,17 @@ export type { AskUser, AskUserRequest };
  * that is fully specified and useless for an interview. The harness still owns the
  * sequence - the step decides what to ask, not whether the gate afterwards runs.
  */
-export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: () => string) {
+/**
+ * `gate`, for an interview that holds its questions to rules - the questioning level's cap (questioning.ts), an answer
+ * written as a spec change before the next question: a question it refuses is not asked, and `confirms_phase` marks a
+ * phase's closing confirmation, which the cap never counts.
+ */
+export function createAskUserTool(
+  ask: AskUser,
+  onAnswered?: (answer: string, confirmsPhase: boolean) => void,
+  said?: () => string,
+  gate?: Pick<Questioning, "refusal" | "answered">,
+) {
   return defineTool({
     name: "ask_user",
     label: "Ask the user",
@@ -128,8 +139,23 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
             "Ask without options, for a genuinely open question. Required when options is omitted.",
         }),
       ),
+      ...(gate !== undefined
+        ? {
+            confirms_phase: Type.Optional(
+              Type.Boolean({
+                description:
+                  "This asks the person to confirm the phase's summary before it ends. It is not counted among the phase's questions.",
+              }),
+            ),
+          }
+        : {}),
     }),
     async execute(_id, params) {
+      const confirmsPhase = (params as { confirms_phase?: boolean }).confirms_phase === true;
+      const refusal = gate?.refusal(confirmsPhase);
+      if (refusal !== undefined) {
+        return { content: [{ type: "text" as const, text: refusal }], details: { question: params.question, answer: "" } };
+      }
       const answer = await ask({
         question: params.question,
         options: params.options,
@@ -138,7 +164,8 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
         ...(params.context !== undefined && params.context.trim() !== "" ? { context: params.context } : {}),
         ...(said !== undefined ? { said: said() } : {}),
       });
-      onAnswered?.();
+      gate?.answered(confirmsPhase);
+      onAnswered?.(answer, confirmsPhase);
       return {
         content: [{ type: "text" as const, text: answer }],
         details: { question: params.question, answer },
@@ -148,6 +175,23 @@ export function createAskUserTool(ask: AskUser, onAnswered?: () => void, said?: 
 }
 
 export { runAsk };
+
+/** Ends the questions of a phase the questioning level caps: what is left, the agent decides itself. */
+export function createEndQuestionsTool(questioning: Pick<Questioning, "end">) {
+  return defineTool({
+    name: "end_questions",
+    label: "End questions",
+    description:
+      "End this phase's questions: you have asked what the person must decide, and you decide what is left " +
+      "yourself, saying what you chose. Afterwards ask_user asks only the phase's closing confirmation, and " +
+      "write_spec_diff needs no answer between changes.",
+    promptSnippet: "end this phase's questions and decide what is left yourself",
+    parameters: Type.Object({}),
+    async execute() {
+      return { content: [{ type: "text" as const, text: questioning.end() }], details: {} };
+    },
+  });
+}
 
 
 /**

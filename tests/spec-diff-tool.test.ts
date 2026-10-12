@@ -45,7 +45,7 @@ const fileDiff = (file: string, before: string, after: string) =>
   ].join("\n");
 const diffOf = (before: string, after: string) => fileDiff("app.plain", before, after);
 
-function setup(options: { paced?: boolean } = {}) {
+function setup(options: { paced?: boolean; free?: () => boolean } = {}) {
   const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false });
   const { tools, pace } = createSpecDiffTools({ loop, cwd: dir, ...options });
   const call = (params: object) => tools[0]!.execute("id", params as never, undefined, undefined, {} as never);
@@ -95,6 +95,27 @@ describe("write_spec_diff", () => {
 
     pace.answered();
     await expect(call({ plain_file: "app.plain", diff: diffOf(fixed, three.replace("log in.", "log in with email.")) })).resolves.toBeDefined();
+  });
+
+  it("writes changes the interview decided itself without an answer before them, in a phase where each answer owes one instead", async () => {
+    const one = plain(["- A :User: can register."]);
+    const two = plain(["- A :User: can register.", "- A :User: can log in."]);
+    const three = plain(["- A :User: can register.", "- A :User: can log in.", "- A :User: can log out."]);
+    writeFileSync(join(dir, "app.plain"), one);
+    let free = false;
+    const { call, pace } = setup({ free: () => free });
+    await call({ plain_file: "app.plain", diff: diffOf(one, two) });
+    await expect(call({ plain_file: "app.plain", diff: diffOf(two, three) })).rejects.toThrow(/No question has been answered/);
+
+    free = true;
+    pace.answered();
+    expect(pace.owed()).toBe(true);
+    const second = await call({ plain_file: "app.plain", diff: diffOf(two, three) });
+    expect(pace.owed()).toBe(false);
+    expect(JSON.stringify(second)).toContain("every answer is written as a change before the question after it");
+    // A phase's confirmation owes the spec nothing.
+    pace.answered(false);
+    expect(pace.owed()).toBe(false);
   });
 
   it("writes one change after another without an answer between them for a skill that writes the specs on its own", async () => {

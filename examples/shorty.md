@@ -18,15 +18,6 @@ mkdir ~/shorty && cd ~/shorty
 turri init-config
 ```
 
-Turn the conformance tests on for every functional spec before you start, in `config.yaml`:
-
-```yaml
-conformance-tests: true
-```
-
-Leave it out and the interview asks you. Set it to `chosen` to have conformance tests only for the functional specs
-you pick. [The project config](../docs/config.md) has the details.
-
 ## 2. Say what you want
 
 ```bash
@@ -41,14 +32,19 @@ turri
 
 The interview, `brood`, asks one question at a time:
 
+- **How many questions** the stack and product phases may ask: light, medium or thorough - at most 3, 5 or 10 a
+  phase - or best judgement, fewer questions being broader ones. Choose **medium**: a question a feature, its main
+  rules with it, and **turri** decides the edge cases.
 - **Intent**, read back for you to confirm.
 - **Stack.** The standard library's backend stacks your machine can build - FastAPI, Flask or Django in Python;
   Express, Fastify or NestJS in TypeScript; Gin or net/http in Go; Axum in Rust; Spring Boot in Java - or one of your
   own. A stack from it is one import, `stdlib/backend/<stack>`; then it asks only what that leaves open: SQLite
   through which library, how API keys are stored (hashed), what a redirect returns (`302`).
-- **Testing.** Conformance tests are already on from `config.yaml`, so it writes their test reqs (`***test reqs***`)
-  and the conformance testing script, `run_conformance_tests_<language>.sh`, from the stack's template,
-  `stdlib/backend/conformance/<stack>`.
+- **Testing.** Whether there are conformance tests. Say **yes** - for every functional spec. It records your answer
+  as `conformance-tests: true` in `config.turri.yaml`, then writes their test reqs (`***test reqs***`) and the
+  conformance testing script, `run_conformance_tests_<language>.sh`, from the stack's template,
+  `stdlib/backend/conformance/<stack>`. (`conformance-tests: chosen` has them only for the functional specs you pick -
+  [the project config](../docs/config.md) has the details.)
 - **Product**, feature by feature: API keys, creating a link, the redirect, custom aliases, expiry, listing,
   deleting. Each answer is a spec change that starts growing at once.
 

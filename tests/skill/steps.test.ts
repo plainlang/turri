@@ -142,6 +142,15 @@ describe("brood's phases", () => {
   });
 });
 
+describe("brood's questioning level", () => {
+  it("caps the stack and product phases, not intent or testing", () => {
+    expect(loadSkill("genome/skills/brood").questioning).toEqual(["stack", "product"]);
+    // Whatever the level, each product answer is a spec change before the next question.
+    expect(loadSkill("genome/skills/brood").diffPerAnswer).toEqual(["product"]);
+    expect(loadSkill("genome/skills/spawn").questioning).toEqual([]);
+  });
+});
+
 describe("spawn, brood's quick twin", () => {
   it("asks only about intent, then sets up and writes the product on its own - unpaced, and ungated", () => {
     const skill = loadSkill("genome/skills/spawn");

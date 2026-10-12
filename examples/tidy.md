@@ -3,8 +3,8 @@
 You will build **tidy**, a command-line tool that sorts a messy folder (your Downloads, say) into subfolders by kind
 of file. It runs as a dry run first, shows what it would move, and moves nothing until you say so.
 
-This is the quick way in: `spawn` asks only what you want to build and which stack to build it on, and writes the
-rest itself. It takes half an hour or so, most of it the agents' time.
+This is the short way through the interview, `brood`: you keep the questions light, and **turri** decides the rest
+itself. It takes half an hour or so, most of it the agents' time.
 
 ## 1. The project
 
@@ -19,29 +19,35 @@ turri
 
 ## 2. Say what you want
 
-> Let's quickly build tidy - a command-line tool that sorts the files of a folder into subfolders by kind: images, documents, archives, audio, video, code and other. `tidy plan <folder>` prints what it would
+> Let's build tidy - a command-line tool that sorts the files of a folder into subfolders by kind: images, documents, archives, audio, video, code and other. `tidy plan <folder>` prints what it would
 > move, one line a file, and moves nothing. `tidy apply <folder>` moves them, never overwriting a file: a name
 > that is taken gets ` (2)`, ` (3)` and so on. Hidden files and subfolders are left alone. `--by-date` sorts into
-> `YYYY/MM` folders by modified time instead. I'd like conformance tests too.
+> `YYYY/MM` folders by modified time instead.
 
-Asking to build it quickly starts `spawn` rather than the full interview, `brood`. It asks one more thing - the
-stack:
+**turri** starts `brood`, the interview. Its first question is how many questions you want to answer:
 
-- **The stack.** The standard library's command-line stacks your machine can build - Python with Typer or Click,
-  TypeScript with Commander, Go with Cobra, Rust with clap, Java with picocli - and `You choose`, which picks one of
-  them for you. Name a stack in your first message - "in Python", say - and it does not ask.
+- **How many questions.** Light, medium or thorough - at most 3, 5 or 10 questions in each of the stack and product
+  phases - or best judgement, where **turri** asks as much as it judges a phase needs. Fewer questions are broader
+  ones, so every level covers the same ground. Choose **light**: your first message already says most of it.
+  Whatever the questions leave open, **turri** decides itself, says in one line what it chose, and names it in the
+  phase's summary, so you can change it when you confirm.
 
-Then it reads the brief back to you in five lines. Confirm it, and it writes the rest:
+Then the phases, one question at a time:
 
-- **The stack's template**, `stdlib/cli/<stack>`. Whichever you chose, it settles what every CLI has to decide -
-  flags falling back to `TIDY_<SETTING>` environment variables, `Error: <message>` on standard error, exit codes `0`,
-  `1`, `2` and `130`, logs only on standard error, `--help` and `--version` - so the spec need not say any of it.
-- **The unit testing script**, `run_unittests_<language>.sh`.
-- **The conformance tests**, because you asked for them. `spawn` leaves them off otherwise. For a CLI they are
-  black-box: they run the tool on a temporary folder and check what it printed and what it moved. The stack's
-  conformance template, `stdlib/cli/conformance/<stack>`, sets out how.
-- **The product**, feature by feature: what counts as each kind, `plan`, `apply`, names that clash, `--by-date`.
-  Each feature is a spec change that starts growing as soon as it is written.
+- **Intent.** Its five questions - mostly confirming what you already said - and the brief, read back to you.
+- **Stack.** The standard library's command-line stacks your machine can build - Python with Typer or Click,
+  TypeScript with Commander, Go with Cobra, Rust with clap, Java with picocli. Whichever you choose, its template,
+  `stdlib/cli/<stack>`, settles what every CLI has to decide - flags falling back to `TIDY_<SETTING>` environment
+  variables, `Error: <message>` on standard error, exit codes `0`, `1`, `2` and `130`, logs only on standard error,
+  `--help` and `--version` - so the spec need not say any of it. It writes `tidy.plain` and the unit testing script,
+  `run_unittests_<language>.sh`, and reads the stack back.
+- **Testing.** Whether there are conformance tests. Say **yes**. For a CLI they are black-box: they run the tool on
+  a temporary folder and check what it printed and what it moved. The stack's conformance template,
+  `stdlib/cli/conformance/<stack>`, sets out how, and the conformance testing script is written from it.
+- **Product.** Three broad questions at most - the features and their order, say, with what fits your message
+  proposed for you to confirm or correct. Each answer becomes spec changes that start growing as soon as they are
+  written, before the next question. What the answers leave open - the details of `plan`, `apply`, names that clash,
+  `--by-date` - **turri** decides and writes itself, a spec change for each.
 
 Open `tidy.plain` while it writes. A functional spec reads like this:
 

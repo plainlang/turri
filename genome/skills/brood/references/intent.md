@@ -3,6 +3,10 @@
 Extract the user's intent before creating files or decomposing the product into specifications.
 Keep this phase short. Ask exactly five core questions, one at a time, and do not write to disk.
 
+The harness has already asked the first question of this phase: how many questions the stack and
+product phases may ask - light (3), medium (5), thorough (10) or best judgement. Do not ask it
+again; this phase's own questions are not capped by it.
+
 ## Questions
 
 1. **Problem** — What problem should this software solve?

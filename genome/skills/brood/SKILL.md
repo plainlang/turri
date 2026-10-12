@@ -3,7 +3,10 @@ name: brood
 description: >-
   `***plain` spec authoring in four phases - intent, stack, testing, product - where every answer
   in the product interview becomes one spec change, written as a git diff of the .plain files and
-  built the moment it is written, so code appears while the interview is still going. The testing
+  built the moment it is written, so code appears while the interview is still going. It first asks
+  how many questions the stack and product phases may ask - light, medium, thorough or best
+  judgement, broader with fewer - and decides what they leave open itself, each decision a spec
+  change of its own. The testing
   phase comes first, so each change is conformance tested as it is built: it decides on
   conformance tests and writes the test reqs and the conformance testing script. Gated review of
   the product phase. Use when the user starts a new project or wants to build
@@ -19,6 +22,12 @@ metadata:
     stack: "the language, frameworks, storage and architecture"
     testing: "whether there are conformance tests, and how they are written and run"
     product: "the product, feature by feature - each answer starts a regrow pulse"
+  # The phases the questioning level caps, asked by the harness as the first question: light 3,
+  # medium 5, thorough 10, best judgement as many as turri judges the phase needs.
+  questioning: [stack, product]
+  # Every answer in the product phase is a spec change: the next question waits until it is
+  # written with write_spec_diff. Changes turri decides itself need no answer before them.
+  spec-diff-per-answer: [product]
   gates:
     - after: product
       continuous:
@@ -62,7 +71,7 @@ it, self-certify it, or advance on an unmet box — so do not review your own wo
 What the gate needs from you is the **phase evidence record**. At the end of the product phase,
 call `write_artifact` with `product.md` and write the ordered account of what happened: each
 question asked, its answer, the spec change written in response and the build job it started,
-and every explicit decision. The judges check `[record]` boxes against it, `[disk]` boxes
+every spec change you decided yourself, without a question, and every explicit decision. The judges check `[record]` boxes against it, `[disk]` boxes
 against the files, and `[both]` by cross-checking the two. A product phase that writes no
 evidence record fails its gate without a judge being spent.
 
@@ -81,6 +90,36 @@ not ask for both. Do not ask the user to approve each spec change: they are answ
 questions, not running a review queue. After each change, say in one line what went into the
 spec, and carry straight on.
 
+## How many questions
+
+The first question of the intent phase is the harness's own, not yours: how many questions the
+**stack** and **product** phases may ask. The person picks one level, and it holds for each of
+them. The level sets how many questions there are and so how broad each is - never what they
+cover:
+
+| level | questions a phase | each question |
+| --- | --- | --- |
+| light | at most 3 | broad: a whole area at once - the features and their order, what the product does end to end - with what fits the brief proposed, for the person to confirm or correct |
+| medium | at most 5 | one feature or topic, with its main rules |
+| thorough | at most 10 | narrow: one feature, rule or edge case, with follow-ups on the ones that matter |
+| best judgement | as many as you judge the phase needs | as broad or as narrow as each area needs |
+
+At every level the questions reach all of the phase's topics; fewer questions only go less deep.
+The intent and testing phases are not capped. Follow-ups count; the closing confirmation of a
+phase - asked with `confirms_phase: true` - does not. Past the cap `ask_user` refuses the question.
+To stop sooner, or under best judgement once the phase is settled enough to build, call
+`end_questions`.
+
+The level limits the questions, never the spec changes. In the product phase **every answer is a
+spec change**, whatever the level: written with `write_spec_diff` and built at once, before the
+next question - `ask_user` refuses the next one until it is. A broad answer that covers several
+features is several changes, one a feature, and you write them all. What the questions leave
+open - the details of a light answer, what is left once they are over - is yours to decide, as a
+careful engineer would, in the light of the intent brief: each decision a spec change of its own,
+written with `write_spec_diff` with no answer needed before it, and said in one line. Write as many
+as the product needs. The phase's summary names every decision you made yourself, so the
+confirmation is where the person can change it.
+
 ## Question style
 
 - Ask with `ask_user`, one question per call, and always pass `options` so the user picks rather than types; reserve `free_form: true` for genuinely open prompts.
@@ -96,6 +135,9 @@ spec, and carry straight on.
 ## Steps
 
 ### intent
+
+The harness has asked how many questions the stack and product phases may ask before this phase
+starts; its note beside these instructions gives the answer. Do not ask it again.
 
 Read `references/intent.md` and ask its five core questions one at a time via `ask_user`.
 Ask at most one focused follow-up when an answer is too vague to summarize.
@@ -116,7 +158,8 @@ This phase ends on the user's confirmation. There is no gate and no artifact to 
 built the moment it is written.** A functionality cannot be rendered without knowing the
 language it is written in and the framework its tests use.
 
-Read `references/stack.md` and walk its topics in order: language, frameworks, storage,
+Read `references/stack.md` and walk its topics in order, within the questioning level (see "How
+many questions"): language, frameworks, storage,
 external services, structure and architecture, other constraints, anything else, and last the
 unit tests - generated code needs them from the first functionality onward.
 
@@ -148,7 +191,8 @@ choose it with `/stack <stack>` (`--stack <stack>` on the command line) before b
 Run `turri validate` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.
 
-Finish by summarizing the stack, the architecture and the unit testing script, and getting explicit confirmation. There is
+Finish by summarizing the stack, the architecture and the unit testing script - marking each
+choice you made without asking - and getting explicit confirmation, with `confirms_phase: true`. There is
 no gate on this phase — the user reading the stack back is the check.
 
 ### testing
@@ -156,7 +200,8 @@ no gate on this phase — the user reading the stack back is the check.
 Read `references/testing.md`. Carry the intent brief and the stack in; ask about neither again. Walk
 its topics in order. Nothing is built yet, and nothing is built in this phase.
 
-First the decision: are there conformance tests at all? Ask it explicitly, and write the answer to
+First the decision: are there conformance tests at all? Ask it explicitly - even when
+`config.turri.yaml` already says, ask, offering what it says first - and write the answer to
 `config.turri.yaml` as `conformance-tests:` - the chat and every build follow it. A project with
 only a `config.yaml` has it copied to `config.turri.yaml` first; never write `config.yaml`. Off, and the phase is
 done once the user confirms: the product phase's builds then write and run no conformance tests.
@@ -181,7 +226,8 @@ restart none of them. This
 is the whole product interview, walked **feature by feature** - never section by section. Do
 not fill in the definitions first and the functional specs after: that is not this skill.
 
-Walk its topics in order, and run this loop until the product is specified:
+Walk its topics in order, and run this loop while the questioning level allows (see "How many
+questions") - each question as broad as the level says:
 
 1. **Ask** one question with `ask_user` - about a feature, a step of a flow, a rule; never about
    a spec section.
@@ -191,15 +237,22 @@ Walk its topics in order, and run this loop until the product is specified:
    adds or changes.
 4. **Write it with `write_spec_diff`**, which applies it and starts a render spec diff job for it,
    whatever it touches. With conformance on, that build also writes and runs the change's
-   conformance tests. Move straight on to the next question; never wait for a build.
+   conformance tests. An answer that covers several features is a change for each: write them
+   all. Then the changes for what you decide yourself around it, if any.
+5. Move straight on to the next question; never wait for a build.
 
-One answer, one spec change, one render spec diff job. Correct something already written with
+Every answer, at least one spec change and one render spec diff job, written before the next
+question - at every level. Once the questions are over, write what is left of the product the same
+way - one decision of yours, one spec change - with no answer between. Correct something already
+written with
 a diff and `fixes_earlier`, before the next question. Never change a `.plain` file in this
 phase by any other means than `write_spec_diff`.
 
 Report each build result between questions, in one sentence. Use `drift` when the
 user asks how the builds are going.
 
-Finish by summarizing the full concept list and feature list in build order, saying what is
-built and what is still queued, getting explicit confirmation, and writing the evidence record
-to `product.md`.
+Finish by summarizing the full concept list and feature list in build order, marking what you
+decided without asking, saying what is built and what is still queued, getting explicit
+confirmation with `confirms_phase: true`, and writing the evidence record to `product.md` - with
+the questioning level, each question asked, and each spec change you wrote without one, marked as
+decided by you.

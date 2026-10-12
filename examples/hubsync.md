@@ -35,10 +35,9 @@ Put the token in a `.env` at the project root (and keep `.env` out of git):
 HUBSPOT_ACCESS_TOKEN=pat-eu1-...
 ```
 
-Then add these lines to `config.yaml` so that the agents can use it:
+Then add these lines to `config.turri.yaml` so that the agents can use it:
 
 ```yaml
-conformance-tests: true
 agent-env:
   files: [.env]
 ```
@@ -60,7 +59,10 @@ turri
 > `--dry-run` prints what it would do. It prints a summary - created, updated, unchanged, failed - and exits 1
 > if any row failed. The token comes from `HUBSPOT_ACCESS_TOKEN`.
 
-The interview follows **turri**'s rules for integrations, which come before the features:
+**turri** starts the interview, `brood`. It asks first how many questions the stack and product phases may ask -
+light, medium or thorough, at most 3, 5 or 10 a phase, or best judgement - fewer questions being broader ones.
+Choose **thorough**: narrow questions, because an integration has more edge cases worth your say than most. It then follows **turri**'s rules for integrations, which come before the
+features:
 
 - **The documentation, fetched.** The agent searches for HubSpot's current CRM contacts API and fetches the pages:
   endpoints, auth, errors, pagination, rate limits. It doesn't write the spec from memory.
@@ -72,6 +74,8 @@ The interview follows **turri**'s rules for integrations, which come before the 
   retrying, `resources/contract/` for the CSV's columns. The spec says what **hubsync** does with them.
 - **Its shape and stack.** Standalone: **hubsync** is a CLI of its own, not a library inside another codebase - on
   the command-line stack you choose, `stdlib/cli/<stack>`, from those your machine can build.
+- **Testing.** Whether there are conformance tests. Say **yes**: for an integration they are what shows it works
+  against the real provider.
 
 A functional spec then reads like this:
 

@@ -11,7 +11,10 @@ import { reviewNote, type LiveReviewer } from "./tools.ts";
 
 /** Whether a question has been answered since the last new spec change was written. */
 export interface SpecPace {
-  answered(): void;
+  /** A question was answered; `owesChange` false for one no change comes from - a phase's confirmation, a dismissal. */
+  answered(owesChange?: boolean): void;
+  /** Whether an answer has come since the last change, and is not written yet. */
+  owed(): boolean;
 }
 
 type AnyTool = ToolDefinition<any, any, any>;
@@ -31,9 +34,17 @@ export function createSpecDiffTools(options: {
   liveReview?: LiveReviewer;
   /** One new change per answer (the default); false, for a skill that writes the specs on its own. */
   paced?: boolean;
+  /**
+   * Whether the phase the interview is in lets a change come without an answer before it: one where each answer owes a
+   * change instead (`owed`, refused a next question until it is written), and the agent writes what it decides itself.
+   */
+  free?: () => boolean;
 }): { tools: AnyTool[]; pace: SpecPace } {
   const { loop, cwd, liveReview } = options;
-  const paced = options.paced !== false;
+  const skillPaced = options.paced !== false;
+  const isPaced = () => skillPaced && options.free?.() !== true;
+  /** An answer has come since the last change: it is owed one. */
+  let owed = false;
   let answeredSinceLastDiff = true;
 
   const writeDiff = defineTool({
@@ -47,7 +58,7 @@ export function createSpecDiffTools(options: {
     promptSnippet: "apply a git diff of the .plain specs and start building it",
     promptGuidelines: [
       "Every change to a .plain file in the product phase goes through write_spec_diff, as a git diff with paths relative to the project root. It writes the change and starts its build in one step.",
-      paced
+      skillPaced
         ? "One change per answer, and a new one only after the user has answered a question about it. Set fixes_earlier to correct something already written."
         : "Write the changes one after another, on your own: no answer is needed between them, and none is asked for. Set fixes_earlier to correct something already written.",
       "To take something out of what is already written and queued - the user drops a page or a feature - write the diff that removes it from every spec that names it, with fixes_earlier. What is left to build is worked out from the spec each time, and a build the change undoes is stopped by itself; never stop builds to drop a change - it stays in the files.",
@@ -67,6 +78,7 @@ export function createSpecDiffTools(options: {
       ),
     }),
     async execute(_id, params) {
+      const paced = isPaced();
       if (paced && params.fixes_earlier !== true && !answeredSinceLastDiff) {
         throw new Error(
           "No question has been answered since the last spec change. Each change comes from its own answer: ask " +
@@ -116,6 +128,7 @@ export function createSpecDiffTools(options: {
         }
       }
       if (params.fixes_earlier !== true) answeredSinceLastDiff = false;
+      owed = false;
       liveReview?.notice(`${params.plain_file}, after the change to ${touched.join(", ")}`);
 
       // In the files, the change is work: the loop works out what is left to build and plans it.
@@ -124,7 +137,11 @@ export function createSpecDiffTools(options: {
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
         `Building in the background:\n${describeModules(statuses)}\n`,
         // An interview goes back to its questions; a skill that writes on its own, straight to its next change - a stop to ask ends it.
-        paced ? "Carry on with the interview." : "Write the next change now, without stopping to ask: this skill goes on until everything it is to write is written.",
+        paced
+          ? "Carry on with the interview."
+          : skillPaced
+            ? "Carry on: write the next change you decided yourself, or ask the next question - every answer is written as a change before the question after it."
+            : "Write the next change now, without stopping to ask: this skill goes on until everything it is to write is written.",
       ];
       return {
         content: [{ type: "text" as const, text: lines.join(" ") + reviewNote(liveReview) }],
@@ -136,9 +153,11 @@ export function createSpecDiffTools(options: {
   return {
     tools: [writeDiff],
     pace: {
-      answered() {
+      answered(owesChange = true) {
         answeredSinceLastDiff = true;
+        if (owesChange) owed = true;
       },
+      owed: () => owed,
     },
   };
 }

@@ -22,7 +22,7 @@ mkdir ~/cognio && cd ~/cognio
 turri init-config
 ```
 
-`init-config` asks which vendor's models you use - Anthropic, OpenAI, Google, or other - and writes a `config.yaml`
+`init-config` asks which vendor's models you use - Anthropic, OpenAI, Google, or other - and writes a `config.turri.yaml`
 with two of theirs, the two models **turri** works with - and, below them, every other key commented out with what
 it does, to read and try later. Choose other, and it is a mix:
 
@@ -38,7 +38,7 @@ These two are only an example: you are not tied to a vendor. **turri** runs on [
 pi supports works, signed in any way pi supports - an API key, `/login` with a subscription, a cloud account such
 as Amazon Bedrock. Keep the split - a capable model to talk to, a smaller one for the coding - and change the two
 lines to the models you have. `init-config` tells you which keys to set, or to `/login`. Sign in to their providers,
-then start **turri** - in this folder: it reads the `config.yaml` here, not one anywhere else:
+then start **turri** - in this folder: it reads the `config.turri.yaml` here, not one anywhere else:
 
 ```bash
 export ANTHROPIC_API_KEY=...   # or skip these, and type /login once turri has started
@@ -61,6 +61,11 @@ Tell it, in your own words - this is how cognio began:
 **turri** starts the `brood` skill: an interview that writes the spec as you answer. Every question comes with
 choices - pick one, or type your own answer.
 
+- **How many questions.** The first question is how many the stack and product phases may ask: light, medium or
+  thorough - at most 3, 5 or 10 a phase - or best judgement, where **turri** asks as much as it judges a phase needs.
+  Every level covers the same ground: fewer questions are broader ones. Whatever the questions leave open, **turri**
+  decides itself and says what it chose; each phase's summary names those choices, so you can change them before you
+  confirm. Choose **thorough** for this walkthrough, to see the whole interview, one narrow question at a time.
 - **Intent.** Who is it for, what is the outcome, how will you know it works, and what is left out. It reads the
   brief back to you; confirm it, or correct it.
 - **Stack.** It offers the standard library's backend stacks your machine can build - FastAPI, Flask or Django in
@@ -167,4 +172,4 @@ A few more things to ask for along the way:
 - [Using **turri**](../docs/using.md) - the conversation, the skills and tools, the side panel, the command line.
 - [Authoring \*\*\*plain](../docs/authoring-plain.md) - how specs are written, and the skills that write them.
 - [Growing](../docs/growing.md) - what a pulse does, step by step.
-- [The project config](../docs/config.md) - every key of `config.yaml`.
+- [The project config](../docs/config.md) - every key of `config.turri.yaml`.

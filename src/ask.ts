@@ -39,7 +39,7 @@ export interface AskUserIO {
 
 export const OTHER_OPTION = "Something else…";
 export const DONE_OPTION = "Done — that's all of them";
-const DISMISSED = "The user dismissed the question without answering.";
+export const DISMISSED = "The user dismissed the question without answering.";
 
 /**
  * A question with no options and no `free_form` is refused rather than asked.

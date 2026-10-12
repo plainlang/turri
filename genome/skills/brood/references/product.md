@@ -9,15 +9,34 @@ is built the moment it is written.
 
 Carry the confirmed intent brief and the settled stack in. Do not restart either.
 
-## One question, one answer, one spec change, one render
+## How many questions
 
-Every iteration is exactly this:
+The questioning level caps this phase's questions (light 3, medium 5, thorough 10, or best
+judgement - `SKILL.md`, "How many questions"), and so sets how broad each is. Every level walks
+all the topics below: light in a few broad questions - the features and their order in one, what
+they do end to end in another, with what fits the brief proposed for the person to confirm or
+correct; thorough in narrow ones, a feature, rule or edge case each. The level limits the
+questions, never the spec changes:
+
+- **Every answer is a spec change**, at every level: written with `write_spec_diff` and built at
+  once, before the next question - `ask_user` refuses the next question until it is. A broad
+  answer covering several features is a change for each.
+- **What the questions leave open is yours** - the details under a broad answer, and everything
+  still open once the questions are over (the cap reached, or `end_questions` called). Each
+  feature, edge case and rule you decide is its own spec change, written with `write_spec_diff`
+  with no answer needed before it, and said in one line. Write as many as the product needs.
+  Decide from the intent brief and the answers so far; leave out what they do not call for rather
+  than invent scope.
+
+## One question, one answer, a spec change, a render
+
+Every iteration is exactly this, at every questioning level:
 
 1. **Ask one question** with `ask_user`, about the product: a feature, its trigger and outcome,
-   one of its edge cases or rules, the next step of a flow. Never bundle two, and never ask about
+   one of its edge cases or rules, the next step of a flow - as broad as the level says. Never bundle two, and never ask about
    a spec section ("what concepts are there?", "what reqs apply?") - ask about what the product
    does, and let the answer decide which sections change.
-2. **Turn the answer into one spec change** - everything it calls for, across sections:
+2. **Turn the answer into a spec change** - one for each feature it covers - everything it calls for, across sections:
    - a concept the feature introduces, into `***definitions***`, following `add-concept`, defined
      in the same change as the functional spec that first uses it;
    - a technology-free policy the answer states, into `***implementation reqs***`;
@@ -27,13 +46,15 @@ Every iteration is exactly this:
    `--- a/<file>`, `+++ b/<file>`, then the hunks with a few lines of unchanged context. Paths
    are relative to the project root.
 3. **Write it with `write_spec_diff`.** It applies the diff and starts a render spec diff job for
-   it in the same call - whatever the change touches, a definition alone included. Move straight
-   on to the next question; never wait for a build.
+   it in the same call - whatever the change touches, a definition alone included. Write every
+   change the answer calls for before the next question - `ask_user` refuses it until then - and
+   any you decide yourself beside them. Move straight on to the next question; never wait for a
+   build.
 
-**One answer, one change.** A follow-up about the same feature - an edge case, a validation
-rule - is its own answer and its own change to that feature's spec. An answer that describes
-two features is two: write the first, then ask about the second. A change never carries
-anything the user was not asked about.
+**One answer, at least one change.** A follow-up about the same feature - an edge case, a
+validation rule - is its own answer and its own change to that feature's spec. An answer that
+describes two features is two changes, both written before the next question. A change never
+carries both an answer and something you decided: what you decide is a change of its own.
 
 **Fix contradictions in place.** When a later answer refines or contradicts something already
 written, write the correction as its own diff with `fixes_earlier` set, before the next

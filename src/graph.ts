@@ -142,6 +142,10 @@ export function compileSkill(opts: {
   startAt?: string;
   /** Called as each step starts, with the state it starts from - what a resumed run restores. */
   onStepStart?: (step: string, state: GenomeStateType) => void;
+  /** Called once a step is reported started, before its agent is prompted: the harness's own question goes here. */
+  beforeStep?: (step: string) => Promise<void>;
+  /** What the harness tells the agent as a step starts, beside its instructions - the questioning level, say. */
+  stepNote?: (step: string) => string | undefined;
 }) {
   const { skill, report } = opts;
   const graph = new StateGraph(GenomeState) as any;
@@ -159,8 +163,14 @@ export function compileSkill(opts: {
       // Only the first step needs it: the executor keeps one session across every step,
       // so it is already in the history by the time the second runs.
       const context = index === 0 ? opts.context : undefined;
-      const prompt =
-        resuming === step.name && !state.critique ? resumePrompt(step) : stepPrompt(skill, step, state.critique, context);
+      await opts.beforeStep?.(step.name);
+      const note = state.critique ? undefined : opts.stepNote?.(step.name);
+      const prompt = [
+        resuming === step.name && !state.critique ? resumePrompt(step) : stepPrompt(skill, step, state.critique, context),
+        note,
+      ]
+        .filter((part) => part !== undefined && part !== "")
+        .join("\n\n");
       resuming = undefined;
       let reply = await ask(opts.executor, prompt);
       // A question in the reply reaches no one - the person sees only what ask_user asks - and the step ends with the

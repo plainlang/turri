@@ -8,7 +8,9 @@ import { toolchainsBlock } from "./stack.ts";
 import { describeToolCall, describeToolResult } from "./grow/activity.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
-import { createAskUserTool, createReviewTools, createWriteArtifactTool, withReviewNote, type AskUser } from "./tools.ts";
+import { createAskUserTool, createEndQuestionsTool, createReviewTools, createWriteArtifactTool, withReviewNote, type AskUser } from "./tools.ts";
+import { DISMISSED } from "./ask.ts";
+import { createQuestioning, levelOf, questioningQuestion, type Questioning, type QuestioningState } from "./questioning.ts";
 import { createSpecDiffTools } from "./spec-tools.ts";
 import { createMatureTools, MATURE_TOOLS } from "./mature-tools.ts";
 import type { JobRegistry } from "./grow/jobs.ts";
@@ -111,11 +113,43 @@ export async function runSkill(opts: {
   const writeArtifact = createWriteArtifactTool(runDir);
   const customTools: ToolDefinition[] = [writeArtifact];
 
+  // The questioning level, asked first in a skill whose phases it caps - when there is someone to ask. A resumed run
+  // keeps the one it was given, and how far each phase's questions went.
+  const capsQuestions = skill.questioning.length > 0 && opts.askUser !== undefined;
+  let questioning: Questioning | undefined;
+  const keepQuestioning = (state: QuestioningState) => {
+    manifest.questioning = state;
+    writeManifest(runDir, manifest);
+  };
+  const startQuestioning = (level: string, from?: QuestioningState) =>
+    (questioning = createQuestioning({ level: levelOf(level), phases: skill.questioning, from, onChange: keepQuestioning }));
+  if (capsQuestions && resumed?.questioning !== undefined) startQuestioning(resumed.questioning.level, resumed.questioning);
+  // The step running now, and whether each of its answers is a spec change: then the next question waits until the last
+  // answer is written, and a change the agent decides itself needs no answer before it.
+  let currentStep = "";
+  const diffPerAnswer = () => skill.diffPerAnswer.includes(currentStep);
+  const holdsQuestions = capsQuestions || (skill.diffPerAnswer.length > 0 && opts.askUser !== undefined);
+  const questions = {
+    refusal: (confirmsPhase: boolean) =>
+      diffPerAnswer() && diffs?.pace.owed() === true
+        ? "This question was not asked: the last answer is not in the spec yet. Every answer in this phase is a spec " +
+          "change, built at once - write it with write_spec_diff first, then ask."
+        : questioning?.refusal(confirmsPhase),
+    answered: (confirmsPhase: boolean) => questioning?.answered(confirmsPhase),
+    end: () => questioning?.end() ?? "No questioning level was chosen: ask what the phase needs.",
+  };
+
   // A skill whose unit of work is a spec change gets write_spec_diff: the change is applied
   // and its build queued in one step.
   const diffs =
     opts.renderQueue !== undefined && skill.allowedTools.includes(WRITE_SPEC_DIFF)
-      ? createSpecDiffTools({ loop: opts.renderQueue, cwd: opts.cwd, liveReview: liveProxy, paced: skill.paced })
+      ? createSpecDiffTools({
+          loop: opts.renderQueue,
+          cwd: opts.cwd,
+          liveReview: liveProxy,
+          paced: skill.paced,
+          free: diffPerAnswer,
+        })
       : undefined;
 
   // What the agent says between its questions - a brief to confirm, a plan - reaches the person only with
@@ -127,13 +161,16 @@ export async function runSkill(opts: {
     customTools.push(
       createAskUserTool(
         opts.askUser,
-        () => {
+        (answer, confirmsPhase) => {
           said = "";
-          diffs?.pace.answered();
+          // A phase's confirmation, or a question dismissed, owes the spec nothing.
+          diffs?.pace.answered(!confirmsPhase && answer !== DISMISSED);
         },
         () => said,
+        holdsQuestions ? questions : undefined,
       ),
     );
+    if (capsQuestions) customTools.push(createEndQuestionsTool(questions));
   }
   if (opts.renderQueue !== undefined) {
     customTools.push(...createReviewTools(liveProxy));
@@ -242,6 +279,18 @@ export async function runSkill(opts: {
         manifest.attempts = state.attempts;
         writeManifest(runDir, manifest);
       },
+      beforeStep: async (step) => {
+        currentStep = step;
+        if (!capsQuestions) return;
+        // The first question of the first phase is the harness's: how many the capped phases may ask.
+        if (questioning === undefined) {
+          const asked = questioningQuestion(skill.questioning);
+          startQuestioning(await opts.askUser!({ ...asked, said: "" }));
+          keepQuestioning(questioning!.state());
+        }
+        questioning!.enter(step);
+      },
+      stepNote: (step) => questioning?.note(step, step === skill.steps[0]!.name),
     }).compile({
       checkpointer: new MemorySaver(),
     });
@@ -286,6 +335,8 @@ interface RunManifest {
   step?: string;
   artifacts: Record<string, string>;
   attempts: Record<string, number>;
+  /** The questioning level chosen, and how far each phase's questions went. */
+  questioning?: QuestioningState;
   updatedAt: string;
 }
 

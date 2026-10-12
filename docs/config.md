@@ -233,7 +233,7 @@ conversation, or with `--conformance` / `--no-conformance` on the command line, 
 otherwise.
 
 `spawn` writes `conformance-tests: false` into a new project unless you ask for tests;
-`brood` asks.
+`brood` asks, whatever the key says, offering what it says first.
 
 ## The testing scripts
 
