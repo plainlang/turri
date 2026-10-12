@@ -19,7 +19,7 @@ npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one 
 npm run chat                                   # pi with the extension loaded straight from src/
 turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
 turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
-turri init-config                        # a quick start config.turri.yaml in the current folder: the two models, every other key commented out
+turri init-config                        # a quick start config.turri.yaml in the current folder: the two models, every other setting at its default
 turri doctor                             # what the machine lacks (bash, the OS sandbox, a model provider; in a project, its toolchains)
 ```
 
@@ -51,7 +51,7 @@ committing the renames alone. `plain_modules` and `.plaingit` are the ***plain l
 `drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
 which drives the work loop as the chat does. The old names (`module`, `regenerate`, `conformance`, `check`,
-`deploy`, `skill`) are aliases. `setup` and `doctor` go to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
+`deploy`, `skill`) are aliases. `doctor` goes to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
 `cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).

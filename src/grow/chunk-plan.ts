@@ -477,7 +477,8 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
   // Anything else changes what is built on - an edit, a removal, a functional spec built changed or put in among them.
   const builtChanges = net.filter((change) => !inSpecs.has(change) && !placedByKind.has(change) && !otherAdds.includes(change));
   const hasBuilt = builtChanges.length > 0;
-  const whole: DraftJob[] = [{ title: "The spec change", reason: "the whole of the work, in one job", changes: net.map((change) => change.id) }];
+  // Named as the person asks for it: "shorty.plain regrow".
+  const whole: DraftJob[] = [{ title: "regrow", reason: "the whole of the work, in one job", changes: net.map((change) => change.id) }];
   if (specs.length === 0) return checkDraft(input, whole).length === 0 ? whole : [];
 
   // 1. Which functional specs go together.

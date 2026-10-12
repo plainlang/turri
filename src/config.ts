@@ -19,7 +19,7 @@ import { projectDirOf } from "./grow/paths.ts";
  *   thinking: medium
  * judge-model:                                              # the judge and the test review (default: coding-model)
  *   model: google/gemini-3.1-pro
- * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chat chose) or false (default: all, with test reqs)
+ * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chat chose) or false (default: false)
  * conformance-budget: 30%                                   # under chosen: how many functional specs a module may have chosen, beside those with acceptance tests - a count or a share (default: no limit)
  * review: false                                             # review the code and its tests once they pass (default: true)
  * allow-to-stop-jobs: false                                 # stop a running job the spec moved on from (default: true)
@@ -28,7 +28,7 @@ import { projectDirOf } from "./grow/paths.ts";
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * prepare-environment-script: test_scripts/prepare_environment.sh  # optional: run before the conformance testing script - see test-scripts.ts
- * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters - see test-scripts.ts
+ * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters, formatting - with the unit tests, and counting - see static-checks.ts
  * testing-scripts-run-on: in-place                         # what the testing scripts run on: in-place (default), or copy - see test-scripts.ts
  * turn-limit: 150                                           # seconds each turn of an agent a render starts has (default: 120; 0 for none)
  * models:                                                   # each agent role's own model, thinking and turn limit - see AGENT_ROLES
@@ -40,8 +40,8 @@ import { projectDirOf } from "./grow/paths.ts";
  * `models:` names a model, a thinking level and a turn limit per agent role (AGENT_ROLES), each falling back as
  * roleModel says: a role it does not name takes `default`, and what an entry leaves out it takes from there too.
  * `harness-model`, `coding-model` and `judge-model` are the same as `models: chat`, `coding` and `judge`, which win
- * over them. The turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes;
- * TURRI_TURN_LIMIT wins over all of them.
+ * over them. The turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes - the
+ * config is the only place it is set.
  *
  * Each model is a model reference and a thinking level (off, minimal, low, medium, high, xhigh, max),
  * either of which may be left out; a bare string is the model alone. What a model leaves out it takes
@@ -402,7 +402,7 @@ export interface ProjectConfig {
   conformanceTestsScript?: string;
   /** Run on the build before every conformance testing script run, as codeplain does: `<script> <build folder>`. */
   prepareEnvironmentScript?: string;
-  /** Path from the root to the static checks script - optional: the coding agent's to run, never a gate. */
+  /** Path from the root to the static checks script - optional: run with the unit testing script, both to pass; `--fix` formats the code. */
   staticChecksScript?: string;
   /**
    * What the testing scripts run on, on this machine: the code in place (the default) - as for an integration whose
@@ -478,6 +478,11 @@ function conformanceSetting(value: unknown): boolean | "chosen" | undefined {
   if (typeof value === "boolean") return value;
   const word = typeof value === "string" ? value.trim().toLowerCase() : undefined;
   return word === "all" ? true : word === "chosen" ? "chosen" : word === "false" ? false : word === "true" ? true : undefined;
+}
+
+/** Whether `conformance-tests:` turns the conformance tests on: all (true) or chosen. Not set, they are off, as with false. */
+export function conformanceSwitchedOn(setting: ProjectConfig["conformanceTests"]): boolean {
+  return setting === true || setting === "chosen";
 }
 
 /** `conformance-budget:` - a whole number, or a share such as `30%`. Anything else is not read. */

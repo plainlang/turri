@@ -36,8 +36,11 @@ talk to and a smaller, cheaper one for the coding. Once written, it says what to
 shell - or `/login` in turri, which pi keeps in `~/.pi/agent/auth.json` - and that the file belongs to that folder:
 turri reads the nearest `config.turri.yaml` upwards from where it starts, so one written anywhere else is not seen.
 
-Below them it puts every other key, commented out - each with what it does, what it is unset, and an example
-value - so you can see what there is and try one by uncommenting it.
+Below them it writes every other setting out, each with what it does and the value turri uses for it - `review: false`,
+`turn-limit: 120`, `parallel-jobs` as this machine's cores make it - so the file says how the project is built, and you
+change one by changing it. The optional ones, which have no value of their own - the testing scripts (written in by the
+skill that writes them), `module`, `conformance-budget`, `judge-model`, `models` - are there commented out, each with an
+example: uncomment one to use it. A key taken out of the file is still read as the table below says.
 
 Beside a `config.yaml` - codeplain's - the new file takes from it the keys turri reads too, each in its place, its
 testing scripts above all, and says which it left (see [the old config.yaml](#the-old-configyaml)); `config.yaml`
@@ -105,7 +108,7 @@ coding-model:                        # every render (default: harness-model)
 judge-model:                         # the verdicts of a conformance run (default: coding-model)
   model: amazon-bedrock/eu.anthropic.claude-sonnet-5
   thinking: medium
-conformance-tests: true              # write and run conformance tests (default: where there are test reqs)
+conformance-tests: true              # write and run conformance tests where there are test reqs (default: false)
 unittests-script: test_scripts/run_unittests_python.sh
 conformance-tests-script: test_scripts/run_conformance_tests_python.sh
 testing-scripts-run-on: copy         # what the testing scripts run on: copy - a fresh copy (default: in-place - the code itself)
@@ -116,29 +119,29 @@ models:                              # each agent role's model, thinking and tur
   explorer: google/gemini-3.1-flash-lite
 ```
 
-| key | what it sets | unset |
+| key | what it sets | left out |
 | --- | --- | --- |
 | `module` | the `.plain` file `turri regrow` and `regrow` build when none is named, from the project root | a file has to be named |
 | `harness-model` | the model `turri` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regrow`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
-| `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `all`, for every module with test reqs |
+| `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `false` |
 | `conformance-budget` | under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside those with acceptance tests - a count (`2`) or a share of its functional specs (`30%`, rounded up, at least one). Every choice for the module counts, whenever it was made - ahead of the code, or once it is built; the chooser and the chat model are told what is left, and `turri regrow`'s chooser can choose no more. Your own `bind` is not limited. A stack's `config.turri.<stack>.yaml` can set its own | no limit |
-| `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `true` |
+| `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `false` |
 | `rules-off` | a list of rule names - `integrations`, `concise-specs`, the files of `genome/rules/` without `.md` - left out of the conversation's prompt and every spec-writing agent's: a rule this project's own skills or AGENTS.md replace, such as one that says to probe a live API before any spec is written. The project's alone | none |
 | `allow-to-stop-jobs` | `true` or `false`: whether turri stops a running job the spec has moved on from - a functional spec it grows changed, or a file one links was edited - rolls it back and grows the spec as it now is. `false`: the job runs to its end and lands, and what changed since is grown on top of it by the next job - see [growing the code](growing.md). Your own `halt` stops a job either way | `true` |
 | `release-after-pulse` | `true` or `false`: whether every pulse that lands code releases it, in the chat, as its last stage - before the module's next pulse starts, whatever the chat is doing: an agent on the coding model looks for the project's release guidance as the chat does (what was passed to `release` this conversation, AGENTS.md, the project's skills) and, when it says to release after a build, does what it says - see [deploy](deploy.md#after-every-pulse). One release a pulse that lands; a release that fails is said in the pulse's report, and what it landed stays | `false` |
 | `unittests-script` | the unit testing script, by path from the project root | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
 | `prepare-environment-script` | optional, as codeplain has it: run as `<script> <build>` before every run of the conformance testing script, which runs only once it passes - see [the testing scripts](growing.md#the-testing-scripts). turri never writes one | the one `prepare_environment*.sh` at the root or in `test_scripts/`, else none |
-| `static-checks-script` | optional: the project's static checks - type checker, linter - run as `<script> <build>`, as the unit testing script is; the coding agent runs them with `run_static_checks`, and they decide nothing - see [checking its own work](growing.md#checking-its-own-work) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
+| `static-checks-script` | optional: the project's static checks - type checker, linter, formatter in check mode - run as `<script> <build>` beside the unit testing script, and the coding agent's work passes only when both do, within the same rounds; before each run the harness formats the code with `<script> <build> --fix`. The coding agent also runs the checks alone with `run_static_checks`. The conformance track does not run them - see [the static checks](growing.md#the-static-checks) | the one `run_static_checks*.sh` at the root or in `test_scripts/`, else none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](growing.md#agent-sessions) |
 | `max-specs-per-pulse` | the most functional specs the planner groups into one pulse - what builds one feature goes together, up to this many; a stack's file wins | 3 |
 | `max-lines-per-pulse` | the most lines of spec in one pulse - its functional specs with the definitions they bring; a group past it is split again, a functional spec a pulse; a stack's file wins | 120 |
 | `parallel-jobs` | how many jobs the chat runs at once - modules that share nothing build side by side up to it; read when the chat starts, from the folder it starts in | half this machine's cores, between one and four - see [how many jobs at once](#how-many-jobs-at-once) |
 | `agent-env` | credentials the agents' commands need while they work - a live API probed, tests run against a real service: `files: [...]`, dotenv files by path from the project root, every variable in them; `vars: [...]`, variables by name from the environment turri was started in. A stack's `config.turri.<stack>.yaml` adds its own to the project's. See [credentials for the agents](#credentials-for-the-agents) | none: an agent's commands get no credential |
 | `toolchains` | folders of this machine an agent's commands may read beside the system's, the `PATH`'s and those the toolchain variables point at - a toolchain installed somewhere unusual (`[/srv/zig]`). A stack's add to the project's. See [the OS sandbox](sandbox.md#the-os-sandbox) | none |
-| `turn-limit` | seconds each turn of an agent a job starts has, for every role without its own (`models:`); `0` for none. `TURRI_TURN_LIMIT` wins over it. A turn past it ends at its next request to the model - see [growing the code](growing.md) | 120 |
+| `turn-limit` | seconds each turn of an agent a job starts has, for every role without its own (`models:`); `0` for none. The config is the only place it is set. A turn past it ends at its next request to the model - see [growing the code](growing.md) | 120 |
 | `models` | each agent role's own model, thinking and turn limit - see [models per role](#models-per-role) | every role on `coding-model`, the conversation's side on `harness-model` |
 | `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `in-place`: the real build and tests folders, the script at its own path, from the project - so a script that finds a host codebase from its own path finds it. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`, with the script copied beside it; it gives the coding agent `can_it_fail` (see [the testing scripts](growing.md#the-testing-scripts)) | `in-place` |
 
@@ -168,8 +171,7 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 | `debugger` | the fresh look at unit tests that keep failing the same way, or a coding agent going round in circles. Unnamed, `judge-model` when it is set, else the harness model - not `default` |
 
 What an entry leaves out it takes from `default`: `reviewer: { thinking: low }` runs the default model, thinking
-little. A turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes; `TURRI_TURN_LIMIT`
-wins over all of them. A stack's `config.turri.<stack>.yaml` lays its own `models:` over the project's, role by role - all but
+little. A turn limit is the role's own, else `default`'s, else `turn-limit:`, else two minutes. A stack's `config.turri.<stack>.yaml` lays its own `models:` over the project's, role by role - all but
 `chat`, the project's alone.
 
 A role whose thinking nothing names - neither its entry, `default`'s, nor a `:level` on the model it runs on - thinks
@@ -188,7 +190,7 @@ Jobs on the same module, or on modules of one `requires` chain, always run one a
 Modules that share nothing - a backend, a frontend, a worker, ten of them - build side by side, each
 pulse's builds and tests running on this machine beside your own work. So the chat runs at most `parallel-jobs` jobs
 at once; a job whose turn has come waits for a free slot past that, and its line says so. Unset, it is half this
-machine's cores, at least one and at most four. `TURRI_PARALLEL_JOBS` wins over the config. It is the project's alone,
+machine's cores, at least one and at most four. The config is the only place it is set. It is the project's alone,
 never read from a stack's file.
 
 The testing scripts all run on this machine, each on a copy of its module's code, so they never
@@ -226,9 +228,10 @@ A job keeps the model it was queued with: choosing another holds for what is que
 
 `conformance-tests:` is the one switch, and the chat, every render and `brood`'s testing phase
 follow it. `false` turns them off entirely: no conformance tests are written, the ones already in a
-codebase are not run, and no agent is shown the conformance testing script. `true`, or no key, means
-on wherever a module has `***test reqs***` - a module without them has nothing to write conformance
-tests from, so it writes none, but still keeps the codebase's existing ones passing. Asked in the
+codebase are not run, and no agent is shown the conformance testing script. No key is the same as
+`false`: conformance tests are off by default. `all` (or `true`) means on wherever a module has
+`***test reqs***` - a module without them has nothing to write conformance tests from, so it writes
+none, but still keeps the codebase's existing ones passing. Asked in the
 conversation, or with `--conformance` / `--no-conformance` on the command line, a render does
 otherwise.
 

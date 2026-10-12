@@ -94,14 +94,6 @@ stand.
    interaction: what the user sees and what it does, still language- and framework-agnostic.
 5. **Anything else** - anything the user wants to add or change that has not been covered.
 
-## The reviewer reading along
-
-A read-only reviewer re-reads the module every time you write a spec change. Its findings
-arrive on your next `write_spec_diff` or `drift` result. Fix what they name with a
-diff and `fixes_earlier` before the next question. If a finding carries a question, ask the
-user at your next turn, say it came from the review, write the answer as a diff, and pass it
-back with `reply_to_review`. Never argue with a finding; the fix is the reply.
-
 ## Reporting builds
 
 Report each build result between questions, in one sentence. A failed build does not stop the

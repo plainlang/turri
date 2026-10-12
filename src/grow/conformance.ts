@@ -338,8 +338,8 @@ export async function renderConformanceTests(
   let failedReviews = 0;
   let reviewWaived: ReviewProblem[] | undefined;
   /** What each review that sent the tests back found, oldest first: what the arbiter weighs the next one against. */
-  // The config's `review:` - off, the tests are not reviewed.
-  const reviewOn = configForSpec(options.plainFile).review !== false;
+  // The config's `review:` - off unless it says true: the tests are not reviewed.
+  const reviewOn = configForSpec(options.plainFile).review === true;
   const reviewHistory: ReviewProblem[][] = [];
   let specConflict: RenderConformanceTestsResult["specConflict"];
   let environment: RenderConformanceTestsResult["environment"];

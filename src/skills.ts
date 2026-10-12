@@ -4,7 +4,7 @@
  * project's skill is run the same way: its steps, its gates and judges, the tools its frontmatter names.
  *
  * A name is one skill: turri's own come first, then `.turri/skills/`, then `.agents/skills/`, and a skill whose name is
- * taken already is left out and said to be - a project's `brood` never quietly stands in for turri's and its gates.
+ * taken already is left out and said to be - a project's `brood` never quietly stands in for turri's.
  */
 
 import { readdirSync } from "node:fs";

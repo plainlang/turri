@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
-process.env.TURRI_TURN_LIMIT = "1";
 process.env.TURRI_TURN_GRACE = "1";
 process.env.TURRI_PROVIDER_RETRY_DELAY = "0.01";
 const { ask, timeTurns } = await import("../src/pi.ts");
@@ -25,7 +24,7 @@ function slowSession() {
 describe("an agent's turn", () => {
   it("is ended where it is once the grace after its time is up too - without being told its time - then the harness takes it from there", async () => {
     const { session, prompts, aborted } = slowSession();
-    timeTurns(session);
+    timeTurns(session, 1000);
     const started = Date.now();
     const reply = await ask(session, "Fix the failing test.");
     expect(Date.now() - started).toBeLessThan(5000);
@@ -59,7 +58,7 @@ describe("an agent's turn", () => {
         finish();
       },
     } as unknown as AgentSession;
-    timeTurns(session);
+    timeTurns(session, 1000);
     const reply = await ask(session, "Fix the failing test.");
     expect(requests).toBe(1);
     expect(aborted).toBe(1);

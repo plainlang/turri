@@ -62,7 +62,7 @@ describe("the static checks", () => {
 
 describe("the coding agent told to check its own work", () => {
   it("by the tools it has, and not at all with none", () => {
-    expect(selfCheckNote(["my_diff", "can_it_fail", "run_static_checks"]).join("\n")).toMatch(/run_static_checks before the unit tests.*can_it_fail.*read my_diff/);
+    expect(selfCheckNote(["my_diff", "can_it_fail", "run_static_checks"]).join("\n")).toMatch(/run_static_checks as you go.*they count.*can_it_fail.*read my_diff/);
     expect(selfCheckNote(["my_diff"]).join("\n")).not.toContain("can_it_fail");
     expect(selfCheckNote([])).toEqual([]);
   });

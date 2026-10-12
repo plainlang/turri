@@ -10,7 +10,7 @@ hour or so, most of it the agents' time.
 
 ## 1. Before you start
 
-Install **turri** as the [quick start](../README.md#quick-start) says, and run `turri setup`. You choose the stacks
+Install **turri** as the [quick start](../README.md#quick-start) says, and run `turri doctor`. You choose the stacks
 as you go: the backend in Python, TypeScript, Go, Rust or Java, the web app in React, Vue, Svelte or Angular. The
 agents use the toolchains on your machine and install none, so the interview offers only the stacks it can build -
 a web app always needs Node. `turri doctor` lists what is there.

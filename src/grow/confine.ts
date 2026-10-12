@@ -116,11 +116,11 @@ function refuseNotes(path: string): void {
 function refuseHarnessFiles(path: string): void {
   const name = basename(path);
   if (isCredentialFile(path)) throw new ConfinementError(credentialRefusal(path));
-  if (path.split(sep).includes("test_scripts") || /^(run_unittests|run_unit_tests|run_conformance_tests|prepare_environment)[^/]*\.sh$/.test(name)) {
+  if (path.split(sep).includes("test_scripts") || /^(run_unittests|run_unit_tests|run_conformance_tests|run_static_checks|prepare_environment)[^/]*\.sh$/.test(name)) {
     throw new ConfinementError(
       `${name} is a copy of the project's testing scripts, and those are not written here. They are not in your ` +
         "workspace, and are never copied, recreated or run by you: call run_unit_tests and run_conformance_tests, " +
-        "which run them exactly as the harness does.",
+        "which run them exactly as the harness does - and run_static_checks, for the static checks.",
     );
   }
   if (name.endsWith(".plain")) {

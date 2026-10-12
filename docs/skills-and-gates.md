@@ -15,14 +15,14 @@ Under `metadata:`, which the Agent Skills spec reserves for arbitrary key-values
 
 ```yaml
 ---
-name: brood
-description: End-to-end ***plain spec authoring workflow.
+name: draft-spec
+description: Drafts a ***plain spec, judged before it is kept.
 allowed-tools: [read, write, edit, bash, ls, grep, find]
 metadata:
   gates:
     - after: product                      # the ### step this gate guards
       review:
-        rubric: ./references/rubric-product.md
+        rubric: ./references/rubric.md
         judges: 2                         # independent sessions, not n samples of one
         model: anthropic/claude-sonnet-5  # optional; defaults to the executor's model
         quorum: all                       # all | majority | any
@@ -43,8 +43,8 @@ metadata:
 A skill declares its steps with a `## Steps` section whose `###` headings are the steps; without
 it the whole skill is one step, which is what most skills are. Steps are never inferred from `###`
 headings elsewhere in the body - prose skills are full of those. Each gate becomes a conditional
-edge after its step; a single-step skill is gated by naming the skill itself. `brood`
-declares gates today.
+edge after its step; a single-step skill is gated by naming the skill itself. None of the skills turri ships
+declares a gate today - `brood`'s phases end on the person's confirmation alone - but a project's own skill can.
 
 `paced: false` under `metadata:` lets a skill write spec changes one after another on its own:
 `write_spec_diff` otherwise refuses a new change until the user has answered a question since the
@@ -136,9 +136,21 @@ change the step makes and puts its findings on the executor's next tool result.
   `multi_select: true` keeps offering what is left until they are done. The skill's agent talks in a
   session of its own that the person never sees, so what the person must read to answer - the brief
   to confirm, the plan to approve - it passes as `ask_user`'s `context`, shown above the question in
-  the dialog; `brood`, `spawn` and `bud` pass their briefs so. Nothing else it wrote is shown there:
+  the dialog; `brood`, `spawn` and `bud` pass their briefs so. The agents are told to keep it to what can be taken in at
+  a glance, about fifteen lines; one longer scrolls in a window of its own above the question (`src/question-dialog.ts`) -
+  PgUp/PgDn, Shift+Up/Down or the mouse wheel - so the question and its options always show below it. pi's own select,
+  which turri used before, put it all in its title, and a long brief pushed the options off the screen. Nothing else it wrote is shown there:
   the last thing it said before asking - its account of a probe, a regrow - is kept with the answer,
   in the run's trace and the transcript, never in the dialog.
+
+  Beside "Something else…", every list an agent's question shows carries "Chat about this": the person says what they
+  want to talk over - why it is asked, what an option means for later - and it goes back to the agent that asked, as no
+  answer. A skill's agent answers in the `context` of the question asked again, since nothing else it writes reaches
+  them; the conversation's agent answers in its reply and ends its turn, the person going on in the chat. It is not
+  counted against the questioning level, and owes no spec change. The harness's own first question - how many the
+  phases may ask - has no agent to answer, and does not offer it. Either choice is backed out of with Esc, or by typing
+  nothing: the options come back, so one picked by accident costs nothing. Esc on the options themselves dismisses the
+  question.
 - **Be asked something on the side.** A skill runs inside one `cultivate` call, so the conversation can answer
   nothing until it returns. `/btw <question>` (`btw.ts`) can: pi runs a command at once, even mid-turn, and it starts
   an agent of its own - fresh, on the chat's model, reading the project and turri and changing nothing - shown the
@@ -176,12 +188,20 @@ cultivate <name>` runs one by name, as it does turri's own. They are run as turr
 steps and gates, and their agents get the tools their frontmatter names.
 
 A name is one skill. turri's own come first, then `.turri/skills/`, then `.agents/skills/`; a skill whose name is taken
-already is left out, and the list says so - a project's `brood` never quietly stands in for turri's, and its gates. A
+already is left out, and the list says so - a project's `brood` never quietly stands in for turri's. A
 skill that does not parse is said to have failed to load, by its folder.
 
 `.turri/` is turri's scratch folder and ignores itself, all but `skills/`: its `.gitignore` is `*`, `!skills/`,
 `!skills/**`, and one written before is brought up to date. pi reads `.agents/skills/` too, as skills of its own the
 chat could follow by hand - the chat is told to run any `cultivate` lists with `cultivate`, so its gates still run.
+
+The skills pi offers the chat leave out what turri has already (`src/chat-skills.ts`): a skill of a name turri runs
+itself - its own, or the project's - and any skill about \*\*\*plain, its specs or their testing scripts. pi gathers
+skills from `~/.pi/agent/skills`, `~/.agents/skills` and the `.agents/skills` of every folder from where turri started
+up to its git root, so a folder above the project can hold another tool's \*\*\*plain skills - a `load-plain-reference`
+the chat would load at the start of every session, though the whole \*\*\*plain reference, turri's
+[rules](#rules), is in its system prompt already. The person is told once which were left out. A skill about anything
+else is offered as pi offers it.
 
 A skill is found once, as turri starts: one added while it runs is there the next time. A project's skill agent runs
 as turri's do - pi's file tools and `bash` on the machine, no fence - so a project's skills are as trusted as the
@@ -198,8 +218,9 @@ skip. `src/rules.ts` is where to change it.
 ## Trying the gate semantics
 
 The gate machinery - the no-artifact rejection, the retry loop, escalation - is verified by live
-runs rather than automated tests. To poke at it, edit the frontmatter of
-`genome/skills/brood/SKILL.md`:
+runs rather than automated tests. To poke at it, give a skill a gate like the one in [the syntax](#the-syntax) - a
+project's own, in `.turri/skills/`, with a rubric in its `references/` - run it with `turri cultivate <name>`, then
+change the gate:
 
 | change | expected |
 | --- | --- |

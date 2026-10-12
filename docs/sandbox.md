@@ -28,7 +28,8 @@ every `AGENTS.md` / `CLAUDE.md` from an agent's folder up into its system prompt
 turns that off for every agent it starts - so the project's own `AGENTS.md`, or yours in
 `~/.pi/agent`, never reaches a rendering agent, a judge or a skill's agent. Nor do pi's skills, which
 pi would list for an agent to load: each agent turri starts has one job, and turri runs its
-own gated skills itself. The conversation you talk to still loads both, as pi does.
+own gated skills itself. The conversation you talk to still loads both, as pi does - but for the skills turri has
+already, its own and any about \*\*\*plain (see [a project's own skills](skills-and-gates.md#a-projects-own-skills)).
 
 ## Every agent knows its walls
 
@@ -112,8 +113,8 @@ groups it recorded in the temporary folder (`turri-groups/`); and groups a turri
 turri next starts. On Windows there are no process groups: a command's process tree is killed with `taskkill /T /F`,
 best effort.
 
-The project's testing scripts are not agents' commands: they are yours, and run on this machine as you would run them,
-unfenced, in your own environment - see [the testing scripts](growing.md#the-testing-scripts). The agent gets their
+The project's testing scripts - and its static checks script, fix mode included - are not agents' commands: they are
+yours, and run on this machine as you would run them, unfenced, in your own environment - see [the testing scripts](growing.md#the-testing-scripts). The agent gets their
 output, nothing more.
 
 ### The command check

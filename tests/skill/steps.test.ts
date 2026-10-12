@@ -120,10 +120,13 @@ describe("continuous review", () => {
   });
 
   it("is parsed alongside the phase gate", () => {
-    const skill = loadSkill("genome/skills/brood");
-    const step = skill.steps.find((s) => s.name === "product")!;
+    const s = skill(
+      "## Steps\n\n### product\n\nDo it.\n",
+      "metadata:\n  gates:\n    - after: product\n      continuous:\n        rubric: ./live.md\n        judges: 1\n        judge_tools: [read, ls, grep, find]\n      review:\n        rubric: ./r.md\n        judges: 2\n",
+    );
+    const step = s.steps.find((x) => x.name === "product")!;
     expect(step.gate?.continuous).toEqual({
-      rubric: "./references/rubric-product-live.md",
+      rubric: "./live.md",
       judges: 1,
       model: undefined,
       judgeTools: ["read", "ls", "grep", "find"],
@@ -137,8 +140,10 @@ describe("brood's phases", () => {
   it("are intent, stack, testing and product - testing before the product phase, so its changes are conformance tested as they are built", () => {
     const skill = loadSkill("genome/skills/brood");
     expect(skill.steps.map((step) => step.name)).toEqual(["intent", "stack", "testing", "product"]);
-    expect(skill.steps.find((step) => step.name === "product")!.gate).toBeDefined();
-    expect(skill.steps.find((step) => step.name === "testing")!.gate).toBeUndefined();
+  });
+
+  it("are ungated - each ends on the person's confirmation, with no review", () => {
+    expect(loadSkill("genome/skills/brood").steps.every((step) => step.gate === undefined)).toBe(true);
   });
 });
 

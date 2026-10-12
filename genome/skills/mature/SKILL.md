@@ -64,7 +64,9 @@ diff, with `write_spec_diff`.
 3. Make sure a build can start: the unit testing script (and, with conformance tests on, the
    conformance testing script) turri finds. When one is missing, write it by following the
    `implement-unit-testing-script` (or `implement-conformance-testing-script`) skill, for the stack the
-   spec's implementation reqs name.
+   spec's implementation reqs name. A static checks script is optional: write one with
+   `implement-static-checks-script` only when the project has none and the stack is Python, TypeScript,
+   Go or Rust, or its reqs name a formatter, linter or type checker.
 
 Say in two lines what will be rendered, and go on.
 

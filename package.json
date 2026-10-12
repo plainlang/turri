@@ -22,7 +22,7 @@
     "bind": "tsx src/bind-cli.ts",
     "regrow": "tsx src/regrow-cli.ts",
     "validate": "tsx src/validate-cli.ts",
-    "setup": "node bin/turri.mjs setup",
+    "doctor": "node bin/turri.mjs doctor",
     "doctor": "node bin/turri.mjs doctor",
     "grammar:sync": "node scripts/sync-plyn-grammar.mjs"
   },

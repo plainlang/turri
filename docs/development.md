@@ -27,7 +27,7 @@ take effect immediately. `npm run chat` starts pi with the extension loaded from
 |---|---|
 | `bin/turri.mjs` | the launcher: checks the Node version, then loads `src/cli.ts` |
 | `src/cli.ts` | the `turri` command and its subcommands |
-| `src/setup.ts`, `src/environment.ts`, `src/stack.ts` | `turri setup` and `doctor`, and what they check - this machine, and in a project what its modules need of it |
+| `src/setup.ts`, `src/environment.ts`, `src/stack.ts` | `turri doctor`, and what it checks - this machine, and in a project what its modules need of it |
 | `src/extension.ts` | the pi extension: every tool and command the conversation has |
 | `src/skill.ts` | parses `SKILL.md` into steps and gates |
 | `src/graph.ts` | compiles a skill into a LangGraph `StateGraph`: step -> gate -> route |

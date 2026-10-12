@@ -41,8 +41,8 @@ function chat(args: string[]): never {
   // pi itself, through a launcher that leaves out pi's startup header - see pi-launch.ts.
   const launcher = join(PACKAGE_ROOT, "src", "pi-launch.ts");
 
-  // Loading the same extension twice is an error in pi, not a no-op, so the explicit
-  // -e is only for the case where it is not already installed globally.
+  // Loading the same extension twice is an error in pi, not a no-op, so the explicit -e is left out while an older
+  // turri's file still loads turri into every pi - turri doctor offers to remove it.
   const extension = extensionInstalledGlobally()
     ? []
     : ["-e", join(PACKAGE_ROOT, "src", "extension.ts")];
@@ -93,8 +93,7 @@ const ALIASES: Record<string, string> = {
 /** Getting the machine ready, and checking it is. */
 const SETUP_COMMANDS: Record<string, string> = {
   "init-config": "write a quick start config.turri.yaml here, from the vendor you use: a strong model to talk to, a smaller one to write the code",
-  setup: "get this machine ready: check everything, and offer to load turri into every pi",
-  doctor: "check what turri needs - in a project, what it needs of this machine - without changing anything",
+  doctor: "check what turri needs - in a project, what it needs of this machine, and that its models answer",
 };
 
 const USAGE = [
@@ -156,9 +155,14 @@ if (command === "init-config") {
   process.exit(await main(rest));
 }
 
-if (command in SETUP_COMMANDS) {
+if (command === "doctor") {
   const { main } = await import("./setup.ts");
-  process.exit(await main(command as "setup" | "doctor", rest));
+  process.exit(await main(rest));
+}
+
+if (command === "setup") {
+  console.error("turri setup is gone: turri doctor checks everything turri needs, and is the one command for it.");
+  process.exit(1);
 }
 
 if (command === "render") {

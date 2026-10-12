@@ -19,7 +19,7 @@ and every web app Node with npm, Go `go`, Rust `cargo`, Java a JDK. `turri docto
 
 ## Before any of them
 
-- Install **turri** as the [quick start](../README.md#quick-start) says, and run `turri setup`.
+- Install **turri** as the [quick start](../README.md#quick-start) says, and run `turri doctor`.
 - Make a folder for the project, `cd` into it and run `turri init-config`. It writes a `config.turri.yaml` with two models:
   a capable one to talk to and a smaller one for the coding. Change them to models you have.
 - Each example says which toolchain its stack needs. Once the project exists, `turri doctor` in its folder says

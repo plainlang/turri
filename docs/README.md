@@ -7,7 +7,7 @@ pages go into each part.
 
 ## Start here
 
-1. [Installation](installation.md) - get a machine ready: `turri setup`, `doctor`, and what turri needs of
+1. [Installation](installation.md) - get a machine ready: `turri doctor`, and what turri needs of
    this machine.
 2. [Using turri](using.md) - the conversation, the skills and tools, background jobs and
    their logs, choosing the model that renders, the command line.
@@ -44,7 +44,7 @@ pages go into each part.
 
 | page | covers |
 | --- | --- |
-| [Installation](installation.md) | setup and doctor, what turri needs of this machine, turri in every `pi`, environment variables |
+| [Installation](installation.md) | doctor, what turri needs of this machine, turri and `pi`, environment variables |
 | [Using turri](using.md) | the conversation, the tools, background jobs, choosing a model, module history, the command line |
 | [The project config](config.md) | `config.turri.yaml` and each stack's `config.turri.<stack>.yaml`: where they are read from, every key, models and their inheritance, conformance, the testing scripts, stacks and choosing one, the old `config.yaml` |
 | [Deploy](deploy.md) | trying what is built: dist/<module>, the last commit, starting it on your machine, `turri release` |

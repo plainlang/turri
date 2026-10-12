@@ -11,7 +11,7 @@ turri --use-theme dark                      # pi's own
 
 The second form follows your terminal's light/dark appearance. The default is for
 `turri` only: pi's settings are left alone, so a plain `pi` keeps its theme. With the
-themes installed globally (`turri setup` offers to), `{"theme": "turri-dark"}` in
+themes copied to `~/.pi/agent/themes/` (`cp .pi/themes/*.json ~/.pi/agent/themes/`), `{"theme": "turri-dark"}` in
 `~/.pi/agent/settings.json` gives a plain `pi` the same one.
 
 Bad input fails quietly - an unknown `--use-theme` name and a malformed theme file both run without

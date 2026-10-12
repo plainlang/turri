@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ROLES, CONFIG_KEYS, projectModels, readProjectConfig, ROLE_THINKING } from "../src/config.ts";
-import { BEDROCK_REGIONS, bedrockMakerOf, bedrockModels, bedrockRegionOf, initConfig, main, QUICK_START_CONFIG, quickStartConfig, VENDORS, vendorOf, withModels, type Vendor } from "../src/init-config.ts";
+import { BEDROCK_REGIONS, bedrockMakerOf, bedrockModels, bedrockRegionOf, DEFAULTS, defaultParallel, initConfig, main, QUICK_START_CONFIG, quickStartConfig, VENDORS, vendorOf, withModels, type Vendor } from "../src/init-config.ts";
+import { defaultParallelJobs } from "../src/grow/jobs.ts";
+import { DEFAULT_COMPACT_AT, DEFAULT_TURN_LIMIT_MS } from "../src/pi.ts";
+import { MAX_LINES_PER_JOB, MAX_SPECS_PER_JOB } from "../src/grow/chunk-plan.ts";
 
 let dir: string;
 beforeEach(() => {
@@ -22,14 +25,35 @@ describe("turri init-config", () => {
     expect(models.coding?.model).toBe("google/gemini-3.1-flash-lite");
   });
 
-  it("has every other key in it commented out - each read as written once uncommented", () => {
+  it("writes every other setting with the value turri uses for it, and the optional ones commented out - each read as written once uncommented", () => {
     initConfig(dir);
     const written = readFileSync(join(dir, "config.turri.yaml"), "utf8");
-    // Commented out, nothing but the two models is set.
-    expect(Object.entries(readProjectConfig(dir)).filter(([, value]) => value !== undefined).map(([key]) => key).sort()).toEqual(["codingModel", "harnessModel"]);
+    expect(readProjectConfig(dir)).toMatchObject({
+      conformanceTests: false,
+      review: false,
+      allowToStopJobs: true,
+      releaseAfterPulse: false,
+      testingScriptsRunOn: "in-place",
+      turnLimit: DEFAULTS.turnLimit,
+      parallelJobs: defaultParallelJobs(),
+      compactAt: DEFAULTS.compactAt,
+      maxSpecsPerPulse: DEFAULTS.maxSpecsPerPulse,
+      maxLinesPerPulse: DEFAULTS.maxLinesPerPulse,
+      rulesOff: [],
+      toolchains: [],
+    });
+    // Commented out, the optional ones have no value.
+    const config0 = readProjectConfig(dir);
+    for (const key of ["module", "judgeModel", "models", "conformanceBudget", "unittestsScript", "staticChecksScript", "conformanceTestsScript", "prepareEnvironmentScript"] as const) {
+      expect(config0[key], key).toBeUndefined();
+    }
+    // agent-env with nothing in it is no agent-env.
+    expect(config0.agentEnv).toBeUndefined();
+    expect(written).not.toContain("unset");
     writeFileSync(join(dir, "config.turri.yaml"), written.replace(/^# (?=[a-z-]+:|  [a-z-]+:)/gm, ""));
     const config = readProjectConfig(dir);
-    for (const key of Object.keys(CONFIG_KEYS)) expect(config[key as keyof typeof config], key).toBeDefined();
+    // agent-env is written out empty - its examples in its comment - so it alone has no value.
+    for (const key of Object.keys(CONFIG_KEYS).filter((key) => key !== "agentEnv")) expect(config[key as keyof typeof config], key).toBeDefined();
     expect(Object.keys(config.models ?? {}).sort()).toEqual(["default", ...AGENT_ROLES].sort());
   });
 
@@ -62,7 +86,7 @@ describe("turri init-config", () => {
     ].join("\n");
     writeFileSync(join(dir, "config.yaml"), codeplain);
     const result = initConfig(dir, { vendor: "openai" });
-    expect(result.message).toContain("Took from config.yaml what turri reads too - prepare-environment-script, unittests-script, conformance-tests-script");
+    expect(result.message).toContain("Took from config.yaml what turri reads too - prepare-environment-script, unittests-script, conformance-tests-script.");
     expect(result.message).toContain("Not taken, turri does not read them: template_dir, verbose, api.");
     expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(codeplain);
     const text = readFileSync(join(dir, "config.turri.yaml"), "utf8");
@@ -87,7 +111,16 @@ describe("turri init-config", () => {
     expect(readFileSync(join(dir, "config.turri.backend.yaml"), "utf8")).toBe("unittests-script: run_unittests_python.sh\n");
     writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\n");
     initConfig(dir, { vendor: "openai" });
-    expect(readProjectConfig(dir).conformanceTests).toBeUndefined();
+    // The file already there keeps its own conformance-tests, the quick start's.
+    expect(readProjectConfig(dir).conformanceTests).toBe(false);
+  });
+
+  it("writes the values turri falls back to, so a setting written out does as one left out", () => {
+    expect(DEFAULTS.turnLimit * 1000).toBe(DEFAULT_TURN_LIMIT_MS);
+    expect(DEFAULTS.compactAt).toBe(DEFAULT_COMPACT_AT);
+    expect(DEFAULTS.maxSpecsPerPulse).toBe(MAX_SPECS_PER_JOB);
+    expect(DEFAULTS.maxLinesPerPulse).toBe(MAX_LINES_PER_JOB);
+    for (const cores of [1, 2, 7, 8, 32]) expect(defaultParallel(cores)).toBe(defaultParallelJobs(cores));
   });
 
   it("replaces a model key where it is, block and all, and puts one that is missing at the top", () => {
@@ -175,15 +208,18 @@ describe("turri init-config", () => {
     expect(vendorOf("mistral")).toBeUndefined();
   });
 
-  it("says where it wrote the file, the key pi reads for the vendor or /login, and that turri reads it from that folder alone", () => {
+  it("says in a few lines where it wrote the file, the two models, the key pi reads for the vendor or /login, and what to run next", () => {
     const { message } = initConfig(dir, { vendor: "openai" });
-    expect(message).toContain(`Wrote ${join(dir, "config.turri.yaml")}, with OpenAI's models:`);
-    expect(message).toContain("harness-model: openai/gpt-6-astra");
-    expect(message).toContain("OPENAI_API_KEY");
+    expect(message).toContain(`✓ Wrote ${join(dir, "config.turri.yaml")}`);
+    expect(message).toContain("with OpenAI's models");
+    expect(message).toMatch(/you talk to +openai\/gpt-6-astra:medium/);
+    expect(message).toMatch(/it codes +openai\/gpt-6-luna:low/);
+    expect(message).toContain("export OPENAI_API_KEY=...");
     expect(message).toContain("type /login");
-    expect(message).toContain(`This config belongs to this folder:\n  ${dir}`);
-    expect(message).toContain("Started anywhere else");
-    expect(message).toContain(`Then: cd ${dir} && turri`);
+    expect(message).toContain(`turri reads this config when it starts in ${dir} or one below it.`);
+    expect(message).toContain(`Then\n  cd ${dir}\n  turri doctor   checks the models answer with your credentials\n  turri`);
+    // Written to a pipe, as here, it has no colours.
+    expect(message).not.toContain("\x1b[");
     // Other names both keys, and that any provider pi supports will do.
     mkdirSync(join(dir, "mix"));
     const mix = initConfig(join(dir, "mix")).message;

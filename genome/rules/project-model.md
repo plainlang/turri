@@ -21,7 +21,7 @@ file structure by `module-structure.md`.
 template/*.plain         # import modules: shared definitions and reqs
 resources/               # files specs link to: schemas, API specs, fixtures
 test_scripts/            # unit and conformance runners, found by turri (not linked)
-config.turri.yaml        # optional: names the scripts when there is more than one of a kind
+config.turri.yaml        # the project's build decisions: models, conformance tests, the scripts in use
 plain_modules/           # generated - one folder per module
   <module>/code/         #   implementation and unit tests
   <module>/tests/        #   the whole conformance suite of the module
@@ -29,6 +29,27 @@ plain_modules/           # generated - one folder per module
 
 Follow `module-structure.md`, `import-modules.md` and `linked-resources.md` for what these
 directories may contain and how a spec refers to them.
+
+## The config records the build decisions
+
+`config.turri.yaml`, at the project root beside the specs, is where the project's decisions about how it
+is built live: the models, whether conformance tests are written (`conformance-tests:`), and the scripts
+it uses (`unittests-script:`, `static-checks-script:`, `conformance-tests-script:`,
+`prepare-environment-script:`). turri can find a script by its name, but the config is what a person
+reads to see how the project is set up, and what they change.
+
+- Settle a decision, write it into the config in the same step - never leave it to be inferred from
+  what is on disk. A testing or static checks script you write or keep is named by its key, by path
+  from the root (`static-checks-script: test_scripts/run_static_checks_python.sh`); conformance tests
+  turned on or off are `conformance-tests: true` or `false`
+- Change only the keys you settled. Where the file has a key's example commented out, uncomment that
+  line and set it; keep every other line and comment as it is
+- A project whose parts are on different stacks keeps each stack's scripts in its own
+  `config.turri.<stack>.yaml` beside it; what the stacks share stays in `config.turri.yaml`
+- A project with only a `config.yaml` has it copied to `config.turri.yaml` first, and each
+  `config.<name>.yaml` to `config.turri.<name>.yaml`; `config.yaml` may be another tool's, and is never
+  written
+- Say in your summary which lines you wrote
 
 ## Generated output is read-only
 

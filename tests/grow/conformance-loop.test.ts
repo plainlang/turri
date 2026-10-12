@@ -129,6 +129,8 @@ let root: string;
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "turri-conformance-loop-")));
   writeTestScripts(root);
+  // The review is off unless the config turns it on: these tests are of the review too.
+  writeFileSync(join(root, "config.turri.yaml"), "review: true\n");
   codeDir = join(root, "plain_modules", "app", "code");
   mkdirSync(codeDir, { recursive: true });
   writeFileSync(join(codeDir, "app.py"), "print('goodbye')\n");

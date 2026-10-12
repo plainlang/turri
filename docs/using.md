@@ -61,7 +61,7 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 | `lineage` | a module's lineage: what each regrowth and conformance run changed in it, and what it grew from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
 | `release`, `activate` | try what is grown: release it to `dist/<module>` and activate it on this machine, installing what it needs - see [deploy](deploy.md) |
-| `ask_user` | put a question to you as a dialog to pick from - several at once, or "Something else…" to type |
+| `ask_user` | put a question to you as a dialog to pick from - several at once, "Something else…" to type, or "Chat about this" to talk it over first; Esc in either goes back to the options |
 | `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
 
 What each render does, in order, is in [growing the code](growing.md).
@@ -417,7 +417,7 @@ turri regrow <file.plain> 2            # grow functionality 2 again, changed or 
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regrow it
 turri bind <file.plain> 1              # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when
-turri cultivate brood                  # run a gated skill directly - by name, the project's too, or by its folder
+turri cultivate brood                  # run a skill directly - by name, the project's too, or by its folder
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
 

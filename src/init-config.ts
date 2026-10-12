@@ -1,16 +1,18 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { availableParallelism, homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { load as loadYaml } from "js-yaml";
 import { adoptLegacyConfig, CONFIG_FILE, CONFIG_KEYS, LEGACY_CONFIG_FILE, ROLE_THINKING, type AgentRole } from "./config.ts";
 import { withTopLevelValue } from "./config-edit.ts";
+import { brand } from "./brand.ts";
 
 /**
  * `turri init-config`: a project's first config.turri.yaml - the two models, a strong one to talk to and a smaller one to
  * write the code - so a new project starts with a choice that works rather than an empty file. It asks which vendor's
- * models you use and fills in theirs; every other key is there too, commented out, each with what it does and an
- * example value: uncommented, each is read as written. docs/config.md has the whole of each.
+ * models you use and fills in theirs. Every other setting is written out with the value turri uses for it (DEFAULTS),
+ * so the file says how the project is built; the optional ones, which have no value of their own - the testing
+ * scripts, `module`, `judge-model`, `models` - are there commented out, with an example. docs/config.md has them all.
  *
  * Then it says what to do next: where the file is - turri reads it from that folder and the folders below it, nowhere
  * else - and how to sign in to the vendor so pi, which turri runs on, can reach the models.
@@ -151,6 +153,27 @@ export function withModels(text: string, lines: [string, string]): string {
   return [...missing, ...out].join("\n");
 }
 
+/**
+ * What turri does with each setting the config leaves out, written into the quick start config so it says so. They
+ * must stay what the code falls back to - tests/init-config.test.ts holds them to the constants they mirror.
+ */
+export const DEFAULTS = {
+  conformanceTests: false,
+  review: false,
+  allowToStopJobs: true,
+  releaseAfterPulse: false,
+  testingScriptsRunOn: "in-place",
+  turnLimit: 120,
+  compactAt: 100000,
+  maxSpecsPerPulse: 3,
+  maxLinesPerPulse: 120,
+} as const;
+
+/** How many pulses run at once without a setting: half this machine's cores, one to four - as grow/jobs.ts has it. */
+export function defaultParallel(cores: number = availableParallelism()): number {
+  return Math.min(4, Math.max(1, Math.floor(cores / 2)));
+}
+
 /** The quick start config.turri.yaml for a vendor's models - for Bedrock, the maker and geography chosen. */
 export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoice): string {
   const { harness, coding, strong } = modelsOf(vendor, bedrock);
@@ -160,17 +183,74 @@ export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoi
     "# The :level is how hard each thinks - off, minimal, low, medium, high, xhigh or max. The reviews and judges run on the",
     "# coding model but think medium, as models: below shows.",
     "",
-    "# Every other key, commented out: unset, each is as its comment says. Uncomment one to try it. docs/config.md has them all.",
+    "# Every other setting is written out below with the value turri uses for it, so the file says how the project is",
+    "# built: change one to change it. The optional ones, which have no value of their own, are commented out - uncomment",
+    "# one to use it. docs/config.md has them all.",
     "",
-    "# The .plain file turri regrow and regrow build when none is named.",
+    "# Conformance tests: all (or true) - every functional spec of a module with test reqs; chosen - those with acceptance",
+    "# tests and those chosen in the conversation; false - none written or run.",
+    `conformance-tests: ${DEFAULTS.conformanceTests}`,
+    "",
+    "# Whether the code and its tests are reviewed once they pass - two reviews at most, the second weighed by the arbiter.",
+    `review: ${DEFAULTS.review}`,
+    "",
+    "# Whether turri stops a running pulse the spec has moved on from. false: it lands, the change grown on top.",
+    `allow-to-stop-jobs: ${DEFAULTS.allowToStopJobs}`,
+    "",
+    "# Whether every pulse that lands code releases it, as the project's release guidance says.",
+    `release-after-pulse: ${DEFAULTS.releaseAfterPulse}`,
+    "",
+    "# What the testing scripts run on: in-place - the code itself; copy - a fresh copy of it.",
+    `testing-scripts-run-on: ${DEFAULTS.testingScriptsRunOn}`,
+    "",
+    "# Seconds each agent turn has, for every role without its own; 0 for none.",
+    `turn-limit: ${DEFAULTS.turnLimit}`,
+    "",
+    "# How many pulses run at once, on modules that share nothing - half this machine's cores, one to four.",
+    `parallel-jobs: ${defaultParallel()}`,
+    "",
+    "# Tokens of work an agent holds before it is compacted between turns; at least 1000.",
+    `compact-at: ${DEFAULTS.compactAt}`,
+    "",
+    "# How big a pulse may be: the most functional specs the planner groups into one, and the most lines of spec - its",
+    "# functional specs with the definitions they bring - before a group is split again.",
+    `max-specs-per-pulse: ${DEFAULTS.maxSpecsPerPulse}`,
+    `max-lines-per-pulse: ${DEFAULTS.maxLinesPerPulse}`,
+    "",
+    "# Rules left out of the spec-writing agents' prompts - the files of genome/rules/, without .md: [concise-specs].",
+    "rules-off: []",
+    "",
+    "# Credentials the agents' commands need while they work: dotenv files by path, and variables from turri's",
+    "# environment by name - files: [.env], vars: [MY_SERVICE_API_KEY]. Their values are masked in everything an agent is shown.",
+    "agent-env:",
+    "  files: []",
+    "  vars: []",
+    "",
+    "# Folders of this machine an agent's commands may read beside the usual ones - a toolchain somewhere unusual: [/srv/zig].",
+    "toolchains: []",
+    "",
+    "# The testing scripts, by path from the project root - written here by the skill that writes them. One not named is",
+    "# looked for at the root, then in test_scripts/. The static checks format the code before each unit test run",
+    "# (<script> <build> --fix) and must pass with the unit tests; the prepare script runs on the build before every",
+    "# conformance testing script run. The static checks and the prepare script are optional.",
+    "# unittests-script: test_scripts/run_unittests_python.sh",
+    "# static-checks-script: test_scripts/run_static_checks_python.sh",
+    "# conformance-tests-script: test_scripts/run_conformance_tests_python.sh",
+    "# prepare-environment-script: test_scripts/prepare_environment_python.sh",
+    "",
+    "# Optional: the .plain file turri regrow builds when none is named.",
     "# module: app.plain",
     "",
-    "# The judge and test review of a conformance run (unset: coding-model). A model is provider/id, provider/id:thinking,",
-    "# or { model, thinking } - thinking is off, minimal, low, medium, high, xhigh or max.",
+    "# Optional, under conformance-tests: chosen: how many functional specs of a module may be chosen - a count or a share.",
+    "# Without it, any number.",
+    "# conformance-budget: 30%",
+    "",
+    "# Optional: the judge and test review of a conformance run, when not on coding-model. A model is provider/id,",
+    "# provider/id:thinking, or { model, thinking } - thinking is off, minimal, low, medium, high, xhigh or max.",
     `# judge-model: ${strong}:high`,
     "",
-    "# Each agent role's own model, thinking and turn limit (unset: every role on coding-model, the conversation's side on",
-    "# harness-model, each thinking as written here). What an entry leaves out it takes from default.",
+    "# Optional: each agent role's own model, thinking and turn limit. Without it, every role runs on coding-model and the",
+    "# conversation's side on harness-model, each thinking as written here. What an entry leaves out it takes from default.",
     "# models:",
     `#   default: ${coding}`,
     `${column(`#   chat: ${harness}`, 72)}# the conversation - as harness-model, which it wins over`,
@@ -186,59 +266,6 @@ export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoi
     role("judge", strong, "judges a failing conformance run - as judge-model, which it wins over"),
     role("arbiter", strong, "weighs a second review"),
     role("debugger", strong, "a fresh look at unit tests that keep failing the same way"),
-    "",
-    "# Conformance tests: all (or true) - every functional spec of a module with test reqs; chosen - those with acceptance",
-    "# tests and those chosen in the conversation; false - none written or run (unset: all).",
-    "# conformance-tests: chosen",
-    "",
-    "# Under conformance-tests: chosen, how many functional specs of a module may be chosen - a count or a share (unset: no limit).",
-    "# conformance-budget: 30%",
-    "",
-    "# Whether the code and its tests are reviewed once they pass (unset: true).",
-    "# review: false",
-    "",
-    "# Whether turri stops a running pulse the spec has moved on from (unset: true). false: it lands, the change grown on top.",
-    "# allow-to-stop-jobs: false",
-    "",
-    "# Whether every pulse that lands code releases it, as the project's release guidance says (unset: false).",
-    "# release-after-pulse: true",
-    "",
-    "# The testing scripts, by path from the project root (unset: the one run_unittests*.sh / run_conformance_tests*.sh /",
-    "# prepare_environment*.sh / run_static_checks*.sh at the root, else in test_scripts/). The static checks are optional and",
-    "# decide nothing; the prepare script is optional, and runs on the build before every conformance testing script run.",
-    "# unittests-script: test_scripts/run_unittests_python.sh",
-    "# conformance-tests-script: test_scripts/run_conformance_tests_python.sh",
-    "# prepare-environment-script: test_scripts/prepare_environment_python.sh",
-    "# static-checks-script: test_scripts/run_static_checks_python.sh",
-    "",
-    "# What the testing scripts run on: in-place - the code itself; copy - a fresh copy of it (unset: in-place).",
-    "# testing-scripts-run-on: copy",
-    "",
-    "# Seconds each agent turn has, for every role without its own; 0 for none (unset: 120).",
-    "# turn-limit: 180",
-    "",
-    "# How many pulses run at once, on modules that share nothing (unset: half this machine's cores, one to four).",
-    "# parallel-jobs: 2",
-    "",
-    "# Tokens of work an agent holds before it is compacted between turns; at least 1000 (unset: 100000).",
-    "# compact-at: 150000",
-    "",
-    "# How big a pulse may be: the most functional specs the planner groups into one (unset: 3), and the most lines of",
-    "# spec - its functional specs with the definitions they bring - before a group is split again (unset: 120).",
-    "# max-specs-per-pulse: 5",
-    "# max-lines-per-pulse: 200",
-    "",
-    "# Rules left out of the spec-writing agents' prompts - the files of genome/rules/, without .md (unset: none).",
-    "# rules-off: [concise-specs]",
-    "",
-    "# Credentials the agents' commands need while they work: dotenv files by path, and variables from turri's",
-    "# environment by name (unset: none). Their values are masked in everything an agent is shown.",
-    "# agent-env:",
-    "#   files: [.env]",
-    "#   vars: [MY_SERVICE_API_KEY]",
-    "",
-    "# Folders of this machine an agent's commands may read beside the usual ones - a toolchain somewhere unusual (unset: none).",
-    "# toolchains: [/srv/zig]",
     "",
   ].join("\n");
 }
@@ -278,38 +305,38 @@ function shellProfile(): string {
   return "~/.bashrc";
 }
 
-/** How to sign in to the vendor's models, as pi takes them: a key in the environment, or /login. */
+/** How to sign in to the vendor's models, as pi takes them: a key in the environment, or /login - a few lines. */
 function signInText(vendor: Vendor, bedrock?: BedrockChoice): string[] {
   const { keys } = VENDORS[vendor];
   const windows = process.platform === "win32";
-  const set = (variable: string, value = "...") => (windows ? `setx ${variable} "${value}"` : `export ${variable}=${value}`);
+  const set = (variable: string, value = "...") => brand.accent(windows ? `setx ${variable} "${value}"` : `export ${variable}=${value}`);
+  // Bedrock's are several; a vendor's own key is one, or the mix's two.
+  const several = vendor === "amazon-bedrock" || keys.length > 1;
+  const keep = windows
+    ? `setx keeps ${several ? "them" : "it"} for new terminals - open one before you run turri.`
+    : `Add ${several ? "them" : "it"} to ${shellProfile()} to keep ${several ? "them" : "it"}.`;
   if (vendor === "amazon-bedrock") {
     const region = AWS_REGION_IN[(bedrock ?? BEDROCK_DEFAULT).region] ?? "us-east-1";
     return [
-      "Sign in to AWS, so pi - which turri runs on - can reach the models on Amazon Bedrock. In the shell you start turri from:",
-      `  - your AWS credentials - a profile (aws configure, or aws sso login): ${set("AWS_PROFILE")}`,
-      `    or a Bedrock API key: ${set("AWS_BEARER_TOKEN_BEDROCK")}`,
-      `  - and a region the models run in: ${set("AWS_REGION", region)}`,
-      windows ? "setx keeps them for every new terminal - open a new one before you run turri." : `Add the lines to ${shellProfile()} to keep them for every new terminal.`,
-      "Bedrock serves a model only once your AWS account has access to it: ask for it in the Bedrock console, under model access.",
+      brand.bold("Sign in to AWS"),
+      `  ${set("AWS_PROFILE")}   ${brand.muted("your profile (aws configure, or aws sso login)")}`,
+      `  ${set("AWS_REGION", region)}`,
+      `  ${brand.muted("or, instead of a profile, a Bedrock API key:")} ${set("AWS_BEARER_TOKEN_BEDROCK")}`,
+      "",
+      brand.muted(keep),
+      brand.muted("Your AWS account needs access to the models: Bedrock console, model access."),
     ];
   }
-  const agentDir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
   return [
-    `Sign in to ${keys.map((key) => key.vendor).join(" and ")}, so pi - which turri runs on - can reach the models. Either:`,
-    `  - set the key${keys.length === 1 ? "" : "s"} in the shell you start turri from:`,
-    ...keys.map((key) => `      ${set(key.variable)}`),
-    windows
-      ? "    setx keeps it for every new terminal - open a new one before you run turri."
-      : `    add the line${keys.length === 1 ? "" : "s"} to ${shellProfile()} to keep ${keys.length === 1 ? "it" : "them"} for every new terminal;`,
-    `  - or start turri and type /login, and sign in there: pi keeps the credential in ${join(agentDir, "auth.json")}.`,
-    ...(vendor === "other"
-      ? ["Another provider: change the two models to any pi supports, and set its key - pi's providers and their keys are at https://pi.dev."]
-      : []),
+    brand.bold(`Sign in to ${keys.map((key) => key.vendor).join(" and ")}`),
+    ...keys.map((key) => `  ${set(key.variable)}`),
+    "",
+    brand.muted(`${keep} Or start turri and type /login.`),
+    ...(vendor === "other" ? [brand.muted("Another provider: change the two models to any pi supports, and set its key - https://pi.dev.")] : []),
   ];
 }
 
-/** Whose models these are, in the message: "OpenAI's", "a mix of", "Anthropic's on Amazon Bedrock (eu)". */
+/** Whose models these are, in the message: "OpenAI's", "a mix of", "OpenAI's on Amazon Bedrock (global)". */
 function whose(vendor: Vendor, bedrock?: BedrockChoice): string {
   if (vendor === "other") return "a mix of";
   if (vendor !== "amazon-bedrock") return `${VENDORS[vendor].label}'s`;
@@ -366,32 +393,36 @@ export function initConfig(dir: string, options: { force?: boolean; vendor?: Ven
     : shared.carried.reduce((text, [key, value]) => withTopLevelValue(text, key, value), quickStartConfig(vendor, options.bedrock));
   writeFileSync(path, config);
   const here = resolve(process.cwd()) === folder;
+  const [talk, code] = [harness, coding].map((model, at) => `${model}:${at === 0 ? HARNESS_THINKING : ROLE_THINKING.coding}`);
   return {
     written: true,
     message: [
+      "",
+      `${brand.success("✓")} ${existing ? `Set the two models in ${brand.bold(path)}` : `Wrote ${brand.bold(path)}`}`,
+      `  ${brand.muted(`with ${whose(vendor, options.bedrock)} models${existing ? " - everything else in it left as it was (--force writes it all again)" : ""}`)}`,
+      "",
+      `  ${brand.muted("you talk to")}   ${talk}`,
+      `  ${brand.muted("it codes")}      ${code}`,
       ...(shared.carried.length > 0
         ? [
-            `Took from ${LEGACY_CONFIG_FILE} what turri reads too - ${shared.carried.map(([key]) => key).join(", ")} - and left ${LEGACY_CONFIG_FILE} as it is: turri reads its own file from now on.` +
-              (shared.left.length > 0 ? ` Not taken, turri does not read them: ${shared.left.join(", ")}.` : ""),
             "",
+            brand.muted(
+              `Took from ${LEGACY_CONFIG_FILE} what turri reads too - ${shared.carried.map(([key]) => key).join(", ")}.` +
+                (shared.left.length > 0 ? ` Not taken, turri does not read them: ${shared.left.join(", ")}.` : ""),
+            ),
           ]
         : []),
-      existing
-        ? `Set the two models in ${path} to ${whose(vendor, options.bedrock)} models - everything else in it left as it was (--force writes the whole file again):`
-        : `Wrote ${path}, with ${whose(vendor, options.bedrock)} models:`,
-      "",
-      lines.map((line) => `  ${line}`).join("\n"),
       "",
       ...signInText(vendor, options.bedrock),
       "",
-      "This config belongs to this folder:",
-      `  ${folder}`,
-      `turri reads it when it runs there, or in a folder below it: it uses the nearest ${CONFIG_FILE} upwards from where it`,
-      "starts. Started anywhere else - beside a clone of turri, say - turri does not see it: run turri init-config there too.",
+      brand.bold("Then"),
+      ...(here ? [] : [`  ${brand.accent(`cd ${folder}`)}`]),
+      `  ${brand.accent("turri doctor")}   ${brand.muted("checks the models answer with your credentials")}`,
+      `  ${brand.accent("turri")}`,
       "",
-      "Every other key is in it, commented out, with what it does: uncomment one to try it. docs/config.md has them all.",
+      brand.muted(`turri reads this config when it starts in ${here ? "this folder" : folder} or one below it.`),
+      brand.muted(`Every other setting is in the file at its default - docs/config.md has them all.`),
       "",
-      `Then: ${here ? "" : `cd ${folder} && `}turri`,
     ].join("\n"),
   };
 }
@@ -421,34 +452,46 @@ async function askUntil<T>(rl: ReturnType<typeof createInterface>, prompt: strin
 async function askVendor(given: { vendor?: Vendor; maker?: BedrockMaker; region?: string }): Promise<{ vendor: Vendor; bedrock?: BedrockChoice }> {
   const names = Object.keys(VENDORS) as Vendor[];
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  /** A question: a blank line before it, its choices numbered, each with what it is. */
+  const ask = (question: string, choices: Array<[string, string]>) => {
+    console.log(`\n${brand.bold(brand.accent(question))}`);
+    const width = Math.max(...choices.map(([label]) => label.length)) + 3;
+    choices.forEach(([label, what], index) => console.log(`  ${brand.accent(`${index + 1}`)}  ${label.padEnd(width)}${brand.muted(what)}`));
+  };
+  const choose = (count: number) => `\n${brand.muted(`Choose 1-${count}:`)} `;
   try {
     let vendor = given.vendor;
     if (vendor === undefined) {
-      console.log("Which vendor's models do you use?");
-      names.forEach((name, index) => {
-        const { label, harness, coding } = VENDORS[name];
-        const what =
-          name === "amazon-bedrock"
-            ? "Anthropic's or OpenAI's models on AWS, in a region you choose"
-            : `${name === "other" ? "a mix, or another provider - " : ""}${harness} to talk to, ${coding} to code`;
-        console.log(`  ${index + 1}) ${label.padEnd(16)}${what}`);
-      });
-      vendor = await askUntil(rl, `Choose 1-${names.length}: `, vendorOf, `Type a number from 1 to ${names.length}, or a vendor's name.`);
+      ask(
+        "Which vendor's models do you use?",
+        names.map((name) => {
+          const { label, harness, coding } = VENDORS[name];
+          const what =
+            name === "amazon-bedrock"
+              ? "Anthropic's or OpenAI's models on AWS"
+              : `${name === "other" ? "a mix - " : ""}${harness.split("/")[1]} to talk to, ${coding.split("/")[1]} to code`;
+          return [label, what];
+        }),
+      );
+      vendor = await askUntil(rl, choose(names.length), vendorOf, `Type a number from 1 to ${names.length}, or a vendor's name.`);
     }
     if (vendor !== "amazon-bedrock") return { vendor };
     let maker = given.maker;
     if (maker === undefined) {
-      console.log("Whose models, on Amazon Bedrock?");
-      console.log("  1) Anthropic       Claude Opus 5.5 to talk to, Claude Haiku 5.5 to code");
-      console.log("  2) OpenAI          GPT-6 Astra to talk to, GPT-6 Luna to code");
-      maker = await askUntil(rl, "Choose 1-2: ", bedrockMakerOf, "Type 1 or 2, or anthropic or openai.");
+      ask("Whose models, on Amazon Bedrock?", [
+        ["Anthropic", "Claude Opus 5.5 to talk to, Claude Haiku 5.5 to code"],
+        ["OpenAI", "GPT-6 Astra to talk to, GPT-6 Luna to code"],
+      ]);
+      maker = await askUntil(rl, choose(2), bedrockMakerOf, "Type 1 or 2, or anthropic or openai.");
     }
     const regions = BEDROCK_REGIONS[maker];
     let region = given.region !== undefined ? bedrockRegionOf(maker, given.region) : undefined;
     if (region === undefined) {
-      console.log(`Which region? ${VENDORS[maker].label}'s models run on Bedrock in:`);
-      regions.forEach((entry, index) => console.log(`  ${index + 1}) ${entry}${entry === "global" ? " - wherever Bedrock has room" : ""}`));
-      region = await askUntil(rl, `Choose 1-${regions.length}: `, (answer) => bedrockRegionOf(maker!, answer), `Type a number from 1 to ${regions.length}, or one of ${regions.join(", ")}.`);
+      ask(
+        "Which region?",
+        regions.map((entry) => [entry, entry === "global" ? "wherever Bedrock has room" : ""]),
+      );
+      region = await askUntil(rl, choose(regions.length), (answer) => bedrockRegionOf(maker!, answer), `Type a number from 1 to ${regions.length}, or one of ${regions.join(", ")}.`);
     }
     return { vendor, bedrock: { maker, region } };
   } finally {
@@ -500,13 +543,25 @@ export async function main(args: string[]): Promise<number> {
   }
   const force = args.includes("--force");
   const asking = process.stdin.isTTY && process.stdout.isTTY;
-  const chosen =
-    asking && (vendor === undefined || (vendor === "amazon-bedrock" && (maker === undefined || region === undefined)))
+  let chosen: { vendor: Vendor; bedrock?: BedrockChoice };
+  try {
+    chosen = await chooseVendor();
+  } catch (error) {
+    // Ctrl+C or Ctrl+D at a question: stopped, nothing written - not a crash.
+    if ((error as { code?: string }).code === "ABORT_ERR") {
+      console.log(`\n${brand.muted("Stopped - nothing written.")}`);
+      return 1;
+    }
+    throw error;
+  }
+  async function chooseVendor(): Promise<{ vendor: Vendor; bedrock?: BedrockChoice }> {
+    return asking && (vendor === undefined || (vendor === "amazon-bedrock" && (maker === undefined || region === undefined)))
       ? await askVendor({ ...(vendor !== undefined ? { vendor } : {}), ...(maker !== undefined ? { maker } : {}), ...(region !== undefined ? { region } : {}) })
       : {
           vendor: vendor ?? "other",
           ...(vendor === "amazon-bedrock" ? { bedrock: { maker: maker ?? BEDROCK_DEFAULT.maker, region: bedrockRegionOf(maker ?? BEDROCK_DEFAULT.maker, region ?? BEDROCK_DEFAULT.region)! } } : {}),
         };
+  }
   const result = initConfig(folder, { force, vendor: chosen.vendor, ...(chosen.bedrock !== undefined ? { bedrock: chosen.bedrock } : {}) });
   (result.written ? console.log : console.error)(result.message);
   return result.written ? 0 : 1;

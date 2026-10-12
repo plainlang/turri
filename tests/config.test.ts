@@ -127,7 +127,7 @@ describe("the project's config.yaml", () => {
 });
 
 describe("parallel-jobs", () => {
-  it("is how many jobs the chat runs at once - the environment first, then config.yaml, then what the machine holds", async () => {
+  it("is how many jobs the chat runs at once - the config's, else what the machine holds, and never the environment's", async () => {
     const { parallelJobs } = await import("../src/extension.ts");
     const { defaultParallelJobs } = await import("../src/grow/jobs.ts");
     expect(parallelJobs(root)).toBe(defaultParallelJobs());
@@ -136,7 +136,7 @@ describe("parallel-jobs", () => {
     expect(parallelJobs(root)).toBe(6);
     process.env.TURRI_PARALLEL_JOBS = "2";
     try {
-      expect(parallelJobs(root)).toBe(2);
+      expect(parallelJobs(root)).toBe(6);
     } finally {
       delete process.env.TURRI_PARALLEL_JOBS;
     }

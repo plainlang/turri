@@ -35,6 +35,8 @@ export interface StopFacts {
   attempts?: number;
   /** The unit testing script could not run: what it needs is not installed where it runs. */
   missingToolchain?: MissingToolchain;
+  /** The unit tests passed in the end, and the project's static checks - run with them, and counting as they do - did not. */
+  staticChecks?: boolean;
 }
 
 /**
@@ -80,7 +82,14 @@ export function describeStop(facts: StopFacts): string {
     ].join("\n");
   }
 
-  if (facts.at === "unit tests") {
+  if (facts.at === "unit tests" && facts.staticChecks === true) {
+    why = `after ${tries} attempt${tries === 1 ? "" : "s"} its unit tests passed, but the project's static checks - its type checker and linter, which count as the unit tests do - still did not.`;
+    todo = [
+      "If a check keeps failing on something the spec or the stack asks for - a library with no type information, a rule that " +
+        "does not fit the stack - say in the implementation reqs how the code is to be checked, or change the static checks script.",
+      "If the functional spec leaves the shape of its data open, say exactly what it is: a type checker holds the code to one shape.",
+    ];
+  } else if (facts.at === "unit tests") {
     why = `after ${tries} attempt${tries === 1 ? "" : "s"} it still could not be built to pass its own unit tests.`;
     todo = [
       "The functional spec is most likely too big for one functionality, or leaves a choice open that keeps coming " +

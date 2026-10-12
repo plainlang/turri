@@ -28,7 +28,7 @@ import {
 import { describeSpecDiffConformance, renderSpecDiffConformance } from "./bind.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { modulesRoot } from "./paths.ts";
-import { budgetFor, configForSpec } from "../config.ts";
+import { budgetFor, configForSpec, conformanceSwitchedOn } from "../config.ts";
 import { describeSpecChange } from "./prompt.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, startFromScratch, type ChainEntry } from "./requires.ts";
@@ -403,7 +403,8 @@ export function createWorkLoop(options: {
   const order: string[] = [];
   const run: JobRunner = options.run ?? defaultRunner;
   const runConformance: JobRunner = options.runConformance ?? defaultConformanceRunner;
-  const configConformance = options.conformanceOn ?? ((plainFile: string) => configForSpec(plainFile).conformanceTests !== false);
+  // Off unless the config turns it on: all (true), or chosen.
+  const configConformance = options.conformanceOn ?? ((plainFile: string) => conformanceSwitchedOn(configForSpec(plainFile).conformanceTests));
   const configChosen = options.conformanceChosen ?? ((plainFile: string) => configForSpec(plainFile).conformanceTests === "chosen");
   // One tick at a time: each reads the records and the spec, and decides.
   let ticking: Promise<void> = Promise.resolve();

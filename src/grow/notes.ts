@@ -208,7 +208,7 @@ function find(lines: string[], quoted: string): number {
 }
 
 /** A note about running the project's testing scripts by hand. */
-const RUNS_TESTING_SCRIPTS = /test_scripts\/|\brun_(unittests|unit_tests|conformance_tests)\w*\.sh\b/;
+const RUNS_TESTING_SCRIPTS = /test_scripts\/|\brun_(unittests|unit_tests|conformance_tests|static_checks)\w*\.sh\b/;
 
 /**
  * Apply the changes; the notes that result, or what could not be applied. A line added or

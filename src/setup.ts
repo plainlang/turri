@@ -1,31 +1,24 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import {
-  AGENT_DIR,
-  extensionInstalledGlobally,
-  globalExtensionFile,
-  MIN_NODE,
-  nodeVersionOk,
-  PACKAGE_ROOT,
-  turriOnPath,
-  themeFiles,
-  themesInstalledGlobally,
-} from "./environment.ts";
+import { globalExtensionFile, MIN_NODE, nodeVersionOk, PACKAGE_ROOT, turriOnPath } from "./environment.ts";
 import { sandboxAvailable, type Wall } from "./grow/os-sandbox.ts";
 import { findTestScripts } from "./grow/test-scripts.ts";
-import { hasProjectConfig } from "./config.ts";
+import { hasProjectConfig, readProjectConfig, stackOf } from "./config.ts";
+import { checkModels, modelsInUse, piModelAccess, type ModelAccess } from "./model-check.ts";
+import { brand } from "./brand.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine } from "./stack.ts";
 
 /**
- * Getting a machine ready for turri, and checking that it is.
+ * `turri doctor`: whether this machine is ready for turri.
  *
- * `doctor` looks and changes nothing: Node, a bash to run commands with, which wall is up under the agents' commands -
- * Seatbelt, bubblewrap, or the command check and the audit alone - and, in a project, whether this machine has the
- * toolchains its modules' implementation reqs name and what its testing scripts run. `setup` does the same, and offers
- * the one thing it can do from here: load turri into every `pi`.
+ * It looks: Node, a bash to run commands with, which wall is up under the agents' commands - Seatbelt, bubblewrap, or
+ * the command check and the audit alone - and, in a project, whether this machine has the toolchains its modules'
+ * implementation reqs name and what its testing scripts run, and whether each model its config names answers with this
+ * machine's credentials - one short request a model (model-check.ts). It changes one thing, asked first: a plain `pi`
+ * that an older turri made load turri too is put back to plain pi.
  */
 
 type Level = "ok" | "missing" | "limited" | "info";
@@ -142,50 +135,80 @@ function checkPath(): Check {
     : { level: "limited", name: "turri on PATH", detail: "not found", fix: `cd ${PACKAGE_ROOT} && npm link` };
 }
 
-function checkGlobal(): Check {
-  const extension = extensionInstalledGlobally();
-  const themes = themesInstalledGlobally();
-  if (extension && themes) return { level: "ok", name: "In every pi", detail: `yes (${globalExtensionFile()})` };
-  return {
-    level: "info",
-    name: "In every pi",
-    detail: "no - `turri` loads it; a plain `pi` does not",
-    fix: "turri setup can install it",
-  };
+/**
+ * turri loaded into every `pi` - a file an older `turri setup` wrote into pi's extensions. turri and pi are kept apart
+ * now: `turri` starts pi with turri, and a plain `pi` stays pi. Said only when the file is there, for doctor to remove.
+ */
+function checkGlobal(): Check[] {
+  const file = globalExtensionFile();
+  if (file === undefined) return [];
+  return [
+    {
+      level: "limited",
+      name: "turri in every pi",
+      detail: `${file} loads turri into every plain pi too`,
+      fix: "turri doctor offers to remove it, below - turri keeps starting with turri",
+    },
+  ];
 }
 
-function checkTemplates(): Check {
-  const dirs = (process.env.PLAIN_TEMPLATE_DIRS ?? "").split(":").filter(Boolean);
-  if (dirs.length === 0) return { level: "info", name: "PLAIN_TEMPLATE_DIRS", detail: "not set - only needed for specs that import shared templates" };
-  const missing = dirs.filter((dir) => !existsSync(dir));
-  return missing.length === 0
-    ? { level: "ok", name: "PLAIN_TEMPLATE_DIRS", detail: dirs.join(":") }
-    : { level: "limited", name: "PLAIN_TEMPLATE_DIRS", detail: `does not exist: ${missing.join(", ")}` };
+/**
+ * In a project: each model its config names - with the stack chosen, that stack's over it - tried with one short
+ * request. A model that answers is ready; one that does not says what the provider said, and what to do about it.
+ */
+export async function checkProjectModels(project: string, access?: ModelAccess): Promise<Check[]> {
+  const used = modelsInUse(readProjectConfig(project, stackOf(project)));
+  if (used.length === 0) {
+    return [{ level: "missing", name: "Models", detail: "config.turri.yaml names none", fix: "turri init-config writes the two models" }];
+  }
+  let verdicts;
+  try {
+    verdicts = await checkModels(used, access ?? (await piModelAccess()));
+  } catch (error) {
+    return [{ level: "missing", name: "Models", detail: `pi's models could not be read: ${error instanceof Error ? error.message : String(error)}` }];
+  }
+  return verdicts.map((verdict) => {
+    const name = verdict.usedBy.join(", ");
+    return verdict.ok
+      ? { level: "ok" as const, name, detail: `${verdict.spec} answered (${(verdict.ms / 1000).toFixed(1)}s)` }
+      : { level: "missing" as const, name, detail: verdict.spec, more: [verdict.problem], fix: verdict.fix };
+  });
 }
 
-async function allChecks(): Promise<Check[]> {
-  const checks: Check[] = [checkNode(), checkShell(), checkSandbox(), await checkProvider(), checkPath(), checkGlobal(), checkTemplates()];
-  // In a project: what it needs of this machine.
+async function allChecks(options: { models?: boolean } = {}): Promise<Check[]> {
+  const checks: Check[] = [checkNode(), checkShell(), checkSandbox(), await checkProvider(), checkPath(), ...checkGlobal()];
+  // In a project: what it needs of this machine, and whether its models answer.
   const project = process.cwd();
-  if (hasProjectConfig(project) || existsSync(join(project, "plain_modules"))) checks.push(...checkProject(project));
+  if (hasProjectConfig(project) || existsSync(join(project, "plain_modules"))) {
+    checks.push(...checkProject(project));
+    if (options.models !== false && hasProjectConfig(project)) {
+      console.log(brand.muted("Asking each model the config names for a word..."));
+      checks.push(...(await checkProjectModels(project)));
+    }
+  }
   return checks;
 }
 
 function report(checks: Check[]): number {
+  const paint: Record<Level, (text: string) => string> = { ok: brand.success, missing: brand.error, limited: brand.warning, info: brand.muted };
+  // The names in one column, however long the longest - `judge-model, models.judge` - is.
+  const width = Math.max(20, ...checks.map((check) => check.name.length)) + 1;
+  const under = " ".repeat(width + 4);
   console.log("");
   for (const check of checks) {
-    console.log(`  ${MARK[check.level]} ${check.name.padEnd(20)} ${check.detail}`);
-    for (const line of check.more ?? []) console.log(`    ${" ".repeat(20)} ${line}`);
-    if (check.fix && check.level !== "ok") console.log(`    ${" ".repeat(20)} → ${check.fix}`);
+    const name = check.level === "missing" ? brand.bold(check.name.padEnd(width)) : check.name.padEnd(width);
+    console.log(`  ${paint[check.level](MARK[check.level])} ${name}${check.level === "info" ? brand.muted(check.detail) : check.detail}`);
+    for (const line of check.more ?? []) console.log(`${under}${brand.muted(line)}`);
+    if (check.fix && check.level !== "ok") console.log(`${under}${brand.accent(`→ ${check.fix}`)}`);
   }
   const missing = checks.filter((check) => check.level === "missing");
   const limited = checks.filter((check) => check.level === "limited");
   console.log("");
   if (missing.length > 0) {
-    console.log(`Not ready: ${missing.length} thing${missing.length === 1 ? "" : "s"} to fix (✗ above).`);
+    console.log(brand.error(`Not ready: ${missing.length} thing${missing.length === 1 ? "" : "s"} to fix (✗ above).`));
     return 1;
   }
-  console.log(limited.length > 0 ? "Ready, with limits (! above)." : "Ready.");
+  console.log(limited.length > 0 ? brand.warning("Ready, with limits (! above).") : brand.success("Ready."));
   return 0;
 }
 
@@ -196,7 +219,7 @@ function report(checks: Check[]): number {
 async function confirm(question: string, fallback: boolean, yes: boolean): Promise<boolean> {
   if (yes) return true;
   if (!process.stdin.isTTY) {
-    console.log(`${question} - not asked: no terminal. Run turri setup in a terminal, or with --yes.`);
+    console.log(`${question} - not asked: no terminal. Run turri doctor in a terminal, or with --yes.`);
     return false;
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -208,57 +231,34 @@ async function confirm(question: string, fallback: boolean, yes: boolean): Promi
   }
 }
 
-/** Load turri into every `pi`: one extension file, and the themes beside pi's own. */
-function installGlobally(): void {
-  const extensions = join(AGENT_DIR, "extensions");
-  mkdirSync(extensions, { recursive: true });
-  if (!extensionInstalledGlobally()) {
-    const file = join(extensions, "turri.ts");
-    writeFileSync(
-      file,
-      "// Makes the turri tools available in every pi session, from any directory.\n" +
-        "// Delete this file to remove them. The one absolute path lives here and nowhere else.\n" +
-        `export { default } from ${JSON.stringify(join(PACKAGE_ROOT, "src", "extension.ts"))};\n`,
-    );
-    console.log(`  wrote ${file}`);
-  }
-  const themes = join(AGENT_DIR, "themes");
-  mkdirSync(themes, { recursive: true });
-  for (const name of themeFiles()) {
-    const source = join(PACKAGE_ROOT, ".pi", "themes", name);
-    const target = join(themes, name);
-    if (existsSync(target) && readFileSync(target, "utf8") === readFileSync(source, "utf8")) continue;
-    copyFileSync(source, target);
-    console.log(`  copied ${name} to ${themes}`);
-  }
+/**
+ * Take turri out of every `pi`: the extension file an older `turri setup` wrote. The themes it copied stay - they only
+ * add turri's themes to pi's list.
+ */
+function removeGlobalExtension(): void {
+  const file = globalExtensionFile();
+  if (file === undefined) return;
+  rmSync(file, { force: true });
+  console.log(`  removed ${file}`);
 }
 
-async function setup(yes: boolean): Promise<number> {
-  console.log("Getting this machine ready for turri.\n");
-
-  if (!nodeVersionOk()) return report([checkNode()]);
-
-  if (!(extensionInstalledGlobally() && themesInstalledGlobally())) {
-    if (await confirm("Load turri into every `pi` too (a file in ~/.pi/agent/extensions, and the themes)?", false, yes)) {
-      installGlobally();
-      console.log("");
-    }
-  }
-
-  return report(await allChecks());
-}
-
-export async function main(command: "setup" | "doctor", args: string[]): Promise<number> {
+export async function main(args: string[]): Promise<number> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log(
-      {
-        setup: "usage: turri setup [--yes]\n\nCheck everything turri needs, and offer to load turri into every pi, asking first.\n--yes answers yes.",
-        doctor: "usage: turri doctor\n\nCheck everything turri needs - in a project, what its modules need of this machine too - and change nothing.",
-      }[command],
+      "usage: turri doctor [--no-models] [--yes]\n\nCheck everything turri needs - in a project, what its modules need of this machine too, and that\n" +
+        "each model its config names answers with this machine's credentials (one short request a model;\n--no-models skips it).\n" +
+        "It changes nothing but this, asked first: a plain pi that an older turri made load turri too is put back to\n" +
+        "plain pi. --yes answers yes.",
     );
     return 0;
   }
-  if (command === "setup") return setup(args.includes("--yes") || args.includes("-y"));
-  console.log("Checking what turri needs.");
-  return report(await allChecks());
+  console.log(brand.bold(brand.accent("Checking what turri needs.")));
+  if (!nodeVersionOk()) return report([checkNode()]);
+  const code = report(await allChecks({ models: !args.includes("--no-models") }));
+  // turri and pi are kept apart: a plain pi does not start turri. An older turri's file that made it do so goes, asked.
+  const global = globalExtensionFile();
+  if (global !== undefined && (await confirm(`\nA plain \`pi\` loads turri too, through ${global}. Remove it, so pi stays pi?`, true, args.includes("--yes") || args.includes("-y")))) {
+    removeGlobalExtension();
+  }
+  return code;
 }

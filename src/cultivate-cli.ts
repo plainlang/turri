@@ -87,18 +87,19 @@ async function main() {
     // is accepted - the point is still to pick rather than to type the answer out.
     askUser: (request) =>
       runAsk(request, {
-        select: async (title, options) => {
+        // The terminal scrolls a long brief itself: it is printed whole, above the question.
+        select: async (title, options, context) => {
           const rl = createInterface({ input: process.stdin, output: process.stdout });
           const list = options.map((option, i) => `  ${c.bold(String(i + 1))}. ${option}`).join("\n");
-          const reply = (await rl.question(`\n${c.bold(c.cyan("? "))}${title}\n${list}\n> `)).trim();
+          const reply = (await rl.question(`\n${context !== undefined ? `${context}\n\n` : ""}${c.bold(c.cyan("? "))}${title}\n${list}\n> `)).trim();
           rl.close();
           const index = Number.parseInt(reply, 10);
           if (Number.isInteger(index) && index >= 1 && index <= options.length) return options[index - 1];
           return reply === "" ? undefined : reply;
         },
-        input: async (title) => {
+        input: async (title, context) => {
           const rl = createInterface({ input: process.stdin, output: process.stdout });
-          const reply = (await rl.question(`\n${c.bold(c.cyan("? "))}${title}\n> `)).trim();
+          const reply = (await rl.question(`\n${context !== undefined ? `${context}\n\n` : ""}${c.bold(c.cyan("? "))}${title}\n> `)).trim();
           rl.close();
           return reply === "" ? undefined : reply;
         },

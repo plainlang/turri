@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DONE_OPTION, OTHER_OPTION, missingOptions, peekKeyListener, runAsk, type AskUserIO } from "../../src/ask.ts";
+import { CHAT_OPTION, DONE_OPTION, OTHER_OPTION, isChat, missingOptions, peekKeyListener, runAsk, type AskUserIO } from "../../src/ask.ts";
 
 /** A scripted user: each select/input call returns the next queued reply. */
 function scriptedUser(replies: Array<string | undefined>): AskUserIO & { calls: string[][] } {
@@ -59,6 +59,56 @@ describe("picking one", () => {
   });
 });
 
+describe("talking about a question before answering it", () => {
+  const request = { question: "What storage?", options: ["Postgres", "SQLite"], chattable: true };
+
+  it("is offered beside Something else when an agent asked, and comes back as what the person said - no answer", async () => {
+    const user = scriptedUser([CHAT_OPTION, "What does SQLite cost us later?"]);
+    const answer = await runAsk(request, user);
+    expect(user.calls[0]).toEqual(["What storage?", "Postgres", "SQLite", OTHER_OPTION, CHAT_OPTION]);
+    expect(user.calls[1]![0]).toContain("What would you like to talk about?");
+    expect(isChat(answer)).toBe(true);
+    expect(answer).toContain("They said: What does SQLite cost us later?");
+  });
+
+  it("is not offered for a question the harness asks itself", async () => {
+    const user = scriptedUser(["Postgres"]);
+    await runAsk({ question: "What storage?", options: ["Postgres"] }, user);
+    expect(user.calls[0]).not.toContain(CHAT_OPTION);
+  });
+
+  it("can be backed out of, to the options again", async () => {
+    const user = scriptedUser([CHAT_OPTION, undefined, "SQLite"]);
+    expect(await runAsk(request, user)).toBe("SQLite");
+  });
+
+  it("says what was picked so far, in a question of several", async () => {
+    const user = scriptedUser(["Slack", CHAT_OPTION, "Is email enough on its own?"]);
+    const answer = await runAsk({ question: "Which integrations?", options: ["Slack", "Email"], multiSelect: true, chattable: true }, user);
+    expect(isChat(answer)).toBe(true);
+    expect(answer).toContain("They had picked so far: Slack.");
+  });
+});
+
+describe("Something else, chosen by accident", () => {
+  it("goes back to the options on Esc, rather than dismissing the question", async () => {
+    const user = scriptedUser([OTHER_OPTION, undefined, "Postgres"]);
+    expect(await runAsk({ question: "What storage?", options: ["Postgres"] }, user)).toBe("Postgres");
+    expect(user.calls[1]![0]).toContain("Esc, or nothing typed: back to the options");
+    expect(user.calls[2]).toEqual(["What storage?", "Postgres", OTHER_OPTION]);
+  });
+
+  it("goes back to the options when nothing is typed", async () => {
+    const user = scriptedUser([OTHER_OPTION, "   ", "Postgres"]);
+    expect(await runAsk({ question: "What storage?", options: ["Postgres"] }, user)).toBe("Postgres");
+  });
+
+  it("still dismisses the question from the options themselves", async () => {
+    const user = scriptedUser([OTHER_OPTION, undefined, undefined]);
+    expect(await runAsk({ question: "What storage?", options: ["Postgres"] }, user)).toContain("dismissed");
+  });
+});
+
 describe("picking several", () => {
   const request = { question: "Which integrations?", options: ["Slack", "Email", "SMS"], multiSelect: true };
 
@@ -106,7 +156,26 @@ describe("the tool the model sees", () => {
       options: ["a"],
       multiSelect: true,
       freeForm: undefined,
+      chattable: true,
     });
+  });
+
+  it("does not count a choice to talk about the question as its answer, and tells a skill's agent to answer in the question asked again", async () => {
+    const { createAskUserTool } = await import("../../src/tools.ts");
+    const answered = vi.fn();
+    const counted = vi.fn();
+    const tool = createAskUserTool(async () => "The user has not answered this question yet: they chose to talk about it first.\nThey said: why?", answered, undefined, { refusal: () => undefined, answered: counted });
+    const result = await tool.execute("id", { question: "q", options: ["a"] }, undefined, undefined, {} as never);
+    expect(answered).not.toHaveBeenCalled();
+    expect(counted).not.toHaveBeenCalled();
+    expect(result.content[0]!.text).toContain("Put your answer to them in the question's `context`");
+  });
+
+  it("tells the conversation's agent to answer a choice to talk in its reply, and end its turn", async () => {
+    const { createAskUserTool } = await import("../../src/tools.ts");
+    const tool = createAskUserTool(async () => "The user has not answered this question yet: they chose to talk about it first.\nThey said: why?", undefined, undefined, undefined, "reply");
+    const result = await tool.execute("id", { question: "q", options: ["a"] }, undefined, undefined, {} as never);
+    expect(result.content[0]!.text).toContain("Answer what they said in your reply, and end your turn there");
   });
 
   it("passes what the user must read to answer as context, and what the agent said before asking as said alone", async () => {

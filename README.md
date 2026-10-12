@@ -19,13 +19,14 @@ OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) -
 ```bash
 git clone git@github.com:plainlang/turri.git && cd turri
 npm install && npm link   # puts `turri` on your PATH
-turri setup               # checks the machine, and offers to load turri into every pi
+turri doctor              # checks the machine
 ```
 
-`setup` checks for Node 22.19+, bash, the OS sandbox and a model provider for pi; in a project, the toolchains its
-modules need and what its testing scripts run against this machine. It changes nothing without asking: when a check
-fails - the OS sandbox does not start, say - it says why, and the command for you to run. `turri doctor` runs the
-same checks later. What each check means: [installation](docs/installation.md).
+`doctor` checks for Node 22.19+, bash, the OS sandbox and a model provider for pi; in a project, the toolchains its
+modules need, what its testing scripts run against this machine, and that each model `config.turri.yaml` names
+answers with your credentials. It changes nothing without asking: when a check fails - the OS sandbox does not start,
+say - it says why, and the command for you to run. Run it again whenever something breaks. What each check means:
+[installation](docs/installation.md).
 
 Then start it in your project, signed in to your model providers:
 
@@ -56,8 +57,8 @@ It then says which key to set, or to `/login`, and where the file is: **turri** 
 it starts in, or the nearest one above it - so run `init-config` in your project, not beside your clone of **turri**.
 A project with only a `config.yaml` is read from it until **turri** first writes a setting, which copies it to
 `config.turri.yaml` and leaves `config.yaml` as it is.
-Below the two models, the file lists every other setting commented out, each with what it does - uncomment one to
-try it, or change it from the chat with `/turri-config`; [the project config](docs/config.md) has them all. Any other
+Below the two models, the file lists every other setting with the value turri uses for it, and the optional ones
+commented out - change one in the file, or from the chat with `/turri-config`; [the project config](docs/config.md) has them all. Any other
 model works too: [models](#models).
 
 Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
@@ -247,7 +248,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 
 | | |
 | --- | --- |
-| [Installation](docs/installation.md) | setup and doctor, what turri needs of this machine, **turri** in every `pi`, environment variables |
+| [Installation](docs/installation.md) | doctor, what turri needs of this machine, **turri** and `pi`, environment variables |
 | [Examples](examples/README.md) | projects to grow with turri step by step: cognio from an empty folder, a CLI, a backend service with conformance tests, a REST API integration |
 | [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and regen, choosing models, the command line |
 | [The project config](docs/config.md) | `config.turri.yaml` and each stack's `config.turri.<stack>.yaml`: every key, models and their inheritance, conformance, the testing scripts, stacks and choosing one, the old `config.yaml` |

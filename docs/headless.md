@@ -12,6 +12,9 @@ Everything marked `✗` stops the run, so fix those first. Two more things matte
 
 - **The toolchains.** The agents use this machine's: run `turri doctor` in the project, and it says which toolchain
   a module's implementation reqs name that this machine lacks.
+- **The models.** In a project, `turri doctor` sends each model `config.turri.yaml` names one short request, as turri's
+  agents will - so a key the provider refuses, a model pi does not know or an account without access to it shows now,
+  not an hour into the run.
 - **Credentials that do not expire mid-run.** An API key in the environment
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) or pi's saved login - whatever
   `doctor` shows as the model provider.
@@ -55,7 +58,7 @@ coding-model:                             # the model every agent runs on, and h
   model: anthropic/claude-sonnet-5
   thinking: medium
 judge-model: anthropic/claude-opus-5-5    # the judge and the test review (default: coding-model)
-conformance-tests: true            # write and run conformance tests (default: when there are test reqs)
+conformance-tests: true            # write and run conformance tests where there are test reqs (default: false)
 ```
 
 The same file names the [testing scripts](growing.md#the-testing-scripts); every key is in

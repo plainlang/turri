@@ -20,6 +20,7 @@ Every path below is in the project. What the person writes:
 | --- | --- |
 | `config.turri.yaml`, `config.turri.<stack>.yaml` | the project config, and each stack's, laid over it while the stack is chosen - see [the project config](config.md) |
 | `test_scripts/run_unittests_<lang>.sh`, `test_scripts/run_conformance_tests_<lang>.sh` | the testing scripts, the only judges of pass or fail - where `config.turri.yaml` names them, else in the project folder, else in `test_scripts/` - see [below](#the-testing-scripts) |
+| `test_scripts/run_static_checks_<lang>.sh` | optional: the formatter, linter and type checker, run with the unit testing script and counting as it does - see [the static checks](#the-static-checks) |
 | `AGENTS.md` | optional: a section whose heading names the queue steers how the work is cut - see [how the work is cut into jobs](#how-the-work-is-cut-into-jobs) |
 
 What a module is - each module's folder, its own git history:
@@ -124,7 +125,7 @@ The agents with one thing to decide have a budget of tool calls: the judge 30, t
 explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
 with what it knows; past twice the budget its turn is stopped. Handing the decision over starts the
 count again - a reviewer kept for the next review gets its whole budget for it. And every turn of an agent a render
-starts has two minutes (TURRI_TURN_LIMIT, in seconds; 0 for none). When they are up its turn ends at its next
+starts has two minutes (`turn-limit:` in the [config](config.md), in seconds; 0 for none). When they are up its turn ends at its next
 request to the model - never in the middle of one, which the provider bills whole, uncached, for an answer thrown
 away: what is running then, the model answering or a tool, finishes first, within a grace of a minute
 (TURRI_TURN_GRACE) after which it is ended where it is. The harness takes it from there - it runs the tests, and
@@ -168,6 +169,10 @@ runs the unit testing script itself**, and only that run counts (see
   at once, without waiting for three rounds. A passing run clears it.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
+- **The static checks fail** - when the project has a static checks script, it runs beside the unit testing script on
+  every round, and the work passes only when both do (see [the static checks](#the-static-checks)). One send-back
+  carries both: the unit tests' failure with the static findings under it, or the findings alone once the tests pass.
+  They share the same 20 rounds - a static check is part of what "the unit tests pass" means here, not a gate after it.
 - **It wrote nothing.** A turn can end with the agent having only thought the problem through, and
   the code folder as it found it (notes aside). That leaves nothing to test or review. So before the
   tests run, the agent is told to stop planning and write a draft: its best guess at what the spec
@@ -190,10 +195,46 @@ another, or tests something the spec does not require. Inconvenient, slow or fai
 grounds. Justified removals are reported, not silent. The baseline is taken before the agent
 starts, so breaking an earlier functionality's test is caught too.
 
+### The static checks
+
+A project's static checks script - `static-checks-script:` in the [config](config.md), else the one
+`run_static_checks*.sh` at the root or in `test_scripts/` - makes the coding agent's unit tests more than the unit
+testing script (`src/grow/static-checks.ts`). Without one, nothing here happens, and the work is judged as above.
+
+- **The formatting is the harness's.** Before every run of the unit testing script - the harness's and the agent's
+  `run_unit_tests` - the harness runs the script's fix mode, `run_static_checks_<lang>.sh <build> --fix`: the formatter
+  and the linter's safe fixes (`ruff format` and `ruff check --fix` for Python). It runs on a fresh copy of the code,
+  whatever `testing-scripts-run-on` says, and what it changed in a file the code already has is written back into the
+  code folder - no file added or taken out, never the notes or the code record. So it costs no agent turn, cannot fail
+  the work, and every commit comes out formatted: a pulse's commit in `.plaingit`, the reviewer's diffs and steering
+  see what it changed, not another pulse's reformatting. A fix mode that fails, or a script that has none, is skipped
+  without a word; with the code unchanged since it last ran, it is not run again. The agent is told it happens, and to
+  read a file again before it edits it. The first pulse after a project gains the script formats the whole codebase
+  once.
+- **The checks count.** Then the unit testing script and the static checks - `run_static_checks_<lang>.sh <build>`: the
+  type checker, the linter and the formatter in check mode - run side by side, and the work passes only when both do,
+  within the unit tests' 20 rounds. A type check covers every path, not only the ones a test exercises; lint catches
+  what agents leave behind - unused imports, dead code, shadowed names. Still failing after the last round, the work
+  is rolled back, as for failing unit tests, and its report says it was the static checks. The same failure three
+  times running brings the debugger, as for the unit tests, given the static checks script in place of the unit one.
+- **Only the findings.** The agent is shown the lines of the checks' output that name a file and a line - errors first,
+  each once, at most 30, with how many there are and the `read_output` id of the whole output - and nothing at all
+  of checks that pass. It is told to fix each at its cause, never to silence one (`# type: ignore`, `eslint-disable`,
+  a rule turned off in the checker's configuration), and that a tool missing from the dependency manifest goes in it.
+- **A toolchain missing** where the checks run - exit 69, 127, `command not found` - stops the pulse as it does for the
+  unit testing script: the person installs it, the agents install nothing.
+
+The `implement-static-checks-script` skill has the scripts ready for the standard library's languages - ruff, mypy for
+Python; Prettier, ESLint, `tsc` for TypeScript; gofmt, `go vet` for Go; rustfmt, clippy for Rust - and writes one for a
+stack of the person's own, for the tools its implementation reqs name; `brood` and `spawn` put it beside the unit
+testing script. The scripts run on this machine, unfenced, as the testing scripts do. The conformance track does not
+run them.
+
 ### Checking its own work
 
 The coding agent has tools to check its work before the harness and the reviewer do. None of them decides
-anything - the unit testing script, run by the harness, still does - and its task says when to use each:
+anything - the unit testing script and the static checks, run by the harness, still do - and its task says when to
+use each:
 
 - **`copy_resource`**: a linked resource copied whole, byte for byte, into the agent's own folder - at its code-copy
   path, or where it says inside its folder. A resource is shown in the prompt cut at 8,000 characters, saying how long
@@ -220,9 +261,12 @@ anything - the unit testing script, run by the harness, still does - and its tas
   read through `service_logs`. Three at once; each runs in a process group of its own, outliving the command that
   started it, and is stopped with everything it started on `stop_service`, when the agent's session ends, and in any
   case when its pulse ends. The code fixer of a conformance run has them too; the explorers, which only read, do not.
-- **`run_static_checks`**: the project's type checker and linter, when it has a script for them -
+- **`run_static_checks`**: the project's type checker and linter alone, when it has a script for them -
   `static-checks-script:` in the [config](config.md), or the one `run_static_checks*.sh` beside the testing
-  scripts. Optional: with none, the agent has no such tool.
+  scripts - faster than `run_unit_tests`, for while it works, and showing only what they find. Unlike the tools
+  above, what it checks counts: the harness runs the same checks with the unit tests (see
+  [the static checks](#the-static-checks)), and `run_unit_tests` runs both. Optional: with none, the agent has no such
+  tool.
 
 The reviewer has `can_it_fail` too, three runs a review session: a test it doubts can fail, it checks, and
 raises as bad with the bug it missed.
@@ -231,10 +275,10 @@ raises as bad with the bug it missed.
 
 Passing unit tests prove only what they check, and a coding agent is quick to write tests that check
 next to nothing - that a function exists, that a result is not empty, that a status is 200 - or code
-that no test reaches. So once the unit testing script passes, a reviewer on the judge model reads
-what the work wrote, beside the spec, and changes nothing. It reviews both halves. `review: false` in
-the [config](config.md) turns it off - the conformance tests' review too - and the work goes on once
-its tests pass.
+that no test reaches. So, with `review: true` in the [config](config.md), once the unit testing script
+passes a reviewer on the judge model reads what the work wrote, beside the spec, and changes nothing. It
+reviews both halves. The review is off by default - `review: false`, or the key left out - and so is the
+conformance tests' review: the work goes on once its tests pass.
 
 - **The code.** Every behaviour, edge case, validation rule and error the spec states for this work
   is implemented as the spec says it, with nothing left as a stub, a placeholder or a hard-coded
@@ -442,6 +486,7 @@ project's own testing scripts, run by the harness the same way every time:
 | --- | --- | --- |
 | `test_scripts/run_unittests_<lang>.sh` | `run_unittests_<lang>.sh <build>` | whether the unit tests pass |
 | `test_scripts/run_conformance_tests_<lang>.sh` | `run_conformance_tests_<lang>.sh <build> <tests>` | whether the conformance tests pass - the whole suite in `plain_modules/<module>/tests`, every functionality's and those carried up from below, at once |
+| `test_scripts/run_static_checks_<lang>.sh` - optional | `run_static_checks_<lang>.sh <build>` beside every run of the unit testing script, after `run_static_checks_<lang>.sh <build> --fix` | with the unit testing script, whether the coding agent's unit tests pass; its fix mode formats the code - see [the static checks](#the-static-checks) |
 | `test_scripts/prepare_environment_<lang>.sh` - optional | `prepare_environment_<lang>.sh <build>`, before every run of the conformance testing script | nothing on its own: it readies the environment the conformance tests run in - a `mvn install` of the build, say - and when it fails, the conformance tests are not run and the run fails as the preparation's |
 
 The `implement-unit-testing-script` and `implement-conformance-testing-script` skills write them.
@@ -669,7 +714,8 @@ turri bind <file.plain> 1 3        # functional specs 1 and 3
 ```
 
 They follow the code: a functional spec gets conformance tests once its code is built. Conformance is
-on by default when the module has `***test reqs***`, and can be turned off. Once a codebase has conformance tests,
+off by default: `conformance-tests: all` (or `chosen`) in the [config](config.md) turns it on, for modules
+with `***test reqs***`, and `bind` asks for it in a session. Once a codebase has conformance tests,
 they are always run and kept passing, whether or not the current render writes new ones, and they
 are carried up to the modules built on top of it.
 
@@ -801,7 +847,7 @@ nothing. And `my_diff` shows it the tests folder's diff from where the run start
 ### When a conformance test fails
 
 The harness runs the project's conformance testing script on the whole suite. When it passes, the
-unit testing script runs too - and then the review gate: a reviewer reads the tests this run added or
+unit testing script runs too - and then, with `review: true` in the config, the review gate: a reviewer reads the tests this run added or
 changed, and the code, and checks that they test black box - through the entry points the test reqs
 allow, never mocking or replacing any part of the software under test - that every test asserts what
 the spec says, with no placeholder that cannot fail, and that each acceptance test does every step it

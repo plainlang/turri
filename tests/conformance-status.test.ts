@@ -9,7 +9,6 @@ beforeEach(() => (dir = mkdtempSync(join(tmpdir(), "turri-conformance-status-"))
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const WITH = "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- pytest.\n\n***functional specs***\n\n- Say hello.\n";
-const WITHOUT = "***implementation reqs***\n\n- Python.\n\n***functional specs***\n\n- Say hello.\n";
 
 describe("the status bar's conformance", () => {
   it("says what config.yaml says, when it says it", () => {
@@ -19,12 +18,10 @@ describe("the status bar's conformance", () => {
     expect(conformanceStatus(dir)).toBe("conformance on (config.yaml)");
   });
 
-  it("otherwise follows the module's test reqs", () => {
+  it("is off when the config does not set it, whatever the module's test reqs", () => {
     writeFileSync(join(dir, "app.plain"), WITH);
     writeFileSync(join(dir, "config.yaml"), "module: app.plain\n");
-    expect(conformanceStatus(dir)).toBe("conformance on (test reqs)");
-    writeFileSync(join(dir, "app.plain"), WITHOUT);
-    expect(conformanceStatus(dir)).toBe("conformance off (no test reqs)");
+    expect(conformanceStatus(dir)).toBe("conformance off - not set (config.yaml)");
   });
 
   it("finds a project one folder down, and says nothing where there is none", () => {

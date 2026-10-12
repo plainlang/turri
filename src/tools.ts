@@ -79,7 +79,7 @@ export function createVerdictTool(onVerdict: (v: Verdict) => void) {
 }
 
 
-import { runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
+import { isChat, runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
 import { describeFindings, describeQuestions, type LiveReviewer } from "./review/live.ts";
 
 export type { AskUser, AskUserRequest };
@@ -95,12 +95,17 @@ export type { AskUser, AskUserRequest };
  * `gate`, for an interview that holds its questions to rules - the questioning level's cap (questioning.ts), an answer
  * written as a spec change before the next question: a question it refuses is not asked, and `confirms_phase` marks a
  * phase's closing confirmation, which the cap never counts.
+ *
+ * `talks`: where the asker answers a person who chose "Chat about this" - `"reply"`, the conversation's agent, in its
+ * reply; `"context"`, a skill's agent, whose replies nobody sees, as the `context` of the question asked again. Such a
+ * choice is no answer: neither the cap nor `onAnswered` counts it.
  */
 export function createAskUserTool(
   ask: AskUser,
   onAnswered?: (answer: string, confirmsPhase: boolean) => void,
   said?: () => string,
   gate?: Pick<Questioning, "refusal" | "answered">,
+  talks: "reply" | "context" = "context",
 ) {
   return defineTool({
     name: "ask_user",
@@ -113,15 +118,16 @@ export function createAskUserTool(
     promptGuidelines: [
       "Every ask_user call should carry `options` unless the answer genuinely cannot be anticipated; picking from a list is far quicker for the user than typing. A free-form question needs free_form: true.",
       "Use multi_select: true when several answers can apply at once, rather than asking the same question repeatedly.",
-      "The dialog shows the question, its options and `context` alone - nothing you wrote before it. When the user must read something to answer - the brief to confirm, the plan to approve - pass it whole as `context`; never put an account of your work there (what a probe returned, what a regrow did).",
+      "The dialog shows the question, its options and `context` alone - nothing you wrote before it. When the user must read something to answer - the brief to confirm, the plan to approve - pass it as `context`; never put an account of your work there (what a probe returned, what a regrow did).",
+      "Keep `context` short enough to take in at a glance - a heading or two and short bullets, a line each, about fifteen lines at most: what the person decides on, not every detail. The details are in the spec; say where, and they can ask.",
     ],
     parameters: Type.Object({
       question: Type.String({ description: "One question. Never bundle two." }),
       options: Type.Optional(
         Type.Array(Type.String(), {
           description:
-            "Concrete choices to offer. The user can always pick \"Something else…\" and type instead, " +
-            "so offering options never traps them.",
+            "Concrete choices to offer. The user can always pick \"Something else…\" and type instead, or " +
+            "\"Chat about this\" to talk the question over with you first, so offering options never traps them.",
         }),
       ),
       multi_select: Type.Optional(
@@ -163,7 +169,11 @@ export function createAskUserTool(
         freeForm: params.free_form,
         ...(params.context !== undefined && params.context.trim() !== "" ? { context: params.context } : {}),
         ...(said !== undefined ? { said: said() } : {}),
+        chattable: true,
       });
+      if (isChat(answer)) {
+        return { content: [{ type: "text" as const, text: `${answer}\n\n${talkBack(talks)}` }], details: { question: params.question, answer } };
+      }
       gate?.answered(confirmsPhase);
       onAnswered?.(answer, confirmsPhase);
       return {
@@ -175,6 +185,16 @@ export function createAskUserTool(
 }
 
 export { runAsk };
+
+/** What the asker is told to do when the person chose to talk about its question rather than answer it. */
+function talkBack(talks: "reply" | "context"): string {
+  return talks === "reply"
+    ? "Answer what they said in your reply, and end your turn there: they go on in the chat. Ask the question again " +
+        "with ask_user only once it is settled - changed, if what they said calls for it. It was not counted as answered."
+    : "Answer what they said, then ask the question again with ask_user - changed, if what they said calls for it. Put " +
+        "your answer to them in the question's `context`: nothing else you write reaches them. It was not counted as a " +
+        "question, and nothing is owed for it.";
+}
 
 /** Ends the questions of a phase the questioning level caps: what is left, the agent decides itself. */
 export function createEndQuestionsTool(questioning: Pick<Questioning, "end">) {

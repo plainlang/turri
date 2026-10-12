@@ -123,13 +123,13 @@ describe("a skill's question", () => {
     expect(asked[1]!.said).toBe("Here is the mapping I propose: email lowercased.");
   });
 
-  it("is shown below that text in the dialog", async () => {
+  it("is given to the dialog apart from that text, for it to show above it", async () => {
     const { runAsk } = await import("../src/ask.ts");
-    const titles: string[] = [];
+    const shown: Array<[string, string | undefined]> = [];
     await runAsk(
       { question: "Is this the right brief?", options: ["Build it"], context: "- The problem: invoices get lost." },
-      { select: async (title) => (titles.push(title), "Build it"), input: async () => undefined },
+      { select: async (title, _options, context) => (shown.push([title, context]), "Build it"), input: async () => undefined },
     );
-    expect(titles[0]).toBe("- The problem: invoices get lost.\n\nIs this the right brief?");
+    expect(shown[0]).toEqual(["Is this the right brief?", "- The problem: invoices get lost."]);
   });
 });

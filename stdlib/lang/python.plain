@@ -7,6 +7,9 @@ description: Python 3.12 with uv, ruff and pytest - what every stdlib Python sta
 - :Implementation: is written in Python 3.12, with type hints on every function signature.
 - :Implementation: manages dependencies with uv in `pyproject.toml`, with `uv.lock` committed, and keeps development dependencies in the `dev` dependency group.
 - :Implementation: is formatted and linted with ruff, configured in `pyproject.toml` with a line length of 100.
+- :Implementation: is type checked with mypy, configured in `pyproject.toml` under `[tool.mypy]` with `disallow_untyped_defs = true` and `files` naming the package and its tests.
+  - A library that ships no type information gets its stubs package (`types-...`) in the `dev` group; only one with none is listed under `ignore_missing_imports`, by its module.
+- :Implementation: keeps ruff and mypy in the `dev` dependency group.
 - :Implementation: reports a failure by raising an exception, never by returning `None` or an error code.
   - It catches an exception only where it handles it, or to raise one of its own with `raise ... from`, keeping the cause.
 - :Implementation: logs through the standard `logging` module, with one logger per module from `logging.getLogger(__name__)`, and never with `print`.

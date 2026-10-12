@@ -465,13 +465,10 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
 
 /**
  * How long one turn of an agent a render starts may take: past it, the turn ends where it is and
- * the harness goes on as after any turn - it runs the tests, and judges. TURRI_TURN_LIMIT sets
- * it, in seconds; 0 turns it off.
+ * the harness goes on as after any turn - it runs the tests, and judges. The config's `turn-limit:`
+ * sets it, in seconds, and each role's in `models:`; 0 turns it off.
  */
 export const DEFAULT_TURN_LIMIT_MS = 120 * 1000;
-
-/** TURRI_TURN_LIMIT, in seconds: over the config's turn limits, for every agent. */
-const TURN_LIMIT_FROM_ENV = process.env.TURRI_TURN_LIMIT !== undefined && process.env.TURRI_TURN_LIMIT.trim() !== "" ? Number(process.env.TURRI_TURN_LIMIT) * 1000 : undefined;
 
 /** How long past the turn limit what is running then - the model answering, a tool - may take to finish. */
 export const TURN_GRACE_MS = Number(process.env.TURRI_TURN_GRACE ?? 60) * 1000;
@@ -603,10 +600,10 @@ function agentOf(session: object): { label: string; model?: string } | undefined
 
 /**
  * Have this session's turns timed, as an agent a render starts has: `limitMs` each - its role's in the config - or
- * the default. TURRI_TURN_LIMIT wins over both.
+ * the default.
  */
 export function timeTurns(session: object, limitMs?: number): void {
-  timedSessions.set(session, TURN_LIMIT_FROM_ENV ?? limitMs ?? DEFAULT_TURN_LIMIT_MS);
+  timedSessions.set(session, limitMs ?? DEFAULT_TURN_LIMIT_MS);
 }
 
 /** How many calls to one tool may fail in a row, nothing going through, before the agent's turn is stopped. */

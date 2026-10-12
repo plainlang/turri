@@ -65,13 +65,16 @@ describe("/turri-config's settings", () => {
   it("change a key in its line, its comment kept, and put a new one under its commented-out example", () => {
     let text = withSetting(QUICK_START_CONFIG, "harness-model", "openai/gpt-6-astra:medium");
     expect(text).toMatch(/^harness-model: openai\/gpt-6-astra:medium +# you talk to it/m);
-    text = withSetting(text, "review", false);
+    text = withSetting(text, "review", true);
+    expect(text).toMatch(/^review: true$/m);
+    expect(text).not.toMatch(/^review: false$/m);
+    text = withSetting(text, "module", "shop.plain");
     const lines = text.split("\n");
-    expect(lines.indexOf("review: false")).toBe(lines.indexOf("# review: false") + 1);
+    expect(lines.indexOf("module: shop.plain")).toBe(lines.indexOf("# module: app.plain") + 1);
     // Unset, it is gone; the example stays.
-    text = withSetting(text, "review", undefined);
-    expect(text).not.toMatch(/^review:/m);
-    expect(text).toContain("# review: false");
+    text = withSetting(text, "module", undefined);
+    expect(text).not.toMatch(/^module:/m);
+    expect(text).toContain("# module: app.plain");
   });
 
   it("write a role's model and turn limit under models: - a string alone, an object once it has a turn limit - and take the block out once empty", () => {

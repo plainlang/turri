@@ -27,10 +27,6 @@ import { createWebTools } from "./grow/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./genome.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
-import { resolveTemplateDirs } from "./grow/paths.ts";
-import { plainFileParser } from "./plain/parser.ts";
-import { TEST_REQUIREMENTS } from "./plain/spec.ts";
-import { sectionsOf } from "./grow/state.ts";
 import { runningDeployed, stopDeployed } from "./grow/release.ts";
 import { createDeployState, createDeployTools, type DeployState } from "./release-tools.ts";
 import { runReleaseAgent } from "./release-agent.ts";
@@ -58,8 +54,10 @@ import { loadRules, renderRulesBlock } from "./rules.ts";
 import { registerTurriConfig } from "./config-command.ts";
 import { describeStdlib, stdlibStackCount } from "./stdlib.ts";
 import { peekKeyListener, runAsk, type AskUser, type AskUserRequest } from "./ask.ts";
+import { QuestionDialog } from "./question-dialog.ts";
 import { registerStacks } from "./stacks.ts";
 import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
+import { supersededByTurri } from "./chat-skills.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
   createJobRegistry,
@@ -109,10 +107,23 @@ export function askUserVia(
     try {
       // The question, with what the asker gives to read for it - a brief to confirm - above it; what it said of its work
       // before asking is kept in its record, never put in the dialog.
+      // A dialog of turri's own: a long brief scrolls above the question, and the options always show (question-dialog.ts).
+      const dialog = (question: string, context: string | undefined, options?: string[]) =>
+        ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) =>
+          new QuestionDialog({
+            question,
+            ...(context !== undefined ? { context } : {}),
+            ...(options !== undefined ? { options } : {}),
+            rows: () => tui.terminal.rows,
+            style: { accent: (text) => theme.fg("accent", text), muted: (text) => theme.fg("muted", text), bold: (text) => theme.bold(text) },
+            done,
+            requestRender: () => tui.requestRender(),
+          }),
+        );
       const asking: AskUser = (asked) =>
         runAsk(asked, {
-          select: (title, options) => ctx.ui.select(title, options),
-          input: (title) => ctx.ui.input(title),
+          select: (title, options, context) => dialog(title, context, options),
+          input: (title, context) => dialog(title, context),
         });
       const bare: AskUserRequest = { ...request, said: undefined };
       const answer = aside !== undefined ? await askWithAsides(bare, asking, aside) : await asking(bare);
@@ -159,13 +170,17 @@ function hookPeekKey(ctx: ExtensionContext): () => void {
 
 /**
  * ask_user, for the conversation's agent too - the same dialog a skill's interview uses: options to
- * pick from, several at once, "Something else…" to type instead - so a question with a handful of
- * answers is picked, not typed.
+ * pick from, several at once, "Something else…" to type instead, "Chat about this" to talk it over in
+ * the chat first - so a question with a handful of answers is picked, not typed.
  */
 export function chatAskUserTool() {
   let conversation: ExtensionContext | undefined;
-  const tool = createAskUserTool((request) =>
-    conversation !== undefined ? askUserVia(conversation, () => {})(request) : Promise.resolve("No user is available to answer."),
+  const tool = createAskUserTool(
+    (request) => (conversation !== undefined ? askUserVia(conversation, () => {})(request) : Promise.resolve("No user is available to answer.")),
+    undefined,
+    undefined,
+    undefined,
+    "reply",
   );
   return {
     ...tool,
@@ -264,9 +279,29 @@ export default function (pi: ExtensionAPI) {
   };
   // What the project's config.turri.yaml says, read afresh every turn: the agent answers from it, and
   // the tools default to it.
-  pi.on("before_agent_start", (event) => ({
-    systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock()].filter((part) => part !== "").join("\n\n"),
-  }));
+  // pi's skills that turri has already - its own and the project's, run with cultivate, and any about ***plain from
+  // another tool - are left out of the list the conversation is offered (chat-skills.ts); the person is told once.
+  const turriRuns = new Set(discoveredSkills.skills.map((skill) => skill.name));
+  let leftOutSaid = false;
+  pi.on("before_agent_start", (event, ctx) => {
+    const offered = event.systemPromptOptions.skills;
+    const leftOut = offered.filter((skill) => supersededByTurri(skill, turriRuns));
+    if (leftOut.length > 0) {
+      event.systemPromptOptions.skills = offered.filter((skill) => !leftOut.includes(skill));
+      if (!leftOutSaid && ctx.hasUI) {
+        leftOutSaid = true;
+        const names = leftOut.map((skill) => skill.name);
+        ctx.ui.notify(
+          `turri left out ${names.length} of pi's skills it has already - ${names.slice(0, 6).join(", ")}${names.length > 6 ? ", ..." : ""}: ` +
+            "the ***plain reference is in its prompt, and it runs its own skills with cultivate.",
+          "info",
+        );
+      }
+    }
+    return {
+      systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock()].filter((part) => part !== "").join("\n\n"),
+    };
+  });
 
   // The conversation's agent does not run turri again through its shell, unless the person
   // asked for the command line in the message it is answering.
@@ -838,32 +873,23 @@ export function conformanceStatus(root: string): string | undefined {
   const config = readProjectConfig(project, stack);
   // The file it is said in: the stack's, when it says otherwise than the project's.
   const file = stack !== undefined && config.conformanceTests !== readProjectConfig(project).conformanceTests ? stackConfigFileIn(project, stack) : projectConfigFile(project);
-  const status = conformanceOf(project, config, file);
-  if (status === undefined || stacksOf(project).length === 0) return status;
+  const status = conformanceOf(config, file);
+  if (stacksOf(project).length === 0) return status;
   return `${status} · stack ${stack ?? "none"} (/stack)`;
 }
 
-function conformanceOf(project: string, config: ReturnType<typeof readProjectConfig>, file: string): string | undefined {
+function conformanceOf(config: ReturnType<typeof readProjectConfig>, file: string): string {
   if (config.conformanceTests === false) return `conformance off (${file})`;
   if (config.conformanceTests === true) return `conformance on (${file})`;
   if (config.conformanceTests === "chosen") return `conformance on for the chosen (${file})`;
-  if (config.module === undefined) return "conformance on where there are test reqs";
-  try {
-    const file = resolve(project, config.module);
-    const [, tree] = plainFileParser(basename(file), resolveTemplateDirs(file));
-    return (sectionsOf(tree)[TEST_REQUIREMENTS] ?? []).length > 0 ? "conformance on (test reqs)" : "conformance off (no test reqs)";
-  } catch {
-    return "conformance on where there are test reqs";
-  }
+  return `conformance off - not set (${file})`;
 }
 
 /**
- * How many jobs the chat runs at once: TURRI_PARALLEL_JOBS, else `parallel-jobs:` in the session
- * folder's config.turri.yaml, else half this machine's cores, between one and four.
+ * How many jobs the chat runs at once: `parallel-jobs:` in the session folder's config.turri.yaml - the only place it
+ * is set - else half this machine's cores, between one and four.
  */
 export function parallelJobs(cwd: string): number {
-  const fromEnv = Number(process.env.TURRI_PARALLEL_JOBS);
-  if (Number.isInteger(fromEnv) && fromEnv >= 1) return fromEnv;
   return readProjectConfig(cwd).parallelJobs ?? defaultParallelJobs();
 }
 
@@ -1005,10 +1031,10 @@ export function projectConfigBlock(root: string): string {
             ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with bind - when the work is planned, ahead of its code: what is planned lists what the code pulses add or change that has none, and a conformance pulse scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
             : config.conformanceTests === true
             ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
-            : "- conformance-tests: not set - conformance tests are on for every module that has test reqs.",
-        config.review === false
-          ? "- review: false - the code and its tests are not reviewed: a pulse lands once its tests pass."
-          : `- review: ${config.review === true ? "true" : "not set"} - the code and its tests are reviewed once they pass: two reviews at most, the arbiter weighing the second.`,
+            : "- conformance-tests: not set - conformance tests are OFF, as with false: renders write none and run none, unless the user asks for them in this conversation.",
+        config.review === true
+          ? "- review: true - the code and its tests are reviewed once they pass: two reviews at most, the arbiter weighing the second."
+          : `- review: ${config.review === false ? "false" : "not set, so off"} - the code and its tests are not reviewed: a pulse lands once its tests pass.`,
         ...(() => {
           // Each as it holds, with what it inherits: judge from coding, coding from harness.
           const models = projectModels(config);

@@ -27,19 +27,45 @@ export interface AskUserRequest {
    * run's record and the transcript, never shown in the dialog.
    */
   said?: string;
+  /**
+   * Offer "Chat about this": an agent asked, and can answer what the person says about the question before they answer
+   * it. Not for a question the harness asks itself - nobody would answer.
+   */
+  chattable?: boolean;
 }
 
 export type AskUser = (request: AskUserRequest) => Promise<string>;
 
-/** The two dialogs an implementation has to provide. */
+/**
+ * The two dialogs an implementation has to provide. `context` is what to read to answer, given apart from the question so
+ * a dialog can show a long one without losing the question and its options under it - the TUI's scrolls it.
+ */
 export interface AskUserIO {
-  select(title: string, options: string[]): Promise<string | undefined>;
-  input(title: string): Promise<string | undefined>;
+  select(title: string, options: string[], context?: string): Promise<string | undefined>;
+  input(title: string, context?: string): Promise<string | undefined>;
 }
 
 export const OTHER_OPTION = "Something else…";
+export const CHAT_OPTION = "Chat about this";
 export const DONE_OPTION = "Done — that's all of them";
 export const DISMISSED = "The user dismissed the question without answering.";
+
+/** How an answer that is no answer starts: the person chose to talk about the question first. */
+export const CHAT_PREFIX = "The user has not answered this question yet: they chose to talk about it first.";
+
+/** What comes back when the person chose "Chat about this": what they said, and what they had picked so far. */
+export function chatAnswer(said: string, picked: string[] = []): string {
+  return [CHAT_PREFIX, `They said: ${said.trim()}`, ...(picked.length > 0 ? [`They had picked so far: ${picked.join(", ")}.`] : [])].join("\n");
+}
+
+/** Whether an answer is the person choosing to talk about the question, rather than answering it. */
+export function isChat(answer: string): boolean {
+  return answer.startsWith(CHAT_PREFIX);
+}
+
+/** The input after "Something else…" or "Chat about this": with nothing typed, or Esc, the options again. */
+const BACK = "(Esc, or nothing typed: back to the options)";
+const typedNothing = (typed: string | undefined): typed is undefined => typed === undefined || typed.trim() === "";
 
 /**
  * A question with no options and no `free_form` is refused rather than asked.
@@ -97,19 +123,36 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
   const refusal = missingOptions(request);
   if (refusal !== null) return refusal;
 
-  // The question, below what it is about.
-  const context = request.context?.trim() ?? "";
-  const titled = (question: string) => (context !== "" ? `${context}\n\n${question}` : question);
+  // The question, and apart from it what it is about: the dialog shows that above it.
+  const trimmed = request.context?.trim() ?? "";
+  const context = trimmed !== "" ? trimmed : undefined;
   const options = request.options ?? [];
   if (options.length === 0) {
-    return (await io.input(titled(request.question))) ?? DISMISSED;
+    return (await io.input(request.question, context)) ?? DISMISSED;
   }
 
+  // Beside the options: typing an answer instead, and - when an agent asked - talking about the question first. Either
+  // can be backed out of, to the options again: picked by accident, it costs nothing.
+  const extras = [OTHER_OPTION, ...(request.chattable === true ? [CHAT_OPTION] : [])];
+  const typeInstead = () => io.input(`${request.question}\n\n${BACK}`, context);
+  const chatAbout = () => io.input(`${request.question}\n\nWhat would you like to talk about? ${BACK}`, context);
+
   if (request.multiSelect !== true) {
-    const choice = await io.select(titled(request.question), [...options, OTHER_OPTION]);
-    if (choice === undefined) return DISMISSED;
-    if (choice !== OTHER_OPTION) return choice;
-    return (await io.input(titled(request.question))) ?? DISMISSED;
+    for (;;) {
+      const choice = await io.select(request.question, [...options, ...extras], context);
+      if (choice === undefined) return DISMISSED;
+      if (choice === OTHER_OPTION) {
+        const typed = await typeInstead();
+        if (typedNothing(typed)) continue;
+        return typed;
+      }
+      if (choice === CHAT_OPTION) {
+        const said = await chatAbout();
+        if (typedNothing(said)) continue;
+        return chatAnswer(said);
+      }
+      return choice;
+    }
   }
 
   // Pick several: keep offering what is left until they say they are done.
@@ -117,14 +160,19 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
   let remaining = [...options];
   while (remaining.length > 0) {
     const title = chosen.length === 0 ? request.question : `${request.question}  [so far: ${chosen.join(", ")}]`;
-    const choice = await io.select(titled(title), [...remaining, OTHER_OPTION, DONE_OPTION]);
+    const choice = await io.select(title, [...remaining, ...extras, DONE_OPTION], context);
 
     if (choice === undefined) break;
     if (choice === DONE_OPTION) break;
     if (choice === OTHER_OPTION) {
-      const typed = await io.input(titled(request.question));
-      if (typed !== undefined && typed.trim() !== "") chosen.push(typed.trim());
+      const typed = await typeInstead();
+      if (!typedNothing(typed)) chosen.push(typed.trim());
       continue;
+    }
+    if (choice === CHAT_OPTION) {
+      const said = await chatAbout();
+      if (typedNothing(said)) continue;
+      return chatAnswer(said, chosen);
     }
 
     chosen.push(choice);

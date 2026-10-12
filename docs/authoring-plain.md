@@ -83,9 +83,13 @@ import:
 It is built in three layers, and a stack imports the other two:
 
 - **The language** - `stdlib/lang/python`, `typescript`, `java`, `go`, `rust`: the version, the
-  dependency manager, formatting, how a failure is reported (an exception, a returned error, a
-  `Result`), the logging library, and the unit test framework and layout. A module on a stack the
-  library does not have can import its language alone.
+  dependency manager, formatting, linting and type checking (ruff and mypy for Python; Prettier, ESLint
+  and `tsc --noEmit` for TypeScript), how a failure is reported (an exception, a returned error, a
+  `Result`), the logging library, and the unit test framework and layout. A module on a stack the library does not have can import its language alone.
+  The formatter, linter and type checker a language names are enforced by its static checks script, which
+  the `implement-static-checks-script` skill has ready for Python, TypeScript, Go and Rust: turri formats
+  the code with it before every unit test run, and its checks must pass with the unit tests (see
+  [growing the code](growing.md#the-tests-must-actually-pass)).
 - **The kind's `common`** - what every stack of a kind shares:
 
   | kind | settles |
@@ -204,10 +208,9 @@ What keeps the interview honest is the harness, not the interviewer:
 
 - **Every question offers choices** (`ask_user` refuses a question without them), and each
   answer maps to one spec change.
-- **A reviewer reads along.** A read-only agent re-reads the module after every change and puts
-  its findings on the interviewer's next tool result, to fix before the next question.
-- **A gate closes the phase.** Two independent judges check the specs against the phase's rubric,
-  and the phase advances only when both pass - see [skills and gates](skills-and-gates.md).
+- **Every answer is written before the next question.** In `brood`'s product phase `ask_user` refuses
+  a new question until the last answer is a spec change - see [skills and gates](skills-and-gates.md).
+- **Each phase ends on the person's confirmation** of a short summary, not on the interviewer's word.
 
 ## The skills
 
@@ -222,7 +225,7 @@ in `.turri/skills/` or `.agents/skills/`, can be too (see [skills and gates](ski
 | check what is written | `analyze-if-func-spec-too-complex`, `analyze-2-func-specs`, `analyze-func-specs`, `resolve-section-ownership` |
 | fix what is written | `break-down-func-spec`, `resolve-spec-conflict`, `debug-specs` |
 | restructure modules | `create-import-module`, `create-requires-module`, `refactor-module`, `consolidate-concepts` |
-| set up the project to build | `implement-unit-testing-script`, `implement-conformance-testing-script`, `check-plain-env` |
+| set up the project to build | `implement-unit-testing-script`, `implement-static-checks-script`, `implement-conformance-testing-script`, `check-plain-env` |
 
 `debug-specs` is the one for a running application that misbehaves: it reads the generated code
 to find the cause, traces it back to the spec, and fixes only the `.plain` files.

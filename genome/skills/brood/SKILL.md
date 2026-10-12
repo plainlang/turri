@@ -8,8 +8,7 @@ description: >-
   judgement, broader with fewer - and decides what they leave open itself, each decision a spec
   change of its own. The testing
   phase comes first, so each change is conformance tested as it is built: it decides on
-  conformance tests and writes the test reqs and the conformance testing script. Gated review of
-  the product phase. Use when the user starts a new project or wants to build
+  conformance tests and writes the test reqs and the conformance testing script. Use when the user starts a new project or wants to build
   something new from scratch and settle it with you step by step; when they want it built fast from
   what they want alone, use its quick twin, `spawn`. Not for adding a
   feature to an existing project (use `bud`) or for editing generated code (the .plain
@@ -28,19 +27,6 @@ metadata:
   # Every answer in the product phase is a spec change: the next question waits until it is
   # written with write_spec_diff. Changes turri decides itself need no answer before them.
   spec-diff-per-answer: [product]
-  gates:
-    - after: product
-      continuous:
-        rubric: ./references/rubric-product-live.md
-        judges: 1
-        judge_tools: [read, ls, grep, find]
-      review:
-        rubric: ./references/rubric-product.md
-        judges: 2
-        quorum: all
-        on_fail: retry
-        max_retries: 2
-        judge_tools: [read, ls, grep, find]
 ---
 
 # Brood
@@ -56,24 +42,6 @@ Act as a `***plain` spec writer. The only output is `.plain` specification files
 In the product phase, every change you make to the specs is a **spec diff**: a git diff of the `.plain` files, written with `write_spec_diff`, which applies it and starts building it. The spec diffs are the output of the interview; the builds follow from them.
 
 The testing phase is the exception: it changes only `***test reqs***`, and comes before anything is built, so it writes them with the ordinary file tools and never with `write_spec_diff`. It comes before the product phase so that every spec change the product phase writes is conformance tested as it is built: with conformance on, each build writes and runs the change's conformance tests, and keeps every earlier one passing.
-
-## How the phases end
-
-Every phase ends the same way for the user: a summary and one explicit confirmation. The
-**product** phase is reviewed as well, and none of that review is yours to run.
-
-A reviewer reads along behind you the whole product phase - it re-reads the module after every
-spec change, and its findings arrive on your tool results - and at the end the harness spawns
-two independent judges against `references/rubric-product.md` and advances only when both
-pass. A failed gate comes back with the violations and the phase runs again. You cannot skip
-it, self-certify it, or advance on an unmet box — so do not review your own work.
-
-What the gate needs from you is the **phase evidence record**. At the end of the product phase,
-call `write_artifact` with `product.md` and write the ordered account of what happened: each
-question asked, its answer, the spec change written in response and the build job it started,
-every spec change you decided yourself, without a question, and every explicit decision. The judges check `[record]` boxes against it, `[disk]` boxes
-against the files, and `[both]` by cross-checking the two. A product phase that writes no
-evidence record fails its gate without a judge being spent.
 
 ## Phase discipline
 
@@ -150,7 +118,7 @@ criterion, and the initial boundary with its explicit exclusions. Get explicit c
 of that brief - the bullets passed whole as `ask_user`'s `context`, which the dialog shows above the
 question - and carry it into every later phase.
 
-This phase ends on the user's confirmation. There is no gate and no artifact to write.
+This phase ends on the user's confirmation.
 
 ### stack
 
@@ -188,12 +156,20 @@ that stack's `config.turri.<stack>.yaml` beside `config.turri.yaml` (`unittests-
 project's and holds what the stacks share. A stack is chosen, never worked out: tell the user to
 choose it with `/stack <stack>` (`--stack <stack>` on the command line) before building this module.
 
+Beside it, the static checks script - the formatter, linter and type checker the stack names, which
+turri runs with the unit tests and which count as they do. Keep one turri already finds
+(`static-checks-script:`, or the one `run_static_checks*.sh` in the root or in `test_scripts/`);
+otherwise follow `implement-static-checks-script`: for Python, TypeScript, Go or Rust it copies the
+language's asset to `test_scripts/run_static_checks_<language>.sh`, and for another stack it writes one
+only when the reqs name such tools. Named, like the unit testing script, in the stack's own config file
+in a project of several stacks.
+
 Run `turri validate` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.
 
-Finish by summarizing the stack, the architecture and the unit testing script - marking each
-choice you made without asking - and getting explicit confirmation, with `confirms_phase: true`. There is
-no gate on this phase — the user reading the stack back is the check.
+Finish by summarizing the stack, the architecture, the unit testing script and the static checks - marking each
+choice you made without asking - and getting explicit confirmation, with `confirms_phase: true`. The user
+reading the stack back is the check.
 
 ### testing
 
@@ -216,8 +192,7 @@ turri finds none - and run `validate` on what you changed. Without both, the fir
 the product phase stops before it starts.
 
 Finish by summarizing the decision, the test reqs and the script, and saying that from the first
-spec change on, every build writes and runs its conformance tests. Get explicit confirmation. There
-is no gate on this phase.
+spec change on, every build writes and runs its conformance tests. Get explicit confirmation.
 
 ### product
 
@@ -251,8 +226,8 @@ phase by any other means than `write_spec_diff`.
 Report each build result between questions, in one sentence. Use `drift` when the
 user asks how the builds are going.
 
-Finish by summarizing the full concept list and feature list in build order, marking what you
-decided without asking, saying what is built and what is still queued, getting explicit
-confirmation with `confirms_phase: true`, and writing the evidence record to `product.md` - with
-the questioning level, each question asked, and each spec change you wrote without one, marked as
-decided by you.
+Finish by summarizing the concepts and the features in build order, marking what you decided without
+asking, saying what is built and what is still queued, getting explicit confirmation with
+`confirms_phase: true`. The summary is for the person to take in at a glance: a line a feature, a few
+words a concept, each decision you made yourself in a few words - about fifteen lines at most, never
+the specs' wording or every rule; they are in the spec.

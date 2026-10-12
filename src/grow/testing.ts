@@ -89,7 +89,7 @@ export function outputsDir(dir: string): string {
 }
 
 /** Keep `output` whole, whatever its length, in the outputs folder. Returns the file, or nothing when it could not be written. */
-function keepOutput(dir: string, label: string, output: string | Buffer): string | undefined {
+export function keepOutput(dir: string, label: string, output: string | Buffer): string | undefined {
   try {
     const logs = outputsDir(dir);
     mkdirSync(logs, { recursive: true });

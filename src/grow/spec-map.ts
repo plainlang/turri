@@ -10,7 +10,7 @@ import {
   TEST_REQUIREMENTS,
   type MarshalledPlainSource,
 } from "../plain/spec.ts";
-import { configForSpec, readProjectConfig } from "../config.ts";
+import { configForSpec, conformanceSwitchedOn, readProjectConfig } from "../config.ts";
 import { STDLIB_ROOT } from "../plain/stdlib.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { chainSpec, type MapCodebase, type MapPlan, type MapPulse } from "./loop.ts";
@@ -372,12 +372,12 @@ function fingerprint(paths: string[]): string {
     .join("\n");
 }
 
-/** Whether a module's config has its conformance tests on: `conformance-tests:` is not false. */
+/** Whether a module's config has its conformance tests on: `conformance-tests:` is all (true) or chosen - off when not set. */
 function conformanceOn(plainFile: string): boolean {
   try {
-    return configForSpec(plainFile).conformanceTests !== false;
+    return conformanceSwitchedOn(configForSpec(plainFile).conformanceTests);
   } catch {
-    return true;
+    return false;
   }
 }
 
