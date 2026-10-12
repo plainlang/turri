@@ -91,7 +91,7 @@ export function sandboxGapOf(text: string, options: { project?: string; exists?:
 }
 
 /**
- * What the person is told, in the chat, at the end of `turri regrow`, and in the job's log. `rerun`: the command that runs
+ * What the person is told, in the chat, at the end of `turri regenerate`, and in the job's log. `rerun`: the command that runs
  * the work again, as the pulse knows it - the spec the person ran; without it, the module's own spec by its name.
  */
 export function describeEnvironmentError(error: EnvironmentError, rerun?: string): string {
@@ -100,14 +100,14 @@ export function describeEnvironmentError(error: EnvironmentError, rerun?: string
       `**${error.moduleName} stopped: turri's sandbox kept its agents from reading \`${error.sandbox.paths[0]}\` - it is on this machine; nothing is missing.**`,
       `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,
       `To fix: let the agents read that toolchain - add its folder to \`toolchains:\` in config.yaml, keeping what is there: \`toolchains: [${error.sandbox.folder}]\`. Nothing needs installing.`,
-      `Then re-run: \`${rerun ?? `turri regrow ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
+      `Then re-run: \`${rerun ?? `turri regenerate ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
     ].join("\n");
   }
   return [
     `**${error.moduleName} stopped: the environment lacks ${error.missing}.**`,
     `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,
     `To fix: ${error.fix ?? "provide it on this machine, then run it again."}`,
-    `Then re-run: \`${rerun ?? `turri regrow ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
+    `Then re-run: \`${rerun ?? `turri regenerate ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
   ].join("\n");
 }
 

@@ -39,7 +39,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
 });
 
 const { BEGIN } = await import("../../src/pi.ts");
-const { renderSpecDiff, describeSpecDiff } = await import("../../src/grow/regrow.ts");
+const { renderSpecDiff, describeSpecDiff } = await import("../../src/grow/regenerate.ts");
 const { staticFindings, FINDINGS_SHOWN, createUnitGate } = await import("../../src/grow/static-checks.ts");
 const MAX_FOLLOW_UPS = (await import("../../src/grow/stop-report.ts")).ATTEMPTS["unit tests"];
 

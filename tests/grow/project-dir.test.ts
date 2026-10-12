@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vit
 import { plainFileParser } from "../../src/plain/parser.ts";
 import { projectDirOf } from "../../src/grow/paths.ts";
 import { resolveTemplateDirs } from "../../src/grow/paths.ts";
-import { renderSpecDiff } from "../../src/grow/regrow.ts";
+import { renderSpecDiff } from "../../src/grow/regenerate.ts";
 import { writeTestScripts } from "../test-scripts.ts";
 
 let root: string;

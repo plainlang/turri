@@ -155,7 +155,7 @@ built, *release it* again and open the web app.
 
 Close **turri** whenever you like. Every pulse either lands as a commit or is rolled back whole - one cut off is
 rolled back before the next one starts - so code, tests and spec never disagree. Start `turri` in the folder again and `ctrl+h` shows exactly what is built, from the files alone. Say
-*regrow backend.plain*, and what is left is planned and grown again.
+*regenerate backend.plain*, and what is left is planned and grown again.
 
 A few more things to ask for along the way:
 
@@ -163,7 +163,7 @@ A few more things to ask for along the way:
 | --- | --- |
 | *what is left to grow?* | `drift`: how far the code is from the spec, starting nothing |
 | *show me the lineage of backend* | every generation of its code, as git commits - what grew into it, and when |
-| *regrow the login again* | `rejuvenate`: grow a functional spec again from its spec, though nothing changed |
+| *regenerate the login again* | `rejuvenate`: grow a functional spec again from its spec, though nothing changed |
 | *what would the next pulse do?* | `glimpse`: plan the work and show the first prompt, starting nothing |
 
 ## Where next

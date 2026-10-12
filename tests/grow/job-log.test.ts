@@ -18,7 +18,7 @@ describe("a job's log", () => {
   it("keeps the harness's notes - which walls are up, what was put back - and not every activity line", async () => {
     const jobs = createJobRegistry();
     const job = jobs.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "app.plain render spec diff",
       lanes: [lane],
       run: async () => {
@@ -71,7 +71,7 @@ describe("a job's log", () => {
     const jobs = createJobRegistry();
     const longResult = `${"x".repeat(5000)}\nFAILED test_app.py`;
     const job = jobs.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "app.plain render spec diff",
       diff: "+- Say hello.",
       model: "anthropic/claude-sonnet-5",
@@ -92,9 +92,9 @@ describe("a job's log", () => {
 
     const dir = join(root, ".turri", "jobs");
     const [file] = readdirSync(dir);
-    expect(file).toMatch(new RegExp(`-${job.id}-regrow\\.log$`));
+    expect(file).toMatch(new RegExp(`-${job.id}-regenerate\\.log$`));
     const text = readFileSync(join(dir, file!), "utf8");
-    expect(text).toContain(`turri job ${job.id} · regrow · app.plain render spec diff`);
+    expect(text).toContain(`turri job ${job.id} · regenerate · app.plain render spec diff`);
     expect(text).toContain("── the spec change\n+- Say hello.");
     expect(text).toMatch(/\] ── app: turri is implementing the spec change\n/);
     expect(text).toMatch(/\] harness ▸\nMake the code match the spec change\.\n/);

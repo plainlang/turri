@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkPlainFile } from "./plain/check.ts";
-import { applySpecDiff, revertSpecDiff } from "./grow/regrow.ts";
+import { applySpecDiff, revertSpecDiff } from "./grow/regenerate.ts";
 import { parseArgs, runLoop } from "./loop-cli.ts";
 
 const USAGE = `usage: turri spec-diff <file.plain> <diff-file> [options]
 
 Applies a change to the specs, given as a git diff of the .plain files, and builds it: the headless
-counterpart of regrow, given a diff. The diff is applied first, unless it is already in; then, as
-turri regrow does, what is left to build is planned into jobs and built.
+counterpart of regenerate, given a diff. The diff is applied first, unless it is already in; then, as
+turri regenerate does, what is left to build is planned into jobs and built.
 
   --model <provider/id>    model for the agents (default: config.turri.yaml's coding-model)
   --rejuvenate             rejuvenate, without asking, a codebase grown without a module it now requires`;

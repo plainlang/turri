@@ -17,7 +17,7 @@ This skill answers one question: **does the host machine have everything the ***
 
 ## When to run
 
-- **First time you open a ***plain project on a new machine** — before the first `turri regrow <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
+- **First time you open a ***plain project on a new machine** — before the first `turri regenerate <module>.plain` or `./test_scripts/run_unittests*.sh` invocation. This is the most common case.
 - **Once a new project's stack is settled** — at the end of `brood`'s stack phase, so the first build does not stop on a missing toolchain.
 - **After `bud`** — when the new feature brought in a new dependency (a new framework, a new service, a new package manager) the project didn't need before.
 - **Before a real render** — alongside `validate`. `validate` answers "do the specs parse?"; this skill answers "can this machine render and test them?". Both should pass.

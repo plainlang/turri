@@ -19,7 +19,7 @@ npx vitest run tests/grow/records.test.ts    # one file
 npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
 npm run chat                                   # pi with the extension loaded straight from src/
 turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
-turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
+turri regenerate <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
 turri init-config                        # a quick start config.turri.yaml in the current folder: the two models, every other setting at its default
 turri doctor                             # what the machine lacks (bash, the OS sandbox, a model provider; in a project, its toolchains)
 ```
@@ -39,7 +39,7 @@ and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 - imports use explicit `.ts` extensions;
 - don't use syntax that type stripping can't erase: parameter properties
   (`constructor(readonly x: T)`), `enum`, `namespace`. Declare the field and assign it in the
-  constructor. `tsc` and `tsx` (the `npm run regrow`-style scripts) both accept these, so they only
+  constructor. `tsc` and `tsx` (the `npm run regenerate`-style scripts) both accept these, so they only
   fail when run through `turri`.
 
 ## Architecture
@@ -49,15 +49,15 @@ and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 `.turri.json`, `.plainwright-notes.md` → `.turri-notes.md`, both `.plainwright/` scratch folders → `.turri/`),
 committing the renames alone. `plain_modules` and `.plaingit` are the ***plain language's and keep their names.
 
-**Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regrow` (with frids: grown again), `glimpse` (regrow
-`--dry-run`), `drift`, `bind`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regrow-cli.ts`,
+**Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regenerate` (with frids: grown again), `glimpse` (regenerate
+`--dry-run`), `drift`, `bind`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regenerate-cli.ts`,
 `drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
-which drives the work loop as the chat does. The old names (`module`, `regenerate`, `conformance`, `check`,
+which drives the work loop as the chat does. The old names (`module`, `regrow`, `conformance`, `check`,
 `deploy`, `skill`) are aliases. `doctor` goes to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
-`pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regrow`,
+`pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regenerate`,
 `drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
-`cultivate`, `release`, `activate`, `/watch`, `/regeneration`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
+`cultivate`, `release`, `activate`, `/watch`, `/regenerate`, `/regen`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
 `/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.turri.yaml line by line and
 applies what turri fixed at its start - the chat's model, the coding model chosen this session, `parallel-jobs` - live.
 
@@ -90,7 +90,7 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
 
 **Growing the code (`src/grow/`)**, one unit of work at a time:
 
-- A job is a spec diff: `regrow.ts` `renderSpecDiff` grows one in the code, landing on its unit
+- A job is a spec diff: `regenerate.ts` `renderSpecDiff` grows one in the code, landing on its unit
   tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
   what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, again, delete,
   mechanical; again is `rejuvenate`'s functional specs, marked `grow_again` in the code record). The agent works, then the harness runs the project's unit testing script
@@ -110,8 +110,8 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
   places the reqs), and runs the first; again whenever a job ends or the spec changes. A chain is built in
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
   (`stillWanted`) - unless the change is inside what it grows, which steers it instead (`steering.ts`: its agent
-told mid-turn or at its next turn, its record moved, twice a job at most). `regrow`, `write_spec_diff`, `turri spec-diff` and
-  `turri regrow` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
+told mid-turn or at its next turn, its record moved, twice a job at most). `regenerate`, `write_spec_diff`, `turri spec-diff` and
+  `turri regenerate` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
   spec diff's conformance run, the whole suite with it - once the module's code is built, before anything is built on it; `bind`

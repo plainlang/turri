@@ -23,7 +23,7 @@ export interface AskUserRequest {
    */
   context?: string;
   /**
-   * What the asker said last before asking - its account of the work, a probe, a regrow - kept with the answer in the
+   * What the asker said last before asking - its account of the work, a probe, a regeneration - kept with the answer in the
    * run's record and the transcript, never shown in the dialog.
    */
   said?: string;

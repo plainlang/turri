@@ -118,7 +118,7 @@ export function createAskUserTool(
     promptGuidelines: [
       "Every ask_user call should carry `options` unless the answer genuinely cannot be anticipated; picking from a list is far quicker for the user than typing. A free-form question needs free_form: true.",
       "Use multi_select: true when several answers can apply at once, rather than asking the same question repeatedly.",
-      "The dialog shows the question, its options and `context` alone - nothing you wrote before it. When the user must read something to answer - the brief to confirm, the plan to approve - pass it as `context`; never put an account of your work there (what a probe returned, what a regrow did).",
+      "The dialog shows the question, its options and `context` alone - nothing you wrote before it. When the user must read something to answer - the brief to confirm, the plan to approve - pass it as `context`; never put an account of your work there (what a probe returned, what a regeneration did).",
       "Keep `context` short enough to take in at a glance - a heading or two and short bullets, a line each, about fifteen lines at most: what the person decides on, not every detail. The details are in the spec; say where, and they can ask.",
     ],
     parameters: Type.Object({

@@ -13,7 +13,7 @@ import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type Work
 import { projectDirOf } from "./grow/paths.ts";
 
 /**
- * What every command that builds - `turri regrow`, `regenerate`, `conformance`, `spec-diff` - does around its own
+ * What every command that builds - `turri regenerate`, `regrow`, `conformance`, `spec-diff` - does around its own
  * request of the work loop, as the chat does it: the project's models, a job that fails run once more and, failing again,
  * diagnosed, a line as each job starts and ends; then the loop run until nothing more can start, how each job ended,
  * and exit 1 when any failed. With `dryRun`, the work is planned and the prompt of the first job each codebase would

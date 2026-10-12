@@ -131,8 +131,8 @@ describe("the job registry's slots", () => {
     const jobs = createJobRegistry({ maxRunning: 1 });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
-    jobs.start({ kind: "regrow", summary: "a", lanes: ["a"], run: async () => (await gate, { report: "" }) });
-    const second = jobs.start({ kind: "regrow", summary: "b", lanes: ["b"], run: async () => ({ report: "" }) });
+    jobs.start({ kind: "regenerate", summary: "a", lanes: ["a"], run: async () => (await gate, { report: "" }) });
+    const second = jobs.start({ kind: "regenerate", summary: "b", lanes: ["b"], run: async () => ({ report: "" }) });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(jobs.get(second.id)!.status).toBe("queued");
     jobs.setMaxRunning(2);

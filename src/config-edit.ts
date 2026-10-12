@@ -11,7 +11,7 @@ import { adoptLegacyConfig, AGENT_ROLES, CONFIG_FILE, chosenStack, projectConfig
  */
 
 /** When a change takes effect. Nothing turri reads needs a restart: what is fixed at its start is changed live. */
-export type Effect = "now" | "next-message" | "next-pulse" | "next-plan" | "next-test-run" | "next-landing" | "next-regrow";
+export type Effect = "now" | "next-message" | "next-pulse" | "next-plan" | "next-test-run" | "next-landing" | "next-regenerate";
 
 export type SettingKind = "boolean" | "choice" | "number" | "model" | "list" | "path" | "budget";
 
@@ -40,7 +40,7 @@ export const EFFECT_TEXT: Record<Effect, string> = {
   "next-plan": "in effect the next time the work is planned - at the next pulse",
   "next-test-run": "in effect from the next test run - the running pulse's too",
   "next-landing": "in effect from the next pulse that lands - the running one too",
-  "next-regrow": "in effect for the next regrow that names no .plain file",
+  "next-regenerate": "in effect for the next regeneration that names no .plain file",
 };
 
 const SECONDS = ["0", "60", "120", "180", "300"];
@@ -49,7 +49,7 @@ const SECONDS = ["0", "60", "120", "180", "300"];
 const ROLE_ABOUT: Record<(typeof AGENT_ROLES)[number] | "default", string> = {
   default: "every role not named",
   chat: "the conversation - as harness-model, which it wins over",
-  chooser: "chooses what gets conformance tests under turri regrow",
+  chooser: "chooses what gets conformance tests under turri regenerate",
   planner: "cuts the work into pulses",
   diagnosis: "looks into a pulse that failed for good",
   release: "the release agent",
@@ -88,7 +88,7 @@ export function settings(rules: string[] = []): Setting[] {
     { key: "harness-model", about: "the model you talk to: it writes the specs and plans the work", kind: "model", unset: "pi's own choice", effect: "now", projectOnly: true },
     { key: "coding-model", about: "the model that writes the code", kind: "model", unset: "harness-model", effect: "next-pulse" },
     { key: "judge-model", about: "the judge and the test review of a conformance run", kind: "model", unset: "coding-model", effect: "next-pulse" },
-    { key: "module", about: "the .plain file turri regrow builds when none is named", kind: "path", unset: "the folder's .plain files", effect: "next-regrow", projectOnly: true },
+    { key: "module", about: "the .plain file turri regenerate builds when none is named", kind: "path", unset: "the folder's .plain files", effect: "next-regenerate", projectOnly: true },
     { key: "conformance-tests", about: "which functional specs get conformance tests", kind: "choice", options: ["all", "chosen", "false"], unset: "all, where a module has test reqs", effect: "next-plan" },
     { key: "conformance-budget", about: "under conformance-tests: chosen, how many may be chosen - a count or a share", kind: "budget", options: ["10%", "30%", "50%", "5", "10"], unset: "no limit", effect: "next-plan" },
     { key: "review", about: "whether the code and its tests are reviewed once they pass", kind: "boolean", unset: "true", effect: "next-pulse" },

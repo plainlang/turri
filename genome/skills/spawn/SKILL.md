@@ -17,7 +17,7 @@ metadata:
   phases:
     intent: "what you want to build, and which stack to build it on"
     groundwork: "the language, frameworks, storage and architecture"
-    product: "writes the features one by one - each starts a regrow pulse"
+    product: "writes the features one by one - each starts a regenerate pulse"
   # It writes its spec changes one after another on its own: no answer between them.
   paced: false
 ---

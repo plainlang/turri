@@ -33,7 +33,7 @@ import { describeSpecChange } from "./prompt.ts";
 import { resolveTemplateDirs } from "./paths.ts";
 import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, startFromScratch, type ChainEntry } from "./requires.ts";
 import { withTryItLine } from "./delivery.ts";
-import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./regrow.ts";
+import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./regenerate.ts";
 import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
 import { agentChanges, changeDiffInFiles } from "./change-view.ts";
 import { createSteering, MAX_STEERS, markTold, steer, waitingSteer, type JobSteering } from "./steering.ts";
@@ -387,7 +387,7 @@ export function createWorkLoop(options: {
   conformanceChosen?: (plainFile: string) => boolean;
   /**
    * Under `conformance-tests: chosen`, asked what a code job that landed built or changed that no conformance test is
-   * for - by whoever chooses without a conversation (`turri regrow`) - before the job ends: the functional specs it
+   * for - by whoever chooses without a conversation (`turri regenerate`) - before the job ends: the functional specs it
    * names are scheduled as bind schedules them. The conversation is told in the job's report instead.
    */
   onChoose?: (plainFile: string, specs: TouchedSpec[], budget?: number) => Promise<string[] | undefined>;
@@ -715,7 +715,7 @@ export function createWorkLoop(options: {
       (diff) => whereInFiles(diff, state.chain),
     );
     const job: Job = options.registry.start({
-      kind: conformance ? "bind" : "regrow",
+      kind: conformance ? "bind" : "regenerate",
       summary: `${basename(tip.plainFile)} ${conformance ? "conformance: " : ""}${planned.title}`,
       module: tip.moduleName,
       // Numbered as regen numbers it: the module's pulses this session, from 1.
@@ -724,7 +724,7 @@ export function createWorkLoop(options: {
       diff: shown.diff,
       ...(state.model !== undefined ? { model: state.model } : {}),
       lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
-      rerun: `turri regrow ${relative(options.cwd, tip.plainFile) || basename(tip.plainFile)}`,
+      rerun: `turri regenerate ${relative(options.cwd, tip.plainFile) || basename(tip.plainFile)}`,
       run: async (onDelta) => {
         // The guardrail: a conformance job tests only code that is built - the code record, read as the job starts, has every functional spec it tests as it tests it.
         if (conformance) {
@@ -1205,7 +1205,7 @@ export function createWorkLoop(options: {
         recordHistory(tip.buildDir, `${module} functional spec${taken.length === 1 ? "" : "s"} ${taken.join(", ")} to grow again`);
       }
       const missing = frids.filter((frid) => !found.has(frid));
-      if (found.size === 0) throw new Error(`${module} has no functional spec ${missing.join(", ")} built anywhere, so there is nothing to grow again: regrow grows what is not built.`);
+      if (found.size === 0) throw new Error(`${module} has no functional spec ${missing.join(", ")} built anywhere, so there is nothing to grow again: regenerate grows what is not built.`);
       const statuses = await loop.bringUp(plainFile, request);
       if (missing.length > 0) reportActivity(`  ${module}: functional spec ${missing.join(", ")} is not built anywhere - nothing to grow again there`);
       return statuses;
@@ -1322,7 +1322,7 @@ export function createWorkLoop(options: {
         if (before !== undefined) lastOf.set(tip.moduleName, before);
         const row = (id: string, summary: string, note: string, waitingOn: string[], conformance = false): Job => ({
           id,
-          kind: conformance ? "bind" : "regrow",
+          kind: conformance ? "bind" : "regenerate",
           summary,
           module: tip.moduleName,
           note,
@@ -1567,7 +1567,7 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
     if (status.startOver === undefined) return [];
     const { requires, codebases } = status.startOver;
     return options.for === "command line"
-      ? [`  turri regrow ${basename(status.plainFile)} --rejuvenate starts ${codebases.join(", ")} over`]
+      ? [`  turri regenerate ${basename(status.plainFile)} --rejuvenate starts ${codebases.join(", ")} over`]
       : [
           `  Ask the user whether to start ${codebases.join(", ")} over, and say why: ${codebases.join(", ")} was built without ` +
             `${requires.join(", ")}, so no change to its code can bring ${requires.join(", ")} in - its code and conformance ` +

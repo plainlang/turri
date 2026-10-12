@@ -22,7 +22,7 @@ describe("what the person is told", () => {
         "**d365_version_api stopped: the environment lacks JDK 21.**",
         "Needed by: `run_unittests.sh` (`/usr/libexec/java_home -v 21` found none).",
         "To fix: `brew install openjdk@21`",
-        'Then re-run: `turri regrow d365_version_api.plain`, or say "resume" in the chat.',
+        'Then re-run: `turri regenerate d365_version_api.plain`, or say "resume" in the chat.',
       ].join("\n"),
     );
   });
@@ -32,14 +32,14 @@ describe("how to run it again", () => {
   it("names the spec the person ran, when the pulse knows it - not the module's own name", async () => {
     const registry = createJobRegistry({ retries: 1, diagnose: async () => undefined });
     const job = registry.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "app.plain fs 1",
       lanes: ["d365"],
-      rerun: "turri regrow specs/app.plain",
+      rerun: "turri regenerate specs/app.plain",
       run: async () => Promise.reject(jdk("agent")),
     });
     const done = await registry.wait(job.id);
-    expect(done.error).toContain('Then re-run: `turri regrow specs/app.plain`, or say "resume" in the chat.');
+    expect(done.error).toContain('Then re-run: `turri regenerate specs/app.plain`, or say "resume" in the chat.');
     expect(done.error).not.toContain("d365_version_api.plain");
   });
 });
@@ -203,7 +203,7 @@ describe("a report of what turri's own sandbox hid", () => {
   it("tells the person - and the conversation - that nothing is missing, and the line of config that fixes it", async () => {
     const { describeEnvironmentError, EnvironmentError } = await import("../../src/grow/environment-error.ts");
     const error = new EnvironmentError({ moduleName: "lunch", ...report, source: "agent", sandbox: { paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0" } });
-    const said = describeEnvironmentError(error, "turri regrow razgrad-lunch/lunch.plain");
+    const said = describeEnvironmentError(error, "turri regenerate razgrad-lunch/lunch.plain");
     expect(said).toContain(`**lunch stopped: turri's sandbox kept its agents from reading \`${npm}\` - it is on this machine; nothing is missing.**`);
     expect(said).toContain("add its folder to `toolchains:` in config.yaml, keeping what is there: `toolchains: [/Users/tstoyche/.local/share/mise/installs/node/24.16.0]`");
     expect(said).not.toContain("provide it on this machine");

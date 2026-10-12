@@ -17,7 +17,7 @@ import { chainSpec, type MapCodebase, type MapPlan, type MapPulse } from "./loop
 import { modulesRoot, projectDirOf } from "./paths.ts";
 import { HISTORY_DIR } from "./lineage.ts";
 import { codeTree, readRecord, RECORD_FILE } from "./records.ts";
-import { specFilesOf } from "./regrow.ts";
+import { specFilesOf } from "./regenerate.ts";
 import { builtTips, resolveRequiresChain, type ChainEntry } from "./requires.ts";
 import { changesBetween, layoutOf, serializeTree, type SpecChange } from "./spec-steps.ts";
 
@@ -511,7 +511,7 @@ export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {
     const status =
       codebase === undefined
         ? differing > 0
-          ? "not asked to build - regrow plans it"
+          ? "not asked to build - regenerate plans it"
           : "all built"
         : running !== undefined
           ? // The count is of all the module's pulses: what the running one does follows it, not "conformance pulse 5 of 5".

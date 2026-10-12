@@ -105,5 +105,5 @@ them, and releases as above - as the guidance says, or to `dist/<module>` - then
 start it and starts it here, installing what it needs without asking. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 
-`turri regrow`, `spec-diff`, `regenerate` and `conformance` end a build that landed with
+`turri regenerate`, `spec-diff`, `regrow` and `conformance` end a build that landed with
 `To try it: turri release <spec>`.

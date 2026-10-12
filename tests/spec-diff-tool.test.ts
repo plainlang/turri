@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const rendered: string[] = [];
 const renderedIn: string[] = [];
 // A render that lands leaves code, and the record of what it is built from, committed - as the real one does.
-vi.mock("../src/grow/regrow.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/grow/regrow.ts")>();
+vi.mock("../src/grow/regenerate.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/grow/regenerate.ts")>();
   return {
     ...actual,
     renderSpecDiff: async (options: { diff: string; spec: { tree: object; chain: Array<{ moduleName: string; buildDir: string }> } }) => {

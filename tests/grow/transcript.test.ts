@@ -132,7 +132,7 @@ describe("the side panel", () => {
     const { createJobRegistry } = await import("../../src/grow/jobs.ts");
     const registry = createJobRegistry();
     const diff = "--- a/backend.plain\n+++ b/backend.plain\n@@ -1 +1,2 @@\n+- :OrderController: takes the :AuthData: from the request.\n";
-    const job = registry.start({ kind: "regrow", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
+    const job = registry.start({ kind: "regenerate", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
     await registry.wait(job.id);
     const conformance = registry.start({ kind: "bind", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
     await registry.wait(conformance.id);
@@ -155,9 +155,9 @@ describe("the side panel", () => {
     const { createJobRegistry } = await import("../../src/grow/jobs.ts");
     const registry = createJobRegistry();
     const diff = "--- a/backend.plain\n+++ b/backend.plain\n@@ -1 +1,2 @@\n+- Comments on study sessions.\n";
-    const step = registry.start({ kind: "regrow", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
+    const step = registry.start({ kind: "regenerate", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
     const planner = registry.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "backend.plain module",
       run: async () => ({ report: "", details: { passed: true, planned: [{ title: "Implement comments on study sessions", jobId: step.id }] } }),
     });
@@ -210,7 +210,7 @@ describe("the functional spec a job is building", () => {
 
     // A module build's own progress widget shows it: the panel does not write it twice.
     const module = jobs.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "rt_tuples.plain module",
       run: async () => {
         reportSpec(spec);
@@ -249,7 +249,7 @@ describe("how long the job has been on what it is building now", () => {
     const held = new Promise<void>((resolve) => (finish = resolve));
     const jobs = createJobRegistry();
     const job = jobs.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "app.plain module",
       run: async () => {
         reportSpec({ label: "app functionality 17 of 23", text: "- Back it up." });
@@ -277,7 +277,7 @@ describe("how long the job has been on what it is building now", () => {
     const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
     const jobs = createJobRegistry();
     const job = jobs.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "m",
       run: async () => {
         reportSpec({ label: "app functionality 1 of 2", text: "one" });

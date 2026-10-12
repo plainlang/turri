@@ -75,10 +75,10 @@ export function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
 }
 
-/** What a pulse is listed as: its module and its kind - "hubspot regrow", "hubspot bind" - or what was asked for. */
+/** What a pulse is listed as: its module and its kind - "hubspot regenerate", "hubspot bind" - or what was asked for. */
 export function pulseName(job: Job, options: { title?: boolean } = {}): string {
   if (job.module === undefined) return job.summary;
-  // Its module, its kind and number, what it grows: `cognio · regrow pulse 6 · user search and profiles`.
+  // Its module, its kind and number, what it grows: `cognio · regenerate pulse 6 · user search and profiles`.
   const title = options.title !== false ? pulseTitle(job) : undefined;
   if (job.pulse !== undefined) return `${job.module} · ${job.kind} pulse ${job.pulse}${title !== undefined ? ` · ${title}` : ""}`;
   return `${job.module} ${job.kind}`;
@@ -89,7 +89,7 @@ export function pulseTitle(job: Job): string | undefined {
   return job.title?.toLowerCase();
 }
 
-/** A finished pulse in its module's line: its mark, number and kind - `✓ 3 regrow`. What it grew is in the side panel. */
+/** A finished pulse in its module's line: its mark, number and kind - `✓ 3 regenerate`. What it grew is in the side panel. */
 function finishedItem(job: Job, marks: MarkPaint): string {
   if (job.module === undefined || job.pulse === undefined) return `${finishedMark(job, marks)} ${pulseName(job)}`;
   return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}`;
@@ -146,7 +146,7 @@ export function pulseCost(job: Job): string {
  * Jobs whose tool draws its own progress widget, which already shows the functional spec being
  * built: the panel leaves it out, so it is not written twice.
  */
-const SPEC_SHOWN_BY_WIDGET = new Set(["regrow"]);
+const SPEC_SHOWN_BY_WIDGET = new Set(["regenerate"]);
 
 /** Spec lines shown per running job while expanded. */
 const EXPANDED_SPEC_LINES = 30;

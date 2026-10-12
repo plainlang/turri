@@ -15,7 +15,7 @@ metadata:
   phases:
     intent: "what the feature is for, who it serves, and what it leaves out"
     scope: "finds where the feature goes in the spec, and what is built already"
-    product: "the feature, question by question - each answer starts a regrow pulse"
+    product: "the feature, question by question - each answer starts a regenerate pulse"
     review: "checks the changed spec holds together, then hands over"
 ---
 

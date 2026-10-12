@@ -17,7 +17,7 @@ import type { JobRegistry } from "./grow/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
 /** The conversation's tools a skill acts on the work loop with - never pi built-ins. */
-const LOOP_TOOLS = ["regrow", "drift", "halt", "bind"];
+const LOOP_TOOLS = ["regenerate", "drift", "halt", "bind"];
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
 import type { WorkLoop } from "./grow/loop.ts";
@@ -66,7 +66,7 @@ export async function runSkill(opts: {
   sharedTools?: ToolDefinition[];
   /**
    * The conversation's tools that act on the work loop (loop-tools.ts): drift, for every skill with the loop - how its
-   * builds stand - and regrow and halt for a skill that names them in its allowed-tools.
+   * builds stand - and regenerate and halt for a skill that names them in its allowed-tools.
    */
   loopTools?: ToolDefinition[];
   /** The jobs the render queue runs, for a skill that waits for its builds and reads what they recorded. */
@@ -222,7 +222,7 @@ export async function runSkill(opts: {
       return;
     }
     // Shown with the next question is the last thing it said, not all it said since the last answer: a message of
-    // its own replaces what came before - its account of a probe, a regrow - once it has words in it, so a brief
+    // its own replaces what came before - its account of a probe, a regeneration - once it has words in it, so a brief
     // said just before a bare ask_user call is still shown with it.
     if (event.type === "message_start") {
       if ((event.message as { role?: string }).role === "assistant") saidFresh = true;

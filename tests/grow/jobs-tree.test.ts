@@ -9,7 +9,7 @@ function job(id: string, status: Job["status"], extra: Partial<Job> = {}): Job {
   sequence += 1;
   return {
     id,
-    kind: "regrow",
+    kind: "regenerate",
     summary: `app.plain ${id}`,
     status,
     sequence,
@@ -63,11 +63,11 @@ describe("the jobs tree", () => {
   });
 
   it("names a pulse by its module, kind and number alone - what it grows is in it, opened", () => {
-    const jobs = [job("a", "succeeded", { finishedAt: 1, module: "d365_http_client", kind: "regrow", pulse: 1, title: "Implement HttpClient" })];
+    const jobs = [job("a", "succeeded", { finishedAt: 1, module: "d365_http_client", kind: "regenerate", pulse: 1, title: "Implement HttpClient" })];
     const state = createJobsTreeState();
     state.open.finished = true;
     const lines = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(lines).toContain("✓ d365_http_client · regrow pulse 1 · ");
+    expect(lines).toContain("✓ d365_http_client · regenerate pulse 1 · ");
     expect(lines).not.toContain("HttpClient");
   });
 
@@ -76,13 +76,13 @@ describe("the jobs tree", () => {
     const jobs = [job("c", "queued", { module: "app", diff: diff("Users give kudos."), waitingOn: ["b"], usage })];
     const state = createJobsTreeState();
     const closed = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(closed).toMatch(/▸ · app regrow · .+ · \$0\.50$/m);
+    expect(closed).toMatch(/▸ · app regenerate · .+ · \$0\.50$/m);
     expect(closed).not.toContain("app.plain");
     expect(closed).not.toContain("+ - Users give kudos.");
     state.cursor = 2; // [running], [queued], c
     treeKey(state, jobsTreeRows(jobs, state), "open");
     const open = jobsTreeLines(jobs, state, 120, PLAIN).lines.join("\n");
-    expect(open).toMatch(/▾ · app regrow · /);
+    expect(open).toMatch(/▾ · app regenerate · /);
     expect(open).not.toContain("app.plain c");
     expect(open).toContain("+ - Users give kudos.");
     expect(open).toContain("waits for pulse b");
@@ -236,9 +236,9 @@ describe("the jobs tree", () => {
     const state = createJobsTreeState();
     state.open.finished = true;
     const lines = jobsTreeLines(jobs, state, 200, style).lines.map((line) => line.trim());
-    expect(lines).toContain("▸ <ok>✓ hubspot regrow · 42s · $1.50");
+    expect(lines).toContain("▸ <ok>✓ hubspot regenerate · 42s · $1.50");
     expect(lines).toContain("▸ <bad>✗ hubspot bind · 1s");
-    expect(lines).toContain("▸ <bad>✗ crm regrow · 2s");
+    expect(lines).toContain("▸ <bad>✗ crm regenerate · 2s");
     expect(lines.join("\n")).not.toContain("HubSpotClient");
   });
 

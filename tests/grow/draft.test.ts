@@ -32,7 +32,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   };
 });
 
-const { renderSpecDiff } = await import("../../src/grow/regrow.ts");
+const { renderSpecDiff } = await import("../../src/grow/regenerate.ts");
 const { DRAFT_ASKS } = await import("../../src/grow/testing.ts");
 
 let dir: string;

@@ -92,7 +92,7 @@ so, for the conversation to render the change.
 
 A skill acts on the work loop with the conversation's own tools, on the conversation's loop - never
 copies of them (`src/loop-tools.ts`). Every skill with the loop has `drift`: what is left to grow, what
-is growing, and "Fully grown" once nothing is. One that lists `regrow` and `halt` in `allowed-tools` -
+is growing, and "Fully grown" once nothing is. One that lists `regenerate` and `halt` in `allowed-tools` -
 as `mature` does - can grow what a module's spec holds and halt a pulse, with why. `mature` lists two
 tools of its own as well: `watch_jobs` waits for its pulses, coming back as soon as one struggles -
 sent back four times or more, five setbacks, a spec conflict, a failure run again, over half an hour -
@@ -140,7 +140,7 @@ change the step makes and puts its findings on the executor's next tool result.
   a glance, about fifteen lines; one longer scrolls in a window of its own above the question (`src/question-dialog.ts`) -
   PgUp/PgDn, Shift+Up/Down or the mouse wheel - so the question and its options always show below it. pi's own select,
   which turri used before, put it all in its title, and a long brief pushed the options off the screen. Nothing else it wrote is shown there:
-  the last thing it said before asking - its account of a probe, a regrow - is kept with the answer,
+  the last thing it said before asking - its account of a probe, a regeneration - is kept with the answer,
   in the run's trace and the transcript, never in the dialog.
 
   Beside "Something else…", every list an agent's question shows carries "Chat about this": the person says what they
@@ -164,7 +164,7 @@ change the step makes and puts its findings on the executor's next tool result.
   `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `grow/activity.ts`), while its
   agent calls it by the one that says what it takes.
 - **Grow, and bind conformance tests.** A skill that names them in `allowed-tools` gets the conversation's own
-  `regrow`, `drift`, `halt` and `bind`, on its loop: `bind` schedules a conformance pulse for functional specs not built
+  `regenerate`, `drift`, `halt` and `bind`, on its loop: `bind` schedules a conformance pulse for functional specs not built
   yet, as it does from the chat. The skill never waits for them.
 - **Choose the render model**, when the user says so - `engine`, the same tool the
   conversation has.

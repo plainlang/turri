@@ -47,7 +47,7 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 
 | tool | |
 | --- | --- |
-| `regrow` | regrow a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped |
+| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped |
 | `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
@@ -58,7 +58,7 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 | `growth` | the pulses - running, planned and finished - or one of them |
 | `halt` | halt a pulse, or what `activate` started |
 | `diagnose` | why a pulse did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
-| `lineage` | a module's lineage: what each regrowth and conformance run changed in it, and what it grew from |
+| `lineage` | a module's lineage: what each regeneration and conformance run changed in it, and what it grew from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
 | `release`, `activate` | try what is grown: release it to `dist/<module>` and activate it on this machine, installing what it needs - see [deploy](deploy.md) |
 | `ask_user` | put a question to you as a dialog to pick from - several at once, "Something else…" to type, or "Chat about this" to talk it over first; Esc in either goes back to the options |
@@ -96,8 +96,8 @@ come waits for a free slot, and says so.
 
 - **The panel** above the input, while something runs, shows on top what finished - a line a module, its
   pulses oldest first, each with its mark (green, red or amber, as in the side panel), number and kind - what
-  it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regrow · ✓ 4 bind`, the newest that fit the width -
-  then a rule, and under it each running pulse - `cognio · regrow pulse 5 · user search and profiles`, what it grows all lowercase, its
+  it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regenerate · ✓ 4 bind`, the newest that fit the width -
+  then a rule, and under it each running pulse - `cognio · regenerate pulse 5 · user search and profiles`, what it grows all lowercase, its
   time and cost, and what its agents are doing. Pulses are numbered within their module, as regen numbers
   them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module. The line of keys under
   it - `ctrl+o to expand the trace · ctrl+h to peek at regen` - has each key breathing, fully there to a little
@@ -124,7 +124,7 @@ come waits for a free slot, and says so.
   as GitHub names a hunk's function: each section is named once.
 - **The side panel** (`ctrl+h`, as it was left - but on the pulse that last failed, stopped or did not pass, when one has
   since it was last opened: the live panel that showed it is gone with the last pulse, and its announcement in the chat
-  says `ctrl+h shows this pulse`; **`/regen`** on regen - `/regeneration`, its old name, and `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
+  says `ctrl+h shows this pulse`; **`/regen`** on regen - `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time.
@@ -162,12 +162,12 @@ come waits for a free slot, and says so.
   what is new in green, what is kept highlighted as it reads now - and, under it, only the sub-bullets that changed. A spec never built that is taken
   out is simply gone. The top line has the file, a strip of its functional specs - built, growing, planned,
   waiting - and how many are built, then what is happening: `pulse 3 of 8 growing`, or why nothing is -
-  `not asked to build - regrow plans it` (turri was just opened, or nothing has asked for the module: the
-  plan lives in memory and is made again on the next regrow), `planning`, `waits for backend`, and in red
+  `not asked to build - regenerate plans it` (turri was just opened, or nothing has asked for the module: the
+  plan lives in memory and is made again on the next regeneration), `planning`, `waits for backend`, and in red
   `halted - pulse 3 didn't land` or `the planner couldn't cut it into pulses`. `enter` opens an item: all of
   its text against the code's and its acceptance tests, and under them, dimmed, where it stands - a line a mark,
-  its marks in words: `✓ regrown - the code is built from it as it reads now`, `2 not regrown yet - to be
-  regrown in pulse 2`, and for a functional spec `◆ bound - its conformance tests pass` or `· not bound - no
+  its marks in words: `✓ regenerated - the code is built from it as it reads now`, `2 not regenerated yet - to be
+  regenerated in pulse 2`, and for a functional spec `◆ bound - its conformance tests pass` or `· not bound - no
   conformance tests for it yet`.
 
   One module is shown at a time, with a tab for each module of the chain on the line under the top line, in
@@ -191,7 +191,7 @@ come waits for a free slot, and says so.
 
   `p` goes to the **pulses** - and back - onto the pulse that grows the item under the cursor, and
   back onto the first item the pulse under the cursor grows. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
-  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regrow pulse 1`, `hubspot · bind pulse 2`) - what it grows is in it, opened - its time and its cost - a
+  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · bind pulse 2`) - what it grows is in it, opened - its time and its cost - a
   finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
   Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
   and what each spent, and whether it did not pass. Under it is a row
@@ -219,6 +219,11 @@ come waits for a free slot, and says so.
   is laid over `config.turri.yaml` - its testing scripts, toolchains, models - for the session; a pulse already
   running keeps the stack it started with. The chat model switches it too when you ask. See
   [stacks](config.md#stacks).
+- **`/regenerate [module | file.plain] [how to cut the work]`** regenerates a module from its spec as it is now, as
+  the `regenerate` tool does: what is left to grow is planned into pulses - one functional spec at a time, a few
+  together or the whole module in one, as the planner judges - and the first starts. Words after the module are
+  guidance for that plan (`/regenerate app models first`). With no module named: the one `module:` in
+  `config.turri.yaml` names, else the folder's top modules, to pick from.
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
   server `activate` started; it lists both when no id is given.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
@@ -234,7 +239,7 @@ come waits for a free slot, and says so.
   no change to its code brings that module in, so it has to be started over - its code and
   conformance tests taken out, kept in its history, and built again from the bottom of the chain.
   That is never done unasked: the chat asks you, saying why, and `rejuvenate` does it once you agree;
-  on the command line `turri regrow` asks at the terminal, and `--rejuvenate` agrees in advance.
+  on the command line `turri regenerate` asks at the terminal, and `--rejuvenate` agrees in advance.
 - **Conformance tests are a track of their own.** A code pulse lands once its unit tests pass and are
   reviewed. Then, before the next one builds on it, a conformance pulse writes and runs the tests of what it
   built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one
@@ -340,7 +345,7 @@ picked.
 A provider a pi extension registers - your company's own LLM gateway, say - works for every agent
 the conversation starts, not only for the conversation. Those agents load no extensions (they would
 load a second copy of turri), so each is given the providers the conversation's extensions
-registered, as they are when it starts. An unattended run - `turri regrow`, `render` and the
+registered, as they are when it starts. An unattended run - `turri regenerate`, `render` and the
 rest, outside the chat - has no conversation to take them from: there, only the providers in pi's
 own configuration (`~/.pi/agent/models.json` and `auth.json`) are there, so a gateway those runs use
 has to be set up in `models.json`.
@@ -411,17 +416,17 @@ linked resources resolve the way the parser expects. For a long run - a whole sp
 ```bash
 turri validate <file.plain>            # validate a spec - no model, no API key
 turri drift <file.plain>               # what is left to grow - no model, starts nothing
-turri regrow <file.plain>              # grow what the code is not grown from yet, and what it requires
+turri regenerate <file.plain>              # grow what the code is not grown from yet, and what it requires
 turri glimpse <file.plain>             # plan it, and print the first job's prompt - starts nothing
-turri regrow <file.plain> 2            # grow functionality 2 again, changed or not
-turri spec-diff <file.plain> <diff>    # apply a spec diff, and regrow it
+turri regenerate <file.plain> 2            # grow functionality 2 again, changed or not
+turri spec-diff <file.plain> <diff>    # apply a spec diff, and regenerate it
 turri bind <file.plain> 1              # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when
 turri cultivate brood                  # run a skill directly - by name, the project's too, or by its folder
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
 
-The commands' names before turri had its name - `module`, `regenerate`, `conformance`, `check`, `deploy`,
+The commands' names before turri had its name - `module`, `regrow`, `conformance`, `check`, `deploy`,
 `skill` - still run them.
 
 The ones that build take `--model provider/model-id`; `module` also takes `--build-dir` and

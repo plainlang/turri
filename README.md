@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/turri-banner.png" alt="turri - coding agent with the power of regenerative software: regrow, drift, rejuvenate, lineage"></p>
+<p align="center"><img src="docs/images/turri-banner.png" alt="turri - coding agent with the power of regenerative software: regenerate, drift, rejuvenate, lineage"></p>
 
 <h1 align="center">turri<br>the first coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
@@ -12,8 +12,8 @@ You and **turri** write down what the system should do, as [\*\*\*plain](https:/
 the code from them. From then on the specs are the durable source of truth: the code can always be
 regenerated from them, and healed against them, as they change.
 
-**turri** is named after *Turritopsis dohrnii*, the immortal jellyfish that regrows itself from its young
-form, again and again - as **turri** regrows the code from the spec - see [the name](#the-name).
+**turri** is named after *Turritopsis dohrnii*, the immortal jellyfish that regenerates itself from its young
+form, again and again - as **turri** regenerates the code from the spec - see [the name](#the-name).
 
 ## Quick start
 
@@ -166,7 +166,7 @@ That is what regenerative software asks of software, and what **turri** does:
 | Every cell can become another, and it is still the same jellyfish. | Every line of code can be replaced, and it is still the same software - because what it is never lived in the code. |
 | It can do it again and again, for as long as it lives. | The code can be grown again whenever the spec changes or a model gets better, for as long as the spec is kept. |
 
-So the tools speak its language: **`regrow`** grows the code again from the spec as it is now, **`drift`** says how far
+So the tools speak its language: **`regenerate`** grows the code again from the spec as it is now, **`drift`** says how far
 the code has moved from it, **`rejuvenate`** grows again what is grown - functional specs, or a codebase back from the start - and **`lineage`**
 shows every generation of a module and what each grew from.
 
@@ -229,7 +229,7 @@ Other things to ask for:
 
 > Add password reset to the spec.
 >
-> Regrow the whole module, and bind every functional spec to conformance tests.
+> Regenerate the whole module, and bind every functional spec to conformance tests.
 >
 > Grow spec changes with a faster model.
 
@@ -242,8 +242,8 @@ Without a conversation, the same work is on the command line:
 ```bash
 turri validate app.plain    # validate a spec - no model, no API key
 turri drift app.plain       # what is left to grow - starts nothing
-turri regrow app.plain      # grow the code from the spec: planned into jobs, run until it is grown
-turri regrow app.plain 3    # grow functionality 3 again, changed or not
+turri regenerate app.plain      # grow the code from the spec: planned into jobs, run until it is grown
+turri regenerate app.plain 3    # grow functionality 3 again, changed or not
 ```
 
 More: [using **turri**](docs/using.md); to render a spec overnight, see

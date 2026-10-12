@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** What each spec diff rendered: a spec diff that lands records the spec it was given, as the real one does. */
 const diffs: string[] = [];
-vi.mock("../src/grow/regrow.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/grow/regrow.ts")>();
+vi.mock("../src/grow/regenerate.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/grow/regenerate.ts")>();
   return {
     ...actual,
     renderSpecDiff: async (options: { diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
@@ -21,7 +21,7 @@ vi.mock("../src/grow/regrow.ts", async (importOriginal) => {
 });
 
 const { collectFindings, createMatureTools, noteStamp } = await import("../src/mature-tools.ts");
-const { driftTool, haltTool, regrowTool } = await import("../src/loop-tools.ts");
+const { driftTool, haltTool, regenerateTool } = await import("../src/loop-tools.ts");
 const { createJobRegistry } = await import("../src/grow/jobs.ts");
 const { createWorkLoop } = await import("../src/grow/loop.ts");
 const { recordNote, NOTES_FILE } = await import("../src/grow/notes.ts");
@@ -90,13 +90,13 @@ describe("what a maturing run reads back", () => {
   });
 });
 
-describe("growing and waiting, from a skill - with the conversation's own regrow, drift and halt", () => {
+describe("growing and waiting, from a skill - with the conversation's own regenerate, drift and halt", () => {
   it("grows a module that is not grown yet as it is planned - a pulse a functional spec here - and waits for every pulse to say how it ended", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
     const tools = createMatureTools({ jobs: registry, cwd: dir, startedAt: new Date(Date.now() - 1000) });
-    const queued = await call(regrowTool({ cwd: dir, jobs: registry, loop: () => loop }), { plain_file: "app.plain" });
+    const queued = await call(regenerateTool({ cwd: dir, jobs: registry, loop: () => loop }), { plain_file: "app.plain" });
     expect(queued).toMatch(/running: pulse \w+ - Say hello\./);
     expect(queued).toContain("1. Say goodbye. - adds fs 2");
     await loop.drain();
@@ -114,10 +114,10 @@ describe("growing and waiting, from a skill - with the conversation's own regrow
     writeFileSync(join(buildDir(), "app.py"), "print('hello')\n");
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
-    const regrow = regrowTool({ cwd: dir, jobs: registry, loop: () => loop });
-    expect(await call(regrow, { plain_file: "app.plain" })).toContain("built from the spec as it is");
+    const regenerate = regenerateTool({ cwd: dir, jobs: registry, loop: () => loop });
+    expect(await call(regenerate, { plain_file: "app.plain" })).toContain("built from the spec as it is");
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello, loudly."]));
-    const changed = await call(regrow, { plain_file: "app.plain" });
+    const changed = await call(regenerate, { plain_file: "app.plain" });
     expect(changed).toContain("running: pulse");
     expect(registry.list()[0]!.diff).toContain("+- Say hello, loudly.");
     registry.stop(registry.list()[0]!.id);
@@ -168,7 +168,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
 
   it("halts a struggling pulse, keeping why - so it grows again from the clarified spec", async () => {
     const registry = createJobRegistry();
-    const started = registry.start({ kind: "regrow", summary: "app.plain fs 2", run: async () => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: "" }) });
+    const started = registry.start({ kind: "regenerate", summary: "app.plain fs 2", run: async () => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: "" }) });
     const said = await call(haltTool({ jobs: registry }), { job_id: started.id, reason: "the spec now says a duplicate email is refused with 409" });
     expect(said).toContain(`app.plain fs 2 (${started.id})`);
     await registry.wait(started.id).catch(() => undefined);

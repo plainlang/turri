@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { IMPORT_DIRECTIVE, PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
 import { resolveTemplateDirs } from "./grow/paths.ts";
-import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./grow/regrow.ts";
+import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./grow/regenerate.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
 import { describeModules, type WorkLoop } from "./grow/loop.ts";
 import { reviewNote, type LiveReviewer } from "./tools.ts";

@@ -5,7 +5,7 @@ import type { Job } from "../../src/grow/jobs.ts";
 const job = (overrides: Partial<Job>): Job =>
   ({
     id: "ab12",
-    kind: "regrow",
+    kind: "regenerate",
     summary: "app.plain Accounts",
     status: "succeeded",
     sequence: 1,

@@ -228,7 +228,7 @@ export async function renderConformanceTests(
   if (manifest.length === 0) {
     throw new Error(
       `Nothing to test: ${buildDir} is empty or missing. ` +
-        `Build the code first: turri regrow ${relative(process.cwd(), options.plainFile)}.`,
+        `Build the code first: turri regenerate ${relative(process.cwd(), options.plainFile)}.`,
     );
   }
 

@@ -63,7 +63,7 @@ When it is read:
   reads it when it is queued. An edit to the file holds from the next turn and the next render, with
   no restart. The agent is told the config of the session's folder and of the projects one folder
   down.
-- **On the command line**, once, when the command starts. `turri regrow` takes `module:` from
+- **On the command line**, once, when the command starts. `turri regenerate` takes `module:` from
   the folder it is run in, and the rest from the spec's own project.
 
 ## Changing it from the chat
@@ -88,7 +88,7 @@ runs:
 | the next time the work is planned | `conformance-tests`, `conformance-budget`, `max-specs-per-pulse`, `max-lines-per-pulse` |
 | the next test run - the running pulse's too | the testing scripts, `testing-scripts-run-on` |
 | the next pulse that lands - the running one too | `release-after-pulse` |
-| the next regrow that names no `.plain` file | `module` |
+| the next regeneration that names no `.plain` file | `module` |
 
 A coding model chosen this session - `--coding-model`, or `engine` - gives way to one set here: the last word wins. It
 says, too, what wins over the change: `models.chat` over `harness-model` (and so on), and a stack's
@@ -121,12 +121,12 @@ models:                              # each agent role's model, thinking and tur
 
 | key | what it sets | left out |
 | --- | --- | --- |
-| `module` | the `.plain` file `turri regrow` and `regrow` build when none is named, from the project root | a file has to be named |
-| `harness-model` | the model `turri` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regrow`, the planner too | pi's configured model |
+| `module` | the `.plain` file `turri regenerate` and the chat's `regenerate` build when none is named, from the project root | a file has to be named |
+| `harness-model` | the model `turri` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regenerate`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the conversation chooses with `bind`: what is planned lists what the code jobs add or change that has none, for the chat model to decide - ahead of the code - which are worth black-box tests, each call a conformance job that starts once every one it names is built; once chosen, a functional spec keeps them, and they are rewritten when it changes. `false`: none written, and none of the existing ones run - until the conversation asks with `bind` | `false` |
-| `conformance-budget` | under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside those with acceptance tests - a count (`2`) or a share of its functional specs (`30%`, rounded up, at least one). Every choice for the module counts, whenever it was made - ahead of the code, or once it is built; the chooser and the chat model are told what is left, and `turri regrow`'s chooser can choose no more. Your own `bind` is not limited. A stack's `config.turri.<stack>.yaml` can set its own | no limit |
+| `conformance-budget` | under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside those with acceptance tests - a count (`2`) or a share of its functional specs (`30%`, rounded up, at least one). Every choice for the module counts, whenever it was made - ahead of the code, or once it is built; the chooser and the chat model are told what is left, and `turri regenerate`'s chooser can choose no more. Your own `bind` is not limited. A stack's `config.turri.<stack>.yaml` can set its own | no limit |
 | `review` | `true` or `false`: whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at most, the second weighed by the arbiter; off, a job lands once its tests pass - see [growing the code](growing.md#the-code-and-its-unit-tests-are-reviewed) | `false` |
 | `rules-off` | a list of rule names - `integrations`, `concise-specs`, the files of `genome/rules/` without `.md` - left out of the conversation's prompt and every spec-writing agent's: a rule this project's own skills or AGENTS.md replace, such as one that says to probe a live API before any spec is written. The project's alone | none |
 | `allow-to-stop-jobs` | `true` or `false`: whether turri stops a running job the spec has moved on from - a functional spec it grows changed, or a file one links was edited - rolls it back and grows the spec as it now is. `false`: the job runs to its end and lands, and what changed since is grown on top of it by the next job - see [growing the code](growing.md). Your own `halt` stops a job either way | `true` |
@@ -159,7 +159,7 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 | --- | --- |
 | `default` | every role not named below - but the conversation's side |
 | `chat` | `turri`'s model - the same as `harness-model`, which it wins over |
-| `chooser`, `planner`, `diagnosis` | the conversation's side: the conformance chooser of `turri regrow`, the planner's agents, the diagnosis of a failed job. Unnamed, the chat's model |
+| `chooser`, `planner`, `diagnosis` | the conversation's side: the conformance chooser of `turri regenerate`, the planner's agents, the diagnosis of a failed job. Unnamed, the chat's model |
 | `release` | `turri release`'s agent and release-after-pulse's: it follows steps - a script, a start command - so it runs on the coding model, thinking low |
 | `coding` | the coding agent, the code fixer of a conformance run and the repair agent - the same as `coding-model`, which it wins over. `--model` on the command line, or a model chosen in the conversation (`engine`), wins over both |
 | `conformance` | the conformance agent |
@@ -219,7 +219,7 @@ They are defaults. What is asked for wins over them:
 | model | wins over the config |
 | --- | --- |
 | harness | `turri --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
-| coding | `turri --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regrow`, `render`, `regenerate`, `conformance` and `spec-diff` |
+| coding | `turri --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regenerate`, `render`, `regrow`, `conformance` and `spec-diff` |
 | judge | `--judge-model` on `turri bind` |
 
 A job keeps the model it was queued with: choosing another holds for what is queued after.
@@ -314,7 +314,7 @@ A stack is chosen, never worked out from the spec:
 - **In the chat**, with `/stack` - a list of the project's stacks and none - or `/stack backend`, `/stack none`.
   The chat's model has a `stack` tool too, and switches the stack when you ask it to, or for work on a part another
   stack builds. The status bar shows `· stack <name> (/stack)` when the project has stacks.
-- **On the command line**, with `--stack <name>` on any command - `turri regrow`, `bind`, `spec-diff`, `glimpse`,
+- **On the command line**, with `--stack <name>` on any command - `turri regenerate`, `bind`, `spec-diff`, `glimpse`,
   `release`, `cultivate` - and on `turri --stack backend` for the chat; or with `TURRI_STACK` in the environment.
 
 The choice lasts for the session only: nothing remembers it, and turri started again has none chosen. A stack the
@@ -328,7 +328,7 @@ How a stack's config is made:
 - **For everything built while it is chosen.** Every pulse that starts, every test run and every
   script found from then on is the chosen stack's; a pulse already running keeps the stack it
   started with. Choose the stack before building the part it is for: `/stack backend`, then
-  `regrow backend.plain`.
+  `regenerate backend.plain`.
 - **The project's alone.** `module:`, `harness-model:`, `parallel-jobs:`, `rules-off:` and `compact-at:` are read
   only from `config.turri.yaml` - there is one conversation, one module built when none is named, one machine.
   `agent-env:` and `toolchains:` in a stack's file add to the project's.

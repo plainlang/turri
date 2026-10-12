@@ -7,7 +7,7 @@ import { conformanceDirFor, notLandedWhy, renderConformanceTests, type RenderCon
 import { abandonWork, startWork } from "./lineage.ts";
 import { ensureRegressionPasses, type RegressionResult } from "./regression.ts";
 import { modulesRoot, projectDirOf } from "./paths.ts";
-import { applySpecDiff, snapshotSpec, specGapsText, type SpecSnapshot } from "./regrow.ts";
+import { applySpecDiff, snapshotSpec, specGapsText, type SpecSnapshot } from "./regenerate.ts";
 import { linesAddedSince, readNotes } from "./notes.ts";
 import { sectionsOf } from "./state.ts";
 import { describeStop } from "./stop-report.ts";

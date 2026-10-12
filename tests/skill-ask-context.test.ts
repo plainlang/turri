@@ -30,7 +30,7 @@ vi.mock("../src/pi.ts", () => {
         message();
         say("Live reads found 4 active and 6 archived contacts.");
         message();
-        say("Regrow steered the running pulse.");
+        say("Regenerate steered the running pulse.");
         message();
         say("The live account has 4 active and 6 archived contacts.");
         await askUser.execute("1", { question: "How should archived contacts be handled?", options: ["Skip them"] });

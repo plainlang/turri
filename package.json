@@ -25,7 +25,7 @@
     "test:watch": "vitest",
     "mutation": "node scripts/mutation.mjs",
     "bind": "tsx src/bind-cli.ts",
-    "regrow": "tsx src/regrow-cli.ts",
+    "regenerate": "tsx src/regenerate-cli.ts",
     "validate": "tsx src/validate-cli.ts",
     "doctor": "node bin/turri.mjs doctor",
     "build": "node scripts/build.mjs",

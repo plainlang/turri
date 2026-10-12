@@ -122,7 +122,7 @@ describe("renderConformanceTests", () => {
   it("points at the command that builds the code when the build is missing", async () => {
     await expect(
       renderConformanceTests({ plainFile: SIMPLE, frid: "1", buildDir, dryRun: true }),
-    ).rejects.toThrow(`turri regrow ${SIMPLE}`);
+    ).rejects.toThrow(`turri regenerate ${SIMPLE}`);
   });
 
   it("rejects an unknown functionality id", async () => {

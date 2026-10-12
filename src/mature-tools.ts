@@ -7,7 +7,7 @@ import { readNotes } from "./grow/notes.ts";
 import { modulesRoot, projectDirOf } from "./grow/paths.ts";
 
 /**
- * The tools a skill that matures a spec works with, besides the conversation's regrow, drift and halt: wait for
+ * The tools a skill that matures a spec works with, besides the conversation's regenerate, drift and halt: wait for
  * the builds, and read back where the spec left the agents to decide.
  *
  * A render that passes can still have been built on a guess: where the spec is silent, the agent

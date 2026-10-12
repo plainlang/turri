@@ -62,7 +62,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   };
 });
 
-const { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/grow/regrow.ts");
+const { applySpecDiff, describeSpecDiff, renderSpecDiff, snapshotSpec } = await import("../../src/grow/regenerate.ts");
 const { buildSpecDiffPrompt } = await import("../../src/grow/prompt.ts");
 const { readRecord } = await import("../../src/grow/records.ts");
 const { createSteering } = await import("../../src/grow/steering.ts");

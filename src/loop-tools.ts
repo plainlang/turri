@@ -9,7 +9,7 @@ import type { JobRegistry } from "./grow/jobs.ts";
 import { stopDeployed } from "./grow/release.ts";
 
 /**
- * The tools that act on the work loop - `regrow`, `drift` and `halt` - defined once, for the conversation and for the
+ * The tools that act on the work loop - `regenerate`, `drift` and `halt` - defined once, for the conversation and for the
  * skills alike: a skill that grows what a spec holds, or reads how far it is grown, uses the conversation's own tools,
  * on the conversation's loop, never copies of them.
  */
@@ -112,9 +112,9 @@ export function stopJob(jobs: JobRegistry, named: string, reason?: string): stri
   const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
   // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
   const inSpec =
-    target.kind === "regrow"
+    target.kind === "regenerate"
       ? " Its change is still in the .plain files: nothing more grows in that codebase until the spec changes or it is asked " +
-        "for again with regrow - then it grows with the rest. To drop the change, take it out of the spec and regrow; to change " +
+        "for again with regenerate - then it grows with the rest. To drop the change, take it out of the spec and regenerate; to change " +
         "how the work is cut or ordered, use steer."
       : "";
   return stopped.status === "stopped"
@@ -143,25 +143,25 @@ function plainFileOf(cwd: string, given: { plain_file?: string; working_dir?: st
   return resolve(located.base, named);
 }
 
-/** regrow: grow a module's code up to its spec as it is now. */
-export function regrowTool(options: LoopToolsOptions & { loop: (ctx: ExtensionContext) => WorkLoop }): AnyTool {
+/** regenerate: grow a module's code up to its spec as it is now. */
+export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: ExtensionContext) => WorkLoop }): AnyTool {
   return defineTool({
-    name: "regrow",
-    label: "Regrow",
+    name: "regenerate",
+    label: "Regenerate",
     description:
-      "Regrow a .plain module's code from its spec as the files have it now - and every module it requires, bottom of the " +
+      "Regenerate a .plain module's code from its spec as the files have it now - and every module it requires, bottom of the " +
       "requires chain first. Call it after any change to the spec, by any means: the file tools, a skill, the user in an " +
       "editor. It takes no diff: what is left to grow - from what each module's code was grown from to its spec now - is " +
       "worked out and planned into pulses, and a pulse running that grows something the spec no longer wants is stopped and " +
       "rolled back. Nothing to do where the code is grown from the spec as it is. To grow again what is grown already, " +
       "use rejuvenate.",
-    promptSnippet: "regrow a module's code from its spec as it is now - after any change to the spec",
+    promptSnippet: "regenerate a module's code from its spec as it is now - after any change to the spec",
     promptGuidelines: [
-      "Call regrow after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
-      "regrow returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the pulses report when they finish.",
-      "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regrow. When they want what is grown grown again as its spec stands - better made, on another model - that is rejuvenate.",
-      "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regrow sees it by itself, and grows again every functional spec that uses what links it.",
-      "Never stop pulses and start them again yourself to follow a spec change: regrow does it.",
+      "Call regenerate after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
+      "regenerate returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the pulses report when they finish.",
+      "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regenerate. When they want what is grown grown again as its spec stands - better made, on another model - that is rejuvenate.",
+      "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and grows again every functional spec that uses what links it.",
+      "Never stop pulses and start them again yourself to follow a spec change: regenerate does it.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
@@ -171,7 +171,7 @@ export function regrowTool(options: LoopToolsOptions & { loop: (ctx: ExtensionCo
       wait: WAIT_PARAM,
     }),
     async execute(_id, given, _signal, _onUpdate, ctx) {
-      const plainFile = plainFileOf(options.cwd, given, "regrow");
+      const plainFile = plainFileOf(options.cwd, given, "regenerate");
       const check = checkPlainFile(plainFile);
       if (!check.ok) throw new Error(`${relative(options.cwd, plainFile) || plainFile} does not parse, so nothing can grow from it yet: ${check.error}`);
       const model = options.model !== undefined ? options.model(ctx, plainFile, given.model) : given.model;

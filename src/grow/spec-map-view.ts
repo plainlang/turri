@@ -311,7 +311,7 @@ function wrapped(text: string, width: number, colour: (text: string) => string =
 
 /** All of an item, opened: its text against the code's, its acceptance tests, and why it is not growing when it is not. */
 /**
- * Where an opened item stands, a line a track with its mark - what the code has of it (regrown), and for a functional
+ * Where an opened item stands, a line a track with its mark - what the code has of it (regenerated), and for a functional
  * spec what its conformance tests have (bound) - so the marks in the gutter explain themselves.
  */
 function statusLines(item: MarkedItem, page: MarkedPage, width: number, style: TranscriptStyle, now: number): string[] {
@@ -335,18 +335,18 @@ function statusLines(item: MarkedItem, page: MarkedPage, width: number, style: T
             ? `taken out of the spec - taken out of the code in pulse ${pulse}`
             : `taken out of the spec, still in the code: ${why}`
         : item.mark === "built"
-          ? "regrown - the code is built from it as it reads now"
+          ? "regenerated - the code is built from it as it reads now"
           : item.mark === "growing"
-            ? `being regrown now, in pulse ${pulse}`
+            ? `being regenerated now, in pulse ${pulse}`
             : item.mark === "planned"
-              ? `not regrown yet - to be regrown in pulse ${pulse}`
+              ? `not regenerated yet - to be regenerated in pulse ${pulse}`
               : item.mark === "planning"
-                ? "not regrown yet - being planned into pulses now"
+                ? "not regenerated yet - being planned into pulses now"
                 : item.rolledBack !== undefined
-                  ? `not regrown - pulse ${item.rolledBack} was regrowing it, and was rolled back: ${why}`
+                  ? `not regenerated - pulse ${item.rolledBack} was regenerating it, and was rolled back: ${why}`
                   : item.mark === "stuck"
-                    ? `not regrown - ${why}`
-                    : `not regrown yet - not planned: ${page.status}`;
+                    ? `not regenerated - ${why}`
+                    : `not regenerated yet - not planned: ${page.status}`;
   // Not the spec's own text: dimmed, its mark in its colour - and a halt in red.
   const lines = wrapped(`${markText(item, style, now).trim()} ${(item.mark === "stuck" ? style.error : style.muted)(code)}`, width);
   // A functional spec's conformance tests, where they are on.

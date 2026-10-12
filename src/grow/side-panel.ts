@@ -85,7 +85,7 @@ export function createSidePanel(options: SidePanelOptions) {
     if (pages.length === 0) {
       lastBodyHeight = rows - 3;
       drawnMap = { rows: [], rowStarts: [], lineCount: 0 };
-      const body = [style.muted("  No .plain file to map: name one to regrow, or set module: in config.turri.yaml."), ...new Array<string>(Math.max(0, rows - 4)).fill("")];
+      const body = [style.muted("  No .plain file to map: name one to regenerate, or set module: in config.turri.yaml."), ...new Array<string>(Math.max(0, rows - 4)).fill("")];
       return [truncateToWidth(`${style.heading("regen")}${waitingNote()}`, width), style.muted("─".repeat(Math.max(1, width))), ...body, style.muted(truncateToWidth(`p pulses · esc or ${options.key} back to the chat`, width))];
     }
     // A chain of modules: a tab each, on a line of their own under the top line.

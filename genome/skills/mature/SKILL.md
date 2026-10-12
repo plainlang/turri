@@ -11,7 +11,7 @@ description: >-
   is stuck on something the spec cannot settle. Use when the user has a rough or hand-written spec
   and wants it made to build without steering it. Not for starting from nothing (`brood`,
   `spawn`) or adding a feature (`bud`).
-allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff, regrow, drift, halt, watch_jobs, spec_findings]
+allowed-tools: [read, write, edit, bash, ls, grep, find, write_spec_diff, regenerate, drift, halt, watch_jobs, spec_findings]
 metadata:
   # What each phase does, in a line - shown under the skill's progress while it runs.
   phases:
@@ -75,7 +75,7 @@ Say in two lines what will be rendered, and go on.
 Run cycles until the goal is met - or you are stuck - and at most twenty. Each cycle:
 
 1. **Check the goal**: `drift` for every module. All fully grown: the goal is met - go to the report.
-2. **Grow what is not grown**: `regrow` for each module that is not - one that requires
+2. **Grow what is not grown**: `regenerate` for each module that is not - one that requires
    another after the one it requires, modules that share nothing together. A module with builds still
    running or queued is left to them.
 3. **Watch**: `watch_jobs`. It comes back when a build struggles, when all have finished, or when its
@@ -86,7 +86,7 @@ Run cycles until the goal is met - or you are stuck - and at most twenty. Each c
      default, an error and its message, a limit, an order, an edge case); it reads two ways; two of
      its specs conflict; a test and the code disagree over something the spec never said. Write what
      the spec should say as a spec diff (below), then `halt` the struggling build - its `job_id`, and
-     as `reason` what the spec now says - and `regrow`, so it grows again from the clarified spec, and go
+     as `reason` what the spec now says - and `regenerate`, so it grows again from the clarified spec, and go
      to the next cycle.
    - **Not the spec's** - a bug the agent is working through, a missing tool or package, a flaky
      service, turri itself. Leave the build to it, note it for the report, and keep watching.

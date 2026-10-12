@@ -29,7 +29,7 @@ turri validate app.plain
 ## Run it
 
 ```bash
-turri regrow app.plain --model anthropic/claude-sonnet-5
+turri regenerate app.plain --model anthropic/claude-sonnet-5
 ```
 
 That builds every functionality in order - code and unit tests, then conformance tests when the
@@ -41,16 +41,16 @@ Keep it running when the terminal closes and the laptop would sleep, and keep th
 
 ```bash
 # macOS: caffeinate keeps the machine awake for as long as the command runs
-nohup caffeinate -is turri regrow app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
+nohup caffeinate -is turri regenerate app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
 
 # Linux
-nohup turri regrow app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
+nohup turri regenerate app.plain --model anthropic/claude-sonnet-5 > render.log 2>&1 &
 ```
 
 Or run it in `tmux` / `screen` to look in on it. `tail -f render.log` follows it either way.
 
 The project's `config.turri.yaml`, in the folder you run it from, can give the defaults, so a run can
-be just `turri regrow`:
+be just `turri regenerate`:
 
 ```yaml
 module: app.plain                         # what to build when no file is given
@@ -63,15 +63,15 @@ conformance-tests: true            # write and run conformance tests where there
 
 The same file names the [testing scripts](growing.md#the-testing-scripts); every key is in
 [the project config](config.md). Options on the command
-line win over it; `turri regrow`, `spec-diff`, `regenerate` and `conformance` take its
+line win over it; `turri regenerate`, `spec-diff`, `regrow` and `conformance` take its
 `coding-model` too, and `--coding-model` means the same as `--model` on every one of them.
 A project whose parts are on different stacks keeps each stack's settings in
 `config.turri.<stack>.yaml` beside it ([stacks](config.md#stacks)). Choose the one to build with
-`--stack <name>` - on any command: `regrow`, `bind`, `spec-diff`, `glimpse`, `release`, `cultivate` -
-or `TURRI_STACK`: `turri regrow backend.plain --stack backend`. With none chosen,
+`--stack <name>` - on any command: `regenerate`, `bind`, `spec-diff`, `glimpse`, `release`, `cultivate` -
+or `TURRI_STACK`: `turri regenerate backend.plain --stack backend`. With none chosen,
 `config.turri.yaml` alone is used; a stack the project has no file for is refused.
 
-Useful options - `turri regrow --help` lists all of them:
+Useful options - `turri regenerate --help` lists all of them:
 
 | | |
 | --- | --- |
@@ -82,7 +82,7 @@ Useful options - `turri regrow --help` lists all of them:
 | `--only` | build just this module, not the ones it requires |
 | `--build-dir <dir>` | where the code goes; default `plain_modules/<module>/code` |
 
-`turri regrow` queues the jobs the chat's `regrow` does - a spec diff that brings what
+`turri regenerate` queues the jobs the chat's `regenerate` does - a spec diff that brings what
 is built in line, when it no longer matches the spec, then one render functionality job per
 functional spec not built, each with its conformance job - and runs them all to the end, the queue
 master reworking them as in the chat (see [a whole module](growing.md#a-whole-module)).
@@ -117,7 +117,7 @@ rebuilds everything.
 ## Rebuilding one functionality
 
 ```bash
-turri regrow app.plain 3
+turri regenerate app.plain 3
 ```
 
 It rebuilds just functionality 3 over the code that already exists - after its spec changed, or as
@@ -129,7 +129,7 @@ in: when later modules are built on top of this one, the furthest-built of them 
 picks one when there are several). It exits `0` when everything passes, and refuses when there is
 no code yet - build it with `module` first.
 
-Several changes do not need one command each: after editing the spec, re-running `turri regrow`
+Several changes do not need one command each: after editing the spec, re-running `turri regenerate`
 brings the code up to it - one spec diff for what changed in what is built, then the functional
 specs not built yet.
 
@@ -143,6 +143,6 @@ nohup turri -p "Render app.plain as a whole module, with conformance tests" > re
 ```
 
 It reports what it did at the end, and nothing streams in between, so for long runs
-`turri regrow` is the better choice. The interview skill (`brood`) needs
+`turri regenerate` is the better choice. The interview skill (`brood`) needs
 someone to answer; without one they decide and record their assumptions, and a gate that escalates
 to a human stops the run.

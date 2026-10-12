@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { afterCommand, beforeCommand, type AuditScope } from "../../src/grow/audit.ts";
 import { conversationCommand, conversationWriting, resetConversationWrites } from "../../src/grow/conversation-writes.ts";
-import { applySpecDiff } from "../../src/grow/regrow.ts";
+import { applySpecDiff } from "../../src/grow/regenerate.ts";
 
 /**
  * The audit after every agent command, on every platform: what the role may not change inside the project is put

@@ -117,7 +117,7 @@ export interface StartJobInput {
    * them. Jobs with no lanes in common run side by side.
    */
   lanes?: string[];
-  /** The command that runs the work again - `turri regrow <the spec>` - for a message that stops it. */
+  /** The command that runs the work again - `turri regenerate <the spec>` - for a message that stops it. */
   rerun?: string;
   run: (onDelta: (delta: string) => void) => Promise<JobOutcome>;
 }

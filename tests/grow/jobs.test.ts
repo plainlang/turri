@@ -119,7 +119,7 @@ describe("the job registry", () => {
       release = resolve;
     });
     const job = registry.start({
-      kind: "regrow",
+      kind: "regenerate",
       summary: "greeter",
       run: async (onDelta) => {
         onDelta("working on it");
@@ -175,7 +175,7 @@ describe("a job that fails", () => {
     const release: Array<() => void> = [];
     const started = Array.from({ length: 10 }, (_, index) =>
       registry.start({
-        kind: "regrow",
+        kind: "regenerate",
         summary: `module${index}.plain render spec diff`,
         lanes: [`plain_modules/module${index}`],
         run: async () => {
@@ -206,9 +206,9 @@ describe("a job that fails", () => {
 
   it("failing for good stops only what is queued behind it on its own lanes - a module that shares nothing goes on", async () => {
     const registry = createJobRegistry({ retries: 1, diagnose: async () => undefined });
-    const failing = registry.start({ kind: "regrow", summary: "frontend.plain render spec diff", lanes: ["plain_modules/frontend"], run: async () => ({ report: "no", details: { passed: false } }) });
-    const behind = registry.start({ kind: "regrow", summary: "frontend.plain render spec diff", lanes: ["plain_modules/frontend"], run: async () => ({ report: "built" }) });
-    const other = registry.start({ kind: "regrow", summary: "backend.plain render spec diff", lanes: ["plain_modules/backend"], run: async () => ({ report: "built" }) });
+    const failing = registry.start({ kind: "regenerate", summary: "frontend.plain render spec diff", lanes: ["plain_modules/frontend"], run: async () => ({ report: "no", details: { passed: false } }) });
+    const behind = registry.start({ kind: "regenerate", summary: "frontend.plain render spec diff", lanes: ["plain_modules/frontend"], run: async () => ({ report: "built" }) });
+    const other = registry.start({ kind: "regenerate", summary: "backend.plain render spec diff", lanes: ["plain_modules/backend"], run: async () => ({ report: "built" }) });
     expect((await registry.wait(failing.id)).failedForGood).toBe(true);
     expect((await registry.wait(behind.id)).status).toBe("failed");
     expect((await registry.wait(other.id)).status).toBe("succeeded");

@@ -10,7 +10,7 @@ import { projectDirOf } from "./grow/paths.ts";
  * One file for what a project says about how it is built:
  *
  * ```yaml
- * module: prism_cli.plain                                   # what `turri regrow` builds by default
+ * module: prism_cli.plain                                   # what `turri regenerate` builds by default
  * harness-model:                                            # the model you chat with in `turri`
  *   model: anthropic/claude-opus-5-5
  *   thinking: high

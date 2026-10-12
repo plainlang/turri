@@ -86,11 +86,11 @@ function chat(args: string[]): never {
 }
 
 const COMMANDS: Record<string, { module: string; blurb: string; args?: string[] }> = {
-  regrow: { module: "./regrow-cli.ts", blurb: "regrow a module and its chain from the spec as it is (with frids: grow those again)" },
-  glimpse: { module: "./regrow-cli.ts", blurb: "plan the work and print the first job's prompt, starting nothing", args: ["--dry-run"] },
+  regenerate: { module: "./regenerate-cli.ts", blurb: "regenerate a module and its chain from the spec as it is (with frids: grow those again)" },
+  glimpse: { module: "./regenerate-cli.ts", blurb: "plan the work and print the first job's prompt, starting nothing", args: ["--dry-run"] },
   drift: { module: "./drift-cli.ts", blurb: "what is left to grow: how far the code has drifted from its spec" },
   bind: { module: "./bind-cli.ts", blurb: "write and run a module's conformance tests" },
-  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "apply a change to the specs, given as a git diff, and regrow it" },
+  "spec-diff": { module: "./spec-diff-cli.ts", blurb: "apply a change to the specs, given as a git diff, and regenerate it" },
   validate: { module: "./validate-cli.ts", blurb: "validate a ***plain spec, growing nothing" },
   lineage: { module: "./lineage-cli.ts", blurb: "a module's lineage: what grew into it, and when" },
   release: { module: "./release-cli.ts", blurb: "release what is grown to dist/<module> and activate it on this machine" },
@@ -99,8 +99,8 @@ const COMMANDS: Record<string, { module: string; blurb: string; args?: string[] 
 
 /** The names the commands had before: still taken, not listed. */
 const ALIASES: Record<string, string> = {
-  module: "regrow",
-  regenerate: "regrow",
+  module: "regenerate",
+  regrow: "regenerate",
   conformance: "bind",
   check: "validate",
   deploy: "release",
@@ -183,7 +183,7 @@ if (command === "setup") {
 }
 
 if (command === "render") {
-  console.error("turri render is gone: turri regrow <file.plain> grows what is left of the spec, and turri regrow <file.plain> <frid> grows one functionality again.");
+  console.error("turri render is gone: turri regenerate <file.plain> grows what is left of the spec, and turri regenerate <file.plain> <frid> grows one functionality again.");
   process.exit(1);
 }
 const entry = COMMANDS[ALIASES[command] ?? command];

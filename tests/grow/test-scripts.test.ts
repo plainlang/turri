@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { renderConformanceTests } from "../../src/grow/conformance.ts";
-import { renderSpecDiff } from "../../src/grow/regrow.ts";
+import { renderSpecDiff } from "../../src/grow/regenerate.ts";
 import { findTestScripts, projectRootFor, requireTestScripts, withTestingScripts } from "../../src/grow/test-scripts.ts";
 
 let root: string;

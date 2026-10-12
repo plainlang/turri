@@ -29,8 +29,8 @@ describe("showing a spec change", () => {
   it("is not shown under a running job - neither summed up in a line nor whole with ctrl+o", async () => {
     const jobs = createJobRegistry();
     const { opened, release } = gate();
-    jobs.start({ kind: "regrow", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => (await opened, { report: "" }) });
-    jobs.start({ kind: "regrow", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => ({ report: "" }) });
+    jobs.start({ kind: "regenerate", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => (await opened, { report: "" }) });
+    jobs.start({ kind: "regenerate", summary: "backend.plain render spec diff", diff, lanes: ["m"], run: async () => ({ report: "" }) });
 
     const compact = jobPanelLines(jobs.list());
     expect(compact.join("\n")).not.toContain("backend.plain +3 −1");

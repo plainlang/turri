@@ -8,7 +8,7 @@ import { moduleLanes } from "../../src/grow/lanes.ts";
 import { createWorkLoop, describeDrift, describeModules, type JobRunner } from "../../src/grow/loop.ts";
 import { codeTree, readRecord, writeCodeRecord, writeTestsRecord } from "../../src/grow/records.ts";
 import { recordHistory } from "../../src/grow/lineage.ts";
-import { snapshotSpec } from "../../src/grow/regrow.ts";
+import { snapshotSpec } from "../../src/grow/regenerate.ts";
 
 let dir: string;
 let cwd: string;
@@ -1019,7 +1019,7 @@ describe("a codebase built without a module it now requires", () => {
     expect(existsSync(join(codeDir(), "app.py"))).toBe(true);
     // The chat is told to ask, and why; the command line, how.
     expect(describeModules([status!])).toContain("Ask the user whether to start app over, and say why: app was built without greeting");
-    expect(describeModules([status!], { for: "command line" })).toContain("turri regrow app.plain --rejuvenate");
+    expect(describeModules([status!], { for: "command line" })).toContain("turri regenerate app.plain --rejuvenate");
 
     await loop.startOver("app.plain");
     await loop.drain();
@@ -1140,7 +1140,7 @@ describe("drift", () => {
     await loop.bringUp("app.plain");
     await loop.drain();
     expect(describeDrift(loop.drift("app.plain"))).toContain("code: grown from the spec as it is - no drift");
-    // The spec changes: the drift is the change, and nothing starts until regrow.
+    // The spec changes: the drift is the change, and nothing starts until regenerate.
     writeFileSync(join(dir, "app.plain"), app(["Say hello loudly.", "Say goodbye."]));
     const ran = code.ran.length;
     expect(describeDrift(loop.drift("app.plain"))).toContain("to grow: changes fs 1");

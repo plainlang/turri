@@ -2,7 +2,7 @@
  * Keeping the conversation's agent on its own tools.
  *
  * The agent has a shell, and turri has a command line - so it can build a module by
- * running `turri regrow` through bash, or start another pi with `pi -p`. That run is a
+ * running `turri regenerate` through bash, or start another pi with `pi -p`. That run is a
  * second, headless turri: outside this conversation's job queue, its panel and
  * `/halt`, on whatever model the command line picks, fighting the conversation's own jobs for
  * the same build directories. It is never the right call unless the person asked for the
@@ -11,15 +11,15 @@
 
 /** The tool that does what a turri subcommand does, from inside the conversation. */
 const TOOL_FOR: Record<string, string> = {
-  regrow: "regrow",
+  regenerate: "regenerate",
   glimpse: "glimpse",
   bind: "bind",
   cultivate: "cultivate",
   release: "release",
-  "spec-diff": "regrow",
-  render: "regrow",
-  module: "regrow",
-  regenerate: "regrow",
+  "spec-diff": "regenerate",
+  render: "regenerate",
+  module: "regenerate",
+  regrow: "regenerate",
   conformance: "bind",
   skill: "cultivate",
   deploy: "release",
@@ -30,7 +30,7 @@ const TOOL_FOR: Record<string, string> = {
 
 /** The npm scripts in this repo, by the subcommand they run. */
 const NPM_SCRIPT: Record<string, string> = {
-  regrow: "regrow",
+  regenerate: "regenerate",
   bind: "bind",
   cultivate: "cultivate",
   chat: "chat",
@@ -39,7 +39,7 @@ const NPM_SCRIPT: Record<string, string> = {
 
 /** The source entry points, by the subcommand they are. */
 const ENTRY: Record<string, string> = {
-  "regrow-cli": "regrow",
+  "regenerate-cli": "regenerate",
   "bind-cli": "bind",
   "spec-diff-cli": "spec-diff",
   "cultivate-cli": "cultivate",
@@ -55,9 +55,9 @@ const AT_COMMAND = String.raw`(?:^|[\s;&|()\x60$])`;
  * agent - and neither are setup and doctor.
  */
 export function selfInvocation(command: string): string | undefined {
-  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?turri\\s+(regrow|glimpse|bind|cultivate|release|spec-diff|render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
+  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?turri\\s+(regenerate|glimpse|bind|cultivate|release|spec-diff|render|module|regrow|conformance|skill|chat|deploy)\\b`).exec(command);
   if (cli) return cli[1];
-  const launcher = new RegExp(`(?:bin/turri\\.mjs|src/cli\\.ts)\\s+(regrow|glimpse|bind|cultivate|release|spec-diff|render|module|regenerate|conformance|skill|chat|deploy)\\b`).exec(command);
+  const launcher = new RegExp(`(?:bin/turri\\.mjs|src/cli\\.ts)\\s+(regenerate|glimpse|bind|cultivate|release|spec-diff|render|module|regrow|conformance|skill|chat|deploy)\\b`).exec(command);
   if (launcher) return launcher[1];
   // turri alone, or with options, is the conversation - where a command starts, not a word an argument names (`which turri`).
   const bare =
@@ -92,7 +92,7 @@ export function askedForCommandLine(message: string): boolean {
   const text = message.toLowerCase();
   return (
     /\b(headless|command[ -]line|cli|terminal|shell|in bash|via bash|through bash|npm run|nohup)\b/.test(text) ||
-    /\bturri\s+(regrow|glimpse|bind|spec-diff|cultivate|release|render|module|regenerate|conformance|skill|chat|deploy)\b/.test(text) ||
+    /\bturri\s+(regenerate|glimpse|bind|spec-diff|cultivate|release|render|module|regrow|conformance|skill|chat|deploy)\b/.test(text) ||
     /(^|\s)turri\s+-p\b/.test(text) ||
     /(^|\s)pi\s+-p\b/.test(text)
   );
@@ -114,10 +114,10 @@ export function refusal(what: string): string {
 /** The instruction that goes into the conversation's system prompt. */
 export const TOOLS_NOT_CLI = [
   "<turri-tools>",
-  "In this conversation, turri's work is done with its tools - regrow, bind, cultivate and the rest - which run as",
+  "In this conversation, turri's work is done with its tools - regenerate, bind, cultivate and the rest - which run as",
   "background jobs the user can watch and halt. To try what is grown, release it - never by hand in plain_modules. Never",
-  "run turri's command line (turri regrow, glimpse, bind, spec-diff, cultivate, release, turri itself; npm run",
-  "regrow and the like) or start another pi through bash:",
+  "run turri's command line (turri regenerate, glimpse, bind, spec-diff, cultivate, release, turri itself; npm run",
+  "regenerate and the like) or start another pi through bash:",
   "that is a separate headless run the user cannot see or stop. Only when the user explicitly asks for the",
   "command line, run it. Configuring pi itself - pi install, update, list, config, auth, or its settings files -",
   "is fine; it starts no agent.",

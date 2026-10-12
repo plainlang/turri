@@ -20,7 +20,7 @@ metadata:
     intent: "what problem this solves, for whom, and how you will know it works"
     stack: "the language, frameworks, storage and architecture"
     testing: "whether there are conformance tests, and how they are written and run"
-    product: "the product, feature by feature - each answer starts a regrow pulse"
+    product: "the product, feature by feature - each answer starts a regenerate pulse"
   # The phases the questioning level caps, asked by the harness as the first question: light 3,
   # medium 5, thorough 10, best judgement as many as turri judges the phase needs.
   questioning: [stack, product]

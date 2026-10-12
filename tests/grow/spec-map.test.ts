@@ -123,7 +123,7 @@ describe("the regeneration from the files", () => {
       ["built", "- Say hello."],
       ["waiting", "- Say goodbye."],
     ]);
-    expect(only!.status).toBe("not asked to build - regrow plans it");
+    expect(only!.status).toBe("not asked to build - regenerate plans it");
   });
 
   it("has a page for each module of the requires chain, a module below read from the codebase built on it", () => {
@@ -316,7 +316,7 @@ describe("the regeneration drawn", () => {
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
   });
 
-  it("opens an item to its text and acceptance tests, then where it stands - regrown, and for a functionality bound - its marks in words", () => {
+  it("opens an item to its text and acceptance tests, then where it stands - regenerated, and for a functionality bound - its marks in words", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can register.\n  - The response is 201.", "- A :User: can log in."] }),
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- A :User: can log in."] }),
@@ -329,13 +329,13 @@ describe("the regeneration drawn", () => {
     const lines = specMapLines([marked!], state, 120, style).lines;
     const text = lines.join("\n");
     // Each line with the mark it explains: the code's, then the conformance tests'.
-    expect(text).toContain("│ ✓ regrown - the code is built from it as it reads now");
-    expect(text).toContain("│ 2 not regrown yet - to be regrown in pulse 2");
+    expect(text).toContain("│ ✓ regenerated - the code is built from it as it reads now");
+    expect(text).toContain("│ 2 not regenerated yet - to be regenerated in pulse 2");
     expect(text).toContain("│ · not bound - no conformance tests for it yet");
     expect(text).toContain("│ ◆ bound - its conformance tests pass: the code is shown, end to end, to do what it says");
     // A definition is not bound: only what the code has of it.
     const user = lines.findIndex((line) => line.includes(":User: is a person."));
-    expect(lines[user + 1]).toContain("✓ regrown");
+    expect(lines[user + 1]).toContain("✓ regenerated");
     expect(lines[user + 2]).not.toContain("bound");
     // A changed item's lines that did not change are the spec's, as any: not dimmed.
     const changed = page(
@@ -350,11 +350,11 @@ describe("the regeneration drawn", () => {
     expect(shownChange).not.toContain("<dim>  - In the order received.</dim>");
     // Not the spec's own text: dimmed, the mark beside it in its own colour.
     const dimmed = specMapLines([marked!], state, 120, { ...style, muted: (t: string) => `<dim>${t}</dim>` }).lines.join("\n");
-    expect(dimmed).toContain("│ ✓ <dim>regrown - the code is built from it as it reads now</dim>");
+    expect(dimmed).toContain("│ ✓ <dim>regenerated - the code is built from it as it reads now</dim>");
     expect(dimmed).toContain("<dim>not bound - no conformance tests for it yet</dim>");
     // Below all of its text: its sub-bullets first, where it stands last.
     expect(text).toContain("  - The response is 201.");
-    expect(text.indexOf("  - The response is 201.")).toBeLessThan(text.indexOf("2 not regrown yet - to be regrown in pulse 2"));
+    expect(text.indexOf("  - The response is 201.")).toBeLessThan(text.indexOf("2 not regenerated yet - to be regenerated in pulse 2"));
     expect(text).not.toContain("used by");
   });
 
@@ -431,7 +431,7 @@ describe("the regeneration drawn", () => {
     const top = markSpecMap([{ ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two.", "- Three."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] })), module: "top", plainFile: join(dir, "top.plain") }], noPlan)[0]!;
     const head = specMapHeader(top, 160, style);
     expect(head).toContain("regen  top.plain");
-    expect(head).toContain("1 of 2 functionalities built · not asked to build - regrow plans it");
+    expect(head).toContain("1 of 2 functionalities built · not asked to build - regenerate plans it");
   });
 
   it("opens the module growing now, and the one asked for, before the others", () => {
@@ -466,7 +466,7 @@ describe("the regeneration drawn", () => {
 });
 
 describe("the side panel's two views", () => {
-  const job = (id: string) => ({ id, kind: "regrow", summary: "app.plain log in", module: "app", status: "running" as const, sequence: 1, queuedAt: 0, startedAt: Date.now(), waitingOn: [], tail: "", activity: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, agents: [], transcript: [] });
+  const job = (id: string) => ({ id, kind: "regenerate", summary: "app.plain log in", module: "app", status: "running" as const, sequence: 1, queuedAt: 0, startedAt: Date.now(), waitingOn: [], tail: "", activity: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, agents: [], transcript: [] });
 
   it("opens on regen, and p goes to the pulse growing the item under the cursor and back to the item", () => {
     const first = page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register."] }));
@@ -479,7 +479,7 @@ describe("the side panel's two views", () => {
     panel.handleInput("p");
     const pulses = panel.render(100);
     expect(pulses[0]).toContain("Pulses");
-    expect(pulses.find((line) => line.startsWith("›"))).toContain("app regrow");
+    expect(pulses.find((line) => line.startsWith("›"))).toContain("app regenerate");
     panel.handleInput("p");
     const map = panel.render(100);
     expect(map.find((line) => line.startsWith("›"))).toContain("- Log in.");

@@ -73,7 +73,7 @@ spec diff that takes the code from the spec it is built from to the spec the job
 the first jobs would be told:
 
 ```bash
-turri regrow <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
+turri regenerate <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
 ```
 
 ### What the agent is given
@@ -361,10 +361,10 @@ offer.
 ## A whole module
 
 ```bash
-turri regrow <file.plain>
+turri regenerate <file.plain>
 ```
 
-Rendering a module - `regrow` in a conversation, `turri regrow` on the command line - is
+Rendering a module - `regenerate` in a conversation, `turri regenerate` on the command line - is
 not a job of its own, and nothing is queued: the work loop (`src/grow/loop.ts`) works out what is left
 to build, has it planned into jobs, and runs
 the first. What is left is the difference between what a codebase's code is built from - its code
@@ -383,7 +383,7 @@ module waiting while the one it is built on has work left or a job running.
 
 A module already built from the spec as it is gets nothing. A job that does not land is rolled back, and
 halts its codebase: nothing more runs there until the spec changes or the module is asked for again. On
-the command line, `turri regrow` runs until nothing more can start, one line as each job starts and
+the command line, `turri regenerate` runs until nothing more can start, one line as each job starts and
 ends, and exits 1 when any failed.
 
 ### How the work is cut into jobs
@@ -412,31 +412,31 @@ and the definitions they bring pass `max-lines-per-pulse` (120 unset) is split i
 functional specs kept together in runs, in order, as long as each run stays within it, `Comments (1 of 2)`, `Comments
 (2 of 2)` - not a functional spec a job; its reqs do not count, as a split
 leaves them with its first job whatever happens. The planner runs on the chat's model in a conversation, and on the
-harness model under `turri regrow`. No agent reviews its plan: the harness checks it - every
+harness model under `turri regenerate`. No agent reviews its plan: the harness checks it - every
 change in exactly one job, the spec holding together after each, the last ending on the spec as it is.
 
 Each planned job knows its cases - which functional specs it adds, changes (their text, or a concept they
 use) and takes out, or none: reqs and definitions only - and the loop says them, with each job's title,
-where the person looks (`drift`, `growth`, and what `regrow` returns).
+where the person looks (`drift`, `growth`, and what `regenerate` returns).
 
 **Steering.** How you want the work cut and ordered - "build the batch worker's helpers with the worker",
 "models first" - goes to the grouping and placement agents with every plan, as a strong preference: it
 never overrides the limits and checks. It comes from three places, each labelled with where it came from:
 the conversation (`steer`, for the whole project or one module, for the session); the project's
 `AGENTS.md`, every section whose heading names the queue (`## Queue guidance`), read afresh with every plan;
-and whatever asks for the work - `regrow` and `brood`'s `write_spec_diff`
+and whatever asks for the work - `regenerate` and `brood`'s `write_spec_diff`
 take a `guidance` of their own, which the loop keeps with that module.
 
 A plan is kept until the spec, what it starts from or its steering changes. `steer` alone plans nothing: the
-next look does - a `regrow`, a job ending, the spec changing. Then the work not running yet is planned again
-to follow it, a running job going on as it is. Where a plan did not do as asked, it says so, and what `regrow`
+next look does - a `regenerate`, a job ending, the spec changing. Then the work not running yet is planned again
+to follow it, a running job going on as it is. Where a plan did not do as asked, it says so, and what `regenerate`
 returns lists it under "what the plan did not do as asked": each wish an agent did not follow, with why (both
 tools take a `notes` for that), a grouping or placement that did not hold, with what was wrong, and a group
 split for its size. The conversation tells the person that, rather than guessing.
 
 ### When the spec changes
 
-A spec change is a notice, not a diff to run: **`regrow`**, called after the spec was edited by any means -
+A spec change is a notice, not a diff to run: **`regenerate`**, called after the spec was edited by any means -
 the file tools, a skill, you in an editor - has the loop work out the work again. A job running goes on
 while every change it makes is still part of the work, measured from the same record; one that is making
 something the spec no longer wants is stopped, rolled back, and the work planned again - a fixed rule, no
@@ -458,7 +458,7 @@ this job's with them - are patched by the next job. What else changed is the nex
 partly a steer is split. Two steers a job: a third goes the way above, stopped or - with `allow-to-stop-jobs:
 false` - left to the next job. Conformance jobs are not steered: they are planned from what the code lands.
 A steer shows in the job's view in the panel (what it grows now), in the transcript (`⇢ steered job …`),
-under the job in `regrow`'s answer, and in the job's report.
+under the job in `regenerate`'s answer, and in the job's report.
 
 With `allow-to-stop-jobs: false` in `config.turri.yaml` it is not stopped: it runs to its end and lands what it
 was growing, and the next job grows what changed since as a patch on top of it. Something lands as soon as
@@ -468,14 +468,14 @@ patch fills in what was missing - at the cost of growing what the spec has alrea
 `brood`'s `write_spec_diff` makes an edit and gives the notice in one call, and so does `turri spec-diff` on
 the command line. What is left to grow, without growing it, is `drift`.
 
-### Regrowing a functionality
+### Regenerating a functionality
 
-`regrow` with functional specs named grows them again, changed or not: each is taken out of the record
+`regenerate` with functional specs named grows them again, changed or not: each is taken out of the record
 of every codebase it is built in - committed, so the record says it is not built - and they are brought up
-to their spec, which grows it again. A functionality whose spec changed needs none of it: `regrow`
+to their spec, which grows it again. A functionality whose spec changed needs none of it: `regenerate`
 grows it again by itself.
 
-`turri regrow <file.plain> 2` does the same on the command line.
+`turri regenerate <file.plain> 2` does the same on the command line.
 
 ### The testing scripts
 
@@ -564,7 +564,7 @@ and you are told:
 > **d365_version_api stopped: the environment lacks JDK 21.**
 > Needed by: `run_unittests.sh` (it could not find `java`).
 > To fix: install java on this machine, so the testing script finds it on its PATH.
-> Then re-run: `turri regrow d365_version_api.plain`, or say "resume" in the chat.
+> Then re-run: `turri regenerate d365_version_api.plain`, or say "resume" in the chat.
 
 It is raised two ways:
 
@@ -604,7 +604,7 @@ stopped on its environment stops the same way again - and fixes what it can:
 - **a credential missing**: never made up - you are told where `agent-env:` reads it from.
 
 Either way the pulse is not tried again: no second run would find what is missing. The message is in the chat, at the
-end of `turri regrow`, and in the job's log; after the fix the pulse runs again from the start. The re-run line names the spec that was grown, as the folder it was run from reaches it.
+end of `turri regenerate`, and in the job's log; after the fix the pulse runs again from the start. The re-run line names the spec that was grown, as the folder it was run from reaches it.
 
 ### What a job is given, and what it records
 
@@ -700,7 +700,7 @@ with no agent and no testing script. Moving specs into a module the code was not
 change to the code brings that module's code in, so the codebase stops: it has to be started over - its code
 and conformance tests taken out, committed so its history keeps them, and the chain built again from the
 bottom. That is never done unasked. In the chat the model asks the person, saying why, and calls
-`rejuvenate` once they agree; `turri regrow` and `spec-diff` ask at the terminal, and `--rejuvenate`
+`rejuvenate` once they agree; `turri regenerate` and `spec-diff` ask at the terminal, and `--rejuvenate`
 agrees in advance - with no terminal and no flag, nothing more is built there.
 
 ## Conformance tests
@@ -727,7 +727,7 @@ tests, the definitions and implementation reqs they were written against, and th
 and the work is from that record to what they are to be: of the functional specs the code is built from,
 those chosen - every one, or those `bind` names - as the spec has them, with its test reqs. A
 functional spec whose code is behind the spec - built from other text, or not in the code record at all, as while
-`regrow` grows it again by name - keeps its tests until the code lands; they are taken out only once the spec and the
+`regenerate` grows it again by name - keeps its tests until the code lands; they are taken out only once the spec and the
 code have both dropped it. The harness cuts the work into jobs, and no agent is asked: every functional spec
 tested - added or changed, asked for by `bind`, chosen, or left by the code jobs - is in one conformance job, a
 module's own together, as far as a guardrail lets: a new job begins only where the next functional spec would take
@@ -758,10 +758,10 @@ codebase started from there.
 With `conformance-tests: false` none is written unless the conversation asks with `bind`, for
 the session. With `conformance-tests: chosen` they are written for the functional specs chosen: every one with
 acceptance tests - the author said what to check - and those the chat model chooses. It chooses when the work
-is planned, ahead of the code: what `regrow` returns lists what the
+is planned, ahead of the code: what `regenerate` returns lists what the
 planned code jobs add or change that no conformance test is for, chosen or scheduled, and the chat model decides
 which are worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why,
-and calls `bind` with them; a code job's report lists any left undecided. With no conversation - `turri regrow` - an
+and calls `bind` with them; a code job's report lists any left undecided. With no conversation - `turri regenerate` - an
 agent on `harness-model` (or `models: chooser`) chooses in its place, asked the same: as the work is planned, and once
 a module's code is built - its last code job landed - with every functional spec of it that is built and has none in
 view, it reads the module's spec and names those worth it and why, and they are bound as `bind` binds them; one it

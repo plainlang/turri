@@ -2,9 +2,9 @@ import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { c } from "./module-report.ts";
 import { parseArgs, runLoop } from "./loop-cli.ts";
 
-const USAGE = `usage: turri regrow [file.plain] [frid ...] [options]
+const USAGE = `usage: turri regenerate [file.plain] [frid ...] [options]
 
-Regrows the module's code from its spec as it is now, and everything it requires, bottom first, as
+Regenerates the module's code from its spec as it is now, and everything it requires, bottom first, as
 the chat does: what is left to grow - from what each module's code was grown from to its spec now -
 is planned into jobs, and they run one after the other until the code is grown from the spec, each
 followed by the conformance tests of what it grew when they are on. Then it says how each went.
@@ -24,7 +24,7 @@ conformance-tests.
 
 /** Options of the build this replaced, and what to do instead. */
 const GONE: Record<string, string> = {
-  force: "to grow a functionality again, name it: turri regrow <file.plain> <frid>",
+  force: "to grow a functionality again, name it: turri regenerate <file.plain> <frid>",
   only: "every module the spec requires is built, bottom first",
   to: "the whole spec is built: stop the jobs to stop partway",
   from: "every functionality not built is queued; built ones are skipped",
