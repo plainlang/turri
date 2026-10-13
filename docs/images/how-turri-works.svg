@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 490" width="1100" height="490" role="img" aria-labelledby="d-title d-desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 -5 1100 490" width="1100" height="490" role="img" aria-labelledby="d-title d-desc">
       <title id="d-title">How turri works</title>
       <desc id="d-desc">You describe changes to turri; turri asks and reports back. turri writes the ***plain specs, which you read and review with turri. Then turri loops without end: it reads the specs, regenerates the code from them, and tests the code against them.</desc>
       <style>
@@ -17,7 +17,7 @@ text { font-variant-ligatures: none; font-feature-settings: "calt" 0, "liga" 0; 
   @keyframes turn { to { transform: rotate(360deg); } }
 }
 </style>
-      <rect x="0" y="0" width="1100" height="490" rx="18" fill="#e0ff6e"/>
+      <rect x="16" y="-5" width="1100" height="490" rx="18" fill="#e0ff6e"/>
       <defs>
         <marker id="head" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 z" fill="#0f0f0f"/>
