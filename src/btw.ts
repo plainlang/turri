@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskUser, AskUserRequest } from "./ask.ts";
 import { confinedTools } from "./grow/confine.ts";
+import { TURRI_IDENTITY } from "./identity.ts";
 import { ask, BEGIN, createExecutor } from "./pi.ts";
 
 /** How many tool calls the side agent may make before it is told to answer. */
@@ -113,14 +114,18 @@ export interface SideQuestion {
 
 export function sideQuestionPrompt(side: SideQuestion): string {
   return [
-    "The person you are talking to is in the middle of something with turri - a harness that builds code from ***plain",
-    "specs - and has a question on the side. Answer it: briefly, plainly, from what is below and what you can read. You",
-    "can read the project and turri itself, and change nothing. Nothing you say reaches the conversation or the skill:",
-    "they go on as they were. If the question is really a change of course - do something else, stop, change an answer -",
-    "say how: answer the skill's next question that way, /halt a pulse, or tell turri once the skill is done.",
+    TURRI_IDENTITY,
     "",
-    `The project is ${side.projectDir}: its .plain specs, config.turri.yaml, plain_modules. turri is ${side.harnessDir}: its`,
-    "source (src/), its skills (genome/skills/), the ***plain authoring rules (genome/rules/) and its docs (docs/).",
+    "The person is in the middle of something with you - a skill, a pulse - and has asked you a question on the side",
+    "with /btw. Answer it as turri: in the first person, to them, in whole sentences - briefly and plainly, from what is",
+    "below and what you can read. Never speak of turri as someone else, and never give them a message to pass on to",
+    "turri: they are talking to turri. You can read the project and your own source, and change nothing. Nothing you",
+    "say here reaches the conversation or the skill: they go on as they were. If the question is really a change of",
+    "course - do something else, stop, change an answer - say how: answer the skill's next question that way, /halt a",
+    "pulse, or ask you for it in the conversation once the skill is done; then say what you will do when they do.",
+    "",
+    `The project is ${side.projectDir}: its .plain specs, config.turri.yaml, plain_modules. You are ${side.harnessDir}:`,
+    "your source (src/), your skills (genome/skills/), the ***plain authoring rules (genome/rules/) and your docs (docs/).",
     "",
     "Reply with the answer alone, as you would say it - no preamble about how you found it.",
     "",

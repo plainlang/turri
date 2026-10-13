@@ -154,7 +154,9 @@ change the step makes and puts its findings on the executor's next tool result.
 - **Be asked something on the side.** A skill runs inside one `cultivate` call, so the conversation can answer
   nothing until it returns. `/btw <question>` (`btw.ts`) can: pi runs a command at once, even mid-turn, and it starts
   an agent of its own - fresh, on the chat's model, reading the project and turri and changing nothing - shown the
-  conversation, the running skill's trace and the end of its agent's session, and the pulses. Its answer goes in the
+  conversation, the running skill's trace and the end of its agent's session, and the pulses. It is told it is turri,
+  as the conversation's agent is (`identity.ts`), and answers as turri, in the first person - never as an onlooker
+  who sends the person to turri with a message to pass on. Its answer goes in the
   transcript as an entry, in no model's context: the conversation and the skill go on as if nothing was asked. While
   a question of the skill's has the keys, `/btw <question>` typed as the answer (under "Something else…") is the
   same: answered, and the question asked again with the answer above it - the skill's agent never sees it.

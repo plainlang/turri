@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AskUserRequest } from "../src/ask.ts";
+import { TURRI_IDENTITY } from "../src/identity.ts";
 
 type Tool = { name: string; execute: (...args: unknown[]) => Promise<unknown> };
 
@@ -18,7 +19,7 @@ vi.mock("../src/pi.ts", () => ({
   ask: async () => "A frid is a functionality id.",
 }));
 
-const { answerSideQuestion, askWithAsides, BTW_HOW, sideQuestionOf, skillRunStarted, runningSkill, skillSessionText, transcriptOf } = await import("../src/btw.ts");
+const { answerSideQuestion, askWithAsides, BTW_HOW, sideQuestionOf, sideQuestionPrompt, skillRunStarted, runningSkill, skillSessionText, transcriptOf } = await import("../src/btw.ts");
 
 let root: string;
 beforeEach(() => {
@@ -79,6 +80,14 @@ describe("a side question", () => {
     expect(seen.tools).not.toContain("edit");
     expect(seen.tools).not.toContain("bash");
     expect(seen.disposed).toBe(true);
+  });
+
+  it("answers as turri, in the first person, never sending the person to turri as to someone else", () => {
+    const prompt = sideQuestionPrompt({ question: "can it run the unit tests?", conversation: "", pulses: [], projectDir: root, harnessDir: root });
+    expect(prompt.startsWith(TURRI_IDENTITY)).toBe(true);
+    expect(prompt).toContain("Answer it as turri: in the first person");
+    expect(prompt).toContain("never give them a message to pass on to\nturri");
+    expect(prompt).not.toContain("tell turri");
   });
 
   it("knows the skill running only until it says it has ended", () => {

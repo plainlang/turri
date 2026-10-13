@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { JOB_FINISHED_REACTION, TURRI_IDENTITY } from "../src/extension.ts";
+import { JOB_FINISHED_REACTION } from "../src/extension.ts";
+import { TURRI_IDENTITY } from "../src/identity.ts";
 
 describe("what the chat is told it is", () => {
   it("knows a job is a pulse, and the job queue regen - whatever a project's files still call them", () => {
@@ -10,6 +11,14 @@ describe("what the chat is told it is", () => {
     expect(TURRI_IDENTITY).toContain("It was the regeneration, the job queue, or the job panel.");
     expect(TURRI_IDENTITY).toContain("Say regen,");
     expect(TURRI_IDENTITY).toContain("mutate, in a skill's activity, is write_spec_diff");
+  });
+
+  it("is turri itself, speaking in the first person, never of turri as someone else to pass a message to", () => {
+    expect(TURRI_IDENTITY).toContain("you regenerate the code from it");
+    expect(TURRI_IDENTITY).toContain("Speak as turri, in the first person");
+    expect(TURRI_IDENTITY).toContain("never tell the person to tell or ask turri something");
+    expect(TURRI_IDENTITY).not.toContain("turri regenerates");
+    expect(TURRI_IDENTITY).not.toContain("Speak of yourself as turri");
   });
 });
 

@@ -54,6 +54,7 @@ import { QuestionDialog } from "./question-dialog.ts";
 import { registerStacks } from "./stacks.ts";
 import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
 import { supersededByTurri } from "./chat-skills.ts";
+import { TURRI_IDENTITY } from "./identity.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
   createJobRegistry,
@@ -1045,7 +1046,7 @@ export function projectConfigBlock(root: string): string {
           return [
             models.coding !== undefined ? `- coding-model: ${shown(models.coding)}${config.codingModel === undefined ? " (from harness-model)" : ""} - what renders run on, unless engine chose another in this session.` : undefined,
             models.judge !== undefined ? `- judge-model: ${shown(models.judge)}${config.judgeModel === undefined ? " (from coding-model)" : ""} - the judge and the test review in a conformance run.` : undefined,
-            models.harness !== undefined && of !== "stack" ? `- harness-model: ${shown(models.harness)} - the model turri starts with.` : undefined,
+            models.harness !== undefined && of !== "stack" ? `- harness-model: ${shown(models.harness)} - the model you start with.` : undefined,
             // The other roles' own, where models: names them.
             ...AGENT_ROLES.filter((role) => role !== "coding" && role !== "chat").flatMap((role) => {
               const own = roleModel(config, role);
@@ -1247,7 +1248,7 @@ function registerRenderModels(pi: ExtensionAPI) {
   pi.registerTool(setRenderModelTool(pi));
 
   pi.registerCommand("engine", {
-    description: "Show the engine: which model grows spec changes and functionalities. To change it, tell turri.",
+    description: "Show the engine: which model grows spec changes and functionalities. To change it, say so in the conversation.",
     handler: async (_args, ctx) => {
       const text = `The engine:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}\n\nTo change it, say so - e.g. "grow spec changes with gpt 5.5".`;
       if (ctx.hasUI) ctx.ui.notify(text, "info");
@@ -2225,28 +2226,6 @@ const BANNER_ENTRY = "turri_banner";
 export function chatRulesBlock(rules = loadRules(join(PACKAGE_ROOT, "genome", "rules"))): string {
   return renderRulesBlock(rules);
 }
-
-/** Who the conversation's agent is: turri, and what it does - first, so it is how the agent speaks of itself. */
-export const TURRI_IDENTITY = [
-  "<turri>",
-  "You are turri - always lowercase - a regenerative software harness. The software is its ***plain spec; the code is",
-  "what grows from it. You help the user write and change the spec, and turri regenerates the code from it a change at a",
-  "time - with agents that write the code and tests, while turri decides what runs next and when the work is done -",
-  "records what each piece grew from, and proves it against conformance tests written from the spec alone. When the",
-  "code goes bad, it is grown again from the spec. Named after Turritopsis dohrnii, the immortal jellyfish, which",
-  "turns back into its young self and grows again. Speak of yourself as turri.",
-  "",
-  "Its words, and the older ones for the same things - a project's AGENTS.md, a skill, notes or the person may use",
-  "either, and they mean the same:",
-  "- A pulse is one unit of work growing the code - a spec diff grown in a codebase, or its conformance tests. It was",
-  "  called a job, and still is in places: the job_id a tool takes is a pulse's id, and parallel-jobs and",
-  "  allow-to-stop-jobs in config.turri.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
-  "- regen is the side panel (/regen, or ctrl+h): the spec with each functionality and item marked built, growing,",
-  "  planned or waiting - and behind it the pulses (/pulses), every pulse growing, planned and finished. Say regen,",
-  "  lowercase. It was the regeneration, the job queue, or the job panel.",
-  "- mutate, in a skill's activity, is write_spec_diff: a spec change written and grown in one step.",
-  "</turri>",
-].join("\n");
 
 function registerBranding(
   pi: ExtensionAPI,
