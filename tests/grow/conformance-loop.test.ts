@@ -29,6 +29,8 @@ let coderMisses = 0;
 /** When set, each fix of the tests changes their file - a comment - while they fail the same way. */
 let touchesTests = false;
 let touches = 0;
+/** When set, the stubbed conformance agent's tests carry a `BAD` the checking script finds - until it is sent back with exit 80. */
+let staticBad = false;
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -110,7 +112,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         await tool("write").execute("id", {
           path: "test_conformance_hello.py",
           content:
-            `# conformance tests of functionality ${testedFrid}\n${touchesTests ? `# fix ${(touches += 1)}\n` : ""}import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
+            `# conformance tests of functionality ${testedFrid}\n${touchesTests ? `# fix ${(touches += 1)}\n` : ""}${staticBad && !prompt.includes("Exit 80") ? "# BAD\n" : ""}import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
             "    def test_prints_hello(self):\n" +
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
             "        self.assertEqual(out.strip(), 'hello')\n",
@@ -148,6 +150,7 @@ beforeEach(() => {
   writesNothing = false;
   touchesTests = false;
   touches = 0;
+  staticBad = false;
   reviewSays = () => ({ pass: true, problems: [] });
   arbiterRules = undefined;
 });
@@ -336,6 +339,29 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     const stop = describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result });
     // The error itself, quoted - not the run's last lines - and how often, in how many attempts.
     expect(stop).toMatch(/kept failing with "[^"]*Error[^"]*"[^-]* - 3 times, and 3 more after the explorer was asked again what they lacked, in 6 attempts/);
+  });
+
+  it("sends the tests' static findings straight to the conformance agent, with no judge asked", async () => {
+    // The code is right, so the tests pass; the script's checks find the BAD in them and exit 80 for that alone.
+    writeFileSync(join(codeDir, "app.py"), "print('hello')\n");
+    writeTestScripts(root, {
+      conformance: [
+        "#!/bin/bash",
+        'WORKING_FOLDER="$(mktemp -d)" && trap \'rm -rf "$WORKING_FOLDER"\' EXIT',
+        'cp -R "$1"/. "$WORKING_FOLDER" && cd "$WORKING_FOLDER" || exit 2',
+        'python3 -m unittest discover -s "$2" -t "$2" || exit $?',
+        'grep -rn BAD "$2" --include=*.py && exit 80',
+        "exit 0",
+        "",
+      ].join("\n"),
+    });
+    staticBad = true;
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(true);
+    expect(asked.filter((turn) => turn.role === "judge")).toHaveLength(0);
+    expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+    expect(asked.filter((turn) => turn.prompt.includes("Exit 80: the tests pass, and the script's static checks"))).toHaveLength(1);
+    expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_conformance_hello.py"), "utf8")).not.toContain("BAD");
   });
 
   it("stops once two fixes in a row change no file - an agent that will not, or cannot, act on the verdict", async () => {

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordHistory } from "../../src/grow/lineage.ts";
 import { createCanItFailTool, createMyDiffTool, selfCheckNote } from "../../src/grow/self-check.ts";
-import { findStaticChecks } from "../../src/grow/test-scripts.ts";
 import { unitReviewTask } from "../../src/grow/unit-review.ts";
 import { createAskExplorerTool } from "../../src/grow/conformance-agents.ts";
 
@@ -40,29 +39,9 @@ describe("my_diff", () => {
   });
 });
 
-describe("the static checks", () => {
-  it("are optional: found when the project has one script for them, or names one in its config - and nothing otherwise", () => {
-    expect(findStaticChecks(root)).toBeUndefined();
-    mkdirSync(join(root, "test_scripts"));
-    writeFileSync(join(root, "test_scripts", "run_static_checks_python.sh"), "#!/bin/bash\nruff check \"$1\"\n");
-    expect(findStaticChecks(root)).toBe(join(root, "test_scripts", "run_static_checks_python.sh"));
-    // Two of them: neither is guessed at.
-    writeFileSync(join(root, "test_scripts", "run_static_checks_ts.sh"), "#!/bin/bash\n");
-    expect(findStaticChecks(root)).toBeUndefined();
-    writeFileSync(join(root, "config.yaml"), "static-checks-script: test_scripts/run_static_checks_ts.sh\n");
-    expect(findStaticChecks(root)).toBe(join(root, "test_scripts", "run_static_checks_ts.sh"));
-  });
-
-  it("are never taken from plain_modules, where agents write", () => {
-    writeFileSync(join(root, "config.yaml"), "static-checks-script: plain_modules/app/code/check.sh\n");
-    writeFileSync(join(code, "check.sh"), "exit 0\n");
-    expect(findStaticChecks(root)).toBeUndefined();
-  });
-});
-
 describe("the coding agent told to check its own work", () => {
   it("by the tools it has, and not at all with none", () => {
-    expect(selfCheckNote(["my_diff", "can_it_fail", "run_static_checks"]).join("\n")).toMatch(/run_static_checks as you go.*they count.*can_it_fail.*read my_diff/);
+    expect(selfCheckNote(["my_diff", "can_it_fail"]).join("\n")).toMatch(/can_it_fail.*read my_diff/);
     expect(selfCheckNote(["my_diff"]).join("\n")).not.toContain("can_it_fail");
     expect(selfCheckNote([])).toEqual([]);
   });

@@ -52,7 +52,7 @@ describe("/turri-config's settings", () => {
       const name = Object.entries({
         module: "module", "harness-model": "harnessModel", "coding-model": "codingModel", "judge-model": "judgeModel", "conformance-tests": "conformanceTests",
         "conformance-budget": "conformanceBudget", review: "review", "allow-to-stop-jobs": "allowToStopJobs", "release-after-pulse": "releaseAfterPulse",
-        "unittests-script": "unittestsScript", "conformance-tests-script": "conformanceTestsScript", "prepare-environment-script": "prepareEnvironmentScript", "static-checks-script": "staticChecksScript",
+        "unittests-script": "unittestsScript", "conformance-tests-script": "conformanceTestsScript", "prepare-environment-script": "prepareEnvironmentScript",
         "testing-scripts-run-on": "testingScriptsRunOn", "parallel-jobs": "parallelJobs", "max-specs-per-pulse": "maxSpecsPerPulse",
         "max-lines-per-pulse": "maxLinesPerPulse", "turn-limit": "turnLimit", "compact-at": "compactAt", "rules-off": "rulesOff",
         "agent-env": "agentEnv", toolchains: "toolchains",

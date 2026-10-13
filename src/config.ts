@@ -28,7 +28,6 @@ import { projectDirOf } from "./grow/paths.ts";
  * unittests-script: test_scripts/run_unittests.sh           # the testing scripts - see test-scripts.ts
  * conformance-tests-script: test_scripts/run_conformance_tests.sh
  * prepare-environment-script: test_scripts/prepare_environment.sh  # optional: run before the conformance testing script - see test-scripts.ts
- * static-checks-script: test_scripts/run_static_checks.sh   # optional: type checks, linters, formatting - with the unit tests, and counting - see static-checks.ts
  * testing-scripts-run-on: in-place                         # what the testing scripts run on: in-place (default), or copy - see test-scripts.ts
  * turn-limit: 150                                           # seconds each turn of an agent a render starts has (default: 120; 0 for none)
  * models:                                                   # each agent role's own model, thinking and turn limit - see AGENT_ROLES
@@ -402,8 +401,6 @@ export interface ProjectConfig {
   conformanceTestsScript?: string;
   /** Run on the build before every conformance testing script run, as codeplain does: `<script> <build folder>`. */
   prepareEnvironmentScript?: string;
-  /** Path from the root to the static checks script - optional: run with the unit testing script, both to pass; `--fix` formats the code. */
-  staticChecksScript?: string;
   /**
    * What the testing scripts run on, on this machine: the code in place (the default) - as for an integration whose
    * scripts merge it into a host codebase - or a fresh copy of the code.
@@ -456,7 +453,6 @@ export const CONFIG_KEYS = {
   unittestsScript: "unittests-script",
   conformanceTestsScript: "conformance-tests-script",
   prepareEnvironmentScript: "prepare-environment-script",
-  staticChecksScript: "static-checks-script",
   testingScriptsRunOn: "testing-scripts-run-on",
   parallelJobs: "parallel-jobs",
   rulesOff: "rules-off",
@@ -589,7 +585,6 @@ function readConfigFile(path: string): ProjectConfig {
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),
     conformanceTestsScript: text(raw[CONFIG_KEYS.conformanceTestsScript]),
     prepareEnvironmentScript: text(raw[CONFIG_KEYS.prepareEnvironmentScript]),
-    staticChecksScript: text(raw[CONFIG_KEYS.staticChecksScript]),
     testingScriptsRunOn: whatScriptsRunOn(raw[CONFIG_KEYS.testingScriptsRunOn]),
     agentEnv: agentEnvSetting(raw[CONFIG_KEYS.agentEnv]),
     toolchains: Array.isArray(raw[CONFIG_KEYS.toolchains])

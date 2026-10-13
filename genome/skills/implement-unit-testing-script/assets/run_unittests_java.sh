@@ -43,6 +43,30 @@ if [ $? -ne 0 ]; then
   exit 2
 fi
 
+# Static checks: the code compiled with every javac lint warning an error - the flags pinned here, not in the pom.
+# A formatter runs only when the implementation reqs name one (mvn spotless:check, say). Every check runs, and the
+# tests run whatever they said.
+STATIC_CHECKS_FAILED=80
+echo "Running the static checks in $(pwd)..."
+echo "+ mvn -Dmaven.repo.local=./.m2 -Dmaven.compiler.showWarnings=true -Dmaven.compiler.failOnWarning=true -Dmaven.compiler.compilerArgument=-Xlint:all test-compile"
+mvn -Dmaven.repo.local=./.m2 -Dmaven.compiler.showWarnings=true -Dmaven.compiler.failOnWarning=true \
+  -Dmaven.compiler.compilerArgument=-Xlint:all test-compile
+CHECKS=$?
+[ "$CHECKS" -eq 0 ] && echo "Static checks: passed" || echo "Static checks: FAILED - the findings are above"
+
 # Execute all Java unittests in the subfolder
 echo "Running Java unittests in $(pwd)..."
-mvn test
+echo "+ mvn -Dmaven.repo.local=./.m2 test"
+mvn -Dmaven.repo.local=./.m2 test
+TESTS=$?
+
+# The tests' own exit code when they failed; 80 when only the static checks did; 0 when both pass.
+if [ "$TESTS" -ne 0 ]; then
+  STATUS=$TESTS
+elif [ "$CHECKS" -ne 0 ]; then
+  STATUS=$STATIC_CHECKS_FAILED
+else
+  STATUS=0
+fi
+echo "static checks: exit $CHECKS; unit tests: exit $TESTS; exit $STATUS (working folder $WORKING_FOLDER)"
+exit "$STATUS"

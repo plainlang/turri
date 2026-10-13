@@ -11,7 +11,7 @@ import { missingToolchainError } from "./environment-error.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
 import { NOTES_TURN, notesForSession, withNotes } from "./notes.ts";
-import { createScriptTool, MissingTestScriptError, runConformanceScript, runUnitScript, withTestingScripts, type TestScripts } from "./test-scripts.ts";
+import { createScriptTool, MissingTestScriptError, runConformanceScript, runUnitScript, staticChecksOnly, withTestingScripts, type TestScripts } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { ATTEMPTS } from "./stop-report.ts";
 import type { RequiredSpec } from "./state.ts";
@@ -195,6 +195,13 @@ export async function ensureRegressionPasses(input: {
     }
     command = result.command;
     runs.push({ command, exitCode: result.exitCode, frids: input.frids });
+    // The suite passes and its static checks do not: the findings are in the tests, which no repair may touch - the
+    // conformance tests' own job fixes them.
+    if (staticChecksOnly(result)) {
+      reportStage(`${unitOf(input.moduleName)}: the whole conformance suite passes, and the tests' static checks do not - a repair of the code cannot fix them - stopping`);
+      abandonWork(start, input.moduleName, "the conformance tests' static checks do not pass");
+      return { passed: false, runs, repairs, command };
+    }
     reportActivity(result.exitCode === 0 ? "  ✓ whole suite passing" : `  ✗ whole suite failing (exit ${result.exitCode})`);
     input.onEvent?.({ type: "run", command, exitCode: result.exitCode, frids: input.frids });
 

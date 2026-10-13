@@ -4,7 +4,8 @@ description: >-
   Implement a self-contained conformance-test runner script (Bash, run by the
   harness on the person's machine; an optional PowerShell copy for running it by hand on
   Windows) for an arbitrary programming language. The script stages the build,
-  installs its dependencies in isolation, and runs a module's whole conformance
+  installs its dependencies in isolation, runs the static checks of the conformance
+  tests - formatter, linter, type checker - and runs a module's whole conformance
   suite against it. Use when the user wants to add a conformance-test runner for
   a new language (Node.js, Go, Rust, Flutter, etc.) to a ***plain project, or
   wants to regenerate / adapt one of the existing runners.
@@ -35,7 +36,7 @@ bash run_conformance_tests_<lang>.sh <build_folder> <conformance_tests_folder>
 
 Both arguments are absolute paths: `<build_folder>` is the module's generated code (`plain_modules/<module>/code`), and `<conformance_tests_folder>` is the folder holding the whole suite. The harness runs the script on the person's machine - macOS, Linux or WSL, with its toolchains, in the person's own environment - and its exit code alone decides whether the conformance tests pass.
 
-Every conformance script is self-contained: toolchain check, argument validation, stage the build into `<temp>/<lang>_<basename of $1>`, install dependencies there in isolation, run the suite in `$2` against it, clean up on exit. Nothing is prepared ahead of time by another script - unless the project already has a `prepare_environment*.sh` (codeplain's prepare script, or one `prepare-environment-script:` names): turri runs it on the same build before every run of the conformance script, so keep it, and let the conformance script rely on what it sets up rather than doing it again. Never write a prepare script yourself.
+Every conformance script is self-contained: toolchain check, argument validation, stage the build into `<temp>/<lang>_<basename of $1>`, install dependencies there in isolation, check the tests in `$2` statically, run the suite in `$2` against it, clean up on exit. Nothing is prepared ahead of time by another script - unless the project already has a `prepare_environment*.sh` (codeplain's prepare script, or one `prepare-environment-script:` names): turri runs it on the same build before every run of the conformance script, so keep it, and let the conformance script rely on what it sets up rather than doing it again. Never write a prepare script yourself.
 
 ## How conformance scripts differ from unit-test scripts
 
@@ -66,7 +67,10 @@ A PowerShell (`.ps1`) copy is optional and only for people who run the script by
 5. **Copy the build.** Recursively copy everything from `<build_folder>` (`$1`) into the working folder. **Do not** copy the conformance tests — they stay where they are. After this step both `$1` (build folder) and `$2` (conformance tests folder) are treated as **read-only** for the rest of the script.
 6. **Enter the working directory.** `cd` / `Set-Location` into `<temp>/<lang>_<basename>`. If that fails, exit with code `69`. All remaining steps run from inside the working folder; they must never write back to `$1` or `$2`.
 7. **Install dependencies into an isolated environment inside `<temp>/<lang>_<basename>`.** Set up a per-working-folder dependency location (a Python venv at `./.venv`, a local `./node_modules`, a project-scoped Maven repo at `./.m2`, etc.) and install/resolve all dependencies into it. **Never** install into the source build folder (`$1`), the conformance tests folder (`$2`), the user's global cache (`~/.m2`, system-wide `pip`, `~/.cargo`, `~/.npm`, ...), or anywhere outside `<temp>/<lang>_<basename>`. If the install command fails, propagate its exit code immediately and **do not** proceed to step 8. See [Dependency isolation](#dependency-isolation).
+7b. **Static checks of the conformance tests.** Once the build and the test libraries are installed - so the tests resolve against them as they do when they run - check **the conformance tests in `$CONFORMANCE_TESTS_FOLDER`, and only them**: the formatter in check mode, the linter, and the type checker where the language has one apart from its compiler. See [Static checks of the tests](#static-checks-of-the-tests). Run every check, even after one fails, print each one's whole output, remember whether any failed - and go on to step 8 whatever they said, so one run reports both.
 8. **Run the conformance tests.** Invoke the language's standard test command, **pointed at `$CONFORMANCE_TESTS_FOLDER`** (the absolute path resolved in step 3) **and at nothing else**, so it runs the whole suite in one go - and only it. The build's own tests (its unit tests, and anything else in it) are never collected: no discovery from the working folder, and no test configuration in the build (a `pytest.ini` / `pyproject.toml` `testpaths`, a Jest `roots`) allowed to widen the run beyond `$CONFORMANCE_TESTS_FOLDER`. The script's final exit code is whatever the test command returns — except for the "no tests discovered" case below.
+
+   Then exit: the test command's own non-zero code when the suite failed; else `80` when only the static checks of step 7b failed; else `0`.
 
    The test command is **read-only** with respect to `$CONFORMANCE_TESTS_FOLDER`. It loads test files from there, but any artifacts the runner produces (caches, JUnit XML, coverage reports, compiled test classes, etc.) must land inside `<temp>/<lang>_<basename>`, not next to the test files. If your chosen runner defaults to writing output beside the tests, pass an explicit output-directory flag pointing inside the working folder (e.g. `pytest --basetemp=./.pytest_tmp`, `jest --cacheDirectory=./.jest_cache`, Maven `target/` under the working folder via `mvn -f "$CONFORMANCE_TESTS_FOLDER/pom.xml" -Dproject.build.directory="$(pwd)/target" test`).
 
@@ -101,6 +105,28 @@ if [ -n "$MISPLACED" ]; then
 fi
 ```
 
+### Static checks of the tests
+
+The conformance tests are held to their language's formatter, linter and type checker, as the code is by the unit testing script. Three things make it work here:
+
+- **Check them where they run.** The tests import the test libraries - and, for a library, the build itself - so a check of `$2` on its own cannot resolve them. Run the checks in step 7b, after the install, against the staged environment: the venv the build was installed into, the tests' own Maven, Go or Cargo project with the build in reach as the suite has it. What passes in the merged world is what counts; the tests are never checked alone.
+- **Report the tests' findings only.** The code is checked by the unit testing script, and the conformance agent may not change it. Point each tool at `$CONFORMANCE_TESTS_FOLDER` and keep the code's findings out (`follow_imports = silent` for mypy, a tsconfig whose `include` is the tests alone).
+- **Pin the profile and the flags in the script.** The tests' own configuration files - a `pyproject.toml`, `tsconfig.json`, `Cargo.toml`, `pom.xml` in `$2` - are written by the conformance agent, which could relax a check to pass it. Pass every setting that decides pass or fail on the command line, or in a configuration file the script writes into the working folder, and do not read one from `$2` or `$1`.
+
+| Language | Formatter, in check mode | Linter | Type checker - a tests profile |
+|---|---|---|---|
+| Python | `ruff format --check --no-cache --isolated --output-format concise "$CONFORMANCE_TESTS_FOLDER"` | `ruff check --no-cache --isolated --output-format concise --no-fix "$CONFORMANCE_TESTS_FOLDER"` | `mypy --config-file <a file the script writes>` with `disallow_untyped_defs`, `follow_imports = silent` and `cache_dir` in the working folder - typed, not `--strict` |
+| TypeScript | `prettier --check` on the tests' files | `eslint --max-warnings 0` on the tests | `tsc --noEmit -p <a tsconfig the script writes>`: `strict`, `include` the tests alone, the build's types in reach |
+| JavaScript | `prettier --check` on the tests' files | `eslint --max-warnings 0` on the tests | none - unless the test reqs name one |
+| Go | `gofmt -l "$CONFORMANCE_TESTS_FOLDER"` | `go vet ./...` in the tests' own module | the compiler |
+| Rust | `cargo fmt --check --manifest-path "$CONFORMANCE_TESTS_FOLDER/Cargo.toml"` | `cargo clippy --all-targets --manifest-path "$CONFORMANCE_TESTS_FOLDER/Cargo.toml" -- -D warnings` | the compiler |
+| Java | only one the test reqs name (`google-java-format --dry-run --set-exit-if-changed`) | the tests compiled with `-Xlint:all -Werror` (`-Dmaven.compiler.failOnWarning=true`) | the compiler |
+| Dart / Flutter | `dart format --output=none --set-exit-if-changed "$CONFORMANCE_TESTS_FOLDER"` | `dart analyze --fatal-infos "$CONFORMANCE_TESTS_FOLDER"` (`flutter analyze` for Flutter) | the analyzer, in the same command |
+
+The tools come from where the tests' dependencies come from - the build's dev dependencies installed in step 7, or what the script installs beside them for the tests (`uv pip install ruff mypy`, as it installs `pytest`). A checker the machine lacks, which nothing installs, is `69`. Every build artifact and cache the checks make goes in the working folder, never in `$2` - a Cargo or Maven project in `$2` is built with its target directory in the working folder.
+
+turri reads exit `80` as the tests' own: the conformance agent is sent the findings, and no judge is asked whether the code or the tests are wrong. So `80` is only ever "the suite passed and only the checks of the tests failed".
+
 ### "No tests discovered" detection
 
 The Python reference script grep's the test runner output for `"Ran 0 tests in"` and exits `1` if no tests ran. Replicate the equivalent check for the target language wherever that language's test runner silently passes when given an empty test set:
@@ -120,6 +146,7 @@ Shared across both shell flavors:
 - **Exit codes:**
   - `69` — unrecoverable invocation error: missing argument, missing toolchain, can't enter working folder, can't create venv. Matches the reference scripts' `UNRECOVERABLE_ERROR_EXIT_CODE`.
   - `1` — "no tests discovered" guard tripped (see above).
+  - `80` — the suite passed and only the static checks of the tests failed (step 7b).
   - Any other non-zero code — propagated from the underlying test command.
 - **Working folder naming:** `<temp>/<lang>_<basename>` — the system temp directory (`/tmp` in Bash, `[System.IO.Path]::GetTempPath()` in PowerShell) plus a short identifier for the language (`java`, `python`, `node`, `go`, `rust`, ...) and the **basename** of the *first* argument (the build folder — `$(basename "$1")` / `Split-Path $BuildFolder -Leaf`), never the conformance tests folder and never the raw argument (it may be absolute; concatenating it produces broken doubled paths). All dependency installs, build outputs, caches, test runner artifacts, and the test invocation itself live inside this folder. Nothing the script does should touch `$1` after step 5, or `$2` at any point.
 - **Cleanup ownership:** the script owns its working folder and removes it on exit, success and failure alike (`trap 'rm -rf "$WORKING_FOLDER"' EXIT` in Bash; `Remove-Item -Recurse -Force` in the PowerShell `finally` block, after `Pop-Location`).
@@ -181,7 +208,7 @@ The harness never runs `.ps1` scripts. These notes apply only to an optional cop
 1. Confirm the target **language** and **dependency manifest** (`pom.xml`, `requirements.txt` / `pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, ...). Ask if either is unclear.
 2. Read [assets/run_conformance_tests_java.sh](assets/run_conformance_tests_java.sh) and [assets/run_conformance_tests_python.sh](assets/run_conformance_tests_python.sh) to refresh the exact structure.
 3. Translate each step into the equivalent Bash commands for the target language. The toolchain check, dependency install, and test invocation are the language-specific parts; the rest is mechanical.
-4. Pick the right row from the [Dependency isolation](#dependency-isolation) table — use the same flag/env var in steps 7 and 8.
+4. Pick the right row from the [Dependency isolation](#dependency-isolation) table — use the same flag/env var in steps 7, 7b and 8 — and the checks from [Static checks of the tests](#static-checks-of-the-tests).
 5. Add the language-appropriate "no tests discovered" guard from [No tests discovered detection](#no-tests-discovered-detection), and the guard against conformance tests in the build folder from [Tests in the build folder](#tests-in-the-build-folder).
 6. Save the new script as `test_scripts/run_conformance_tests_<lang>.sh` and `chmod +x` it. Write a `.ps1` copy only if the user wants to run it by hand on Windows.
 7. **Make sure turri finds the script.** Do not link it from the specs - turri finds the conformance testing script in the project root (the folder that holds `plain_modules/`) and puts it, whole, into the prompts of the agents that write and review the conformance tests itself, whenever conformance tests are written for a build; a link to it from a spec is ignored. It looks, in order, at `config.turri.yaml` in the root (`conformance-tests-script: <path relative to the root>`) - with the chosen stack's `config.turri.<stack>.yaml` over it, then for the one `run_conformance_tests*.sh` in the root, then for the one in `test_scripts/`. Saving the script in `test_scripts/` (or the root) is enough when it is the only one there. If the project keeps it elsewhere, name it in `config.turri.yaml` as `conformance-tests-script:` - and when the project has only a `config.yaml`, copy it to `config.turri.yaml` first (and each `config.<name>.yaml` to `config.turri.<name>.yaml`) and edit the copy; `config.yaml` may be another tool's, and is never written. If the project has modules on different stacks - e.g. a Python backend and a React frontend side by side, sharing only an imported module - each part is on a stack of its own, and each stack names its own script in its own file beside `config.turri.yaml`: `conformance-tests-script:` in `config.turri.backend.yaml` for the stack `backend`, in `config.turri.frontend.yaml` for the stack `frontend`. A stack is chosen, never worked out: tell the user to choose it with `/stack <stack>` (`--stack <stack>` on the command line) before building that part. turri never guesses between two. The script is required: with conformance testing on, a build without one stops before it starts. The `***test reqs***` still describe the conformance framework and command in words; do not paraphrase the script into them.
@@ -199,7 +226,10 @@ The harness never runs `.ps1` scripts. These notes apply only to an optional cop
 - **Don't skip the toolchain check**, even when "everyone has it installed" — exit code `69` is what the calling system relies on to detect a missing runtime.
 - **Don't reuse the source folder in place.** Always copy into `<temp>/<lang>_<basename>` first; the renderer relies on this isolation.
 - **Don't skip cleanup.** Register the `trap` / `finally` removal of the working folder right after creating it, so it is removed on success and failure alike.
-- **Don't change the exit-code contract.** Other parts of the system branch on `69` and `1` specifically — and these codes must be identical between the Bash script and any PowerShell copy.
+- **Don't change the exit-code contract.** Other parts of the system branch on `69`, `1` and `80` specifically — and these codes must be identical between the Bash script and any PowerShell copy.
+- **Don't check the tests on their own, or the code with them.** The checks run after the install, against what the tests run with, and report the tests' findings alone.
+- **Don't let the tests' own configuration decide the checks.** The flags and the profile are the script's; a config file in `$2` is the conformance agent's to write.
+- **Don't skip the suite because a check failed, and don't exit `80` when the suite failed.** Both run every time; `80` means the suite passed.
 - **Don't write a cross-shell hybrid** (e.g. a `.sh` that detects PowerShell, or vice versa). Ship one script per shell, named with the appropriate extension.
 - **Don't ship only a `.ps1`.** The harness runs `.sh` scripts only; a project with just a PowerShell runner has no conformance testing script as far as turri is concerned.
 - **Don't install dependencies into the user's global location** (`~/.m2`, system-wide `pip`, `~/.cargo`, etc.). Always isolate inside `$WORKING_FOLDER` so concurrent runs and other projects can't interfere.

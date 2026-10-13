@@ -66,9 +66,8 @@ import:
 - It holds no storage: a module with a database says which, and how it is reached, on top.
 - It holds no testing scripts. The module still needs its unit testing script, and its conformance
   testing script when it has conformance tests - written with the `implement-unit-testing-script`
-  and `implement-conformance-testing-script` skills for the stack's language and test framework. Its
-  static checks script - the formatter, linter and type checker its language template names, run with the
-  unit tests and counting as they do - is copied from the `implement-static-checks-script` skill's assets
-  for Python, TypeScript, Go and Rust.
+  and `implement-conformance-testing-script` skills for the stack's language and test framework. Each
+  runs the static checks of what it tests - the formatter, linter and type checker its language template
+  names, on the code or on the conformance tests - and they count as the tests do.
 - It names its stack's toolchain - Python 3.12, Node.js 24, Java 21, Go 1.25, Rust - which the agents use from the
   machine turri runs on; they install none, so `turri doctor` says when the machine lacks it.

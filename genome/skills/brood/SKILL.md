@@ -156,18 +156,14 @@ that stack's `config.turri.<stack>.yaml` beside `config.turri.yaml` (`unittests-
 project's and holds what the stacks share. A stack is chosen, never worked out: tell the user to
 choose it with `/stack <stack>` (`--stack <stack>` on the command line) before building this module.
 
-Beside it, the static checks script - the formatter, linter and type checker the stack names, which
-turri runs with the unit tests and which count as they do. Keep one turri already finds
-(`static-checks-script:`, or the one `run_static_checks*.sh` in the root or in `test_scripts/`);
-otherwise follow `implement-static-checks-script`: for Python, TypeScript, Go or Rust it copies the
-language's asset to `test_scripts/run_static_checks_<language>.sh`, and for another stack it writes one
-only when the reqs name such tools. Named, like the unit testing script, in the stack's own config file
-in a project of several stacks.
+The unit testing script runs the static checks too - the formatter, linter and type checker the stack
+names, which count as the unit tests do; `implement-unit-testing-script` says which for each language.
+There is no separate static checks script.
 
 Run `turri validate` on the module before finishing, so the product phase does not start
 on top of a file that does not parse.
 
-Finish by summarizing the stack, the architecture, the unit testing script and the static checks - marking each
+Finish by summarizing the stack, the architecture, the unit testing script and the static checks it runs - marking each
 choice you made without asking - and getting explicit confirmation, with `confirms_phase: true`. The user
 reading the stack back is the check.
 

@@ -97,7 +97,6 @@ export function settings(rules: string[] = []): Setting[] {
     { key: "unittests-script", about: "the unit testing script, by path from the project root", kind: "path", unset: "the one run_unittests*.sh found", effect: "next-test-run" },
     { key: "conformance-tests-script", about: "the conformance testing script, by path from the project root", kind: "path", unset: "the one run_conformance_tests*.sh found", effect: "next-test-run" },
     { key: "prepare-environment-script", about: "run on the build before every conformance testing script run, by path from the project root - optional", kind: "path", unset: "the one prepare_environment*.sh found, else none", effect: "next-test-run" },
-    { key: "static-checks-script", about: "the static checks script, by path from the project root - optional: it formats the code and must pass with the unit tests", kind: "path", unset: "the one run_static_checks*.sh found", effect: "next-test-run" },
     { key: "testing-scripts-run-on", about: "what the testing scripts run on: the code itself, or a fresh copy", kind: "choice", options: ["in-place", "copy"], unset: "in-place", effect: "next-test-run" },
     { key: "parallel-jobs", about: "how many pulses run at once, on modules that share nothing", kind: "number", options: ["1", "2", "3", "4", "6"], min: 1, unset: "half this machine's cores, one to four", effect: "now", projectOnly: true },
     { key: "max-specs-per-pulse", about: "the most functional specs the planner groups into one pulse", kind: "number", options: ["1", "2", "3", "4", "5", "6"], min: 1, unset: "3", effect: "next-plan" },
@@ -368,7 +367,7 @@ export function pathOptions(dir: string, key: string): string[] {
   };
   if (key === "module") return list("", (name) => name.endsWith(".plain")).sort();
   const prefix =
-    key === "unittests-script" ? "run_unittests" : key === "conformance-tests-script" ? "run_conformance_tests" : key === "prepare-environment-script" ? "prepare_environment" : "run_static_checks";
+    key === "unittests-script" ? "run_unittests" : key === "conformance-tests-script" ? "run_conformance_tests" : "prepare_environment";
   const script = (name: string) => name.startsWith(prefix) && /\.(sh|ps1)$/.test(name);
   return [...list("", script), ...list("test_scripts", script)].sort();
 }

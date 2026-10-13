@@ -19,8 +19,7 @@ Every path below is in the project. What the person writes:
 | | |
 | --- | --- |
 | `config.turri.yaml`, `config.turri.<stack>.yaml` | the project config, and each stack's, laid over it while the stack is chosen - see [the project config](config.md) |
-| `test_scripts/run_unittests_<lang>.sh`, `test_scripts/run_conformance_tests_<lang>.sh` | the testing scripts, the only judges of pass or fail - where `config.turri.yaml` names them, else in the project folder, else in `test_scripts/` - see [below](#the-testing-scripts) |
-| `test_scripts/run_static_checks_<lang>.sh` | optional: the formatter, linter and type checker, run with the unit testing script and counting as it does - see [the static checks](#the-static-checks) |
+| `test_scripts/run_unittests_<lang>.sh`, `test_scripts/run_conformance_tests_<lang>.sh` | the testing scripts, the only judges of pass or fail - their static checks included, the formatter, linter and type checker - where `config.turri.yaml` names them, else in the project folder, else in `test_scripts/` - see [below](#the-testing-scripts) |
 | `AGENTS.md` | optional: a section whose heading names the queue steers how the work is cut - see [how the work is cut into jobs](#how-the-work-is-cut-into-jobs) |
 
 What a module is - each module's folder, its own git history:
@@ -169,9 +168,8 @@ runs the unit testing script itself**, and only that run counts (see
   at once, without waiting for three rounds. A passing run clears it.
 - **Tests went missing.** The test files present before the turn are inventoried and compared
   afterwards; a deleted file or a file that lost cases is challenged by name.
-- **The static checks fail** - when the project has a static checks script, it runs beside the unit testing script on
-  every round, and the work passes only when both do (see [the static checks](#the-static-checks)). One send-back
-  carries both: the unit tests' failure with the static findings under it, or the findings alone once the tests pass.
+- **The static checks fail** - when the unit testing script runs them, it exits 80 for the tests passing and its
+  checks not, and the agent is sent back saying so, with the findings (see [the static checks](#the-static-checks)).
   They share the same 20 rounds - a static check is part of what "the unit tests pass" means here, not a gate after it.
 - **It wrote nothing.** A turn can end with the agent having only thought the problem through, and
   the code folder as it found it (notes aside). That leaves nothing to test or review. So before the
@@ -197,43 +195,35 @@ starts, so breaking an earlier functionality's test is caught too.
 
 ### The static checks
 
-A project's static checks script - `static-checks-script:` in the [config](config.md), else the one
-`run_static_checks*.sh` at the root or in `test_scripts/` - makes the coding agent's unit tests more than the unit
-testing script (`src/grow/static-checks.ts`). Without one, nothing here happens, and the work is judged as above.
+The static checks - the formatter in check mode, the linter, the type checker - are the testing scripts' own. There is
+no script for them apart: each testing script runs them on what it tests, in the environment it has just set up, and
+they count as its tests do. The unit testing script checks the code; the conformance testing script checks the tests
+alone, against the build it has staged and installed, so tests that reach the code - a library's, through its package -
+are checked where they resolve, never on their own. A compiled language's type check is its compiler, which the tests
+already run; its formatter and linter are the script's to add. turri does not care which tools: the scripts name them,
+and the `implement-unit-testing-script` and `implement-conformance-testing-script` skills say which each language takes.
 
-- **The formatting is the harness's.** Before every run of the unit testing script - the harness's and the agent's
-  `run_unit_tests` - the harness runs the script's fix mode, `run_static_checks_<lang>.sh <build> --fix`: the formatter
-  and the linter's safe fixes (`ruff format` and `ruff check --fix` for Python). It runs on a fresh copy of the code,
-  whatever `testing-scripts-run-on` says, and what it changed in a file the code already has is written back into the
-  code folder - no file added or taken out, never the notes or the code record. So it costs no agent turn, cannot fail
-  the work, and every commit comes out formatted: a pulse's commit in `.plaingit`, the reviewer's diffs and steering
-  see what it changed, not another pulse's reformatting. A fix mode that fails, or a script that has none, is skipped
-  without a word; with the code unchanged since it last ran, it is not run again. The agent is told it happens, and to
-  read a file again before it edits it. The first pulse after a project gains the script formats the whole codebase
-  once.
-- **The checks count.** Then the unit testing script and the static checks - `run_static_checks_<lang>.sh <build>`: the
-  type checker, the linter and the formatter in check mode - run side by side, and the work passes only when both do,
-  within the unit tests' 20 rounds. A type check covers every path, not only the ones a test exercises; lint catches
-  what agents leave behind - unused imports, dead code, shadowed names. Still failing after the last round, the work
-  is rolled back, as for failing unit tests, and its report says it was the static checks. The same failure three
-  times running brings the debugger, as for the unit tests, given the static checks script in place of the unit one.
-- **Only the findings.** The agent is shown the lines of the checks' output that name a file and a line - errors first,
-  each once, at most 30, with how many there are and the `read_output` id of the whole output - and nothing at all
-  of checks that pass. It is told to fix each at its cause, never to silence one (`# type: ignore`, `eslint-disable`,
-  a rule turned off in the checker's configuration), and that a tool missing from the dependency manifest goes in it.
+- **Exit 80 says which failed.** A script runs its checks and its tests both, and reports both. When the tests fail it
+  exits as they did; when they pass and only the checks do not, it exits 80 (`STATIC_CHECKS_FAILED` in
+  `test-scripts.ts`). The agent sent back with an exit 80 is told the tests pass and the checks do not, to fix each
+  finding at its cause, never to silence one (`# type: ignore`, `eslint-disable`, a rule turned off in the checker's
+  configuration), and that a formatting finding goes by running the formatter.
+- **In a code pulse**, an exit 80 is one of the unit tests' 20 rounds. Still failing after the last, the work is rolled
+  back, as for failing unit tests, and its report says it was the static checks.
+- **In a conformance run**, an exit 80 goes straight to the conformance agent: the findings are in the tests, so no judge
+  is asked whether the code or the tests are wrong, and no code fixer is sent. Two fixes in a row that change nothing
+  stop the run, as for any other failure. The [regression run](#conformance-tests-in-the-work-loop) stops at an exit
+  80 rather than repair the code: its repair agent may not touch the tests.
+- **The formatting is the agents'.** The harness formats nothing: the scripts check, and leave their inputs as they
+  found them. Every agent that writes code or tests is told to run, in its shell, the formatter its script checks with,
+  on the files it changes, before the final run.
 - **A toolchain missing** where the checks run - exit 69, 127, `command not found` - stops the pulse as it does for the
-  unit testing script: the person installs it, the agents install nothing.
-
-The `implement-static-checks-script` skill has the scripts ready for the standard library's languages - ruff, mypy for
-Python; Prettier, ESLint, `tsc` for TypeScript; gofmt, `go vet` for Go; rustfmt, clippy for Rust - and writes one for a
-stack of the person's own, for the tools its implementation reqs name; `brood` and `spawn` put it beside the unit
-testing script. The scripts run on this machine, unfenced, as the testing scripts do. The conformance track does not
-run them.
+  tests: the person installs it, the agents install nothing.
 
 ### Checking its own work
 
 The coding agent has tools to check its work before the harness and the reviewer do. None of them decides
-anything - the unit testing script and the static checks, run by the harness, still do - and its task says when to
+anything - the unit testing script, run by the harness, still does - and its task says when to
 use each:
 
 - **`copy_resource`**: a linked resource copied whole, byte for byte, into the agent's own folder - at its code-copy
@@ -261,12 +251,6 @@ use each:
   read through `service_logs`. Three at once; each runs in a process group of its own, outliving the command that
   started it, and is stopped with everything it started on `stop_service`, when the agent's session ends, and in any
   case when its pulse ends. The code fixer of a conformance run has them too; the explorers, which only read, do not.
-- **`run_static_checks`**: the project's type checker and linter alone, when it has a script for them -
-  `static-checks-script:` in the [config](config.md), or the one `run_static_checks*.sh` beside the testing
-  scripts - faster than `run_unit_tests`, for while it works, and showing only what they find. Unlike the tools
-  above, what it checks counts: the harness runs the same checks with the unit tests (see
-  [the static checks](#the-static-checks)), and `run_unit_tests` runs both. Optional: with none, the agent has no such
-  tool.
 
 The reviewer has `can_it_fail` too, three runs a review session: a test it doubts can fail, it checks, and
 raises as bad with the bug it missed.
@@ -484,9 +468,8 @@ project's own testing scripts, run by the harness the same way every time:
 
 | Script | Run as | Decides |
 | --- | --- | --- |
-| `test_scripts/run_unittests_<lang>.sh` | `run_unittests_<lang>.sh <build>` | whether the unit tests pass |
-| `test_scripts/run_conformance_tests_<lang>.sh` | `run_conformance_tests_<lang>.sh <build> <tests>` | whether the conformance tests pass - the whole suite in `plain_modules/<module>/tests`, every functionality's and those carried up from below, at once |
-| `test_scripts/run_static_checks_<lang>.sh` - optional | `run_static_checks_<lang>.sh <build>` beside every run of the unit testing script, after `run_static_checks_<lang>.sh <build> --fix` | with the unit testing script, whether the coding agent's unit tests pass; its fix mode formats the code - see [the static checks](#the-static-checks) |
+| `test_scripts/run_unittests_<lang>.sh` | `run_unittests_<lang>.sh <build>` | whether the unit tests pass, and the code's static checks with them - exit 80 when only the checks fail (see [the static checks](#the-static-checks)) |
+| `test_scripts/run_conformance_tests_<lang>.sh` | `run_conformance_tests_<lang>.sh <build> <tests>` | whether the conformance tests pass - the whole suite in `plain_modules/<module>/tests`, every functionality's and those carried up from below, at once - and the tests' static checks with them, exit 80 when only the checks fail |
 | `test_scripts/prepare_environment_<lang>.sh` - optional | `prepare_environment_<lang>.sh <build>`, before every run of the conformance testing script | nothing on its own: it readies the environment the conformance tests run in - a `mvn install` of the build, say - and when it fails, the conformance tests are not run and the run fails as the preparation's |
 
 The `implement-unit-testing-script` and `implement-conformance-testing-script` skills write them.
@@ -951,9 +934,10 @@ attempt's line says what came of it - and each judge reads them first, so it doe
 failure the way that already failed. A run that does not pass is undone whole, its notes with it.
 
 Then the suite runs again. A run stopped by its time limit goes back to the conformance agent without a judge: the
-tests' environment is its. A run whose script cannot find its toolchain stops the pulse instead - see
-[when the environment lacks something](#when-the-environment-lacks-something). Unit tests failing after
-the suite passes go to the coding agent. It goes round up to 20 times; still failing, the work is undone.
+tests' environment is its. So does a run that exits 80 - the tests pass and only their static checks do not (see
+[the static checks](#the-static-checks)): the findings are the tests'. A run whose script cannot find its
+toolchain stops the pulse instead - see [when the environment lacks something](#when-the-environment-lacks-something).
+Unit tests failing after the suite passes go to the coding agent. It goes round up to 20 times; still failing, the work is undone.
 
 Before each run the harness checks for itself: both kinds of test are there and labelled, none of
 them is in the code folder, and no test went missing without being justified.

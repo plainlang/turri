@@ -44,7 +44,7 @@ describe("turri init-config", () => {
     });
     // Commented out, the optional ones have no value.
     const config0 = readProjectConfig(dir);
-    for (const key of ["module", "judgeModel", "models", "conformanceBudget", "unittestsScript", "staticChecksScript", "conformanceTestsScript", "prepareEnvironmentScript"] as const) {
+    for (const key of ["module", "judgeModel", "models", "conformanceBudget", "unittestsScript", "conformanceTestsScript", "prepareEnvironmentScript"] as const) {
       expect(config0[key], key).toBeUndefined();
     }
     // agent-env with nothing in it is no agent-env.

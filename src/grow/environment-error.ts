@@ -205,8 +205,8 @@ export function environmentErrorTool(record: (report: EnvironmentReport) => void
  * A testing script that cannot find its toolchain: the machine lacks it, and no change to the code or the tests would
  * pass the script - so it is the environment's, found by the harness. `missing` is what the run's output named.
  */
-export function toolchainError(missing: { command?: string }, details: { moduleName: string; script: string; kind: "unit" | "conformance" | "static checks" }): EnvironmentError {
-  const what = details.kind === "static checks" ? "static checks script" : `${details.kind} testing script`;
+export function toolchainError(missing: { command?: string }, details: { moduleName: string; script: string; kind: "unit" | "conformance" }): EnvironmentError {
+  const what = `${details.kind} testing script`;
   const needs = missing.command !== undefined ? `\`${missing.command}\`` : `a toolchain the ${what} needs`;
   return new EnvironmentError({
     moduleName: details.moduleName,

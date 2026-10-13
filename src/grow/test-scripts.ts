@@ -189,28 +189,17 @@ export function findTestScripts(root: string, plainFile?: string, buildDir?: str
 }
 
 /**
- * The project's static checks - a type checker, a linter, the formatter in check mode - when it has them:
- * `static-checks-script:` in the config, else the one `run_static_checks*.sh` at the root or in `test_scripts/`.
- * Optional: with one, it is part of what "the unit tests pass" means for the coding agent's work - run by the harness
- * with the unit testing script, as `run_static_checks_<lang>.sh <build>`, and both must pass. Run as
- * `run_static_checks_<lang>.sh <build> --fix`, it applies the formatter and the safe autofixes (applyStaticFixes).
+ * The exit code a testing script ends with when the tests passed and only its static checks - the formatter in check
+ * mode, the linter, the type checker - did not. Every other failure is the script's own exit code. The harness tells the
+ * two apart: a unit run says it was the static checks, and a conformance run sends its tests' findings straight to the
+ * conformance agent, with no judge asked whether the code or the tests are wrong.
  */
-export function findStaticChecks(root: string, plainFile?: string, buildDir?: string): string | undefined {
-  const named = readProjectConfig(root, stackOf(root)).staticChecksScript;
-  if (named !== undefined) {
-    const path = resolve(root, named.trim());
-    // Agents write in plain_modules: a script there could be changed by the work it checks.
-    return !path.split(sep).includes("plain_modules") && isFile(path) ? path : undefined;
-  }
-  for (const dir of [root, join(root, SCRIPTS_DIR)]) {
-    if (!existsSync(dir)) continue;
-    const candidates = readdirSync(dir).filter((name) => STATIC_CHECKS.test(name) && isFile(join(dir, name)));
-    if (candidates.length === 1) return join(dir, candidates[0]!);
-  }
-  return undefined;
-}
+export const STATIC_CHECKS_FAILED = 80;
 
-const STATIC_CHECKS = /^run_static_?checks[^/]*\.sh$/i;
+/** Whether a failed run of a testing script failed on its static checks alone: the tests passed. */
+export function staticChecksOnly(run: { exitCode: number; timedOut?: boolean }): boolean {
+  return run.exitCode === STATIC_CHECKS_FAILED && run.timedOut !== true;
+}
 
 const SKILL: Record<ScriptKind, { skill: string; file: string; what: string }> = {
   unit: { skill: "implement-unit-testing-script", file: "run_unittests", what: "unit testing script" },
@@ -260,21 +249,18 @@ export function requireTestScripts(
 /**
  * The scripts that decide an agent's work, in its prompt - only those that will be run on it: a
  * conformance testing script an agent's work is never judged by is left out. The whole script,
- * read from the project as it is now. `staticChecks`: the static checks script, run with the unit testing script -
- * the coding agent's alone.
+ * read from the project as it is now.
  */
-export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: ScriptKind[], root: string, staticChecks?: string): string {
+export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: ScriptKind[], root: string): string {
   const used = kinds.filter((kind) => scripts[kind] !== undefined);
   if (used.length === 0) return prompt;
   const named = (path: string) => (path.startsWith(`${root}${sep}`) ? path.slice(root.length + 1) : basename(path));
   const script = (kind: string, path: string) => `<script kind="${kind}" path="${named(path)}">\n${readFileSync(path, "utf8").trimEnd()}\n</script>`;
   // The prepare script runs before the conformance testing script: shown with it, before it.
   const prepare = used.includes("conformance") ? scripts.prepare : undefined;
-  const checks = used.includes("unit") ? staticChecks : undefined;
   const rendered = used.flatMap((kind) => [
     ...(kind === "conformance" && prepare !== undefined ? [script("prepare environment", prepare)] : []),
     script(kind === "unit" ? "unit tests" : "conformance tests", scripts[kind]!),
-    ...(kind === "unit" && checks !== undefined ? [script("static checks", checks)] : []),
   ]);
 
   const tools = used.map((kind) => (kind === "unit" ? "run_unit_tests" : "run_conformance_tests")).join(" and ");
@@ -296,14 +282,10 @@ export function withTestingScripts(prompt: string, scripts: TestScripts, kinds: 
         )
         .join(", ") +
       ". Make the tests pass the way the script runs them.",
-    ...(checks !== undefined
-      ? [
-          "With the unit testing script, it runs the static checks script, as `<script> <build folder>`: the type checker, the " +
-            "linter and the formatter in check mode. They count as the unit tests do - your work is done only when both pass - " +
-            "and run_unit_tests runs both. Before every run the harness itself applies the formatter and the safe autofixes to " +
-            "your code (`<script> <build folder> --fix`), so formatting is never yours to do: read a file again before you edit it.",
-        ]
-      : []),
+    `A testing script may run static checks before its tests - the formatter in check mode, the linter, the type checker, ` +
+      `on what it tests: the code for the unit testing script, the tests for the conformance one. They count as the tests ` +
+      `do, and exit ${STATIC_CHECKS_FAILED} means the tests passed and only the checks did not. Formatting is yours: run the ` +
+      "formatter the script checks with on the files you change, in your shell, before the final run.",
     `${used.length === 1 ? "It is" : "They are"} shown so you know what runs your tests - not to be run by you. ${used.length === 1 ? "It is" : "They are"} not in your ` +
       `workspace, and the path above is the project's, not one you can reach. Never copy, recreate or adapt ${used.length === 1 ? "it" : "them"} in the ` +
       `codebase, and never write a test runner of your own: call ${tools}, which run ${used.length === 1 ? "it" : "them"} exactly as the harness does - ` +
@@ -505,7 +487,7 @@ export function lastPassingMs(buildDir: string, script: string): number | undefi
 }
 
 /**
- * A script that takes the code folder - the unit testing script, the static checks - run where the testing scripts
+ * A script that takes the code folder - the unit testing script - run where the testing scripts
  * run. `change`: what to do to the fresh copy before it runs - only where there is a copy; never in place.
  */
 export async function runOnCode(
@@ -531,36 +513,6 @@ export async function runOnCode(
     const run = await runOnCopy(staging.root, script, [staging.build], buildDir, limitMs);
     if (change === undefined && run.exitCode === 0) lastPassing.set(`${resolve(buildDir)}\n${script}`, Date.now() - started);
     return run;
-  } finally {
-    rmSync(staging.root, { recursive: true, force: true });
-  }
-}
-
-/**
- * The static checks script's fix mode - `<script> <copy> --fix` - applied to the code: the project's formatter and its
- * safe autofixes. It runs on a fresh copy of the code wherever the testing scripts run, and what it changed in a file the
- * code already has is written back into the code folder - nothing added, nothing taken out, never the notes or the code
- * record - so whatever the script does, only its fixes reach the code. A fix that fails, times out or changes nothing is
- * left at that: it costs no agent turn and fails nothing. The files it changed, by path in the code folder.
- */
-export async function applyStaticFixes(buildDir: string, script: string): Promise<string[]> {
-  const staging = stagingFor(buildDir);
-  rmSync(staging.root, { recursive: true, force: true });
-  ensureInModulesScratch(buildDir, staging.root);
-  try {
-    stageBuild(buildDir, staging.build);
-    const run = await runOnCopy(staging.root, script, [staging.build, "--fix"], buildDir);
-    if (run.exitCode !== 0 || run.timedOut === true) return [];
-    const changed: string[] = [];
-    for (const file of listFiles(buildDir)) {
-      const fixed = join(staging.build, file);
-      if (!isFile(fixed)) continue;
-      const after = readFileSync(fixed);
-      if (after.equals(readFileSync(join(buildDir, file)))) continue;
-      writeFileSync(join(buildDir, file), after);
-      changed.push(file);
-    }
-    return changed;
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }
@@ -633,8 +585,6 @@ export function createScriptTool(options: {
   onRun?: (command: string, exitCode: number) => void;
   /** Watches the agent's runs for a loop: told once, then its turn is ended. */
   watch?: LoopWatch;
-  /** The static checks script, run with the unit testing script: `run` runs both. */
-  staticChecks?: string;
 }) {
   const unit = options.kind === "unit";
   const name = unit ? "run_unit_tests" : "run_conformance_tests";
@@ -644,7 +594,6 @@ export function createScriptTool(options: {
     label: unit ? "Run unit tests" : "Run conformance tests",
     description: unit
       ? `Final check before you finish: run the project's unit testing script, ${script}, ` +
-        (options.staticChecks !== undefined ? `and its static checks, ${basename(options.staticChecks)}, after the harness applies the formatter, ` : "") +
         "on the code as it is now - exactly as the harness runs it to decide whether this is done. It takes no command. To " +
         "run one test, one file, or the tests any other way while you work, use bash."
       : `Run the project's conformance testing script, ${script}, on a fresh copy of the code with the whole conformance ` +
@@ -833,6 +782,13 @@ export function scriptFailure(run: ScriptRun, what: string): string {
         ].join("\n");
   return [
     `The harness ran the project's ${what} script, \`${run.command}\`, and it failed (exit ${run.exitCode}).`,
+    ...(missing === undefined && staticChecksOnly(run)
+      ? [
+          `Exit ${STATIC_CHECKS_FAILED}: the tests pass, and the script's static checks - the formatter, the linter, the type checker - ` +
+            "do not. Fix each finding at its cause; never silence one (a type-ignore or lint-disable comment, a rule " +
+            "turned off in the checker's configuration). A formatting finding goes by running the formatter.",
+        ]
+      : []),
     "",
     run.output.trimEnd(),
     "",

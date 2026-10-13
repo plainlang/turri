@@ -28,7 +28,6 @@ import {
   createLoopWatch,
   createScriptTool,
   failureSignature,
-  findStaticChecks,
   findTestScripts,
   projectRootFor,
   requireTestScripts,
@@ -38,9 +37,9 @@ import {
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
-import { createCanItFailTool, createMyDiffTool, createStaticChecksTool, selfCheckNote } from "./self-check.ts";
+import { createCanItFailTool, createMyDiffTool, selfCheckNote } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
-import { createUnitGate } from "./static-checks.ts";
+import { createUnitGate } from "./unit-gate.ts";
 import { toolchainError } from "./environment-error.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
@@ -259,7 +258,7 @@ export interface RenderSpecDiffResult {
   stoppedAt: "unit tests" | null;
   /** Stopped because the unit testing script cannot run: what it needs is not installed where it runs. */
   missingToolchain?: MissingToolchain;
-  /** Stopped with the unit tests passing and the static checks not. */
+  /** Stopped with the unit tests passing and the unit testing script's static checks not. */
   staticChecks?: boolean;
   /** What the spec changed while it grew that its agent was told - a line each. */
   steered?: string[];
@@ -329,10 +328,6 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const scripts = withoutConformance(findTestScripts(root, tip.plainFile, tip.buildDir));
   requireTestScripts(moduleName, scripts, { conformance: false });
   reportLogNote(`  unit testing script: ${relative(root, scripts.unit)}`);
-  // With a static checks script, the unit tests are more: the harness formats the code before each run, and the static
-  // checks run beside the unit testing script - both must pass, within the same rounds.
-  const staticChecks = findStaticChecks(root, tip.plainFile, tip.buildDir);
-  if (staticChecks !== undefined) reportLogNote(`  static checks script: ${relative(root, staticChecks)} - run with the unit tests, and they count`);
   const lastFrid = [...getFrids(tree)].at(-1);
   const buildDir = tip.buildDir;
   // From scratch there is no build directory yet, and everything the agent runs runs in it.
@@ -399,19 +394,17 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const notes = notesForSession(buildDir, `${moduleName} spec change`);
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
-  // What it checks its own work with: the diff its reviewer is shown, the static checks when the project has them,
-  // and whether a test catches a bug - none of them decides anything.
-  const gate = createUnitGate(buildDir, { unit: scripts.unit, ...(staticChecks !== undefined ? { staticChecks } : {}) });
+  // What it checks its own work with: the diff its reviewer is shown, and whether a test catches a bug - neither decides anything.
+  const gate = createUnitGate(buildDir, scripts.unit);
   const selfChecks = [
     createMyDiffTool({ dir: buildDir, what: "code" }),
-    ...(staticChecks !== undefined ? [createStaticChecksTool({ buildDir, script: staticChecks })] : []),
     ...(scripts.runOn === "copy" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
   ];
   // A server it built, it can start and try from outside - stopped when it is done.
   const services = createServiceTools({ dir: buildDir });
   // The script its work is judged by.
   const task = [
-    withNotes(withTestingScripts(prompt, scripts, ["unit"], root, staticChecks), buildDir),
+    withNotes(withTestingScripts(prompt, scripts, ["unit"], root), buildDir),
     "",
     ...selfCheckNote([...selfChecks.map((tool) => tool.name), "start_service"]),
     ...SUBMIT_WORK_NOTE,
@@ -429,7 +422,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       notes.tool,
       work.tool,
       ...createWebTools(),
-      createScriptTool({ kind: "unit", script: scripts.unit, run: () => gate.runAsOne(), runs, watch: loop, ...(staticChecks !== undefined ? { staticChecks } : {}) }),
+      createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs, watch: loop }),
       ...selfChecks,
       ...services.tools,
       ...fence.tools,
@@ -454,10 +447,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   let attempts = 0;
   /** How many times the agent, having written nothing, was asked for a draft. */
   let draftAsks = 0;
-  /** What the unit testing script - or the static checks - needs and does not find, last run. */
+  /** What the unit testing script needs and does not find, last run. */
   let missing: MissingToolchain | undefined;
-  let missingIn: "unit" | "static checks" | undefined;
-  /** The last round failed on the static checks alone: the unit tests passed. */
+  /** The last round failed on the script's static checks alone: the unit tests passed. */
   let staticOnly = false;
   const testRemovals: TestRemoval[] = [];
   const steering = options.steering;
@@ -521,17 +513,16 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           continue;
         }
 
-        stage(`running the unit testing script${staticChecks !== undefined ? " and the static checks" : ""} (attempt ${attempts + 1})`);
+        stage(`running the unit testing script (attempt ${attempts + 1})`);
         attempts += 1;
         const verdict = await gate.verify(runs);
-        if (verdict.ok) stage(`unit tests ${staticChecks !== undefined ? "and static checks " : ""}pass (attempt ${attempts})`);
+        if (verdict.ok) stage(`unit tests pass (attempt ${attempts})`);
         staticOnly = !verdict.ok && verdict.staticOnly;
         // A toolchain the script cannot find is no failure of the code, and the agents install nothing: the person installs
         // it on this machine, so the job stops now and asks them.
         missing = verdict.ok ? undefined : verdict.missing;
-        missingIn = verdict.ok ? undefined : verdict.missingIn;
         if (missing !== undefined) {
-          stage(`the ${missingIn === "static checks" ? "static checks script" : "unit testing script"} cannot run: ${missing.command ?? "a toolchain it needs"} is not installed on this machine - stopping`);
+          stage(`the unit testing script cannot run: ${missing.command ?? "a toolchain it needs"} is not installed on this machine - stopping`);
           return false;
         }
         if (!verdict.ok) {
@@ -627,7 +618,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     // Notes are kept only with work that lands: work that does not is rolled back, notes and all.
     if (verified) {
       stage("checking the working notes were left");
-      await notes.ensureWritten((next) => ask(executor, next, options.onDelta, NOTES_TURN), passedOutcome(staticChecks !== undefined ? "unit testing script and static checks" : "unit testing script"));
+      await notes.ensureWritten((next) => ask(executor, next, options.onDelta, NOTES_TURN), passedOutcome("unit testing script"));
     }
   } finally {
     if (steering !== undefined) steering.deliver = undefined;
@@ -667,14 +658,14 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       unit,
       moduleName,
       missing !== undefined
-        ? `the ${missingIn === "static checks" ? "static checks script" : "unit testing script"} could not run`
+        ? "the unit testing script could not run"
         : staticOnly
           ? "the spec change did not pass its static checks"
           : "the spec change did not pass its unit tests",
     );
     // The environment lacks what the testing script needs: the pulse stops, rolled back, and the person is told.
     if (missing !== undefined) {
-      throw toolchainError(missing, missingIn === "static checks" ? { moduleName, script: staticChecks!, kind: "static checks" } : { moduleName, script: scripts.unit, kind: "unit" });
+      throw toolchainError(missing, { moduleName, script: scripts.unit, kind: "unit" });
     }
     return { ...base, passed: false, stoppedAt: "unit tests", ...(staticOnly && !unitReviewStopped ? { staticChecks: true } : {}) };
   }

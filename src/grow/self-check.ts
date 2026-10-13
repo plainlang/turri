@@ -4,12 +4,10 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { workDiff } from "./lineage.ts";
 import { lastPassingMs, runOnCode, type ScriptRun } from "./test-scripts.ts";
-import { staticFindings } from "./static-checks.ts";
 
 /**
- * Tools an agent checks its own work with, before the harness and the reviewer do: the diff the reviewer is shown,
- * the project's static checks when it has them, and whether a test catches a change to the code. None of them decides
- * anything - the testing scripts and the static checks, run by the harness, still do.
+ * Tools an agent checks its own work with, before the harness and the reviewer do: the diff the reviewer is shown, and
+ * whether a test catches a change to the code. Neither decides anything - the testing scripts, run by the harness, still do.
  */
 
 /** The work so far, as the reviewer is shown it: a diff of the folder from the commit the job started from. */
@@ -32,30 +30,6 @@ export function createMyDiffTool(options: { dir: string; what: "code" | "tests" 
 }
 
 const outputOf = (run: ScriptRun) => `${run.command} exited ${run.exitCode}${run.timedOut === true ? " - stopped by the time limit" : ""}\n\n${run.output}`;
-
-/**
- * The project's static checks - a type checker, a linter - on the code as it is now, for the agent's own use while it
- * works. Optional: only when it has them. The harness runs them itself with the unit tests, and they count (static-checks.ts).
- */
-export function createStaticChecksTool(options: { buildDir: string; script: string }): ToolDefinition {
-  return defineTool({
-    name: "run_static_checks",
-    label: "Run static checks",
-    description:
-      "Run the project's static checks - its type checker, its linter - on the code as it is now, alone: faster than " +
-      "run_unit_tests, for while you work. They find what no test may reach: a wrong type, a missing import, a name that " +
-      "does not exist, on every path. The harness runs them itself with the unit tests after every turn, and they count " +
-      "as the unit tests do: the work is done only when both pass. Formatting is not yours: the harness applies the " +
-      "formatter before each of its runs. Shows only what they find, a line each; nothing when they pass.",
-    promptSnippet: "run_static_checks: the project's type checker and linter on the code as it is now - they count, with the unit tests",
-    parameters: Type.Object({}),
-    async execute() {
-      const run = await runOnCode(options.buildDir, options.script, "static checks");
-      const text = run.exitCode === 0 ? `${run.command} passed.` : `${run.command} failed (exit ${run.exitCode}):\n\n${staticFindings(run, options.buildDir)}`;
-      return { content: [{ type: "text" as const, text }], details: { exitCode: run.exitCode } };
-    },
-  }) as ToolDefinition;
-}
 
 /** How many times can_it_fail runs in one session, by default: each is a run of the unit testing script. */
 export const CAN_IT_FAIL_RUNS = 6;
@@ -138,7 +112,6 @@ export function createCanItFailTool(options: { buildDir: string; script: string;
 export function selfCheckNote(tools: string[]): string[] {
   const has = (name: string) => tools.includes(name);
   const steps = [
-    ...(has("run_static_checks") ? ["run_static_checks as you go, and fix what it finds - the harness runs the checks with the unit tests, and they count"] : []),
     ...(has("can_it_fail") ? ["for each behaviour you built, check with can_it_fail that a test fails when it breaks"] : []),
     ...(has("start_service") ? ["where you built a server, start it with start_service and try what you built with curl, as a client would"] : []),
     ...(has("my_diff") ? ["read my_diff: every part of the change in it, and nothing else"] : []),

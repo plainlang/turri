@@ -33,6 +33,7 @@ import {
   failureSignature,
   STUCK_ROUNDS,
   scriptFailure,
+  staticChecksOnly,
   withTestingScripts,
 } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
@@ -638,6 +639,24 @@ export async function renderConformanceTests(
           recordAttempt(rounds, recheck, `the same failure ${STUCK_ROUNDS} times - the explorer was asked again what the tests lack`, { who: "conformance agent", files: asked.files });
           return "asked";
         };
+        // The tests pass and only their static checks do not: the findings are in the tests, the conformance agent's
+        // alone - no judge is asked whether the code or the tests are wrong.
+        if (staticChecksOnly(recheck)) {
+          const moved = await unmoved();
+          if (moved === "stuck") break;
+          if (moved === "asked") continue;
+          stage("the conformance tests pass, and their static checks do not - back to the conformance agent");
+          const fixed = await changing(() => askConformance(scriptFailure(recheck, "conformance testing"), options.onDelta));
+          response = fixed.result;
+          recordAttempt(rounds, recheck, "the tests' static checks", { who: "conformance agent", files: fixed.files });
+          if (fixed.files.length === 0 && ++idleFixes >= IDLE_FIXES) {
+            stuck = { failure: truncateOutput(recheck.output, undefined).slice(-4000), rounds, error: failureLine(recheck), times: idleFixes, changedNothing: true };
+            stage(`${IDLE_FIXES} fixes in a row changed nothing - stopping`);
+            break;
+          }
+          if (fixed.files.length > 0) idleFixes = 0;
+          continue;
+        }
         // A run out of time is not a question of test or code: the tests' environment is the conformance agent's.
         if (recheck.timedOut === true) {
           const moved = await unmoved();

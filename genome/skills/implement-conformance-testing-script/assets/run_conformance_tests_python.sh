@@ -102,7 +102,29 @@ end_time=$(date +%s.%N)
 duration=$(echo "$end_time - $start_time" | bc)
 printf "Requirements setup completed in %.2f seconds\n\n" "$duration"
 
-# Execute all Python conformance tests in the build folder
+# Static checks of the conformance tests - and only them - in the environment they run in, the build installed: ruff's
+# formatter in check mode, ruff's linter and mypy with a tests profile. The settings are pinned here, in a config the
+# script writes into the working folder; none is read from the tests folder, whose files the conformance agent writes.
+STATIC_CHECKS_FAILED=80
+printf "Static checks of the conformance tests in %s...\n" "$CONFORMANCE_TESTS_FOLDER"
+echo "+ pip install ruff mypy"
+pip install ruff mypy || exit $?
+cat > .conformance-mypy.ini <<'INI'
+[mypy]
+disallow_untyped_defs = True
+follow_imports = silent
+ignore_missing_imports = True
+INI
+CHECKS=0
+echo "+ ruff format --check --no-cache --isolated --output-format concise $CONFORMANCE_TESTS_FOLDER"
+ruff format --check --no-cache --isolated --output-format concise "$CONFORMANCE_TESTS_FOLDER" || CHECKS=1
+echo "+ ruff check --no-cache --isolated --output-format concise --no-fix $CONFORMANCE_TESTS_FOLDER"
+ruff check --no-cache --isolated --output-format concise --no-fix "$CONFORMANCE_TESTS_FOLDER" || CHECKS=1
+echo "+ mypy --config-file .conformance-mypy.ini --cache-dir ./.mypy_cache --no-color-output --show-column-numbers $CONFORMANCE_TESTS_FOLDER"
+mypy --config-file .conformance-mypy.ini --cache-dir ./.mypy_cache --no-color-output --show-column-numbers "$CONFORMANCE_TESTS_FOLDER" || CHECKS=1
+[ "$CHECKS" -eq 0 ] && printf "Static checks: passed\n\n" || printf "Static checks: FAILED - the findings are above\n\n"
+
+# Execute all Python conformance tests in the build folder - whatever the checks said, so one run reports both
 printf "Running Python conformance tests...\n\n"
 
 output=$($PYTHON_CMD -m unittest discover -b -s "$CONFORMANCE_TESTS_FOLDER" 2>&1)
@@ -117,5 +139,12 @@ if echo "$output" | grep -q "Ran 0 tests in"; then
     exit 1
 fi
 
-# Echo the original exit code of the unittest command
-exit $exit_code
+# The suite's own exit code when it failed; 80 when only the static checks of the tests did; 0 when both pass
+if [ "$exit_code" -ne 0 ]; then
+    exit $exit_code
+fi
+if [ "$CHECKS" -ne 0 ]; then
+    printf "\nThe conformance tests pass, and their static checks do not.\n"
+    exit $STATIC_CHECKS_FAILED
+fi
+exit 0

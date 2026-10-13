@@ -86,10 +86,9 @@ It is built in three layers, and a stack imports the other two:
   dependency manager, formatting, linting and type checking (ruff and mypy for Python; Prettier, ESLint
   and `tsc --noEmit` for TypeScript), how a failure is reported (an exception, a returned error, a
   `Result`), the logging library, and the unit test framework and layout. A module on a stack the library does not have can import its language alone.
-  The formatter, linter and type checker a language names are enforced by its static checks script, which
-  the `implement-static-checks-script` skill has ready for Python, TypeScript, Go and Rust: turri formats
-  the code with it before every unit test run, and its checks must pass with the unit tests (see
-  [growing the code](growing.md#the-tests-must-actually-pass)).
+  The formatter, linter and type checker a language names are enforced by the testing scripts, which
+  run them with the tests - the unit testing script on the code, the conformance testing script on the
+  tests - and count them as the tests (see [the static checks](growing.md#the-static-checks)).
 - **The kind's `common`** - what every stack of a kind shares:
 
   | kind | settles |
@@ -225,7 +224,7 @@ in `.turri/skills/` or `.agents/skills/`, can be too (see [skills and gates](ski
 | check what is written | `analyze-if-func-spec-too-complex`, `analyze-2-func-specs`, `analyze-func-specs`, `resolve-section-ownership` |
 | fix what is written | `break-down-func-spec`, `resolve-spec-conflict`, `debug-specs` |
 | restructure modules | `create-import-module`, `create-requires-module`, `refactor-module`, `consolidate-concepts` |
-| set up the project to build | `implement-unit-testing-script`, `implement-static-checks-script`, `implement-conformance-testing-script`, `check-plain-env` |
+| set up the project to build | `implement-unit-testing-script`, `implement-conformance-testing-script`, `check-plain-env` |
 
 `debug-specs` is the one for a running application that misbehaves: it reads the generated code
 to find the cause, traces it back to the spec, and fixes only the `.plain` files.

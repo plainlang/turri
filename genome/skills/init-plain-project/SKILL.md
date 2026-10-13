@@ -91,8 +91,7 @@ The file must still be created on disk — an empty body is fine, but the file i
 
 Call the corresponding implementation skills in order. Each skill writes a Bash script, which is what the harness runs.
 
-- `implement-unit-testing-script` — always.
-- `implement-static-checks-script` — when the stack's language is Python, TypeScript, Go or Rust (copy its asset), or the implementation reqs name a formatter, a linter or a type checker. turri runs it with the unit tests, and it counts as they do.
+- `implement-unit-testing-script` — always. It runs the stack's static checks - formatter, linter, type checker - with the unit tests, and they count as the tests do.
 - `implement-conformance-testing-script` — only if conformance testing was enabled. The script is self-contained: it stages the build, installs dependencies, and runs the module's whole conformance suite.
 
 ### 6. Check turri finds the scripts

@@ -113,7 +113,7 @@ groups it recorded in the temporary folder (`turri-groups/`); and groups a turri
 turri next starts. On Windows there are no process groups: a command's process tree is killed with `taskkill /T /F`,
 best effort.
 
-The project's testing scripts - and its static checks script, fix mode included - are not agents' commands: they are
+The project's testing scripts - their static checks included - are not agents' commands: they are
 yours, and run on this machine as you would run them, unfenced, in your own environment - see [the testing scripts](growing.md#the-testing-scripts). The agent gets their
 output, nothing more.
 

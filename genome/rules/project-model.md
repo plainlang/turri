@@ -34,13 +34,13 @@ directories may contain and how a spec refers to them.
 
 `config.turri.yaml`, at the project root beside the specs, is where the project's decisions about how it
 is built live: the models, whether conformance tests are written (`conformance-tests:`), and the scripts
-it uses (`unittests-script:`, `static-checks-script:`, `conformance-tests-script:`,
+it uses (`unittests-script:`, `conformance-tests-script:`,
 `prepare-environment-script:`). turri can find a script by its name, but the config is what a person
 reads to see how the project is set up, and what they change.
 
 - Settle a decision, write it into the config in the same step - never leave it to be inferred from
-  what is on disk. A testing or static checks script you write or keep is named by its key, by path
-  from the root (`static-checks-script: test_scripts/run_static_checks_python.sh`); conformance tests
+  what is on disk. A testing script you write or keep is named by its key, by path
+  from the root (`unittests-script: test_scripts/run_unittests_python.sh`); conformance tests
   turned on or off are `conformance-tests: true` or `false`
 - Change only the keys you settled. Where the file has a key's example commented out, uncomment that
   line and set it; keep every other line and comment as it is

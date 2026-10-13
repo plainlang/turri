@@ -109,16 +109,28 @@ if [ $exit_code -ne 0 ]; then
     exit $exit_code
 fi
 
-# Execute all Java unittests in the subfolder
-echo "Running Java unittests in $(pwd)..."
+# Static checks of the conformance tests - their own Maven project, so only their findings: compiled with every javac
+# lint warning an error, the flags pinned here rather than in the tests' pom. A formatter runs only when the test reqs
+# name one.
+STATIC_CHECKS_FAILED=80
+echo "Static checks of the conformance tests in $(pwd)..."
+echo "+ mvn -Dmaven.compiler.showWarnings=true -Dmaven.compiler.failOnWarning=true -Dmaven.compiler.compilerArgument=-Xlint:all test-compile"
+mvn -Dmaven.compiler.showWarnings=true -Dmaven.compiler.failOnWarning=true -Dmaven.compiler.compilerArgument=-Xlint:all test-compile
+CHECKS=$?
+[ "$CHECKS" -eq 0 ] && echo "Static checks: passed" || echo "Static checks: FAILED - the findings are above"
+
+# Execute all Java conformance tests in the subfolder - whatever the checks said, so one run reports both
+echo "Running Java conformance tests in $(pwd)..."
 output=$(mvn test 2>&1)
 exit_code=$?
 
-# If there was an error, print the output and exit with the error code
+# The suite's own exit code when it failed; 80 when only the static checks of the tests did; 0 when both pass
 if [ $exit_code -ne 0 ]; then
     echo "$output"
     exit $exit_code
 fi
-
-# Echo the original exit code of the unittest command
-exit $exit_code
+if [ "$CHECKS" -ne 0 ]; then
+    echo "The conformance tests pass, and their static checks do not."
+    exit $STATIC_CHECKS_FAILED
+fi
+exit 0
