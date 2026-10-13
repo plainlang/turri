@@ -2013,7 +2013,8 @@ function announceJob(pi: ExtensionAPI, job: Job): void {
   if (job.status !== "succeeded" && job.status !== "failed" && job.status !== "stopped") return;
   const announcement: JobAnnouncement = {
     id: job.id,
-    summary: job.summary,
+    // Its module, kind and number - never what it grows, which is the agents' words and long.
+    summary: pulseName(job),
     status: job.status,
     incomplete: job.status === "succeeded" && (job.details as { passed?: unknown } | undefined)?.passed === false,
     duration: formatDuration(job),

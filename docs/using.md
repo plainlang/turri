@@ -268,13 +268,14 @@ come waits for a free slot, and says so.
   agent that can read the project's specs, code, tests, testing scripts and logs, and turri's
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
   environment, the code or turri itself, and exactly what to do.
-- **When a pulse finishes** the transcript shows its line - `✓`, `✗` or `■`, what it was, how long it
-  took and what it cost - and the chat, which gets its whole report, reacts then and there, whatever
-  else is running or queued, without waiting for you to speak: at once when it is idle, else as soon
-  as the reply it is in ends. It does what the project's guidance says to do when a pulse finishes -
-  release what was built, say - or tells you what finished and what it means. Ask to try it ("let me
-  try it") and the chat releases what is built to `dist/<module>` and starts it on your machine, even
-  while other pulses run. See [deploy](deploy.md). The chat reacts to it then and there,
+- **When a pulse finishes** the transcript shows its line - `✓`, `✗` or `■`, its module, kind and number,
+  how long it took and what it cost, never what it grew -
+  `✓ shorty · conformance pulse 4 finished after 3m 47s · 488.6k tok · $0.02` - and the chat, which
+  gets its whole report, reacts then and there, whatever else is running or queued, without waiting
+  for you to speak: at once when it is idle, else as soon as the reply it is in ends. It does what the
+  project's guidance says to do when a pulse finishes - release what was built, say - or tells you
+  what finished and what it means. Ask to try it ("let me try it") and the chat releases what is
+  built to `dist/<module>` and starts it on your machine, even while other pulses run. See [deploy](deploy.md). The chat reacts to it then and there,
   whatever else is running or queued, without waiting for you to speak - at once when it is idle, else
   as soon as the reply it is in ends: it does what the project's guidance says to do when a pulse
   finishes (release what was built, say), or tells you in a line or two what finished.
