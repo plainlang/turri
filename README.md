@@ -8,18 +8,18 @@
   <a href="https://nodejs.org/en/download"><img src="https://img.shields.io/node/v/@turri-rs/cli" alt="Node version"></a>
 </p>
 
-You and **turri** write down what the system should do, as [\*\*\*plain](https://plainlang.org/) specs. **turri** builds
-the code from them. From then on the specs are the durable source of truth: the code can always be
-regenerated from them, and healed against them, as they change.
+You tell **turri** what the system should do, and **turri** writes it down as [\*\*\*plain](https://plainlang.org/)
+specs. **turri** builds the code from them. From then on the specs are the durable source of truth: the code can
+always be regenerated from them, and healed against them, as they change.
 
 **turri** is named after *Turritopsis dohrnii*, the immortal jellyfish that regenerates itself from its young
 form, again and again - as **turri** regenerates the code from the spec - see [the name](#the-name).
 
 ## Quick start
 
-You need git, bash and [Node](https://nodejs.org/en/download) 22.19 or newer - a Linux distribution's own
-`nodejs` package is often older - wherever pi runs: macOS, Linux, WSL; native Windows best effort, with Git Bash. The
-agents use this machine's toolchains, fenced by a command check and an audit everywhere, and an OS sandbox where the
+**turri** is built on [pi](https://pi.dev), the coding agent, and runs wherever pi runs: macOS, Linux, WSL; native
+Windows best effort, with Git Bash. You need git, bash and [Node](https://nodejs.org/en/download) 22.19 or newer - a
+Linux distribution's own `nodejs` package is often older. The agents use this machine's toolchains, fenced by a command check and an audit everywhere, and an OS sandbox where the
 OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) - see [installation](docs/installation.md#installation).
 
 ```bash
@@ -60,13 +60,10 @@ To skip the question, name the vendor - `anthropic`, `openai`, `google`, `amazon
 turri init-config --vendor anthropic
 ```
 
-It then says which key to set, or to `/login`, and where the file is: **turri** reads `config.turri.yaml` from the folder
-it starts in, or the nearest one above it - so run `init-config` in your project, not beside your clone of **turri**.
-A project with only a `config.yaml` is read from it until **turri** first writes a setting, which copies it to
-`config.turri.yaml` and leaves `config.yaml` as it is.
-Below the two models, the file lists every other setting with the value turri uses for it, and the optional ones
-commented out - change one in the file, or from the chat with `/turri-config`; [the project config](docs/config.md) has them all. Any other
-model works too: [models](#models).
+It then tells you which API key to set - or to type `/login` once **turri** is running instead. **turri** loads the
+`config.turri.yaml` in the folder you start it from.
+Below the two models, the file sets every other setting to its default - change any of them in the file, or from the
+chat with `/turri-config`. Any other model works too: [models](#models).
 
 Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
 
@@ -111,6 +108,8 @@ durable part. The code is a disposable artefact, rebuilt from them whenever they
 | **History** | whatever you commit | every build, regeneration and repair is a commit; a build interrupted halfway starts again from the last one |
 
 ## How it works
+
+<p align="center"><img src="docs/images/how-turri-works.svg" width="900" alt="How turri works: you describe changes to turri, and turri asks and reports back. turri writes the ***plain specs and reads them; you review them with turri in a review loop. turri regenerates the code from the specs and tests it against ***plain - an endless loop."></p>
 
 1. **Define.** Write the specs with **turri**: it interviews you one question at a time and
    writes the `.plain` files, held to the [\*\*\*plain](https://plainlang.org/) authoring rules and reviewed by independent
