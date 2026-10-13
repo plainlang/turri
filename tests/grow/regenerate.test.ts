@@ -636,7 +636,7 @@ describe("a spec diff that only restructures the specs", () => {
     writeFileSync(join(dir, "accounts.plain"), plain(["- One."]));
     writeFileSync(join(dir, "app.plain"), `---\nrequires:\n  - accounts\n---\n\n${plain(["- Two."])}`);
     await expect(renderSpecDiff({ plainFile: "app.plain", diff: "+- Two.", cwd: dir, applied: "already applied" })).rejects.toThrow(
-      /app now requires accounts, which its code was not built on[\s\S]*rejuvenate/,
+      /app now requires accounts, which its code was not built on[\s\S]*regenerate it from scratch in the chat[\s\S]*--start-over/,
     );
   });
 });

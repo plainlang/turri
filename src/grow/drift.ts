@@ -43,7 +43,7 @@ export interface TouchedSpec {
  * - add: functional specs that are new.
  * - patch: functional specs changed - their text, their acceptance tests, or a concept they use: a
  *   change to what is built, never built again from scratch.
- * - again: functional specs marked to grow again (`rejuvenate`): their code is built, and is grown again - rewritten
+ * - again: functional specs marked to grow again (`regenerate` with functionalities named): their code is built, and is grown again - rewritten
  *   or started over, doing what the spec says now - with what it replaces taken out. A functional spec of a module
  *   this one requires, grown again here, is one too.
  * - delete: functional specs taken out.

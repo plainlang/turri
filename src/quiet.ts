@@ -82,7 +82,7 @@ export interface Captured<T> {
 export async function captureConsole<T>(fn: () => Promise<T>): Promise<Captured<T>> {
   // An escape hatch for debugging: with this set, library output goes to the terminal as
   // it used to, which is how the capture itself can be measured.
-  if (process.env.FORGE_NO_CAPTURE === "1") return { result: await fn(), output: [] };
+  if (process.env.TURRI_NO_CAPTURE === "1") return { result: await fn(), output: [] };
 
   const buffer: string[] = [];
   active.add(buffer);
@@ -104,7 +104,7 @@ export async function captureConsole<T>(fn: () => Promise<T>): Promise<Captured<
  * patched, so callers must end it from a handler that always runs.
  */
 export function beginCapture(): { end: () => string[] } {
-  if (process.env.FORGE_NO_CAPTURE === "1") return { end: () => [] };
+  if (process.env.TURRI_NO_CAPTURE === "1") return { end: () => [] };
 
   const buffer: string[] = [];
   active.add(buffer);

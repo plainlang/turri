@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { checkPlainFile } from "./plain/check.ts";
 import { describeDrift, describeModules, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
+import type { RenderWork } from "./grow/engine.ts";
 import type { JobRegistry } from "./grow/jobs.ts";
 import { stopDeployed } from "./grow/release.ts";
 
@@ -130,7 +131,7 @@ export interface LoopToolsOptions {
   /** The work loop the tools act on - the conversation's, for a call in it. */
   loop?: (ctx: ExtensionContext) => WorkLoop;
   /** The model a pulse of this call grows on: the one named, or the one chosen for the work. Default: the one named. */
-  model?: (ctx: ExtensionContext, plainFile: string, named?: string) => string | undefined;
+  model?: (ctx: ExtensionContext, plainFile: string, named?: string, work?: RenderWork) => string | undefined;
   /** Whether a call waits for its work to finish, given what it asked. Default: only when it asked to. */
   wait?: (ctx: ExtensionContext, asked?: boolean) => boolean;
 }
@@ -161,21 +162,27 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
       "requires chain first. Call it after any change to the spec, by any means: the file tools, a skill, the user in an " +
       "editor. It takes no diff: what is left to grow - from what each module's code was grown from to its spec now - is " +
       "worked out and planned into pulses, and a pulse running that grows something the spec no longer wants is stopped and " +
-      "rolled back. Nothing to do where the code is grown from the spec as it is. To grow again what is grown already, " +
-      "use rejuvenate.",
+      "rolled back. Nothing to do where the code is grown from the spec as it is. With functionalities named, those are " +
+      "regenerated though their spec did not change - rewritten or started over, better made, what they replace taken out - " +
+      "planned into pulses as any change is, the ones next to each other together; their conformance tests stay as they are.",
     promptSnippet: "regenerate a module's code from its spec as it is now - after any change to the spec",
     promptGuidelines: [
       "Call regenerate after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
       "regenerate returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the pulses report when they finish.",
-      "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regenerate. When they want what is grown grown again as its spec stands - better made, on another model - that is rejuvenate.",
+      "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regenerate. When they want ones already built regenerated as their spec stands - better made, on another model, after many patches - name them in functionalities, all in one call.",
       "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and grows again every functional spec that uses what links it.",
       "Never stop pulses and start them again yourself to follow a spec change: regenerate does it.",
-      "Set from_scratch only when the user asks for the module to be regenerated from scratch - started over, its code deleted - in this conversation: never to fix a pulse that did not land.",
+      "Set from_scratch only when the user asks for the module to be regenerated from scratch - started over, its code deleted - in this conversation, or agrees to it when a module's status says it has to start over: never to fix a pulse that did not land.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
       working_dir: WORKING_DIR_PARAM,
       guidance: GUIDANCE_PARAM,
+      functionalities: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Functional specs already built, by id, to regenerate though their spec did not change. Omitted: what the spec now differs from the code in",
+        }),
+      ),
       from_scratch: Type.Optional(
         Type.Boolean({
           description:
@@ -189,10 +196,19 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
       const plainFile = plainFileOf(options.cwd, given, "regenerate");
       const check = checkPlainFile(plainFile);
       if (!check.ok) throw new Error(`${relative(options.cwd, plainFile) || plainFile} does not parse, so nothing can grow from it yet: ${check.error}`);
-      const model = options.model !== undefined ? options.model(ctx, plainFile, given.model) : given.model;
+      const again = given.functionalities ?? [];
+      if (again.length > 0 && given.from_scratch === true) throw new Error("Name functionalities or set from_scratch, not both: from scratch regenerates every one of them.");
+      // Named functionalities are work on functionalities, as engine chooses a model for it; the rest, spec changes.
+      const work: RenderWork = again.length > 0 ? "functionalities" : "spec_changes";
+      const model = options.model !== undefined ? options.model(ctx, plainFile, given.model, work) : given.model;
       const loop = options.loop(ctx);
       const request = { ...(model !== undefined ? { model } : {}), ...(given.guidance !== undefined ? { guidance: given.guidance } : {}) };
-      const statuses = given.from_scratch === true ? await loop.fromScratch(plainFile, request) : await loop.bringUp(plainFile, request);
+      const statuses =
+        given.from_scratch === true
+          ? await loop.fromScratch(plainFile, request)
+          : again.length > 0
+            ? await loop.growAgain(plainFile, again, request)
+            : await loop.bringUp(plainFile, request);
       return loopReply(loop, statuses, options.wait !== undefined ? options.wait(ctx, given.wait) : given.wait === true);
     },
   });

@@ -219,7 +219,7 @@ They are defaults. What is asked for wins over them:
 | model | wins over the config |
 | --- | --- |
 | harness | `turri --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
-| coding | `turri --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regenerate`, `render`, `regrow`, `conformance` and `spec-diff` |
+| coding | `turri --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regenerate`, `bind` and `spec-diff` |
 | judge | `--judge-model` on `turri bind` |
 
 A job keeps the model it was queued with: choosing another holds for what is queued after.

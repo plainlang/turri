@@ -17,13 +17,6 @@ const TOOL_FOR: Record<string, string> = {
   cultivate: "cultivate",
   release: "release",
   "spec-diff": "regenerate",
-  render: "regenerate",
-  module: "regenerate",
-  regrow: "regenerate",
-  conformance: "bind",
-  skill: "cultivate",
-  deploy: "release",
-  forge: "cultivate",
   chat: "nothing - you are the conversation already",
   ask: "nothing - you are the conversation already",
 };
@@ -55,9 +48,9 @@ const AT_COMMAND = String.raw`(?:^|[\s;&|()\x60$])`;
  * agent - and neither are setup and doctor.
  */
 export function selfInvocation(command: string): string | undefined {
-  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?turri\\s+(regenerate|glimpse|bind|cultivate|release|spec-diff|render|module|regrow|conformance|skill|chat|deploy)\\b`).exec(command);
+  const cli = new RegExp(`${AT_COMMAND}(?:npx\\s+)?turri\\s+(regenerate|glimpse|bind|cultivate|release|spec-diff)\\b`).exec(command);
   if (cli) return cli[1];
-  const launcher = new RegExp(`(?:bin/turri\\.mjs|src/cli\\.ts)\\s+(regenerate|glimpse|bind|cultivate|release|spec-diff|render|module|regrow|conformance|skill|chat|deploy)\\b`).exec(command);
+  const launcher = new RegExp(`(?:bin/turri\\.mjs|src/cli\\.ts)\\s+(regenerate|glimpse|bind|cultivate|release|spec-diff)\\b`).exec(command);
   if (launcher) return launcher[1];
   // turri alone, or with options, is the conversation - where a command starts, not a word an argument names (`which turri`).
   const bare =
@@ -92,7 +85,7 @@ export function askedForCommandLine(message: string): boolean {
   const text = message.toLowerCase();
   return (
     /\b(headless|command[ -]line|cli|terminal|shell|in bash|via bash|through bash|npm run|nohup)\b/.test(text) ||
-    /\bturri\s+(regenerate|glimpse|bind|spec-diff|cultivate|release|render|module|regrow|conformance|skill|chat|deploy)\b/.test(text) ||
+    /\bturri\s+(regenerate|glimpse|bind|spec-diff|cultivate|release)\b/.test(text) ||
     /(^|\s)turri\s+-p\b/.test(text) ||
     /(^|\s)pi\s+-p\b/.test(text)
   );

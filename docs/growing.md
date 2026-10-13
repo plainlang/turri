@@ -643,11 +643,11 @@ agent and its reviewer are told the same, for the tests:
 | fresh | the module requires none and nothing is built | set up the project and its unit tests where the unit testing script runs them, then build | set up `tests/` so the conformance testing script, which brings the tests together with `code/`, runs them, then write |
 | add | a functional spec is new | build it and write its unit tests | write its tests |
 | patch | its text changed, or a concept it uses did | change the existing code and tests to match - never build it again from scratch | rewrite its existing tests to match |
-| again | `rejuvenate` named it: it is built, and marked in the code record to grow again | replace its implementation - rewrite it or start it over, doing what the spec says now; no second implementation beside the old, nothing of it left unused; its unit tests may be rewritten | none: its tests stay as they are |
+| again | `regenerate` named it: it is built, and marked in the code record to grow again | replace its implementation - rewrite it or start it over, doing what the spec says now; no second implementation beside the old, nothing of it left unused; its unit tests may be rewritten | none: its tests stay as they are |
 | delete | a functional spec is gone | take out its code and the tests only it had | take out its tests |
 | mechanical | no functional spec is touched - only reqs, or definitions none uses | adapt the code; write no new test; an existing one may change only mechanically - an import, a fixture, its setup - never what it asserts | the same, for test reqs, definitions or implementation reqs alone |
 
-**Growing again.** `rejuvenate` with functional specs named grows them again though their spec did not change -
+**Growing again.** `regenerate` with functionalities named grows them again though their spec did not change -
 made better, on another model, after many patches. Each is marked in the code record of every codebase it is built
 in (`grow_again`, committed), and nothing else changes: the record now differs from the spec at that item, so the
 work loop plans it as it plans any change. A functional spec of a module below is grown again where its code
@@ -700,8 +700,8 @@ with no agent and no testing script. Moving specs into a module the code was not
 change to the code brings that module's code in, so the codebase stops: it has to be started over - its code
 and conformance tests taken out, committed so its history keeps them, and the chain built again from the
 bottom. That is never done unasked. In the chat the model asks the person, saying why, and calls
-`rejuvenate` once they agree; `turri regenerate` and `spec-diff` ask at the terminal, and `--rejuvenate`
-agrees in advance - with no terminal and no flag, nothing more is built there.
+`regenerate` with `from_scratch` once they agree; `turri regenerate` and `spec-diff` ask at the terminal, and
+`--start-over` agrees in advance - with no terminal and no flag, nothing more is built there.
 
 ## Conformance tests
 
@@ -1095,7 +1095,7 @@ What goes into them:
 - **A module started from another's code:** that code's record, as a lower module's - see
   [where things go](#where-things-go) - and an empty tests record: the tests it inherits are the module
   below's.
-- **A functional spec rejuvenated:** it is marked to grow again in the code record, so the next job grows it
+- **A functional spec named to `regenerate`:** it is marked to grow again in the code record, so the next job grows it
   again; that job's record drops the mark.
 
 A unit of work - a code job, a conformance job - lands whole or is undone whole. It starts from the

@@ -6,7 +6,7 @@ project, and starts it on your machine. An app with a backend and a frontend is 
 you are told where to open your browser. For a command-line tool or a library you get a few commands
 to paste, run from `dist/<module>`, and what they print.
 
-Every pulse that lands code - a render, a spec diff, a conformance run, a rejuvenation - ends with
+Every pulse that lands code - a render, a spec diff, a conformance run, a functionality regenerated - ends with
 "Want to try it? Just ask me - I'll set it up from what's built so far." When a render's conformance
 tests follow as a pulse of their own, the conformance pulse says it, once they pass too.
 
@@ -105,5 +105,5 @@ them, and releases as above - as the guidance says, or to `dist/<module>` - then
 start it and starts it here, installing what it needs without asking. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 
-`turri regenerate`, `spec-diff`, `regrow` and `conformance` end a build that landed with
+`turri regenerate`, `spec-diff` and `bind` end a build that landed with
 `To try it: turri release <spec>`.

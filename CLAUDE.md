@@ -44,19 +44,15 @@ and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 
 ## Architecture
 
-**The name.** turri was called plainwright. `src/legacy.ts` (imported first by `cli.ts` and `extension.ts`) reads
-`PLAINWRIGHT_*` env vars as `TURRI_*`; `grow/migrate.ts` brings a project's files over the first time it is found (`.plainwright.json` →
-`.turri.json`, `.plainwright-notes.md` → `.turri-notes.md`, both `.plainwright/` scratch folders → `.turri/`),
-committing the renames alone. `plain_modules` and `.plaingit` are the ***plain language's and keep their names.
+**Names.** `plain_modules` and `.plaingit` are the ***plain language's, not turri's, and keep their names.
 
 **Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regenerate` (with frids: grown again), `glimpse` (regenerate
 `--dry-run`), `drift`, `bind`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regenerate-cli.ts`,
 `drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
-which drives the work loop as the chat does. The old names (`module`, `regrow`, `conformance`, `check`,
-`deploy`, `skill`) are aliases. `doctor` goes to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options, or `chat`, its old name - spawns pi through
+which drives the work loop as the chat does. `doctor` goes to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regenerate`,
-`drift`, `glimpse`, `rejuvenate`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
+`drift`, `glimpse`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
 `cultivate`, `release`, `activate`, `/watch`, `/regenerate`, `/regen`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
 `/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.turri.yaml line by line and
 applies what turri fixed at its start - the chat's model, the coding model chosen this session, `parallel-jobs` - live.
@@ -93,7 +89,7 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
 - A job is a spec diff: `regenerate.ts` `renderSpecDiff` grows one in the code, landing on its unit
   tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
   what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, again, delete,
-  mechanical; again is `rejuvenate`'s functional specs, marked `grow_again` in the code record). The agent works, then the harness runs the project's unit testing script
+  mechanical; again is the functional specs `regenerate` names, marked `grow_again` in the code record). The agent works, then the harness runs the project's unit testing script
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
   Once they pass, `unit-review.ts` has a read-only reviewer - one session for the loop, shown the
   whole work diff first, then the diff since its last review (`workSnapshot`) and the coder's

@@ -63,7 +63,7 @@ conformance-tests: true            # write and run conformance tests where there
 
 The same file names the [testing scripts](growing.md#the-testing-scripts); every key is in
 [the project config](config.md). Options on the command
-line win over it; `turri regenerate`, `spec-diff`, `regrow` and `conformance` take its
+line win over it; `turri regenerate`, `spec-diff` and `bind` take its
 `coding-model` too, and `--coding-model` means the same as `--model` on every one of them.
 A project whose parts are on different stacks keeps each stack's settings in
 `config.turri.<stack>.yaml` beside it ([stacks](config.md#stacks)). Choose the one to build with

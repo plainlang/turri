@@ -1,7 +1,7 @@
 import { defaultBuildDir } from "./grow/paths.ts";
 import { historyLog, historyShow } from "./grow/lineage.ts";
 
-const USAGE = `usage: plainwright lineage <module> [commit]
+const USAGE = `usage: turri lineage <module> [commit]
 
 A module's lineage: every generation of its code and tests, and what each grew from, as git commits.
 With a commit, that commit in full.`;

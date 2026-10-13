@@ -1,7 +1,3 @@
-// First: the names turri had before are carried over before anything reads them.
-import { LEGACY_NAME } from "./legacy.ts";
-// A project built under the old names is brought over the first time it is found.
-import "./grow/migrate.ts";
 // Whether the terminal shows images, before anything draws: the banner's jellyfish is a picture or text.
 import "./terminal-images.ts";
 import { createHash } from "node:crypto";
@@ -244,14 +240,14 @@ export default function (pi: ExtensionAPI) {
       // A spec that contradicts itself is the person's to settle, now: the agent is started on it.
       if (job.specConflict !== undefined) {
         void pi.sendMessage(
-          { customType: "forge_spec_conflict", content: specConflictTask(job.specConflict), display: false, details: { jobId: job.id } },
+          { customType: "turri_spec_conflict", content: specConflictTask(job.specConflict), display: false, details: { jobId: job.id } },
           { triggerTurn: true },
         );
         return;
       }
       void pi.sendMessage(
         {
-          customType: "forge_job",
+          customType: "turri_job",
           content:
             (job.status === "succeeded"
               ? `Pulse ${job.id} (${job.kind}) finished after ${formatDuration(job)}.\n\n${job.report ?? ""}`
@@ -394,7 +390,6 @@ export default function (pi: ExtensionAPI) {
   registerCheckPlain(pi, cwd);
   registerRegenerate(pi, cwd, jobs);
   registerDrift(pi, cwd, jobs);
-  registerRejuvenate(pi, cwd, jobs);
   registerGlimpse(pi, cwd, jobs);
   registerBind(pi, cwd, jobs);
   registerRenderModels(pi);
@@ -599,7 +594,7 @@ export default function (pi: ExtensionAPI) {
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
         // The conversation's own regenerate, drift, halt and bind, on its loop: a skill waits for nothing, and grows on the model chosen.
         loopTools: [
-          regenerateTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
+          regenerateTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named, work) => jobModel(ctx, work ?? "spec_changes", named, plainFile), wait: () => false }),
           driftTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx) }),
           haltTool({ jobs }),
           bindTool({ cwd, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
@@ -661,7 +656,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       cwd,
       jobs,
       loop: (ctx) => workLoopFor(jobs, cwd, ctx),
-      model: (ctx, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile),
+      model: (ctx, plainFile, named, work) => jobModel(ctx, work ?? "spec_changes", named, plainFile),
       wait: (ctx, asked) => shouldWait(ctx.mode, asked),
     }),
   );
@@ -670,7 +665,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   // by the planner: one functional spec at a time, a few together or the whole module in one, as it judges. What
   // follows the module is guidance for that plan, in the person's words.
   pi.registerCommand("regenerate", {
-    description: "Regenerate a module from its spec as it is now, in pulses the planner cuts - or from scratch: /regenerate [module | file.plain] [from scratch] [how to cut the work]",
+    description: "Regenerate a module from its spec as it is now, in pulses the planner cuts - named functionalities though they did not change, or all of it from scratch: /regenerate [module | file.plain] [functionality ...] [from scratch] [how to cut the work]",
     handler: async (args, ctx) => {
       const [first = "", ...rest] = args.trim().split(/\s+/).filter((word) => word !== "");
       const named = first !== "" ? plainFileNamed(cwd, first) : undefined;
@@ -678,7 +673,11 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
         if (ctx.hasUI) ctx.ui.notify(`There is no ${first} here.`, "error");
         return;
       }
-      const guidance = (named !== undefined ? rest : [first, ...rest]).join(" ").trim();
+      // Functionalities named first, by id - 3, 2.1, fs 4 - as on the command line; what follows them is guidance.
+      const words = named !== undefined ? rest : [first, ...rest].filter((word) => word !== "");
+      const again: string[] = [];
+      while (words.length > 0 && /^(fs)?\d+(\.\d+)*,?$/i.test(words[0]!)) again.push(words.shift()!.replace(/^fs/i, "").replace(/,$/, ""));
+      const guidance = words.join(" ").trim();
       let plainFile = named;
       if (plainFile === undefined) {
         const modules = defaultMapFiles(cwd);
@@ -702,6 +701,10 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       // From scratch - started over, its code deleted - asked in the person's words: confirmed first, as it deletes.
       const scratch = asksFromScratch(guidance);
       const module = basename(plainFile).replace(/\.plain$/, "");
+      if (scratch && again.length > 0) {
+        if (ctx.hasUI) ctx.ui.notify("Name functionalities or ask for it from scratch, not both: from scratch regenerates every one of them.", "warning");
+        return;
+      }
       if (scratch && ctx.hasUI) {
         const agreed = await ctx.ui.confirm(
           `Regenerate ${module} from scratch?`,
@@ -710,12 +713,25 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
         if (!agreed) return;
       }
       const loop = workLoopFor(jobs, cwd, ctx);
-      const model = jobModel(ctx, "spec_changes", undefined, plainFile);
+      const model = jobModel(ctx, again.length > 0 ? "functionalities" : "spec_changes", undefined, plainFile);
       const request = { ...(model !== undefined ? { model } : {}), ...(guidance !== "" ? { guidance } : {}) };
       // Said at once: what follows takes a while - the planner is an agent - and the live panel shows it as it goes.
-      if (ctx.hasUI) ctx.ui.notify(scratch ? `Deleting ${module}'s code, then planning all of it again…` : `Planning ${module}'s pulses…`, "info");
+      if (ctx.hasUI) {
+        ctx.ui.notify(
+          scratch
+            ? `Deleting ${module}'s code, then planning all of it again…`
+            : again.length > 0
+              ? `Planning ${module}'s functionalit${again.length === 1 ? "y" : "ies"} ${again.join(", ")} again…`
+              : `Planning ${module}'s pulses…`,
+          "info",
+        );
+      }
       try {
-        const statuses = scratch ? await loop.fromScratch(plainFile, request) : await loop.bringUp(plainFile, request);
+        const statuses = scratch
+          ? await loop.fromScratch(plainFile, request)
+          : again.length > 0
+            ? await loop.growAgain(plainFile, again, request)
+            : await loop.bringUp(plainFile, request);
         if (ctx.hasUI) ctx.ui.notify(describeModules(statuses), "info");
       } catch (error) {
         if (ctx.hasUI) ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
@@ -776,7 +792,7 @@ function bindTool(options: {
       "the code record has every functional spec it tests, and does not start otherwise.",
     promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
     promptGuidelines: [
-      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.turri.yaml for it, and never rejuvenate a functionality to get them.",
+      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.turri.yaml for it, and never regenerate a functionality to get them.",
       "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regenerate returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
       "Conformance tests go in one pulse for all the functional specs tested. Set one_by_one only when the user asks for a pulse a functional spec - one at a time, separately, or the like.",
       "When the user asks for the conformance tests in pulses of their own grouping - 1-3 and 4-6 - pass those groups as groups, in one call: each group is a pulse of its own, never sharing one with another. Without groups, every functional spec named goes in one pulse.",
@@ -858,44 +874,6 @@ function registerGlimpse(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
         "Nothing was started. Tell the user what the next pulse is and what it will be told - the parts they are likely to care about, not the whole prompt unless they ask.",
       ].join("\n");
       return { content: [{ type: "text" as const, text }], details: {} };
-    },
-  });
-}
-
-function registerRejuvenate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
-  pi.registerTool({
-    name: "rejuvenate",
-    label: "Rejuvenate",
-    description:
-      "Grow again what is grown already. With functional specs named: their code is built, and is grown again as their " +
-      "spec says now - rewritten or started over, better made, what it replaces taken out - planned into pulses as any " +
-      "change is, the ones next to each other together, each with the definitions and reqs it uses; the conformance tests " +
-      "stay as they are. With none named: the codebase of a module that now requires a module its code was not built on - " +
-      "a module the specs were split into, say - starts over: its code and conformance tests are taken out, committed so " +
-      "its history keeps them, and the module is built again from the bottom of its chain.",
-    promptSnippet: "rejuvenate: grow functional specs again as their spec stands, or start a codebase over on a module it now requires",
-    promptGuidelines: [
-      "Name functional specs in `functionalities` when the user wants ones already grown grown again though their spec did not change - made better, on another model, after many patches - all in one call. When they want one to come out differently, change its spec instead, then regenerate.",
-      "With no functional specs: only when a module's status says it has to be started over, and only after asking the user and telling them why: its code was built without the module it now requires, so no change to the code brings that module in. If they do not agree, leave it: nothing else is built there until it is.",
-    ],
-    parameters: Type.Object({
-      plain_file: Type.String({ description: "Path to the .plain file of the module" }),
-      working_dir: WORKING_DIR_PARAM,
-      functionalities: Type.Optional(
-        Type.Array(Type.String(), { description: "Functional specs, by id, to grow again. Omitted: start over the codebase whose status says to" }),
-      ),
-      model: MODEL_PARAM,
-      wait: WAIT_PARAM,
-    }),
-    async execute(_id, given, _signal, _onUpdate, ctx) {
-      const params = fromWorkingDir(cwd, given);
-      const model = jobModel(ctx, "functionalities", params.model, params.plain_file);
-      const plainFile = resolve(params.base, params.plain_file);
-      const loop = workLoopFor(jobs, cwd, ctx);
-      const request = model !== undefined ? { model } : {};
-      const again = params.functionalities ?? [];
-      const statuses = again.length > 0 ? await loop.growAgain(plainFile, again, request) : await loop.startOver(plainFile, request);
-      return loopReply(loop, statuses, shouldWait(ctx.mode, params.wait));
     },
   });
 }
@@ -1129,8 +1107,6 @@ let lastChatModel: string | undefined;
 /** The models chosen in this session, by kind of work. Saved in the session, so a resume keeps them. */
 const chosenModels: ModelChoices = {};
 const MODEL_CHOICE_ENTRY = "turri_render_models";
-/** The same, as sessions saved it before turri had its name. */
-const LEGACY_MODEL_CHOICE_ENTRY = `${LEGACY_NAME}_render_models`;
 
 /**
  * The model a job's agents run on: the one named on the call, checked now so a wrong name fails
@@ -1204,7 +1180,7 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
       "The engine: which model the agents that grow the code run on. With no model, say which it is. With one, choose it " +
       "for the rest of this session: for spec changes " +
       "(render spec diff pulses, and the ones write_spec_diff queues), for functionalities (render, module, " +
-      "rejuvenate, conformance), or for everything. By default " +
+      "regenerate with functionalities named, conformance), or for everything. By default " +
       "each runs on the model the project's config.turri.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Pulses already queued keep their model.",
@@ -1258,7 +1234,7 @@ function registerRenderModels(pi: ExtensionAPI) {
     for (const key of Object.keys(chosenModels)) delete chosenModels[key as keyof ModelChoices];
     const saved = ctx.sessionManager
       .getBranch()
-      .filter((entry) => entry.type === "custom" && [MODEL_CHOICE_ENTRY, LEGACY_MODEL_CHOICE_ENTRY].includes((entry as { customType?: string }).customType ?? ""))
+      .filter((entry) => entry.type === "custom" && (entry as { customType?: string }).customType === MODEL_CHOICE_ENTRY)
       .at(-1) as { data?: ModelChoices } | undefined;
     Object.assign(chosenModels, saved?.data ?? {});
   });
@@ -1680,11 +1656,9 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   };
 
   // The side panel's two views: /regen opens it on regen - the spec, with how far the code has grown into it - and
-  // /pulses on every pulse, growing, planned and finished, and what each grows. /growth, which once listed the pulses
-  // in the chat, opens it too. What the agents did is in each pulse's log.
+  // /pulses on every pulse, growing, planned and finished, and what each grows. What the agents did is in each pulse's log.
   for (const [name, description, view] of [
     ["regen", `regen, in the side panel: every item of the spec, built, growing, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
-    ["growth", "regen, in the side panel: the same as /regen.", "map"],
     ["pulses", `The pulses, in the side panel: every pulse, growing, planned and finished, and what each grows. ${PANEL_KEY} opens the panel too.`, "pulses"],
   ] as const) {
     pi.registerCommand(name, {
@@ -2079,7 +2053,7 @@ function specConflictTask(conflict: SpecConflict): string {
   ].join("\n");
 }
 
-const INTERVIEW_ENTRY = "forge_exchange";
+const INTERVIEW_ENTRY = "turri_exchange";
 
 /**
  * A skill's question as the transcript keeps it: who asked, what it said before asking - a brief to confirm, the choices

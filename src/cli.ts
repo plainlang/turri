@@ -7,10 +7,6 @@
  * rather than to run from this repo and reach across with absolute paths.
  */
 
-// First: the names turri had before are carried over before anything reads them.
-import "./legacy.ts";
-// A project built under the old names is brought over the first time it is found.
-import "./grow/migrate.ts";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,11 +41,6 @@ function piInstalled(): boolean {
 /** The theme `turri` starts in. */
 const DEFAULT_THEME = "turri-dark";
 
-/** A --use-theme value with the themes' old names - forge, forge-light - as they are called now. */
-function renamedThemes(value: string): string {
-  return value.replace(/\bforge-light\b/g, "turri-light").replace(/\bforge\b(?!-)/g, "turri-dark");
-}
-
 function chat(args: string[]): never {
   if (!piInstalled()) {
     console.error(`pi is not installed beside turri (${PACKAGE_ROOT}). Run npm install there, or install turri again.`);
@@ -67,8 +58,6 @@ function chat(args: string[]): never {
   // turri's own theme, unless this run names another. For this run only: pi's settings
   // are left as they are, so a plain `pi` keeps its theme.
   const useTheme = args.some((arg) => arg === "--use-theme" || arg.startsWith("--use-theme=")) ? [] : ["--use-theme", DEFAULT_THEME];
-  // The themes were called forge and forge-light: a --use-theme naming them gets the ones they are now.
-  args = args.map((arg, index) => (index > 0 && args[index - 1] === "--use-theme") || arg.startsWith("--use-theme=") ? renamedThemes(arg) : arg);
 
   // The model the person talks to, and the one every render runs on - see chat-models.ts.
   const { piArgs, codingModel } = chatModels(args, readProjectConfig(process.cwd()));
@@ -95,16 +84,6 @@ const COMMANDS: Record<string, { module: string; blurb: string; args?: string[] 
   lineage: { module: "./lineage-cli.ts", blurb: "a module's lineage: what grew into it, and when" },
   release: { module: "./release-cli.ts", blurb: "release what is grown to dist/<module> and activate it on this machine" },
   cultivate: { module: "./cultivate-cli.ts", blurb: "run a gated skill" },
-};
-
-/** The names the commands had before: still taken, not listed. */
-const ALIASES: Record<string, string> = {
-  module: "regenerate",
-  regrow: "regenerate",
-  conformance: "bind",
-  check: "validate",
-  deploy: "release",
-  skill: "cultivate",
 };
 
 /** Getting the machine ready, and checking it is. */
@@ -162,10 +141,9 @@ if (command === "-h" || command === "--help") {
   process.exit(0);
 }
 
-// turri alone is the conversation, and so is turri with pi's options - `turri -c`, `turri --harness-model <m>`. It was
-// `turri chat`, which still opens it. A word turri does not know is an error below, not a conversation started on it.
+// turri alone is the conversation, and so is turri with pi's options - `turri -c`, `turri --harness-model <m>`. A word
+// turri does not know is an error below, not a conversation started on it.
 if (command === undefined || command.startsWith("-")) chat(argv);
-if (command === "chat") chat(rest);
 
 if (command === "init-config") {
   const { main } = await import("./init-config.ts");
@@ -177,16 +155,7 @@ if (command === "doctor") {
   process.exit(await main(rest));
 }
 
-if (command === "setup") {
-  console.error("turri setup is gone: turri doctor checks everything turri needs, and is the one command for it.");
-  process.exit(1);
-}
-
-if (command === "render") {
-  console.error("turri render is gone: turri regenerate <file.plain> grows what is left of the spec, and turri regenerate <file.plain> <frid> grows one functionality again.");
-  process.exit(1);
-}
-const entry = COMMANDS[ALIASES[command] ?? command];
+const entry = COMMANDS[command];
 if (entry === undefined) {
   console.error(`unknown command: ${command}\n\n${USAGE}`);
   process.exit(1);

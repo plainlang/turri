@@ -1019,7 +1019,7 @@ describe("a codebase built without a module it now requires", () => {
     expect(existsSync(join(codeDir(), "app.py"))).toBe(true);
     // The chat is told to ask, and why; the command line, how.
     expect(describeModules([status!])).toContain("Ask the user whether to start app over, and say why: app was built without greeting");
-    expect(describeModules([status!], { for: "command line" })).toContain("turri regenerate app.plain --rejuvenate");
+    expect(describeModules([status!], { for: "command line" })).toContain("turri regenerate app.plain --start-over");
 
     await loop.startOver("app.plain");
     await loop.drain();

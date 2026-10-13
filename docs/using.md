@@ -8,7 +8,7 @@ turri
 ```
 
 That is pi, with turri's tools, skills and themes loaded - `turri` alone, or with pi's options
-(`turri -c`, `turri --harness-model <m>`); `turri chat`, its old name, still opens it. It opens with turri's own
+(`turri -c`, `turri --harness-model <m>`). It opens with turri's own
 banner - the jellyfish it is named after, swimming until the conversation fills the screen: a picture in a
 terminal that shows images (Kitty, Ghostty, WezTerm, Warp, iTerm2), and drawn in text in any other, tmux
 included - swimming a stroke a loop, its tentacles following its bell, frames `scripts/jellyfish-frames.mjs`
@@ -47,12 +47,11 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 
 | tool | |
 | --- | --- |
-| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped |
+| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped. With functionalities named, those are regenerated though their spec did not change - rewritten or started over, planned into pulses as any change is; with `from_scratch`, the whole module, its code deleted first - only when you ask, or agree |
 | `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
 | `bind` | bind functional specs to conformance tests - now, or ahead of their code: every one tested in one conformance pulse, as far as a size guardrail lets (or one a functional spec, or a pulse each of groups you name - 1-3 and 4-6 - when you ask for that), started once every one named is grown; whatever the config says |
-| `rejuvenate` | grow again what is grown: functional specs named grow again though their spec did not change - rewritten or started over, planned into pulses as any change is, those next to each other together; with none named, a codebase grown without a module it now requires starts over from the bottom of its chain - only once you agree |
 | `validate` | validate a spec, growing nothing |
 | `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |
 | `growth` | the pulses - running, planned and finished - or one of them |
@@ -126,7 +125,7 @@ come waits for a free slot, and says so.
   as GitHub names a hunk's function: each section is named once.
 - **The side panel** (`ctrl+h`, as it was left - but on the pulse that last failed, stopped or did not pass, when one has
   since it was last opened: the live panel that showed it is gone with the last pulse, and its announcement in the chat
-  says `ctrl+h shows this pulse`; **`/regen`** on regen - `/growth` too - **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
+  says `ctrl+h shows this pulse`; **`/regen`** on regen, **`/pulses`** on the pulses; not `ctrl+j`, which a terminal without the Kitty
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time.
@@ -227,7 +226,7 @@ come waits for a free slot, and says so.
   is laid over `config.turri.yaml` - its testing scripts, toolchains, models - for the session; a pulse already
   running keeps the stack it started with. The chat model switches it too when you ask. See
   [stacks](config.md#stacks).
-- **`/regenerate [module | file.plain] [from scratch] [how to cut the work]`** regenerates a module from its spec as it is now, as
+- **`/regenerate [module | file.plain] [functionality ...] [from scratch] [how to cut the work]`** regenerates a module from its spec as it is now, as
   the `regenerate` tool does: what is left to grow is planned into pulses - one functional spec at a time, a few
   together or the whole module in one, as the planner judges - and the first starts. Words after the module are
   guidance for that plan (`/regenerate app models first`). With no module named: the one `module:` in
@@ -236,6 +235,9 @@ come waits for a free slot, and says so.
   codebase where they live, committed so `/lineage` keeps them, and regenerates the whole module from its spec,
   built though nothing in it changed: `/regenerate shorty from scratch`. The chat's `regenerate` does the same with
   `from_scratch`, when you ask for it; `turri regenerate --from-scratch` on the command line, not with `--dry-run`.
+  Functionalities named after the module - `/regenerate shorty 3 5` - are regenerated though their spec did not
+  change, on the model chosen for functionalities: as `turri regenerate shorty.plain 3 5` does, and the chat's
+  `regenerate` with `functionalities`.
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
   server `activate` started; it lists both when no id is given.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
@@ -250,8 +252,8 @@ come waits for a free slot, and says so.
   module is to start from it. Specs moved into a module the code was not built on stop the codebase:
   no change to its code brings that module in, so it has to be started over - its code and
   conformance tests taken out, kept in its history, and built again from the bottom of the chain.
-  That is never done unasked: the chat asks you, saying why, and `rejuvenate` does it once you agree;
-  on the command line `turri regenerate` asks at the terminal, and `--rejuvenate` agrees in advance.
+  That is never done unasked: the chat asks you, saying why, and regenerates it from scratch once you agree;
+  on the command line `turri regenerate` asks at the terminal, and `--start-over` agrees in advance.
 - **Conformance tests are a track of their own.** A code pulse lands once its unit tests pass and are
   reviewed. Then, before the next one builds on it, a conformance pulse writes and runs the tests of what it
   built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one
@@ -375,10 +377,10 @@ rather than surfacing as an agent that said nothing.
 
 Each `plain_modules/<module>` is a git repository whose git directory is `.plaingit` rather than
 `.git`, so it stays plain files to your own repository. A commit is made after every step that
-changes the module - a render, a rejuvenation, a conformance run, a regression repair, a spec
+changes the module - a render, a functionality regenerated, a conformance run, a regression repair, a spec
 change. `/lineage [module]` and `lineage` show it.
 
-The last commit is also the last known good state. Every render, rejuvenation, spec change and
+The last commit is also the last known good state. Every render, functionality regenerated, spec change and
 conformance run starts by putting the codebase it works in back to it, so if turri was
 stopped or restarted mid-pulse, whatever that pulse left half-written is undone first - and one that
 does not pass is undone the same way when it ends, commits and all. Only work that passed is
@@ -439,11 +441,7 @@ turri cultivate brood                  # run a skill directly - by name, the pro
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
 ```
 
-The commands' names before turri had its name - `module`, `regrow`, `conformance`, `check`, `deploy`,
-`skill` - still run them.
-
-The ones that build take `--model provider/model-id`; `module` also takes `--build-dir` and
+The ones that build take `--model provider/model-id`; `regenerate` also takes `--build-dir` and
 `--dry-run`, which plans the work, prints the prompt of each codebase's first pulse and starts nothing.
 Template directories come from `PLAIN_TEMPLATE_DIRS`. `--help`
-on any of them lists the rest. The bin is
-`turri`, not `forge`: `forge` is already Foundry's.
+on any of them lists the rest.

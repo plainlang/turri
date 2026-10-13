@@ -163,7 +163,7 @@ A few more things to ask for along the way:
 | --- | --- |
 | *what is left to grow?* | `drift`: how far the code is from the spec, starting nothing |
 | *show me the lineage of backend* | every generation of its code, as git commits - what grew into it, and when |
-| *regenerate the login again* | `rejuvenate`: grow a functional spec again from its spec, though nothing changed |
+| *regenerate the login again* | `regenerate` with the login named: grow a functional spec again from its spec, though nothing changed |
 | *what would the next pulse do?* | `glimpse`: plan the work and show the first prompt, starting nothing |
 
 ## Where next

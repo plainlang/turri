@@ -229,7 +229,7 @@ export function describeDrift(reports: DriftReport[]): string {
       for (const group of report.scheduled) lines.push(`  bound ahead: fs ${group.frids.join(", fs ")} - once ${group.unbuilt.map((frid) => `fs ${frid}`).join(", ")} ${group.unbuilt.length === 1 ? "is" : "are"} grown`);
       if (report.running !== undefined) lines.push(`  growing now: pulse ${report.running.jobId} - ${report.running.title}`);
       if (report.why !== undefined) lines.push(`  ${report.why}`);
-      if (report.startOver !== undefined) lines.push(`  it has to be rejuvenated on ${report.startOver.requires.join(", ")} before anything more grows there`);
+      if (report.startOver !== undefined) lines.push(`  it has to be regenerated from scratch on ${report.startOver.requires.join(", ")} before anything more grows there`);
       return lines.join("\n");
     })
     .join("\n") + verdict;
@@ -248,7 +248,7 @@ export interface WorkLoop {
    * of every codebase it is built in - committed - and they are brought up to their spec, the marked ones planned as
    * any change is. Their code is there: the jobs that grow them are told to grow it again, not to build it anew.
    */
-  growAgain(plainFile: string, frids: string | string[], options?: { model?: string }): Promise<ModuleStatus[]>;
+  growAgain(plainFile: string, frids: string | string[], options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
   /**
    * What is left to grow, for a spec's module, in each codebase where its code lives: the code's work from its record to
    * the spec now, and the conformance tests' - planning nothing, starting nothing.
@@ -1604,12 +1604,12 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
     if (status.startOver === undefined) return [];
     const { requires, codebases } = status.startOver;
     return options.for === "command line"
-      ? [`  turri regenerate ${basename(status.plainFile)} --rejuvenate starts ${codebases.join(", ")} over`]
+      ? [`  turri regenerate ${basename(status.plainFile)} --start-over starts ${codebases.join(", ")} over`]
       : [
           `  Ask the user whether to start ${codebases.join(", ")} over, and say why: ${codebases.join(", ")} was built without ` +
             `${requires.join(", ")}, so no change to its code can bring ${requires.join(", ")} in - its code and conformance ` +
             "tests are taken out, kept in its history, and built again from the bottom of the chain. Only if they agree, " +
-            `call rejuvenate with ${basename(status.plainFile)}.`,
+            `call regenerate with ${basename(status.plainFile)} and from_scratch.`,
         ];
   };
   return statuses

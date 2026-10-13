@@ -3,11 +3,11 @@ import { askedForCommandLine, refusal, selfInvocation } from "../src/self-invoca
 
 describe("a shell command that runs turri again", () => {
   it("is caught in every form it is written", () => {
-    expect(selfInvocation("turri module app.plain --model openai/gpt-5.5")).toBe("module");
-    expect(selfInvocation("cd ~/proj && turri render app.plain 2")).toBe("render");
-    expect(selfInvocation("nohup turri regrow app.plain 3 > log 2>&1 &")).toBe("regrow");
-    expect(selfInvocation("npx turri conformance app.plain 1")).toBe("conformance");
-    expect(selfInvocation("node bin/turri.mjs skill genome/skills/brood")).toBe("skill");
+    expect(selfInvocation("turri regenerate app.plain --model openai/gpt-5.5")).toBe("regenerate");
+    expect(selfInvocation("cd ~/proj && turri spec-diff app.plain change.diff")).toBe("spec-diff");
+    expect(selfInvocation("nohup turri regenerate app.plain 3 > log 2>&1 &")).toBe("regenerate");
+    expect(selfInvocation("npx turri bind app.plain 1")).toBe("bind");
+    expect(selfInvocation("node bin/turri.mjs cultivate genome/skills/brood")).toBe("cultivate");
     expect(selfInvocation("npm run regenerate -- app.plain")).toBe("regenerate");
     expect(selfInvocation("npx tsx src/regenerate-cli.ts app.plain 1")).toBe("regenerate");
     expect(selfInvocation("turri regenerate app.plain")).toBe("regenerate");
@@ -15,12 +15,10 @@ describe("a shell command that runs turri again", () => {
     expect(selfInvocation("turri bind app.plain 2")).toBe("bind");
     expect(selfInvocation("turri release app.plain")).toBe("release");
     expect(selfInvocation('pi -p "build it"')).toBe("pi");
-    expect(selfInvocation("turri chat -p 'render the module'")).toBe("chat");
     expect(selfInvocation("turri -p 'render the module'")).toBe("chat");
     expect(selfInvocation("cd ~/proj && turri")).toBe("chat");
     expect(selfInvocation("nohup turri --harness-model x -p go > log 2>&1 &")).toBe("chat");
     expect(selfInvocation("node bin/turri.mjs -c")).toBe("chat");
-    expect(selfInvocation("turri deploy app.plain")).toBe("deploy");
   });
 
   it("lets pi configure and describe itself, and catches it starting an agent", () => {
@@ -48,8 +46,8 @@ describe("a shell command that runs turri again", () => {
   });
 
   it("is refused with the tool to use instead", () => {
-    expect(refusal("module")).toContain("Use regenerate instead.");
-    expect(refusal("deploy")).toContain("Use release instead.");
+    expect(refusal("spec-diff")).toContain("Use regenerate instead.");
+    expect(refusal("release")).toContain("Use release instead.");
     expect(refusal("pi")).toContain("Do not start another agent");
   });
 });

@@ -288,7 +288,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     throw new Error(
       `${tip.moduleName} now requires ${fresh.modules.join(", ")}, which its code was not built on, so a spec diff cannot bring the change in. ` +
         `Its code has to be started over on it - ${fresh.rebuild.map((entry) => entry.moduleName).join(", ")} taken out, kept in the history, and built ` +
-        `again from the bottom of the chain: rejuvenate in the chat, once the user agrees, or turri regenerate ${relative(cwd, tip.plainFile)} --rejuvenate.`,
+        `again from the bottom of the chain: regenerate it from scratch in the chat, once the user agrees, or turri regenerate ${relative(cwd, tip.plainFile)} --start-over.`,
     );
   }
   stage(`the spec diff is ${applied === "applied" ? "applied to the .plain files" : "already in the .plain files"} - rendering it in ${moduleName}'s codebase`);

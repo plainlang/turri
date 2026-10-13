@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/turri-banner.png" alt="turri - coding agent with the power of regenerative software: regenerate, drift, rejuvenate, lineage"></p>
+<p align="center"><img src="docs/images/turri-banner.png" alt="turri - coding agent with the power of regenerative software: regenerate, drift, lineage"></p>
 
 <h1 align="center">turri<br>the first coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
@@ -67,7 +67,7 @@ chat with `/turri-config`. Any other model works too: [models](#models).
 
 Once `turri` is running, say: *Let's start a new project: a small API where people can register and sign in.*
 
-No project of your own yet? Grow one of [**the examples**](examples/README.md) with turri, step by step.
+No project of your own yet? Build one of [**the examples**](examples/README.md) with turri, step by step.
 
 Rather not install Node and the rest? **turri** also runs in Docker, from one image: [turri in Docker](docker/README.md).
 
@@ -160,14 +160,14 @@ That is what regenerative software asks of software, and what **turri** does:
 
 | *Turritopsis dohrnii* | **turri** |
 | --- | --- |
-| Its genes are what it is: every generation grows from the same ones. | \*\*\*plain is what the software is: every generation of code grows from it. |
-| Injured or old, it does not patch itself: it goes back to the polyp and grows the adult again. | Code that has drifted is not patched prompt after prompt: it is grown again from \*\*\*plain, as much of it as has to be. |
+| Its genes are what it is: every generation grows from the same ones. | \*\*\*plain is what the software is: every generation of code is regenerated from it. |
+| Injured or old, it does not patch itself: it goes back to the polyp and grows the adult again. | Code that has drifted is not patched prompt after prompt: it is regenerated from \*\*\*plain, as much of it as has to be. |
 | Every cell can become another, and it is still the same jellyfish. | Every line of code can be replaced, and it is still the same software - because what it is never lived in the code. |
-| It can do it again and again, for as long as it lives. | The code can be grown again whenever \*\*\*plain changes or a model gets better, for as long as \*\*\*plain is kept. |
+| It can do it again and again, for as long as it lives. | The code can be regenerated whenever \*\*\*plain changes or a model gets better, for as long as \*\*\*plain is kept. |
 
-So the tools speak its language: **`regenerate`** grows the code again from \*\*\*plain as it is now, **`drift`** says how far
-the code has moved from it, **`rejuvenate`** grows again what is grown - functionalities, or a codebase back from the start - and **`lineage`**
-shows every generation of a module and what each grew from.
+So the tools speak its language: **`regenerate`** regenerates the code from \*\*\*plain as it is now - or the functionalities
+you name, though nothing changed, or all of it from scratch - **`drift`** says how far the code has moved from it, and
+**`lineage`** shows every generation of a module and what each was regenerated from.
 
 ## Models
 
@@ -210,11 +210,11 @@ It runs the interview skill, asks you about the problem, the stack and the produ
 
 - the **panel** above the input shows every build - its stage, what its agents are doing, its
   model and cost - and the queue behind it;
-- ask to try it at any time - "let me try it" - and **`release`** puts what is grown so far in
+- ask to try it at any time - "let me try it" - and **`release`** puts what is built so far in
   `dist/<module>` and **`activate`** starts it, installing what it needs - nothing to approve;
-- the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - \*\*\*plain, every item marked built, growing, planned or waiting - and `p` turns it to the **pulses** (`/pulses`) - every pulse, growing, planned and finished, and what each grows; what its agents did is in each pulse's log in `.turri/jobs/`;
-- **`/halt`** halts a pulse, **`/lineage`** shows what grew into a
-  module, and the **`drift`** tool says what is left to grow;
+- the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - \*\*\*plain, every item marked planned, working, regenerated, bound or needs you - and `p` turns it to the **pulses** (`/pulses`) - every pulse, running, queued and finished, and what each regenerates; what its agents did is in each pulse's log in `.turri/jobs/`;
+- **`/halt`** halts a pulse, **`/lineage`** shows every generation of a
+  module, and the **`drift`** tool says what is left to regenerate;
 - **`/btw <question>`** asks turri something on the side - answered at once, even in the middle of a skill's interview
   (typed as the answer, under "Something else…"), and left out of the conversation;
 - **`/turri-config`** changes any setting of the project's `config.turri.yaml` - the models, review, conformance tests,
@@ -230,7 +230,7 @@ Other things to ask for:
 >
 > Regenerate the whole module, and bind every functionality to conformance tests.
 >
-> Grow changes to \*\*\*plain with a faster model.
+> Regenerate changes to \*\*\*plain with a faster model.
 
 The last one holds for the rest of the session; the model can be chosen separately for changes to
 \*\*\*plain and for functionalities, and a name that fits more than one model is asked about rather
@@ -240,9 +240,9 @@ Without a conversation, the same work is on the command line:
 
 ```bash
 turri validate app.plain    # validate ***plain - no model, no API key
-turri drift app.plain       # what is left to grow - starts nothing
-turri regenerate app.plain      # grow the code from ***plain: planned into jobs, run until it is grown
-turri regenerate app.plain 3    # grow functionality 3 again, changed or not
+turri drift app.plain       # what is left to regenerate - starts nothing
+turri regenerate app.plain      # regenerate the code from ***plain: planned into jobs, run until it is done
+turri regenerate app.plain 3    # regenerate functionality 3, changed or not
 ```
 
 More: [using **turri**](docs/using.md); to render \*\*\*plain overnight, see
@@ -255,7 +255,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | | |
 | --- | --- |
 | [Installation](docs/installation.md) | doctor, what turri needs of this machine, **turri** and `pi`, environment variables |
-| [Examples](examples/README.md) | projects to grow with turri step by step: cognio from an empty folder, a CLI, a backend service with conformance tests, a REST API integration |
+| [Examples](examples/README.md) | projects to build with turri step by step: cognio from an empty folder, a CLI, a backend service with conformance tests, a REST API integration |
 | [Using **turri**](docs/using.md) | the conversation, skills, tools, pulses and regen, choosing models, the command line |
 | [The project config](docs/config.md) | `config.turri.yaml` and each stack's `config.turri.<stack>.yaml`: every key, models and their inheritance, conformance, the testing scripts, stacks and choosing one, the old `config.yaml` |
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |

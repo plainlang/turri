@@ -11,9 +11,9 @@ counterpart of regenerate, given a diff. The diff is applied first, unless it is
 turri regenerate does, what is left to build is planned into jobs and built.
 
   --model <provider/id>    model for the agents (default: config.turri.yaml's coding-model)
-  --rejuvenate             rejuvenate, without asking, a codebase grown without a module it now requires`;
+  --start-over             start over, without asking, a codebase grown without a module it now requires`;
 
-const { positional, options } = parseArgs(process.argv.slice(2), ["--rejuvenate", "--start-over"], USAGE);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--start-over"], USAGE);
 const [plainFile, diffFile] = positional;
 if (plainFile === undefined || diffFile === undefined) {
   console.error(USAGE);
@@ -31,7 +31,7 @@ if (!check.ok) {
 runLoop({
   plainFile,
   ...(options.model !== undefined ? { model: options.model } : {}),
-  startOver: options.rejuvenate !== undefined || options["start-over"] !== undefined,
+  startOver: options["start-over"] !== undefined,
   ask: (loop) => loop.bringUp(plainFile, options.model !== undefined ? { model: options.model } : {}),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

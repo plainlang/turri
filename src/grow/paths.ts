@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,22 +48,9 @@ export function defaultBuildDir(moduleName: string, cwd: string = process.cwd())
 export function projectDirOf(plainFile: string): string {
   const start = dirname(resolve(plainFile));
   for (let dir = start; ; dir = dirname(dir)) {
-    if (existsSync(join(dir, "config.yaml")) || existsSync(join(dir, MODULES_DIR)) || hasModuleConfig(dir)) return found(dir);
-    if (dirname(dir) === dir) return found(start);
+    if (existsSync(join(dir, "config.yaml")) || existsSync(join(dir, MODULES_DIR)) || hasModuleConfig(dir)) return dir;
+    if (dirname(dir) === dir) return start;
   }
-}
-
-/** Hooks run on a project the first time it is found: its files brought over from the names turri had before. */
-const onProject: Array<(dir: string) => void> = [];
-
-/** Run `hook` on every project found from now on (see grow/migrate.ts). */
-export function whenProjectFound(hook: (dir: string) => void): void {
-  onProject.push(hook);
-}
-
-function found(dir: string): string {
-  for (const hook of onProject) hook(dir);
-  return dir;
 }
 
 /** Whether a folder holds a config file - config.turri.yaml, a stack's config.turri.<stack>.yaml, or one in the old naming - which makes it a project too. */
@@ -149,26 +136,10 @@ export function scratchDir(dir: string): string {
  * Where a skill run keeps its state - the manifest an interrupted run resumes from, the evidence
  * each phase's gate is judged on: `.turri/runs/<skill>` in the project, beside the rest of
  * turri's scratch, ignored by the project's history like it.
- *
- * Runs were kept in `.forge/run` before. One found there is moved here, so an interrupted
- * interview can still be resumed, and `.forge` goes once nothing is left in it.
  */
 export function skillRunDir(cwd: string, skillName: string): string {
   const scratch = join(resolve(cwd), ".turri");
-  const dir = join(scratch, "runs", skillName);
-  const legacy = join(resolve(cwd), ".forge", "run", skillName);
-  if (!existsSync(dir) && existsSync(legacy)) {
-    mkdirSync(dirname(dir), { recursive: true });
-    renameSync(legacy, dir);
-  }
-  for (const empty of [join(resolve(cwd), ".forge", "run"), join(resolve(cwd), ".forge")]) {
-    try {
-      if (existsSync(empty) && readdirSync(empty).length === 0) rmdirSync(empty);
-    } catch {
-      // Left as it is: a folder that cannot be removed does no harm.
-    }
-  }
-  return ensureInScratch(scratch, dir);
+  return ensureInScratch(scratch, join(scratch, "runs", skillName));
 }
 
 /**

@@ -8,15 +8,15 @@ Regenerates the module's code from its spec as it is now, and everything it requ
 the chat does: what is left to grow - from what each module's code was grown from to its spec now -
 is planned into jobs, and they run one after the other until the code is grown from the spec, each
 followed by the conformance tests of what it grew when they are on. Then it says how each went.
-With functional specs named, those are grown again though their spec did not change - as rejuvenate
-does in the chat: their code rewritten or started over, doing what the spec says.
+With functional specs named, those are grown again though their spec did not change - as regenerate
+does in the chat with functionalities named: their code rewritten or started over, doing what the spec says.
 
 The project's config.turri.yaml, in the current directory, gives the defaults: module (the file to
 build when none is given), coding-model (the agents that build), harness-model (the planner), and
 conformance-tests.
 
   --dry-run                plan the work and print the prompt of the first job, and run nothing (turri glimpse)
-  --rejuvenate             rejuvenate, without asking, a codebase grown without a module it now requires
+  --start-over             start over, without asking, a codebase grown without a module it now requires
   --from-scratch           delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it
   --build-dir <dir>        default: plain_modules/<module>/code
   --model <provider/id>    model for the agents
@@ -37,7 +37,7 @@ const GONE: Record<string, string> = {
   "template-dir": "set PLAIN_TEMPLATE_DIRS",
 };
 
-const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run", "--rejuvenate", "--start-over", "--from-scratch"], USAGE);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run", "--start-over", "--from-scratch"], USAGE);
 for (const [name, instead] of Object.entries(GONE)) {
   if (options[name] !== undefined) console.log(c.dim(`--${name} is no longer an option: ${instead}.`));
 }
@@ -58,7 +58,7 @@ runLoop({
   ...(options.model !== undefined ? { model: options.model } : {}),
   ...(options["build-dir"] !== undefined ? { buildDir: options["build-dir"] } : {}),
   dryRun: options["dry-run"] !== undefined,
-  startOver: options.rejuvenate !== undefined || options["start-over"] !== undefined,
+  startOver: options["start-over"] !== undefined,
   ask: (loop) =>
     again.length > 0
       ? loop.growAgain(named, again, options.model !== undefined ? { model: options.model } : {})

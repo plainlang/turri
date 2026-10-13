@@ -12,7 +12,6 @@ import {
   type SpecificationItem,
 } from "../plain/spec.ts";
 import { committedText } from "./lineage.ts";
-import { LEGACY_NAME } from "../legacy.ts";
 
 /**
  * What a module is built from, in two records - see docs/growing.md.
@@ -32,7 +31,7 @@ export const RECORD_FILE = ".turri.json";
 
 /**
  * A functional spec in the code record marked to grow again: its code is built, and is to be grown again all the
- * same - `rejuvenate` with functional specs named. The mark makes the record differ from the spec at that item, so
+ * same - `regenerate` with functionalities named. The mark makes the record differ from the spec at that item, so
  * the work loop plans it as it plans any change, and the job that grows it writes the item back without it.
  */
 export const GROW_AGAIN = "grow_again";
@@ -322,16 +321,9 @@ function readFileText(path: string): string | undefined {
  * the file as it is. Null when there is none.
  */
 export function readRecord(dir: string, options: { onDisk?: boolean } = {}): MarshalledPlainSource | null {
-  for (const file of [RECORD_FILE, LEGACY_RECORD_FILE]) {
-    const committed = options.onDisk === true ? undefined : committedText(dir, file);
-    const record = readRecordText(committed ?? readFileText(join(dir, file)));
-    if (record !== null) return record;
-  }
-  return null;
+  const committed = options.onDisk === true ? undefined : committedText(dir, RECORD_FILE);
+  return readRecordText(committed ?? readFileText(join(dir, RECORD_FILE)));
 }
-
-/** The record's name before turri had its name - read when a project has not been brought over yet (grow/migrate.ts). */
-const LEGACY_RECORD_FILE = `.${LEGACY_NAME}.json`;
 
 /** Write the code record: the tree, as the code sees it. */
 export function writeCodeRecord(codeDir: string, tree: MarshalledPlainSource): void {

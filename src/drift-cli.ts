@@ -2,7 +2,7 @@ import { readProjectConfig, CONFIG_FILE } from "./config.ts";
 import { createJobRegistry } from "./grow/jobs.ts";
 import { createWorkLoop, describeDrift } from "./grow/loop.ts";
 
-const USAGE = `usage: plainwright drift [file.plain]
+const USAGE = `usage: turri drift [file.plain]
 
 How far the module's code has drifted from its spec, in each codebase where it lives: what is left to
 grow, and the conformance tests left to write. Plans nothing, starts nothing, calls no model.`;

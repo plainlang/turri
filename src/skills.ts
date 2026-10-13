@@ -42,7 +42,7 @@ function folders(root: string, includeFixtures: boolean): string[] {
 export function discoverSkills(packageRoot: string, projectDir: string | undefined): SkillCatalogue {
   const catalogue: SkillCatalogue = { skills: [], pending: [], shadowed: [] };
   const builtIn = join(packageRoot, "genome", "skills");
-  for (const name of folders(builtIn, process.env.FORGE_INCLUDE_FIXTURES === "1")) {
+  for (const name of folders(builtIn, process.env.TURRI_INCLUDE_FIXTURES === "1")) {
     try {
       catalogue.skills.push({ ...loadSkill(join(builtIn, name)), origin: "turri" });
     } catch {
