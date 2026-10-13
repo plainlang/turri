@@ -178,6 +178,7 @@ describe("the work loop", () => {
     expect(ran.map((job) => job.fresh)).toEqual([true, false, false]);
     expect(readRecord(codeDir())).toEqual(codeTree(snapshotSpec(join(dir, "app.plain"), { cwd: dir }).tree));
     expect(loop.status()[0]).toMatchObject({ module: "app", planned: [], why: "built from the spec as it is" });
+    expect(describeModules(loop.status())).toBe("app is up to date: its code is built from the spec as it is now in app.plain, so there is nothing to regenerate.");
   });
 
   it("is not fully grown while a pulse that ended without passing has its work undone - and is, once it lands", async () => {

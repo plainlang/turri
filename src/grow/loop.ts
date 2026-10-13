@@ -1098,7 +1098,7 @@ export function createWorkLoop(options: {
     }
     if (!codeLeft) {
       state.plan = undefined;
-      state.why = state.conformanceHalted?.why ?? "built from the spec as it is";
+      state.why = state.conformanceHalted?.why ?? UP_TO_DATE;
       return;
     }
     const fromKey = serializeTree(from);
@@ -1466,6 +1466,9 @@ export function createWorkLoop(options: {
 }
 
 /** Why a codebase with work left has no plan: the planner found none. */
+/** Why nothing runs in a codebase whose code - and conformance tests, where they are wanted - is built from its spec as it is. */
+export const UP_TO_DATE = "built from the spec as it is";
+
 const NO_PLAN = "the planner found no way to cut the work into pulses that hold together";
 
 /** A diff's lines placed in the .plain files of a chain - the tip's first - named as they are from the project. */
@@ -1598,6 +1601,11 @@ function chooseNow(plainFile: string, specs: TouchedSpec[], budget?: number): st
   ];
 }
 
+/** Nothing runs, is planned or is waiting there, as its code is built from its spec as it is. */
+export function isUpToDate(status: ModuleStatus): boolean {
+  return status.why === UP_TO_DATE && status.running === undefined && status.planned.length === 0 && status.startOver === undefined && status.toChoose === undefined;
+}
+
 export function describeModules(statuses: ModuleStatus[], options: { for?: "chat" | "command line" } = {}): string {
   if (statuses.length === 0) return "Nothing is being built.";
   const startOver = (status: ModuleStatus): string[] => {
@@ -1614,6 +1622,8 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
   };
   return statuses
     .map((status) => {
+      // Nothing to do there: said in a sentence, not as a status.
+      if (isUpToDate(status)) return `${status.module} is up to date: its code is built from the spec as it is now in ${basename(status.plainFile)}, so there is nothing to regenerate.`;
       const lines = [`${status.module} (${basename(status.plainFile)}):`];
       if (status.running !== undefined) {
         lines.push(`  running: pulse ${status.running.jobId} - ${status.running.title}`);

@@ -31,7 +31,7 @@ import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./s
 import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
 import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
 import { whyFailed } from "./grow/diagnose-job.ts";
-import { createWorkLoop, describeModules, previewJobs, type WorkLoop } from "./grow/loop.ts";
+import { createWorkLoop, describeModules, isUpToDate, previewJobs, type WorkLoop } from "./grow/loop.ts";
 import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
 import { createJobPanel, didNotPass, keyPressed, PANEL_KEY, spinner } from "./grow/job-panel.ts";
 import { skillAboutLine, skillProgressLine } from "./skill-progress.ts";
@@ -732,7 +732,11 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
           : again.length > 0
             ? await loop.growAgain(plainFile, again, request)
             : await loop.bringUp(plainFile, request);
-        if (ctx.hasUI) ctx.ui.notify(describeModules(statuses), "info");
+        // Nothing to do: say how to build it again anyway.
+        const hint = statuses.length > 0 && statuses.every(isUpToDate)
+          ? `\nTo regenerate parts of it anyway, name their functionalities - /regenerate ${basename(plainFile)} 2.1 - or start over with /regenerate ${basename(plainFile)} from scratch.`
+          : "";
+        if (ctx.hasUI) ctx.ui.notify(describeModules(statuses) + hint, "info");
       } catch (error) {
         if (ctx.hasUI) ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }
