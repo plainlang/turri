@@ -313,7 +313,7 @@ A stack is chosen, never worked out from the spec:
 
 - **In the chat**, with `/stack` - a list of the project's stacks and none - or `/stack backend`, `/stack none`.
   The chat's model has a `stack` tool too, and switches the stack when you ask it to, or for work on a part another
-  stack builds. The status bar shows `· stack <name> (/stack)` when the project has stacks.
+  stack builds. `/stack` alone says which is chosen now.
 - **On the command line**, with `--stack <name>` on any command - `turri regenerate`, `bind`, `spec-diff`, `glimpse`,
   `release`, `cultivate` - and on `turri --stack backend` for the chat; or with `TURRI_STACK` in the environment.
 

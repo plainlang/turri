@@ -6,7 +6,7 @@
 
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { chooseStack, chosenStack, hasProjectConfig, stackConfigFile, stacksOf } from "./config.ts";
@@ -48,8 +48,8 @@ export function switchStack(root: string, name: string | undefined): string {
   return `Stack ${wanted} chosen: everything is built with ${stackConfigFile(wanted)} over config.turri.yaml from now on - a pulse already running keeps the stack it started with.`;
 }
 
-/** /stack and the chat's stack tool. `changed` is told after each switch - the status bar says the stack. */
-export function registerStacks(pi: ExtensionAPI, cwd: string, changed: (ctx: ExtensionContext) => void): void {
+/** /stack and the chat's stack tool. */
+export function registerStacks(pi: ExtensionAPI, cwd: string): void {
   pi.registerCommand("stack", {
     description: "Choose the stack everything is built with - its config.turri.<stack>.yaml over config.turri.yaml: /stack [name | none]",
     getArgumentCompletions: (prefix: string) => {
@@ -70,7 +70,6 @@ export function registerStacks(pi: ExtensionAPI, cwd: string, changed: (ctx: Ext
       }
       try {
         ctx.ui.notify(switchStack(cwd, name), "info");
-        changed(ctx);
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }
@@ -99,7 +98,6 @@ export function registerStacks(pi: ExtensionAPI, cwd: string, changed: (ctx: Ext
           return { content: [{ type: "text" as const, text }], details: {} };
         }
         const text = switchStack(cwd, params.name);
-        changed(ctx);
         return { content: [{ type: "text" as const, text }], details: {} };
       },
     }),

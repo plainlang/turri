@@ -356,21 +356,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", endTurnCapture);
   pi.on("agent_settled", endTurnCapture);
 
-  // Whether renders write conformance tests, always in sight: read again as each turn starts and
-  // ends, since a turn can change it - `brood`'s testing phase writes it into config.turri.yaml.
-  const showConformance = (ctx: ExtensionContext) => {
-    if (!ctx.hasUI) return;
-    try {
-      ctx.ui.setStatus("turri-conformance", conformanceStatus(cwd));
-    } catch {
-      // A status line is a convenience; never let it stop a turn.
-    }
-  };
-  pi.on("session_start", (_event, ctx) => showConformance(ctx));
-  // Where the keys are, from the first moment - before any job shows its panel.
-  pi.on("session_start", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus("turri-keys", `${PANEL_KEY} peek at regen and the pulses · ctrl+o expand the trace`);
-  });
   // What a turri that was killed left running - its commands' process groups - stopped as this one starts.
   const orphans = sweepOrphanedGroups();
   let orphansSaid = orphans === 0;
@@ -379,8 +364,6 @@ export default function (pi: ExtensionAPI) {
     orphansSaid = true;
     ctx.ui.notify(`Stopped ${orphans} process group${orphans === 1 ? "" : "s"} a turri that was killed left running.`, "info");
   });
-  pi.on("agent_start", (_event, ctx) => showConformance(ctx));
-  pi.on("agent_end", (_event, ctx) => showConformance(ctx));
 
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI) return;
@@ -419,10 +402,7 @@ export default function (pi: ExtensionAPI) {
   registerDeploy(pi, cwd, jobs, deployState);
   registerSteering(pi, cwd);
   registerSideQuestions(pi, cwd, jobs);
-  // The stack everything is built with: the status bar says it, as it says the conformance.
-  registerStacks(pi, cwd, (ctx) => {
-    if (ctx.hasUI) ctx.ui.setStatus("turri-conformance", conformanceStatus(cwd));
-  });
+  registerStacks(pi, cwd);
 
   const { skills } = discoveredSkills;
   if (skills.length === 0) return;
@@ -923,35 +903,6 @@ function registerRejuvenate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
 /** The config a spec is built with - its project's, with the chosen stack's over it - or, with no spec, the session folder's. */
 function configOf(plainFile?: string) {
   return plainFile !== undefined ? configForSpec(resolve(process.cwd(), plainFile)) : readProjectConfig(process.cwd(), stackOf(process.cwd()));
-}
-
-/**
- * Whether renders write conformance tests, for the status bar - and why: the project's config, with the chosen stack's
- * over it, says so, or, where it says nothing, whether the module has the test reqs they are written from - and the
- * stack chosen, when the project has stacks. Nothing when there is no project here.
- */
-export function conformanceStatus(root: string): string | undefined {
-  const project = hasConfig(root)
-    ? root
-    : readdirSync(root, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "plain_modules")
-        .map((entry) => join(root, entry.name))
-        .find(hasConfig);
-  if (project === undefined) return undefined;
-  const stack = stackOf(project);
-  const config = readProjectConfig(project, stack);
-  // The file it is said in: the stack's, when it says otherwise than the project's.
-  const file = stack !== undefined && config.conformanceTests !== readProjectConfig(project).conformanceTests ? stackConfigFileIn(project, stack) : projectConfigFile(project);
-  const status = conformanceOf(config, file);
-  if (stacksOf(project).length === 0) return status;
-  return `${status} · stack ${stack ?? "none"} (/stack)`;
-}
-
-function conformanceOf(config: ReturnType<typeof readProjectConfig>, file: string): string {
-  if (config.conformanceTests === false) return `conformance off (${file})`;
-  if (config.conformanceTests === true) return `conformance on (${file})`;
-  if (config.conformanceTests === "chosen") return `conformance on for the chosen (${file})`;
-  return `conformance off - not set (${file})`;
 }
 
 /**
