@@ -385,9 +385,9 @@ export interface ProjectConfig {
   review?: boolean;
   /**
    * Whether turri stops a running job the spec has moved on from - a spec change, or a file it links edited - and
-   * grows the spec as it now is instead. false: the job runs to its end and lands what it was growing, and what
-   * changed since is grown on top of it by the next job: something lands as soon as it can, the software evolving
-   * job by job. The person's own halt stops a job either way. Unset: true.
+   * regenerates the spec as it now is instead. false: the job runs to its end and lands what it was regenerating, and
+   * what changed since is regenerated on top of it by the next job: something lands as soon as it can, the software
+   * evolving job by job. The person's own halt stops a job either way. Unset: true.
    */
   allowToStopJobs?: boolean;
   /**

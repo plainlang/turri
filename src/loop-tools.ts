@@ -11,8 +11,8 @@ import { stopDeployed } from "./regenerate/release.ts";
 
 /**
  * The tools that act on the work loop - `regenerate`, `drift` and `halt` - defined once, for the conversation and for the
- * skills alike: a skill that grows what a spec holds, or reads how far it is grown, uses the conversation's own tools,
- * on the conversation's loop, never copies of them.
+ * skills alike: a skill that regenerates what a spec holds, or reads how far it is regenerated, uses the conversation's
+ * own tools, on the conversation's loop, never copies of them.
  */
 
 type AnyTool = ToolDefinition<any, any, any>;
@@ -130,7 +130,7 @@ export interface LoopToolsOptions {
   jobs?: JobRegistry;
   /** The work loop the tools act on - the conversation's, for a call in it. */
   loop?: (ctx: ExtensionContext) => WorkLoop;
-  /** The model a pulse of this call grows on: the one named, or the one chosen for the work. Default: the one named. */
+  /** The model a pulse of this call regenerates on: the one named, or the one chosen for the work. Default: the one named. */
   model?: (ctx: ExtensionContext, plainFile: string, named?: string, work?: RenderWork) => string | undefined;
   /** Whether a call waits for its work to finish, given what it asked. Default: only when it asked to. */
   wait?: (ctx: ExtensionContext, asked?: boolean) => boolean;
@@ -144,7 +144,7 @@ function plainFileOf(cwd: string, given: { plain_file?: string; working_dir?: st
   return resolve(located.base, named);
 }
 
-/** Whether a /regenerate's words ask for the module from scratch: its code deleted, and all of it grown again. */
+/** Whether a /regenerate's words ask for the module from scratch: its code deleted, and all of it regenerated again. */
 export function asksFromScratch(words: string): boolean {
   return FROM_SCRATCH.test(words);
 }
@@ -152,7 +152,7 @@ export function asksFromScratch(words: string): boolean {
 const FROM_SCRATCH =
   /\b(from (scratch|nothing|zero|the (start|beginning|ground up))|start(ing)? (it )?(over|afresh)|afresh|anew|clean slate|(delete|wipe|remove|drop|throw away)\b.{0,30}\b(module|code|codebase|everything|all of it))/i;
 
-/** regenerate: grow a module's code up to its spec as it is now. */
+/** regenerate: regenerate a module's code up to its spec as it is now. */
 export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: ExtensionContext) => WorkLoop }): AnyTool {
   return defineTool({
     name: "regenerate",
@@ -214,7 +214,7 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
   });
 }
 
-/** drift: what is left to grow - planning nothing, starting nothing. */
+/** drift: what is left to regenerate - planning nothing, starting nothing. */
 export function driftTool(options: LoopToolsOptions & { loop: (ctx: ExtensionContext) => WorkLoop }): AnyTool {
   return defineTool({
     name: "drift",

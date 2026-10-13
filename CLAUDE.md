@@ -46,7 +46,7 @@ and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 
 **Names.** `plain_modules` and `.plaingit` are the ***plain language's, not turri's, and keep their names.
 
-**Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regenerate` (with frids: grown again), `glimpse` (regenerate
+**Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regenerate` (with frids: regenerated again), `glimpse` (regenerate
 `--dry-run`), `drift`, `conform`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regenerate-cli.ts`,
 `drift-cli.ts`, `conform-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
@@ -84,9 +84,9 @@ coding agents. turri's own skills are found relative to the package, not the cwd
 is reported as pending, not dropped. A project's own skills, in `.turri/skills/` and `.agents/skills/`, are found
 beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` lets `skills/` through.
 
-**Growing the code (`src/regenerate/`)**, one unit of work at a time:
+**Regenerating the code (`src/regenerate/`)**, one unit of work at a time:
 
-- A job is a spec diff: `regenerate.ts` `renderSpecDiff` grows one in the code, landing on its unit
+- A job is a spec diff: `regenerate.ts` `renderSpecDiff` regenerates one in the code, landing on its unit
   tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
   what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, again, delete,
   mechanical; again is the functional specs `regenerate` names, marked `regenerate_again` in the code record). The agent works, then the harness runs the project's unit testing script
@@ -99,13 +99,13 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
   labelled and checked by label; `conform.ts` runs it for a conformance job, then
   `regression.ts` runs the whole suite (a repair agent that may not touch tests).
-- Nothing is queued (`docs/regenerating.md`). `loop.ts` works out what is left to grow - `drift.ts`
+- Nothing is queued (`docs/regenerating.md`). `loop.ts` works out what is left to regenerate - `drift.ts`
   `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
   reqs or acceptance tests) to the spec now - has `chunk-plan.ts` cut it into jobs from the functional
   specs outward (an agent groups them, by default, up to `max-specs-per-pulse`, code gives each group the definitions it uses, an agent
   places the reqs), and runs the first; again whenever a job ends or the spec changes. A chain is built in
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
-  (`stillWanted`) - unless the change is inside what it grows, which steers it instead (`steering.ts`: its agent
+  (`stillWanted`) - unless the change is inside what it regenerates, which steers it instead (`steering.ts`: its agent
 told mid-turn or at its next turn, its record moved, twice a job at most). `regenerate`, `write_spec_diff`, `turri spec-diff` and
   `turri regenerate` all go through `bringUp`. Steering (`regenerate/steer.ts`: `steer`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
@@ -143,7 +143,7 @@ the harness between turns past `compact-at` (`compactIfDue` in `pi.ts`, instruct
 `regenerate/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
 agents (`reportAgent`, `Job.agents`) into its log.
 
-**Release (`regenerate/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is grown: the model
+**Release (`regenerate/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is regenerated: the model
 first looks for guidance on how the project is released (what the person said, AGENTS.md, a skill) and
 passes it to `release` - then it is followed from the host codebase (`releaseInPlace`, nothing
 exported); without guidance `release` exports the tip module's last `.plaingit` commit (`git archive`
@@ -151,7 +151,7 @@ of `code/`) to `<project>/dist/<module>`. The chat model - or `turri release`'s 
 `coding-model`, thinking low - starts it on the host, installing what it needs in its own shell: nothing is put to the person. `activate` owns what
 keeps running, stopped on redeploy, `/halt activated <name>` and exit.
 
-**Jobs and progress.** In the TUI, the tools that grow start background jobs (`loop.ts`, `jobs.ts`).
+**Jobs and progress.** In the TUI, the tools that regenerate start background jobs (`loop.ts`, `jobs.ts`).
 `lanes.ts` gives each job its spec's whole `requires` chain as lanes, so jobs whose chains overlap
 wait for each other and the rest run side by side - up to `parallel-jobs` at once (the registry's `maxRunning`). In pi's
 print/json/rpc modes the tools wait instead (`shouldWait`). Progress, usage and transcripts flow

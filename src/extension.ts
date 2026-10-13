@@ -599,7 +599,7 @@ export default function (pi: ExtensionAPI) {
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // validate too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
-        // The conversation's own regenerate, drift, halt and conform, on its loop: a skill waits for nothing, and grows on the model chosen.
+        // The conversation's own regenerate, drift, halt and conform, on its loop: a skill waits for nothing, and regenerates on the model chosen.
         loopTools: [
           regenerateTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named, work) => jobModel(ctx, work ?? "spec_changes", named, plainFile), wait: () => false }),
           driftTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx) }),
@@ -831,7 +831,7 @@ function plainFileNamed(cwd: string, word: string): string | undefined {
   return undefined;
 }
 
-/** What is left to grow:the drift between a module's code and its spec - planning nothing, starting nothing. */
+/** What is left to regenerate: the drift between a module's code and its spec - planning nothing, starting nothing. */
 function registerDrift(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool(driftTool({ cwd, jobs, loop: (ctx) => workLoopFor(jobs, cwd, ctx) }));
 }
@@ -1403,8 +1403,8 @@ function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): Wor
       plannerModel: () => chatModelOf(from.ctx),
       // How the work is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
       steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
-      // Under release-after-pulse, a pulse releases what it landed itself, before the next starts - on the model that grew
-      // it: a release follows steps, and a small model thinking little does that well.
+      // Under release-after-pulse, a pulse releases what it landed itself, before the next starts - on the model that
+      // regenerated it: a release follows steps, and a small model thinking little does that well.
       release: ({ plainFile, moduleName, title, onDelta }) => {
         const model = modelFor(chosenModels, "spec_changes", projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx));
         return runReleaseAgent({
@@ -1780,8 +1780,9 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     );
   };
 
-  // The side panel's two views: /regen opens it on regen - the spec, with how far the code has grown into it - and
-  // /pulses on every pulse, growing, planned and finished, and what each grows. What the agents did is in each pulse's log.
+  // The side panel's two views: /regen opens it on regen - the spec, with how far the code has been regenerated into it
+  // - and /pulses on every pulse, regenerating, planned and finished, and what each regenerates. What the agents did is
+  // in each pulse's log.
   for (const [name, description, view] of [
     ["regen", `regen, in the side panel: every item of the spec, built, regenerating, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
     ["pulses", `The pulses, in the side panel: every pulse, regenerating, planned and finished, and what each regenerates. ${PANEL_KEY} opens the panel too.`, "pulses"],
@@ -2144,7 +2145,7 @@ function announceJob(pi: ExtensionAPI, job: Job): void {
   if (job.status !== "succeeded" && job.status !== "failed" && job.status !== "stopped") return;
   const announcement: JobAnnouncement = {
     id: job.id,
-    // Its module, kind and number - never what it grows, which is the agents' words and long.
+    // Its module, kind and number - never what it regenerates, which is the agents' words and long.
     summary: pulseName(job),
     status: job.status,
     incomplete: job.status === "succeeded" && (job.details as { passed?: unknown } | undefined)?.passed === false,
@@ -2440,7 +2441,7 @@ let jellyfishTimer: ReturnType<typeof setInterval> | undefined;
 /**
  * Moves the jellyfish on a frame every JELLYFISH_FRAME_MS while the banner is on the screen. An entry's
  * renderer is given no TUI to redraw, so an empty widget below the editor - which pi gives no
- * spacer - hands it over. Once the conversation outgrows the screen the banner has scrolled off,
+ * spacer - hands it over. Once the conversation is taller than the screen the banner has scrolled off,
  * and a line changing up there would have pi-tui clear and redraw everything, frame after frame: the
  * jellyfish stops on the frame it is at, for the rest of the session.
  */

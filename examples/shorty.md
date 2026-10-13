@@ -46,11 +46,11 @@ The interview, `brood`, asks one question at a time:
   `stdlib/backend/conformance/<stack>`. (`conformance-tests: chosen` has them only for the functional specs you pick -
   [the project config](../docs/config.md) has the details.)
 - **Product**, feature by feature: API keys, creating a link, the redirect, custom aliases, expiry, listing,
-  deleting. Each answer is a spec change that starts growing at once.
+  deleting. Each answer is a spec change that starts regenerating at once.
 
 ## 3. Two tracks
 
-Each module is grown on two tracks. The **code** track grows the functional specs into code that passes its unit
+Each module is regenerated on two tracks. The **code** track regenerates the functional specs into code that passes its unit
 tests. The **conformance** track writes the black-box tests for what is built and runs the whole suite. A
 conformance pulse starts once the module's code is built, and nothing is built on the module until it passes.
 
@@ -103,7 +103,7 @@ curl -si $SHORTY/<code>
 > Codes should be 6 characters, not 7.
 
 That is a change to a definition, not a feature. In regen the definition gets the number of the pulse
-that changes it. Every functional spec that uses it is grown again with it, and its conformance tests are written
+that changes it. Every functional spec that uses it is regenerated again with it, and its conformance tests are written
 again: `◆` turns into a dimmed, hollow `◇`, then fills in again once they pass for the new text.
 
 ## Where next

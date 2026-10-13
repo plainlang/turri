@@ -115,7 +115,7 @@ export function languagesOnMachine(has: (command: string) => boolean = toolchain
 /**
  * What a spec-writing agent and the conversation are told of this machine before a stack is chosen: the languages it
  * can build now. The agents install nothing, so a stack in a language the machine lacks stops at its first build -
- * offering one is offering a project that cannot be grown here until the person installs it.
+ * offering one is offering a project that cannot be regenerated here until the person installs it.
  */
 export function toolchainsBlock(has: (command: string) => boolean = toolchainHere): string {
   const { ready, missing } = languagesOnMachine(has);

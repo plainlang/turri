@@ -73,7 +73,7 @@ describe("the jobs tree", () => {
     expect(rowsOf(jobs, state)).toEqual(["[running 1]", "[queued 1]", "[finished 0]"]);
   });
 
-  it("names a pulse by its module, kind and number alone - what it grows is in it, opened", () => {
+  it("names a pulse by its module, kind and number alone - what it regenerates is in it, opened", () => {
     const jobs = [job("a", "succeeded", { finishedAt: 1, module: "d365_http_client", kind: "regenerate", pulse: 1, title: "Implement HttpClient" })];
     const state = createJobsTreeState();
     state.open.finished = true;

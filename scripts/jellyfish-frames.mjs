@@ -6,7 +6,7 @@
 // jellyfish rises a row; the tentacles, rooted on the rim, are drawn in with it and straighten, the
 // pull running down them a little after; then the bell opens slowly, and they fan out again and
 // curl, from the top down. Their tips are where it comes apart into code, as regenerative software
-// grows the code again from the spec.
+// regenerates the code from the spec.
 //
 //   node scripts/jellyfish-frames.mjs          write the frames
 //   node scripts/jellyfish-frames.mjs --play   play them here, at the banner's speed

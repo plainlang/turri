@@ -47,7 +47,7 @@ function page(spec: MarshalledPlainSource, record: MarshalledPlainSource | null,
   return { module: "app", plainFile: join(dir, "app.plain"), buildDir: join(dir, "code"), imports: [], items: pageItems({ module: "app", own: true, spec, record, tested: tested ?? null }) };
 }
 
-/** A pulse that grows the items given: from their record lines to their lines now. */
+/** A pulse that regenerates the items given: from their record lines to their lines now. */
 function pulseOf(items: MapItem[], number: number, running: boolean, title = `pulse ${number}`): MapPulse {
   const lines = (pick: (entry: MapItem) => string | undefined) => `["${FUNCTIONAL_REQUIREMENTS}"]\n${items.map(pick).filter((line) => line !== undefined).join("\n")}\n`;
   return { number, title, track: "code", running, rowId: running ? `job${number}` : `planned-app-${number}`, before: lines((entry) => entry.wasLine), after: lines((entry) => entry.line) };
@@ -172,7 +172,7 @@ describe("the plan laid over the map", () => {
   const spec = tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.", "- Follow someone.", "- Post a photo."] });
   const record = tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Search for others."] });
 
-  it("marks the items of the running pulse growing and those planned with their pulse's number, the rest waiting", () => {
+  it("marks the items of the running pulse regenerating and those planned with their pulse's number, the rest waiting", () => {
     const first = page(spec, record);
     const [login, follow] = [first.items.find((entry) => entry.text === "- Log in.")!, first.items.find((entry) => entry.text === "- Follow someone.")!];
     const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [pulseOf([login], 3, true), pulseOf([follow], 4, false)] })] });
@@ -457,13 +457,13 @@ describe("the regeneration drawn", () => {
     expect(head).toContain("1 of 2 functionalities built · not asked to build - regenerate plans it");
   });
 
-  it("opens the module growing now, and the one asked for, before the others", () => {
+  it("opens the module regenerating now, and the one asked for, before the others", () => {
     const base = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- One."] }), null), module: "base", plainFile: join(dir, "base.plain") };
     const top = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] }), null), module: "top", plainFile: join(dir, "top.plain") };
     // The chain's codebase is asked for: the module at its top is in focus.
     const asked = markSpecMap([base, top], { files: [], codebases: [codebase(base)] });
     expect(focusOf(asked)?.module).toBe("top");
-    // A pulse grows the module below: that one is.
+    // A pulse regenerates the module below: that one is.
     const one = base.items[0]!;
     const regenerating = markSpecMap([base, top], { files: [], codebases: [codebase(base, { pulses: [pulseOf([one], 1, true)] })] });
     expect(focusOf(regenerating)?.module).toBe("base");
@@ -491,7 +491,7 @@ describe("the regeneration drawn", () => {
 describe("the side panel's two views", () => {
   const job = (id: string) => ({ id, kind: "regenerate", summary: "app.plain log in", module: "app", status: "running" as const, sequence: 1, queuedAt: 0, startedAt: Date.now(), waitingOn: [], tail: "", activity: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, agents: [], transcript: [] });
 
-  it("opens on regen, and p goes to the pulse growing the item under the cursor and back to the item", () => {
+  it("opens on regen, and p goes to the pulse regenerating the item under the cursor and back to the item", () => {
     const first = page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in."] }), tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register."] }));
     const login = first.items.find((entry) => entry.text === "- Log in.")!;
     const marked = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [pulseOf([login], 1, true)] })] });
@@ -595,7 +595,7 @@ describe("the side panel's two views", () => {
     expect(source.read()[0]).toMatchObject({ status: "the map could not be read: no plan", stuck: true });
   });
 
-  it("goes from one module's tab to the next with ←→, follows the module growing until another tab is chosen, and opens an item with enter", () => {
+  it("goes from one module's tab to the next with ←→, follows the module regenerating until another tab is chosen, and opens an item with enter", () => {
     const base = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- One."] }), null), module: "base", plainFile: join(dir, "base.plain") };
     const top = { ...page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Two."] }), null), module: "top", plainFile: join(dir, "top.plain"), requires: "base" };
     let marked = markSpecMap([base, top], { files: [], codebases: [codebase(base)] });
@@ -616,7 +616,7 @@ describe("the side panel's two views", () => {
     // Enter opens the item under the cursor.
     panel.handleInput("\r");
     expect(panel.render(100).length).toBe(20);
-    // Another module starts growing: the tab chosen gives way, and it is shown.
+    // Another module starts regenerating: the tab chosen gives way, and it is shown.
     const two = top.items[0]!;
     marked = markSpecMap([base, top], { files: [], codebases: [codebase(base, { pulses: [pulseOf([two], 1, true)] })] });
     // The top line wraps beside the legend as long as it needs to: the tabs are on the line after it.

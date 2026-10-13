@@ -3,11 +3,11 @@ import { describeSpecChange } from "./prompt.ts";
 import { applyChanges, changesBetween, parseTree, serializeTree, type SpecChange } from "./spec-steps.ts";
 
 /**
- * JobSteering a running code job: the spec changed while it grows, inside what it is growing - a functional spec it
- * builds reworded, a sub-bullet added under one, a definition or an implementation req it is given edited, a file one
- * links edited - and the coding agent is told, rather than the job stopped or the change left to the next one. A new
- * or removed item is not a steer: the work changes shape, and that is the next job's. At most MAX_STEERS a job; the
- * one after is the next job's, or stops this one, as `allow-to-stop-jobs` says.
+ * JobSteering a running code job: the spec changed while it regenerates, inside what it is regenerating - a functional
+ * spec it builds reworded, a sub-bullet added under one, a definition or an implementation req it is given edited, a
+ * file one links edited - and the coding agent is told, rather than the job stopped or the change left to the next
+ * one. A new or removed item is not a steer: the work changes shape, and that is the next job's. At most MAX_STEERS a
+ * job; the one after is the next job's, or stops this one, as `allow-to-stop-jobs` says.
  *
  * Three trees. `target`: what the job lands as built from - its code record. `agent`: what its agent is to build -
  * the target, and a definition or req edited that functional specs built before the job use too: the agent is told,
@@ -28,7 +28,7 @@ export interface JobSteering {
   notes: string[];
   /** Set by the running job while its coding agent can be reached: tells it now, in its turn, and says whether it could. */
   deliver?: (text: string) => boolean;
-  /** The module whose codebase it grows: the change is told with each item's module (`describeSpecChange`). */
+  /** The module whose codebase it regenerates: the change is told with each item's module (`describeSpecChange`). */
   module?: string;
 }
 
@@ -85,10 +85,10 @@ function functionalSpecs(tree: MarshalledPlainSource): string[] {
 }
 
 /**
- * The part of `changes` - from a tree the job grows towards, to the spec - that steers it: changes to items it already
- * has, never one added or removed. A functional spec only when it is one of the job's own (`mine`, as the job grows it);
- * a definition or an implementation req always. `shared`: those of them that functional specs built before the job
- * (`built`) use too - the agent is told, but they stay out of the record.
+ * The part of `changes` - from a tree the job regenerates towards, to the spec - that steers it: changes to items it
+ * already has, never one added or removed. A functional spec only when it is one of the job's own (`mine`, as the job
+ * regenerates it); a definition or an implementation req always. `shared`: those of them that functional specs built
+ * before the job (`built`) use too - the agent is told, but they stay out of the record.
  */
 export function steerableChanges(changes: SpecChange[], mine: Set<string>, built: string[]): { steer: SpecChange[]; shared: SpecChange[] } {
   const steer: SpecChange[] = [];
@@ -110,12 +110,12 @@ export function steerableChanges(changes: SpecChange[], mine: Set<string>, built
 }
 
 /**
- * Steer a job, when the spec moved on inside what it grows: the trees it moves to, or undefined when nothing in the
- * change steers it. `toSpec(tree)` is the work from a tree to the spec, as the job's track sees it; `own` the job's
- * changes, from its record `from` to what it grows towards now.
+ * Steer a job, when the spec moved on inside what it regenerates: the trees it moves to, or undefined when nothing in
+ * the change steers it. `toSpec(tree)` is the work from a tree to the spec, as the job's track sees it; `own` the job's
+ * changes, from its record `from` to what it regenerates towards now.
  */
 export function steer(steering: JobSteering, from: MarshalledPlainSource, own: SpecChange[], toSpec: (tree: MarshalledPlainSource) => SpecChange[]): { target: MarshalledPlainSource; agent: MarshalledPlainSource; steered: SpecChange[] } | undefined {
-  // The job's own functional specs, as it grows them; those built before it that it does not touch.
+  // The job's own functional specs, as it regenerates them; those built before it that it does not touch.
   const mine = new Set(own.filter((change) => change.section === FUNCTIONAL_REQUIREMENTS && change.after !== undefined).map((change) => change.after!));
   const patched = new Set(own.filter((change) => change.section === FUNCTIONAL_REQUIREMENTS && change.kind === "change").map((change) => change.before ?? ""));
   const built = functionalSpecs(from).filter((spec) => !patched.has(spec));

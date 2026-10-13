@@ -30,13 +30,13 @@ import { committedText } from "./lineage.ts";
 export const RECORD_FILE = ".turri.json";
 
 /**
- * A functional spec in the code record marked to grow again: its code is built, and is to be grown again all the
- * same - `regenerate` with functionalities named. The mark makes the record differ from the spec at that item, so
- * the work loop plans it as it plans any change, and the job that grows it writes the item back without it.
+ * A functional spec in the code record marked to regenerate again: its code is built, and is to be regenerated again
+ * all the same - `regenerate` with functionalities named. The mark makes the record differ from the spec at that item,
+ * so the work loop plans it as it plans any change, and the job that regenerates it writes the item back without it.
  */
 export const REGENERATE_AGAIN = "regenerate_again";
 
-/** Whether a record's item is marked to grow again. */
+/** Whether a record's item is marked to regenerate again. */
 export function marksRegenerateAgain(item: unknown): boolean {
   return typeof item === "object" && item !== null && (item as Record<string, unknown>)[REGENERATE_AGAIN] === true;
 }
@@ -186,7 +186,7 @@ export type Chosen = (frid: string) => boolean;
  *
  * Conformance follows the code, never goes ahead of it: a functional spec whose code is not caught up
  * with the spec - its text in the code record is not the spec's, or the code record does not have it at
- * all, as while it is grown again - stays as the tests record has it, until the code lands. Its tests are
+ * all, as while it is regenerated again - stays as the tests record has it, until the code lands. Its tests are
  * taken out only once the spec and the code have both dropped it.
  */
 export function conformanceTarget(code: MarshalledPlainSource | null, tests: MarshalledPlainSource | null, spec: MarshalledPlainSource, chosen: Chosen = () => true): MarshalledPlainSource {
@@ -202,8 +202,8 @@ export function conformanceTarget(code: MarshalledPlainSource | null, tests: Mar
       if (chosen(frid)) specs.push({ ...current, frid });
       continue;
     }
-    // The code is behind the spec here - built from other text, not built, or being grown again: its tests stay as
-    // they are until it catches up. Taken out of the spec, they go once the code has dropped it too.
+    // The code is behind the spec here - built from other text, not built, or being regenerated again: its tests stay
+    // as they are until it catches up. Taken out of the spec, they go once the code has dropped it too.
     const kept = tested.get(frid);
     if (kept === undefined) continue;
     if (current !== undefined || inCode.has(kept.markdown.trim())) specs.push(kept);

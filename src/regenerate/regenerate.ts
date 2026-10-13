@@ -239,7 +239,7 @@ export interface RenderSpecDiffOptions {
   /** The unit test review's model. Default: the project's judge-model, else `model`. */
   judgeModel?: string;
   onDelta?: (delta: string) => void;
-  /** The loop's: steers the coding agent when the spec changes inside what it grows, and holds the record it lands. */
+  /** The loop's: steers the coding agent when the spec changes inside what it regenerates, and holds the record it lands. */
   steering?: JobSteering;
 }
 
@@ -260,7 +260,7 @@ export interface RenderSpecDiffResult {
   missingToolchain?: MissingToolchain;
   /** Stopped with the unit tests passing and the unit testing script's static checks not. */
   staticChecks?: boolean;
-  /** What the spec changed while it grew that its agent was told - a line each. */
+  /** What the spec changed while it regenerated that its agent was told - a line each. */
   steered?: string[];
   /** The specs were only restructured: nothing was rendered, the spec as now laid out was recorded. */
   restructured?: boolean;
@@ -415,7 +415,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   // The spec's images need a model that reads them: refused before the agent starts.
   await refuseIfModelIsBlind(options.model, resourceImages(linkedResources).length);
   stage(`starting the coding agent${options.model ? ` (${options.model})` : ""}`);
-  // One session for the whole change: its task is its instructions, its work compacted as it grows.
+  // One session for the whole change: its task is its instructions, its work compacted as it gets longer.
   const executor = await createExecutor({
     cwd: buildDir,
     customTools: [

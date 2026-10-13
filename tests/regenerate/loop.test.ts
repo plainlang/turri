@@ -182,7 +182,7 @@ describe("the work loop", () => {
     expect(describeModules(loop.status())).toBe("app is up to date: its code is built from the spec as it is now in app.plain, so there is nothing to regenerate.");
   });
 
-  it("is not fully grown while a pulse that ended without passing has its work undone - and is, once it lands", async () => {
+  it("is not fully regenerated while a pulse that ended without passing has its work undone - and is, once it lands", async () => {
     writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
     const { gate, run } = runner();
     const registry = createJobRegistry();
@@ -197,7 +197,7 @@ describe("the work loop", () => {
     expect(drift).toContain("code: drifted from the spec - to regenerate: sets the project up, adds fs 1");
     expect(drift).toMatch(/pulse \w+ \("Say hello\."\) did not land - it runs again once the spec changes, or the module is asked for again/);
     expect(drift).not.toContain("Fully regenerated");
-    // Asked again, it lands: then, and only then, the module is fully grown.
+    // Asked again, it lands: then, and only then, the module is fully regenerated.
     gate.land = true;
     await loop.bringUp("app.plain");
     await loop.drain();
@@ -307,7 +307,7 @@ describe("the work loop", () => {
       return { ...stub, registry, loop, first: loop.status()[0]!.running!.jobId };
     }
 
-    it("steers it when a functional spec it grows is reworded or gains a sub-bullet - not stopped, and it lands the spec as it is now", async () => {
+    it("steers it when a functional spec it regenerates is reworded or gains a sub-bullet - not stopped, and it lands the spec as it is now", async () => {
       const { ran, gate, registry, loop, first } = await running(["Say hello."]);
       writeFileSync(join(dir, "app.plain"), app(["Say hello.\n  - In French."]));
       await loop.bringUp("app.plain");
@@ -363,7 +363,7 @@ describe("the work loop", () => {
     });
   });
 
-  it("lets the running job land under allow-to-stop-jobs: false, and grows what changed since on top of it", async () => {
+  it("lets the running job land under allow-to-stop-jobs: false, and regenerates what changed since on top of it", async () => {
     writeFileSync(join(dir, "config.yaml"), "conformance-tests: false\nallow-to-stop-jobs: false\n");
     writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
     const { ran, gate, holdNext, run } = runner();
@@ -376,7 +376,7 @@ describe("the work loop", () => {
     writeFileSync(join(dir, "app.plain"), app(["Count the stars in the night sky."]));
     await loop.bringUp("app.plain");
     gate.release!();
-    // Not stopped: it lands what it was growing.
+    // Not stopped: it lands what it was regenerating.
     expect((await registry.wait(first)).status).toBe("succeeded");
     await loop.drain();
     // Then the change - the spec taken out, another put in - in jobs of its own on top of what it landed.
@@ -589,7 +589,7 @@ describe("the work loop", () => {
       await loop.bringUp("app.plain");
       release();
       await loop.drain();
-      // What ran after: fs 2's code grown again, and its tests written again for the new text - never taken out first,
+      // What ran after: fs 2's code regenerated again, and its tests written again for the new text - never taken out first,
       // to be written again a pulse later.
       expect(deleted).toEqual([]);
       const after = tests.ran.slice(1);
@@ -939,7 +939,7 @@ describe("the work loop", () => {
       expect(loop.status()[0]!.planned).toEqual([]);
     });
 
-    it("of a functional spec grown again by name are kept while it grows - never taken out as if it were gone", async () => {
+    it("of a functional spec regenerated again by name are kept while it regenerates - never taken out as if it were gone", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
       const code = runner();
       const tests = conformanceRunner();
@@ -955,12 +955,12 @@ describe("the work loop", () => {
       await loop.bringUp("app.plain");
       await loop.drain();
       order.length = 0;
-      // Its spec did not change: named, it grows again - its tests untouched while it does, and none taken out.
+      // Its spec did not change: named, it is regenerated again - its tests untouched while it does, and none taken out.
       await loop.regenerateAgain("app.plain", ["1"]);
       await loop.drain();
       expect(order).toEqual(["code 1"]);
       expect(JSON.stringify(readRecord(testsDir()))).toContain("Say hello.");
-      // Grown again, it is built as the spec says it: the mark is gone from the record.
+      // Regenerated again, it is built as the spec says it: the mark is gone from the record.
       expect(JSON.stringify(readRecord(codeDir()))).not.toContain("regenerate_again");
     });
 
@@ -1132,7 +1132,7 @@ describe("a module regenerated from scratch", () => {
     await loop.bringUp("app.plain");
     await loop.drain();
     expect(ran).toHaveLength(2);
-    // Built from the spec as it is: asked again, nothing grows.
+    // Built from the spec as it is: asked again, nothing regenerates.
     await loop.bringUp("app.plain");
     await loop.drain();
     expect(ran).toHaveLength(2);
@@ -1245,13 +1245,13 @@ describe("a linked resource", () => {
 });
 
 describe("drift", () => {
-  it("says what is left to grow - in the code and its conformance tests - planning and starting nothing", async () => {
+  it("says what is left to regenerate - in the code and its conformance tests - planning and starting nothing", async () => {
     writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
     const code = runner();
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false, conformanceOn: () => false, run: code.run });
     const { describeDrift } = await import("../../src/regenerate/loop.ts");
-    // Nothing grown: all of it.
+    // Nothing regenerated: all of it.
     const fresh = loop.drift("app.plain");
     expect(fresh[0]!.code).toMatchObject({ add: [{ frid: "1" }, { frid: "2" }] });
     expect(describeDrift(fresh)).toMatch(/code: drifted from the spec - to regenerate: sets the project up, adds fs 1, fs 2/);

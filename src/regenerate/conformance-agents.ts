@@ -1094,7 +1094,7 @@ export function judgePrompt(options: {
  * works in the code folder, may read the tests but never changes them, and keeps the unit
  * tests passing.
  * Made the first time it is needed, and kept for the rest of the run: each fix after the first starts from what the
- * ones before it tried. Its task is its instructions; its work is compacted as it grows.
+ * ones before it tried. Its task is its instructions; its work is compacted as it gets longer.
  */
 export async function createCodeFixer(options: {
   buildDir: string;

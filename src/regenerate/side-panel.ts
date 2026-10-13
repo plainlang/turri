@@ -6,13 +6,14 @@ import { columnHeadings, createSpecMapState, DISCUSS_KEY, legendLines, minimap, 
 import type { TranscriptStyle } from "./transcript-view.ts";
 
 /**
- * The side panel: the spec and how far the code has grown, beside the conversation rather than instead of it.
+ * The side panel: the spec and how far the code has been regenerated, beside the conversation rather than instead of
+ * it.
  *
- * Two views. The regeneration (spec-map-view.ts), shown first: every item of the spec with where it stands - built, growing,
- * planned, waiting, being taken out - under a row for each module, the one in focus open. And the pulses, as a
- * tree - running, queued, finished, a line per pulse and all of what it builds once opened (see jobs-tree.ts). `p`
- * goes from one to the other, the cursor with it: from an item to the pulse that grows it, and back. What the agents
- * said and did is not shown here: it is in each pulse's log (job-log.ts).
+ * Two views. The regeneration (spec-map-view.ts), shown first: every item of the spec with where it stands - built,
+ * regenerating, planned, waiting, being taken out - under a row for each module, the one in focus open. And the
+ * pulses, as a tree - running, queued, finished, a line per pulse and all of what it builds once opened (see
+ * jobs-tree.ts). `p` goes from one to the other, the cursor with it: from an item to the pulse that regenerates it, and
+ * back. What the agents said and did is not shown here: it is in each pulse's log (job-log.ts).
  */
 
 export interface SidePanelOptions {
@@ -165,7 +166,7 @@ export function createSidePanel(options: SidePanelOptions) {
     return overBox([...top, rule(top.length < box.length ? room - 1 : width), "", ...columnHeadings(page, width, style), ...body], box, width);
   };
 
-  /** From the map to the pulse list: onto the pulse that grows the item under the cursor, when one does. */
+  /** From the map to the pulse list: onto the pulse that regenerates the item under the cursor, when one does. */
   const toPulses = () => {
     map.view = "pulses";
     const row = drawnMap.rows[map.cursor];
@@ -180,7 +181,7 @@ export function createSidePanel(options: SidePanelOptions) {
     if (at !== -1) tree.cursor = at;
   };
 
-  /** From the pulse list to the map: onto the first item the pulse under the cursor grows, on whichever page it is. */
+  /** From the pulse list to the map: onto the first item the pulse under the cursor regenerates, on whichever page it is. */
   const toMap = () => {
     map.view = "map";
     const row = drawnTree.rows[tree.cursor];

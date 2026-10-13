@@ -27,7 +27,8 @@ import { changesBetween, layoutOf, serializeTree, type SpecChange } from "./spec
  * Nothing new is stored. A page a module, read from what turri keeps already: the code record (what is built, and the
  * old side of each change), the .plain files now (the lines, and what differs), the tests record (which functional
  * specs have conformance tests) - so the map is right from the files alone, the moment turri opens a project. The work
- * loop's plan is laid over it (`markSpecMap`): the pulse growing each item, the pulse planned to, or why there is none.
+ * loop's plan is laid over it (`markSpecMap`): the pulse regenerating each item, the pulse planned to, or why there is
+ * none.
  *
  * An item is what turri plans and diffs by: a definition, a req, a functional spec with its sub-bullets and acceptance
  * tests. Items are matched to pulses by their lines in the trees each pulse goes between, as the loop has them.
@@ -59,7 +60,7 @@ export interface MapItem {
 export interface MapPage {
   module: string;
   plainFile: string;
-  /** The codebase its code lives in: whose record it is read from, and whose pulses grow it. */
+  /** The codebase its code lives in: whose record it is read from, and whose pulses regenerate it. */
   buildDir: string;
   /** The files it imports, as shown, in the order it reads them. */
   imports: string[];
@@ -77,7 +78,7 @@ export type Mark = "built" | "regenerating" | "planned" | "waiting" | "planning"
 
 export interface MarkedItem extends MapItem {
   mark: Mark;
-  /** The pulse growing it, or planned to: running, or its provisional number. */
+  /** The pulse regenerating it, or planned to: running, or its provisional number. */
   pulse?: MapPulse;
   /** In the pulse that did not land: that pulse's number - rolled back, and waiting. */
   rolledBack?: number;
@@ -435,7 +436,7 @@ function writesTestsFor(pulse: MapPulse, item: MapItem): boolean {
   return linesOf(pulse).testing.has(item.text.trim());
 }
 
-/** Whether a pulse grows an item: brings its line now, or takes out its line in the record. */
+/** Whether a pulse regenerates an item: brings its line now, or takes out its line in the record. */
 function regenerates(pulse: MapPulse, item: MapItem): boolean {
   if (pulse.track !== "code") return false;
   const lines = linesOf(pulse);
@@ -476,7 +477,7 @@ export function countOf(page: MapPage): { built: number; total: number } {
 }
 
 /**
- * The plan laid over the pages: each item that differs from the code marked with the pulse growing it, the pulse
+ * The plan laid over the pages: each item that differs from the code marked with the pulse regenerating it, the pulse
  * planned to, or - with none - planning, stuck or waiting; and each page's reason on its top line.
  */
 export function markSpecMap(pages: MapPage[], plan: MapPlan): MarkedPage[] {

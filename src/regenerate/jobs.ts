@@ -22,11 +22,11 @@ export interface Job {
   kind: string;
   /** One line describing what was asked for. */
   summary: string;
-  /** The module it works in, for a job that grows one: what a finished job is listed as. */
+  /** The module it works in, for a job that regenerates one: what a finished job is listed as. */
   module?: string;
   /** Its number among its module's pulses, from 1 - as regen numbers them. */
   pulse?: number;
-  /** What it grows, in a few words: its plan's title. */
+  /** What it regenerates, in a few words: its plan's title. */
   title?: string;
   /** The spec change a render spec diff job renders, as its diff. Shown while it waits and runs. */
   diff?: string;
@@ -49,7 +49,7 @@ export interface Job {
   /** While queued: the jobs it is waiting for. */
   waitingOn: string[];
   finishedAt?: number;
-  /** Tail of the streamed output, bounded so a long run cannot grow without limit. */
+  /** Tail of the streamed output, bounded so a long run cannot get longer without limit. */
   tail: string;
   /** The stage the work is at, as the work itself last reported it. */
   stage?: string;
@@ -101,11 +101,11 @@ export interface JobOutcome {
 export interface StartJobInput {
   kind: string;
   summary: string;
-  /** The module it works in, for a job that grows one. */
+  /** The module it works in, for a job that regenerates one. */
   module?: string;
   /** Its number among its module's pulses, from 1. */
   pulse?: number;
-  /** What it grows, in a few words. */
+  /** What it regenerates, in a few words. */
   title?: string;
   /** For a render spec diff job: the diff, to show in the panel and the transcript. */
   diff?: string;
@@ -543,8 +543,8 @@ export function formatElapsed(ms: number): string {
 
 /**
  * What a pulse is called wherever it is shown in a line: its module, kind and number - `shorty · regenerate pulse 3`,
- * `shorty · conformance pulse 6` - never what it grows, which is the agents' words and long. A job of no module, what was
- * asked for.
+ * `shorty · conformance pulse 6` - never what it regenerates, which is the agents' words and long. A job of no module,
+ * what was asked for.
  */
 export function pulseName(job: Job): string {
   if (job.module === undefined) return job.summary;

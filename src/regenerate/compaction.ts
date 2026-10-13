@@ -1,5 +1,5 @@
 /**
- * What an agent's work is summed up to when its session grows long - one set of instructions per role.
+ * What an agent's work is summed up to when its session gets long - one set of instructions per role.
  *
  * An agent that keeps its session through a job is compacted between turns once its conversation - what it has
  * done, not its instructions - passes the project's compact-at (see pi.ts compactIfDue). Its task is its system

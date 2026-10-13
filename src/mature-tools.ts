@@ -140,7 +140,7 @@ export function createMatureTools(options: { jobs: JobRegistry; cwd: string; sta
   const reported = new Set<string>();
   let counter = 0;
 
-  /** The struggles already handed out, by job and what they were - each reported once, again only when it grows. */
+  /** The struggles already handed out, by job and what they were - each reported once, again only when it gets longer. */
   const flagged = new Set<string>();
 
   const watchJobs = defineTool({
@@ -225,6 +225,6 @@ export function createMatureTools(options: { jobs: JobRegistry; cwd: string; sta
   return [watchJobs, specFindings];
 }
 
-/** The names of the maturing tools, as a skill's allowed-tools names them: its own - it grows, halts and reads drift with the conversation's (loop-tools.ts). */
+/** The names of the maturing tools, as a skill's allowed-tools names them: its own - it regenerates, halts and reads drift with the conversation's (loop-tools.ts). */
 export const MATURE_TOOLS = ["watch_jobs", "spec_findings"];
 

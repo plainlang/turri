@@ -2,9 +2,10 @@ import type { JobCases, TouchedSpec } from "./drift.ts";
 
 /**
  * What a job's agents are told to do, by its cases - see docs/regenerating.md. A job's functional specs each fall in
- * one case - fresh, added, changed (patched), grown again, taken out - or, with none touched, the job is mechanical. The coding
- * agent and the conformance agent are each told, case by case, exactly what to do with the functional specs of that
- * case; their reviewers, what to hold each to. A job holding several cases gets a section for each.
+ * one case - fresh, added, changed (patched), regenerated again, taken out - or, with none touched, the job is
+ * mechanical. The coding agent and the conformance agent are each told, case by case, exactly what to do with the
+ * functional specs of that case; their reviewers, what to hold each to. A job holding several cases gets a section
+ * for each.
  */
 
 /** Functional specs, each by its number and - each module numbering its own from 1 - the module it belongs to. */

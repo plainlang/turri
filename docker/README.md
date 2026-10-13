@@ -5,7 +5,7 @@ macOS, Linux and Windows alike, with nothing but Docker on the machine.
 
 ## Add your toolchains
 
-**turri** runs the code it grows - the unit and conformance testing scripts, the apps it releases - inside the
+**turri** runs the code it regenerates - the unit and conformance testing scripts, the apps it releases - inside the
 container, so the image needs the toolchains your projects use: Python, Java, Go, ... Uncomment the example `RUN` line
 in the [`Dockerfile`](Dockerfile) and list them there before you build.
 

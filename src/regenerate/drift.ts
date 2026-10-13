@@ -43,9 +43,9 @@ export interface TouchedSpec {
  * - add: functional specs that are new.
  * - patch: functional specs changed - their text, their acceptance tests, or a concept they use: a
  *   change to what is built, never built again from scratch.
- * - again: functional specs marked to grow again (`regenerate` with functionalities named): their code is built, and is grown again - rewritten
+ * - again: functional specs marked to regenerate again (`regenerate` with functionalities named): their code is built, and is regenerated again - rewritten
  *   or started over, doing what the spec says now - with what it replaces taken out. A functional spec of a module
- *   this one requires, grown again here, is one too.
+ *   this one requires, regenerated again here, is one too.
  * - delete: functional specs taken out.
  * - mechanical: none of those - only reqs, or definitions no functional spec uses. Existing tests may
  *   change only mechanically, and no new ones are written.
@@ -132,7 +132,7 @@ export function casesOf(before: MarshalledPlainSource, changes: SpecChange[], op
   for (const change of changes) {
     const was = itemOfLine(change.before);
     const is = itemOfLine(change.after);
-    // Marked to grow again: grown again, whatever else changed in its text - its own or, required, another module's.
+    // Marked to regenerate again: regenerated again, whatever else changed in its text - its own or, required, another module's.
     if (change.kind === "change" && is !== undefined && marksRegenerateAgain(was)) {
       const required = change.section === REQUIRED_FUNCTIONAL_SPECS ? (is as FunctionalItem & { module?: string }) : undefined;
       if (change.section === FUNCTIONAL_REQUIREMENTS) again.push({ frid: numberIn(after, is, change.position), text: firstLine(is.markdown), ...own });
@@ -189,7 +189,8 @@ function sameChange(a: SpecChange, b: SpecChange): boolean {
  */
 /**
  * Why a running job is no longer wanted, in a line: the files it links that hold something else now - the commonest
- * cause, a resource edited while the job grew from it - else the items whose text changed under it, by section and place.
+ * cause, a resource edited while the job regenerated from it - else the items whose text changed under it, by section
+ * and place.
  */
 export function whyNotWanted(running: SpecChange[], work: SpecChange[]): string {
   const taken = new Set<number>();

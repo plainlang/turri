@@ -1,14 +1,14 @@
 # Examples
 
-Each example is a project you grow with **turri** from an empty folder, through its interview, `brood`. You say what
-you want, **turri** writes the \*\*\*plain specs and grows the code from them, and you change your mind by changing
+Each example is a project you regenerate with **turri** from an empty folder, through its interview, `brood`. You say what
+you want, **turri** writes the \*\*\*plain specs and regenerates the code from them, and you change your mind by changing
 what the software should do. You never write a line of code yourself.
 
 | example | what you build | what it shows |
 | --- | --- | --- |
 | [cognio](cognio.md) | a Strava for students: a backend API and a web app | the whole journey, step by step: the interview, the specs, the pulses, regen, releasing, changing your mind, a second module |
 | [tidy](tidy.md) | a command-line tool that sorts a folder of files into subfolders | light questioning - turri deciding what you leave open - a CLI on the standard library, conformance tests that run the real binary |
-| [shorty](shorty.md) | a backend service: a URL shortener with click counts | conformance tests from the start, `bind`, a rule changed and grown again |
+| [shorty](shorty.md) | a backend service: a URL shortener with click counts | conformance tests from the start, `bind`, a rule changed and regenerated again |
 | [hubsync](hubsync.md) | an integration that keeps a CSV of contacts in step with HubSpot | a third-party REST API: its contract in `resources/`, credentials for the agents, conformance tests against the live sandbox |
 
 New to **turri**? Start with [cognio](cognio.md). It explains each step as it comes, and the other examples assume it.
@@ -28,7 +28,7 @@ and every web app Node with npm, Go `go`, Rust `cargo`, Java a JDK. `turri docto
   words if you prefer: the interview asks for whatever is missing.
 - The interview's first question is how many questions you want to answer: light, medium or thorough - at most 3,
   5 or 10 in each of the stack and product phases - or best judgement. Fewer questions are broader ones, so every
-  level covers the same ground. Every product answer is a spec change that starts growing at once; what the
+  level covers the same ground. Every product answer is a spec change that starts regenerating at once; what the
   questions leave open, **turri** decides itself and tells you what it chose. Each example suggests a level. Whether there are conformance tests is always
   asked, in the testing phase.
 

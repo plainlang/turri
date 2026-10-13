@@ -1,11 +1,11 @@
 # A backend and a web app: cognio
 
 You will build **cognio**, a Strava for students. They post their study sessions, follow one another and give each
-other kudos. It is a backend API and a web app, on the stacks you choose, grown from an empty folder without writing
+other kudos. It is a backend API and a web app, on the stacks you choose, regenerated from an empty folder without writing
 a line of code or spec yourself.
 
-This example shows everything **turri** does, step by step: the interview, the specs it writes, the pulses that grow
-the code, regen, which shows how far it has grown, and what happens when you change your mind. It takes an
+This example shows everything **turri** does, step by step: the interview, the specs it writes, the pulses that regenerate
+the code, regen, which shows how far it has got, and what happens when you change your mind. It takes an
 hour or so, most of it the agents' time.
 
 ## 1. Before you start
@@ -79,7 +79,7 @@ choices - pick one, or type your own answer.
   they are what proves the code does what the spec says.)
 - **Product.** Then the features, one question at a time: registering, signing in, following, posting a session,
   kudos, comments, notifications, the feed, profiles. **Every answer becomes one change to the spec**, and that
-  change starts growing at once, in the background, while the interview goes on.
+  change starts regenerating at once, in the background, while the interview goes on.
 
 What it writes is \*\*\*plain - plain English with just enough structure. Concepts are defined once, between colons,
 and every functional spec says what can be done and what the result is:
@@ -94,18 +94,18 @@ and every functional spec says what can be done and what the result is:
 
 That is what you review and keep. You never need to read the code.
 
-## 4. Watch it grow
+## 4. Watch it regenerate
 
-While you answer, the code grows. The panel above the input shows each **pulse** - one unit of work: a few
-functional specs grown into the code by a coding agent, until their unit tests pass and a reviewer is satisfied -
+While you answer, the code is regenerated. The panel above the input shows each **pulse** - one unit of work: a few
+functional specs regenerated into the code by a coding agent, until their unit tests pass and a reviewer is satisfied -
 with its time and cost, and the next ones queued behind it.
 
 Press `ctrl+h` for **regen**: the whole spec, every item marked with where it stands.
 
 ```
-regen  backend.plain   ██████████▓▓▓▓░░░░░░░░░░  4 of 10 functionalities built · pulse 5 of 7 growing
+regen  backend.plain   ██████████▓▓▓▓░░░░░░░░░░  4 of 10 functionalities built · pulse 5 of 7 regenerating
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-› ▾ backend.plain  ████▓▓░░░░░░  4/10 built · pulse 5 of 7 growing
+› ▾ backend.plain  ████▓▓░░░░░░  4/10 built · pulse 5 of 7 regenerating
       │ ***functional specs***
   ✓   │ - A visitor can register a :User: via `POST /users` with the JSON body …
   ✓   │ - A :User: can log in via `POST /auth/login` with the JSON body `{"email", "password"}`.
@@ -114,7 +114,7 @@ regen  backend.plain   ██████████▓▓▓▓░░░░░
   ·   │ - :CurrentUser: can read their :Feed: via `GET /feed`, …
 ```
 
-`✓` is built, the spinner is growing now, a number is the pulse planned to grow it, and `·` is not planned yet - the
+`✓` is built, the spinner is regenerating now, a number is the pulse planned to regenerate it, and `·` is not planned yet - the
 top line says why. `↑` `↓` move, `enter` opens an item, `p` turns to the pulses themselves, and `ctrl+h` or `esc`
 goes back to the chat. What every mark means: [the side panel](../docs/using.md).
 
@@ -124,7 +124,7 @@ When the backend is built, ask:
 
 > Release it.
 
-**turri** takes what has grown, starts it on this machine, installing what it needs, and tells you where it
+**turri** takes what has been regenerated, starts it on this machine, installing what it needs, and tells you where it
 runs - the API, and its interactive documentation where the stack has one. Register a user, sign in, post a
 session.
 
@@ -135,12 +135,12 @@ software should do:
 
 > Students should be able to edit their own comments.
 
-**turri** writes it into the spec as a spec change - a new functional spec, and whatever it touches - and grows
-just that: regen shows the new item waiting, then planned, then growing, while everything already
+**turri** writes it into the spec as a spec change - a new functional spec, and whatever it touches - and regenerates
+just that: regen shows the new item waiting, then planned, then regenerating, while everything already
 built stays `✓`. Change a rule instead - *a handle may be up to 20 characters, not 30* - and the definition is
-marked with the pulse that changes it; the specs that use it are grown again with it.
+marked with the pulse that changes it; the specs that use it are regenerated again with it.
 
-Nothing is patched by hand, and nothing drifts: the code is always grown from the spec as it is now.
+Nothing is patched by hand, and nothing drifts: the code is always regenerated from the spec as it is now.
 
 ## 7. The frontend
 
@@ -148,22 +148,22 @@ Nothing is patched by hand, and nothing drifts: the code is always grown from th
 
 The frontend is a module of its own, `frontend.plain`, on the frontend stack you choose - React, Vue, Svelte or
 Angular, `stdlib/frontend/<stack>` - with its own unit testing script. It usually links a resource file describing the backend's API, so the two agree, and it is interviewed and
-grown the same way. regen then has a row for each module; the one being grown is open, the other folded. When it is
+regenerated the same way. regen then has a row for each module; the one being regenerated is open, the other folded. When it is
 built, *release it* again and open the web app.
 
 ## 8. Leave, and come back
 
 Close **turri** whenever you like. Every pulse either lands as a commit or is rolled back whole - one cut off is
 rolled back before the next one starts - so code, tests and spec never disagree. Start `turri` in the folder again and `ctrl+h` shows exactly what is built, from the files alone. Say
-*regenerate backend.plain*, and what is left is planned and grown again.
+*regenerate backend.plain*, and what is left is planned and regenerated.
 
 A few more things to ask for along the way:
 
 | ask | what it does |
 | --- | --- |
-| *what is left to grow?* | `drift`: how far the code is from the spec, starting nothing |
-| *show me the lineage of backend* | every generation of its code, as git commits - what grew into it, and when |
-| *regenerate the login again* | `regenerate` with the login named: grow a functional spec again from its spec, though nothing changed |
+| *what is left to regenerate?* | `drift`: how far the code is from the spec, starting nothing |
+| *show me the lineage of backend* | every generation of its code, as git commits - what went into it, and when |
+| *regenerate the login again* | `regenerate` with the login named: regenerate a functional spec again from its spec, though nothing changed |
 | *what would the next pulse do?* | `glimpse`: plan the work and show the first prompt, starting nothing |
 
 ## Where next

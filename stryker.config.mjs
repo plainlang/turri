@@ -2,7 +2,7 @@
 // part at a time (scripts/mutation.mjs), each part's report in reports/mutation/<part>/ - stopped, it goes on from the
 // first part with no report. Per-test coverage runs each mutant against only the tests that reach its code.
 
-/** The core of growing: how work is planned, what is built and left, and how a spec is cut into steps. */
+/** The core of regeneration: how work is planned, what is built and left, and how a spec is cut into steps. */
 export const PARTS = {
   "chunk-plan": ["src/regenerate/chunk-plan.ts"],
   "spec-steps": ["src/regenerate/spec-steps.ts"],

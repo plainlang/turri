@@ -147,8 +147,9 @@ const RETRIES = 2;
 
 /**
  * A functional spec to build, for the grouping: the number the agent answers with, its text, and whether it is built
- * already and grown again. `id` and `module` say which it is: each module numbers its own from 1, and a codebase grows
- * again the functional specs of the modules it is built on too. No module: the codebase's own. No id: the number.
+ * already and regenerated again. `id` and `module` say which it is: each module numbers its own from 1, and a codebase
+ * regenerates again the functional specs of the modules it is built on too. No module: the codebase's own. No id: the
+ * number.
  */
 export interface NewSpec {
   number: number;
@@ -268,7 +269,7 @@ export function placeProblems(input: PlaceInput, answer: PlaceAnswer): string[] 
   return problems;
 }
 
-/** Whether a change is to a functional spec marked to grow again: built, and grown again - cut into jobs as new work is. */
+/** Whether a change is to a functional spec marked to regenerate again: built, and regenerated again - cut into jobs as new work is. */
 function regeneratesAgain(change: SpecChange): boolean {
   if ((change.section !== FUNCTIONAL_REQUIREMENTS && change.section !== REQUIRED_FUNCTIONAL_SPECS) || change.kind !== "change" || change.before === undefined) return false;
   try {
@@ -457,8 +458,8 @@ async function cut(input: PlanInput, agents?: ChunkAgents, notes?: string[]): Pr
   };
   const net = netChanges(input.base, input.current);
   if (net.length === 0) return [];
-  // What is grouped into jobs: the functional specs grown again - the modules' below first, as the codebase is built on
-  // them - and the codebase's own, grown again or new at the end, in the spec's order.
+  // What is grouped into jobs: the functional specs regenerated again - the modules' below first, as the codebase is
+  // built on them - and the codebase's own, regenerated again or new at the end, in the spec's order.
   const below = net.filter((change) => regeneratesAgain(change) && change.section === REQUIRED_FUNCTIONAL_SPECS).sort((a, b) => a.position - b.position);
   // The conformance tests are written on the code as built: every functional spec added or changed is tested alike, wherever it is.
   const own =

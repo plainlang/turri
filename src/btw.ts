@@ -5,9 +5,9 @@
  * A skill runs inside one tool call, so the chat model can answer nothing until the skill returns, and whatever the
  * person types meanwhile waits for it as a message. pi runs an extension's command at once, even mid-turn: /btw starts
  * an agent of its own - fresh, read only - that is shown the conversation, what the running skill has done and said so
- * far, and what is growing, and answers. Its answer is shown and kept out of every model's context: the conversation
- * and the skill go on as if nothing was asked. While a question of the skill's has the keys, the same is typed into its
- * "Something else…" - answered, and the question asked again with the answer above it.
+ * far, and what is regenerating, and answers. Its answer is shown and kept out of every model's context: the
+ * conversation and the skill go on as if nothing was asked. While a question of the skill's has the keys, the same is
+ * typed into its "Something else…" - answered, and the question asked again with the answer above it.
  */
 
 import { readFileSync } from "node:fs";
@@ -105,7 +105,7 @@ export interface SideQuestion {
   conversation: string;
   /** The skill running now, if one is. */
   skill?: { name: string; dir: string; step: string; trace: string[]; session: string };
-  /** What is growing and has grown this session, a line a pulse. */
+  /** What is regenerating and has been regenerated this session, a line a pulse. */
   pulses: string[];
   projectDir: string;
   /** turri's own folder: its source, skills, rules and docs. */

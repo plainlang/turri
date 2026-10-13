@@ -75,7 +75,7 @@ export function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
 }
 
-/** A finished pulse in its module's line: its mark, number and kind - `✓ 3 regenerate`. What it grew is in the side panel. */
+/** A finished pulse in its module's line: its mark, number and kind - `✓ 3 regenerate`. What it regenerated is in the side panel. */
 function finishedItem(job: Job, marks: MarkPaint): string {
   if (job.module === undefined || job.pulse === undefined) return `${finishedMark(job, marks)} ${pulseName(job)}`;
   return `${finishedMark(job, marks)} ${job.pulse} ${job.kind}`;

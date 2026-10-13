@@ -314,7 +314,7 @@ describe("rendering a spec diff", () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));
     const regenerated = snapshotSpec("app.plain", { cwd: dir });
-    // While it works, the spec gains a sub-bullet under what it grows: the loop steered it, the agent not yet told.
+    // While it works, the spec gains a sub-bullet under what it regenerates: the loop steered it, the agent not yet told.
     writeFileSync(join(dir, "app.plain"), plain(["- One.", "- Two.\n  - Twice."]));
     const steered = parsed();
     const steering = createSteering(regenerated.tree);

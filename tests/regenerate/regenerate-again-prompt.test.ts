@@ -9,8 +9,8 @@ const tree = (definitions: string[], reqs: string[], specs: string[]) => ({
   "functional specs": specs.map((markdown) => ({ markdown })),
 });
 
-describe("a functional spec grown again, as the coding agent reads it", () => {
-  it("is told apart from a change - to grow again, with its text as it is now", () => {
+describe("a functional spec regenerated again, as the coding agent reads it", () => {
+  it("is told apart from a change - to regenerate again, with its text as it is now", () => {
     const marked = tree([], [], ["- Log in with a token.", "- Show the feed."]) as Record<string, unknown>;
     const specs = (marked["functional specs"] as Array<{ markdown: string }>).map((entry, index) => (index === 1 ? { ...entry, regenerate_again: true } : entry));
     const text = describeSpecChange(changesBetween(serializeTree({ ...marked, "functional specs": specs } as never), serializeTree(marked as never)));

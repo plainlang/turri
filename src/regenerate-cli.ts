@@ -42,7 +42,7 @@ for (const [name, instead] of Object.entries(GONE)) {
   if (options[name] !== undefined) console.log(c.dim(`--${name} is no longer an option: ${instead}.`));
 }
 const named = positional[0] ?? readProjectConfig(process.cwd()).module;
-// Functional specs named after the file: grown again though their spec did not change.
+// Functional specs named after the file: regenerated again though their spec did not change.
 const again = positional.slice(1);
 if (!named) {
   console.error(`${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`);

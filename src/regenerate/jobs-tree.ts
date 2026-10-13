@@ -216,7 +216,7 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
     }
     const { job } = row;
     const open = isOpen(state, job);
-    // A line says which module, which pulse, how long and what it cost - and the mark where it is, or how it ended; the rest - what it grows too - is in it, opened.
+    // A line says which module, which pulse, how long and what it cost - and the mark where it is, or how it ended; the rest - what it regenerates too - is in it, opened.
     // A queued pulse has not started: it has no time to show.
     const time = job.status === "queued" ? "" : ` · ${formatDuration(job)}`;
     const head = `${pointer}   ${open ? "▾" : "▸"} ${markOf(job, style)} ${pulseName(job)}${time}${pulseCost(job)}`;

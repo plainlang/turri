@@ -221,7 +221,7 @@ export interface UnitReviewer {
 /**
  * The reviewer: a read-only agent, on the judge model, that says pass or every problem - one session for the whole
  * loop, so a review after the first starts from what it already read and raised, not from nothing. Its task is its
- * instructions; its work is compacted as it grows.
+ * instructions; its work is compacted as it gets longer.
  */
 export async function createUnitReviewer(options: {
   /** What the work does to each functional spec (work.ts): the reviewer holds each part to its own case. */

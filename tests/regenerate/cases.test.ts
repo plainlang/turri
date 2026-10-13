@@ -50,7 +50,7 @@ describe("what a job's agents are told, by its cases", () => {
     expect(mixed).not.toContain("No functional spec is touched");
   });
 
-  it("tells the coding agent to grow again what is built - its implementation replaced, not a second one beside it - and its reviewer to hold it to that", () => {
+  it("tells the coding agent to regenerate again what is built - its implementation replaced, not a second one beside it - and its reviewer to hold it to that", () => {
     const again = text(codeCasesBlock({ ...none, again: [{ frid: "2", text: "Users sign in." }] }));
     expect(again).toContain("Regenerated again - its code and unit tests are built, and are to be regenerated again: fs 2 (Users sign in.)");
     expect(again).toContain("no second implementation beside the old one");

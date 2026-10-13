@@ -87,7 +87,7 @@ export type JobRunner = (
     planned: PlannedJob;
     model?: string;
     cwd: string;
-    /** A code job's: how the loop steers it when the spec changes inside what it grows - and the record it lands. */
+    /** A code job's: how the loop steers it when the spec changes inside what it regenerates - and the record it lands. */
     steering?: JobSteering;
   },
   onDelta: (delta: string) => void,
@@ -180,7 +180,7 @@ interface ModuleState {
   conformanceHalted?: { why: string; key: string };
   /**
    * Nothing runs here until the spec changes from `specKey`, or it is asked for again. `pulse`: the one that did not
-   * land - its number, and the trees it went between - for the regeneration to say which items it was growing.
+   * land - its number, and the trees it went between - for the regeneration to say which items it was regenerating.
    */
   halted?: { why: string; specKey: string; pulse?: { number: number; before: string; after: string }; cause?: string };
   /** How many pulses have started here this session: the next is numbered one more. */
@@ -195,7 +195,7 @@ interface ModuleState {
   startOver?: ModuleStatus["startOver"];
 }
 
-/** What is left to grow in a codebase - see `WorkLoop.drift`. */
+/** What is left to regenerate in a codebase - see `WorkLoop.drift`. */
 export interface DriftReport {
   module: string;
   plainFile: string;
@@ -206,19 +206,19 @@ export interface DriftReport {
   /** Conformance tests scheduled ahead of their code, and which of their functional specs are not built yet. */
   scheduled: Array<{ frids: string[]; unbuilt: string[] }>;
   running?: { jobId: string; title: string };
-  /** Why nothing grows there: halted, or its spec does not parse. */
+  /** Why nothing is regenerated there: halted, or its spec does not parse. */
   why?: string;
   startOver?: ModuleStatus["startOver"];
 }
 
-/** What is left to grow, as the conversation and the command line read it. */
+/** What is left to regenerate, as the conversation and the command line read it. */
 export function describeDrift(reports: DriftReport[]): string {
   if (reports.length === 0) return "Nothing to look at: no module of that spec.";
   const cases = (work: JobCases) => casesText(work);
-  // Fully grown: in every codebase the code - and its conformance tests, where there are any - grown from the spec as it
-  // is, nothing growing or waiting, and nothing holding the codebase back. A pulse that did not land leaves its work
-  // undone, so it shows as drift.
-  // conformance: null is no drift, undefined none written here - either is grown; a case list is work left.
+  // Fully regenerated: in every codebase the code - and its conformance tests, where there are any - regenerated from
+  // the spec as it is, nothing regenerating or waiting, and nothing holding the codebase back. A pulse that did not
+  // land leaves its work undone, so it shows as drift.
+  // conformance: null is no drift, undefined none written here - either is regenerated; a case list is work left.
   const regenerated = reports.every((report) => report.code === null && (report.conformance === null || report.conformance === undefined));
   const settled = reports.every((report) => report.running === undefined && report.why === undefined && report.startOver === undefined && report.scheduled.length === 0);
   const verdict = regenerated && settled ? "\nFully regenerated: every codebase is regenerated from the spec as it is, and nothing is regenerating." : "";
@@ -248,14 +248,15 @@ export interface WorkLoop {
    */
   bringUp(plainFile: string, options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
   /**
-   * Grow functional specs of a module again, their spec changed or not: each is marked to grow again in the record
-   * of every codebase it is built in - committed - and they are brought up to their spec, the marked ones planned as
-   * any change is. Their code is there: the jobs that grow them are told to grow it again, not to build it anew.
+   * Regenerate functional specs of a module again, their spec changed or not: each is marked to regenerate again in
+   * the record of every codebase it is built in - committed - and they are brought up to their spec, the marked ones
+   * planned as any change is. Their code is there: the jobs that regenerate them are told to regenerate it again, not
+   * to build it anew.
    */
   regenerateAgain(plainFile: string, frids: string | string[], options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
   /**
-   * What is left to grow, for a spec's module, in each codebase where its code lives: the code's work from its record to
-   * the spec now, and the conformance tests' - planning nothing, starting nothing.
+   * What is left to regenerate, for a spec's module, in each codebase where its code lives: the code's work from its
+   * record to the spec now, and the conformance tests' - planning nothing, starting nothing.
    */
   drift(plainFile: string): DriftReport[];
   /**
@@ -631,9 +632,10 @@ export function createWorkLoop(options: {
   };
 
   /**
-   * Steer the running code job when the spec moved on inside what it grows: its target moved to the spec as it now is
-   * there, its agent told - now, in its turn, or when the step it is at ends - its view in the panel moved too. Whatever
-   * else changed is the next job's. True when it was steered: not a third time, unless into a steer still waiting.
+   * Steer the running code job when the spec moved on inside what it regenerates: its target moved to the spec as it
+   * now is there, its agent told - now, in its turn, or when the step it is at ends - its view in the panel moved too.
+   * Whatever else changed is the next job's. True when it was steered: not a third time, unless into a steer still
+   * waiting.
    */
   const trySteer = (state: ModuleState, spec: SpecSnapshot, own: SpecChange[], work: SpecChange[]): boolean => {
     const running = state.running;
@@ -643,7 +645,7 @@ export function createWorkLoop(options: {
     if (steering.steers >= MAX_STEERS && !waiting) return false;
     const moved = steer(steering, running.from, own, (tree) => workOf("code", tree, state, spec));
     if (moved === undefined) return false;
-    // Steered, everything it grows is wanted - else something it grows was taken out, and that is no steer.
+    // Steered, everything it regenerates is wanted - else something it regenerates was taken out, and that is no steer.
     if (!stillWanted(changesBetween(serializeTree(running.from), serializeTree(moved.target)), work)) return false;
     const why = whyNotWanted(own, work);
     steering.target = moved.target;
@@ -733,7 +735,7 @@ export function createWorkLoop(options: {
       return;
     }
     const conformance = planned.track === "conformance";
-    // A code job can be steered while it grows: its target moves with the spec, inside what it grows.
+    // A code job can be steered while it regenerates: its target moves with the spec, inside what it regenerates.
     const steering = conformance ? undefined : createSteering(planned.step.tree, tip.moduleName);
     // Shown as its agent is given it: the job's own items, from whichever file they are written in - its imports too.
     const shown = changeDiffInFiles(
@@ -916,8 +918,9 @@ export function createWorkLoop(options: {
   };
 
   /**
-   * A pulse's line in the notes, written as it ends: what it grew, whether it landed, how it went - the rounds, the test
-   * runs, what the debugger found - and where its log is, for whoever wants the whole of it. Committed with it.
+   * A pulse's line in the notes, written as it ends: what it regenerated, whether it landed, how it went - the rounds,
+   * the test runs, what the debugger found - and where its log is, for whoever wants the whole of it. Committed
+   * with it.
    */
   const notePulse = (state: ModuleState, running: NonNullable<ModuleState["running"]>, settled: Job | undefined, landed: boolean) => {
     const tip = tipEntry(state);
@@ -1020,12 +1023,12 @@ export function createWorkLoop(options: {
       const track = state.running.planned.track;
       const own = changesBetween(serializeTree(state.running.from), serializeTree(state.running.after));
       let work = workOf(track, state.running.from, state, spec);
-      // A change inside what it grows steers it, rather than stopping it or leaving it to the next job.
+      // A change inside what it regenerates steers it, rather than stopping it or leaving it to the next job.
       if (!stillWanted(own, work) && trySteer(state, spec, own, work)) work = workOf(track, state.running.from, state, spec);
       const ownNow = changesBetween(serializeTree(state.running.from), serializeTree(state.running.after));
       if (!stillWanted(ownNow, work)) {
         const why = whyNotWanted(ownNow, work);
-        // The project may have it run to its end instead: what it lands, the next job grows the change on top of.
+        // The project may have it run to its end instead: what it lands, the next job regenerates the change on top of.
         if (configForSpec(tip.plainFile).allowToStopJobs === false) {
           if (state.running.keptDespite !== why) {
             state.running.keptDespite = why;

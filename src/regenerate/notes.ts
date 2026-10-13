@@ -11,7 +11,7 @@ import { reportActivity } from "./activity.ts";
  * turns finding its bearings - where the entry point is, how the tests run, what was installed,
  * which approach already failed. The notes carry that forward: each agent on a codebase gets
  * them the moment it starts, and updates them - a line added, changed or removed - before it
- * finishes, so they grow with the codebase instead of being rewritten by whoever came last.
+ * finishes, so they get longer with the codebase instead of being rewritten by whoever came last.
  *
  * Stubborn on the specs, flexible on the assumptions. What the software must do is in the spec,
  * and the notes never repeat or override it. Where the spec is silent, an agent has to assume
@@ -377,8 +377,8 @@ export function recordNote(buildDir: string, section: Section, text: string, sou
 }
 
 /**
- * A pulse's line, written by the harness as the pulse ends - landed or not: what it grew, how it went, where its log is.
- * The last PULSES_KEPT stay; the module's history has every pulse.
+ * A pulse's line, written by the harness as the pulse ends - landed or not: what it regenerated, how it went, where its
+ * log is. The last PULSES_KEPT stay; the module's history has every pulse.
  */
 export function recordPulse(buildDir: string, text: string, source: string): void {
   try {

@@ -4,7 +4,7 @@ You will build **hubsync**, a command-line job that keeps a CSV of contacts in s
 contacts that are missing, updates the ones that changed, matches them by email, and reports what it did. Run it by
 hand or from cron.
 
-An integration is grown like any module, with three differences. The provider's contract is written down in
+An integration is regenerated like any module, with three differences. The provider's contract is written down in
 files rather than recalled from memory. The agents need a credential to reach the provider. And the conformance
 tests call the real API.
 
@@ -101,7 +101,7 @@ code agrees with the recordings. The test reqs say so:
 The tests create their own contacts, with addresses on a domain kept for tests, and delete them afterwards. The
 testing scripts run on this machine in your own environment, so they read `.env` themselves.
 
-## 5. Watch it grow, and try it
+## 5. Watch it regenerate, and try it
 
 regen (`ctrl+h`) shows the code track and the conformance track as for any module. If HubSpot behaves
 differently from what the spec says, the fix is a spec change, and that is yours to make: say what **hubsync**
@@ -121,7 +121,7 @@ hubsync push contacts.csv
 > Also sync a `lifecycle_stage` column, but never move a contact backwards - a customer stays a customer.
 
 The agent checks the property in HubSpot's documentation and the live API, adds it to the contract in
-`resources/`, and grows the change. The conformance tests for it run against the sandbox too.
+`resources/`, and regenerates the change. The conformance tests for it run against the sandbox too.
 
 ## Where next
 

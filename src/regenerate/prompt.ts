@@ -404,7 +404,7 @@ export function describeSpecChange(changes: SpecChange[], moduleName?: string): 
     );
     let added = split.filter((change) => change.kind === "add");
     let removed = split.filter((change) => change.kind === "remove");
-    // Marked to grow again: built, and grown again - what it says now, and what it said, where that changed too.
+    // Marked to regenerate again: built, and regenerated again - what it says now, and what it said, where that changed too.
     const again = split.filter((change) => change.kind === "change" && marksRegenerateAgain(parsed(change.before)));
     for (const change of split.filter((item) => item.kind === "change" && !again.includes(item))) {
       const label = labelOf(change, change.after);

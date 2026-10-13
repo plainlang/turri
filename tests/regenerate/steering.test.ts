@@ -6,7 +6,7 @@ const item = (markdown: string) => JSON.stringify({ markdown });
 const change = (section: string, before: string, after: string, position = 1): SpecChange => ({ id: `${section}-${position}`, section, kind: "change", before: item(before), after: item(after), position });
 
 describe("what steers a running job", () => {
-  it("is a change to a functional spec it grows - a sub-bullet added under it too - but not to one built before it", () => {
+  it("is a change to a functional spec it regenerates - a sub-bullet added under it too - but not to one built before it", () => {
     const mine = new Set([item("- Say hello.")]);
     const { steer } = steerableChanges(
       [change("functional specs", "- Say hello.", "- Say hello.\n  - In French."), change("functional specs", "- Count to ten.", "- Count to twenty.", 2)],
@@ -48,15 +48,15 @@ describe("steering a running job", () => {
   const implOf = (one: unknown) => ((one as { "implementation reqs"?: Array<{ markdown: string }> })["implementation reqs"] ?? []).map((req) => req.markdown);
 
   /**
-   * A job that grows `target` from its record `from`, steered towards `spec` - as the work loop steers one: the job's own
-   * changes from its record to what it grows, and the work from a tree to the spec.
+   * A job that regenerates `target` from its record `from`, steered towards `spec` - as the work loop steers one: the job's own
+   * changes from its record to what it regenerates, and the work from a tree to the spec.
    */
   function steered(from: unknown, target: unknown, spec: unknown) {
     const steering = createSteering(target as never);
     return steer(steering, from as never, between(from, target), (one) => between(one, spec));
   }
 
-  it("moves its record and its agent to a functional spec it grows, reworded", () => {
+  it("moves its record and its agent to a functional spec it regenerates, reworded", () => {
     const from = tree({ specs: ["- Say hello."] });
     const target = tree({ specs: ["- Say hello.", "- Say goodbye."] });
     const moved = steered(from, target, tree({ specs: ["- Say hello.", "- Say goodbye politely."] }))!;
@@ -65,7 +65,7 @@ describe("steering a running job", () => {
     expect(moved.steered).toHaveLength(1);
   });
 
-  it("is not steered by a change to a functional spec built before it, which it does not grow", () => {
+  it("is not steered by a change to a functional spec built before it, which it does not regenerate", () => {
     const from = tree({ specs: ["- Say hello."] });
     const target = tree({ specs: ["- Say hello.", "- Say goodbye."] });
     expect(steered(from, target, tree({ specs: ["- Say hello loudly.", "- Say goodbye."] }))).toBeUndefined();
@@ -120,7 +120,7 @@ describe("steering a running job", () => {
 });
 
 describe("a steer waiting for the agent", () => {
-  it("names the functional spec by the module the job grows, and says to make the code match", () => {
+  it("names the functional spec by the module the job regenerates, and says to make the code match", () => {
     const steering = createSteering({ "functional specs": [{ markdown: "- Say hello." }] } as never, "app");
     steering.agent = { "functional specs": [{ markdown: "- Say hello loudly." }] } as never;
     const text = waitingSteer(steering)!;

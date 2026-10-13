@@ -114,7 +114,7 @@ describe("the panel", () => {
     expect(lines[0]).toBe("  backend  <ok>✓ 1 regenerate · <bad>✗ 2 conformance");
     expect(lines[1]).toBe("  web      <ok>✓ 1 regenerate");
     expect(lines[2]).toBe(`  ${"─".repeat(76)}`);
-    // What runs is below the rule, by the input: its module, its kind and number - never what it grows.
+    // What runs is below the rule, by the input: its module, its kind and number - never what it regenerates.
     expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regenerate pulse 3 · \d+s$/);
     // ctrl+o expands the agents' trace, not what finished: the side panel lists each.
     expect(jobPanelLines(jobs.list(), { expanded: true, marks, width: 80 }).slice(0, 2)).toEqual(lines.slice(0, 2));

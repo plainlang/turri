@@ -192,7 +192,7 @@ describe("a skill's tools", () => {
 });
 
 describe("mature", () => {
-  it("grows a rough spec until it is fully grown, on its own - with the conversation's regenerate, drift and halt, and its own tools to watch the pulses and read what they decided", () => {
+  it("regenerates a rough spec until it is fully regenerated, on its own - with the conversation's regenerate, drift and halt, and its own tools to watch the pulses and read what they decided", () => {
     const skill = loadSkill("genome/skills/mature");
     expect(skill.steps.map((step) => step.name)).toEqual(["intake", "regenerate", "report"]);
     expect(skill.allowedTools).toEqual(expect.arrayContaining(["write_spec_diff", "regenerate", "drift", "halt", "watch_jobs", "spec_findings"]));

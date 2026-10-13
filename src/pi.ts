@@ -232,7 +232,7 @@ export async function ask(session: AgentSession, text: string, onDelta?: (delta:
 }
 
 async function askUnrestricted(session: AgentSession, text: string, onDelta?: (delta: string) => void): Promise<string> {
-  // Between turns, not during one: the work so far, summed up, once it has grown past the threshold.
+  // Between turns, not during one: the work so far, summed up, once it has got larger than the threshold.
   // The summary keeps no images: they go with the next message again.
   if (await compactIfDue(session)) {
     const images = sessionImages.get(session);
@@ -521,7 +521,7 @@ export function refuseIfBlind(model: { provider: string; id: string; input?: rea
  */
 export const BEGIN = "Begin. Your task is in your instructions.";
 
-/** How a session's work is summed up when it grows past the threshold: what the summary has to keep, for its role. */
+/** How a session's work is summed up when it gets larger than the threshold: what the summary has to keep, for its role. */
 export interface Compaction {
   instructions: string;
   /** Tokens of conversation - past the system prompt - past which it is compacted. Default: the project's compact-at, else DEFAULT_COMPACT_AT. */
@@ -548,7 +548,7 @@ function thousands(tokens: number): string {
 }
 
 /**
- * Compact a session's work when its conversation - what it has done, not its instructions - has grown past its
+ * Compact a session's work when its conversation - what it has done, not its instructions - has got larger than its
  * threshold. An agent that keeps its session through a job re-reads everything it did on every call: this keeps
  * that bounded, as pi's own compaction does only when the context window is nearly full. The summary keeps what
  * its role needs; its instructions are untouched. A compaction that fails leaves the session as it was.
@@ -760,7 +760,7 @@ export async function createExecutor(opts: {
    * into its system prompt, after `system`, so compaction never sums it up; open the session with BEGIN.
    */
   task?: string;
-  /** Given, the session keeps working through a job and is compacted between turns once its work grows past the threshold. */
+  /** Given, the session keeps working through a job and is compacted between turns once its work gets larger than the threshold. */
   compaction?: Compaction;
   /**
    * What the agent is, e.g. "app 3 coding agent". Given, the agent is one a render started: its

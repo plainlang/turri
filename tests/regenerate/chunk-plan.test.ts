@@ -101,7 +101,7 @@ describe("cutting the queue's work into jobs", () => {
     expect(comments!.diff).toContain("+- :Comment: is a text");
   });
 
-  it("groups functional specs grown again as it groups new ones - those next to each other in one job - apart from the changes to what is built", async () => {
+  it("groups functional specs regenerated again as it groups new ones - those next to each other in one job - apart from the changes to what is built", async () => {
     const built = tree({ definitions: DEFS, specs: SPECS });
     const marked = { ...built, "functional specs": SPECS.map((markdown, index) => (index === 1 || index === 2 ? { markdown, regenerate_again: true } : { markdown })) } as never;
     const from = input(marked, built);
@@ -116,7 +116,7 @@ describe("cutting the queue's work into jobs", () => {
     ]);
   });
 
-  it("groups the functional specs of a module below grown again here too - next to each other only within their module", async () => {
+  it("groups the functional specs of a module below regenerated again here too - next to each other only within their module", async () => {
     const below = (frid: string, markdown: string) => ({ markdown, module: "base", frid });
     const built = { "required functional specs": [below("1", "- Base one."), below("2", "- Base two.")], "functional specs": [{ markdown: "- App one." }] } as never;
     const marked = {

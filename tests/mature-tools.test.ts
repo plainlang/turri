@@ -90,8 +90,8 @@ describe("what a maturing run reads back", () => {
   });
 });
 
-describe("growing and waiting, from a skill - with the conversation's own regenerate, drift and halt", () => {
-  it("grows a module that is not grown yet as it is planned - a pulse a functional spec here - and waits for every pulse to say how it ended", async () => {
+describe("regenerating and waiting, from a skill - with the conversation's own regenerate, drift and halt", () => {
+  it("regenerates a module that is not regenerated yet as it is planned - a pulse a functional spec here - and waits for every pulse to say how it ended", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const registry = createJobRegistry();
     const loop = createWorkLoop({ registry, cwd: dir, planner: false });
@@ -108,7 +108,7 @@ describe("growing and waiting, from a skill - with the conversation's own regene
     expect(diffs[1]).toContain("+- Say goodbye.");
   });
 
-  it("grows a spec changed in place - and nothing when the code is grown from it already", async () => {
+  it("regenerates a spec changed in place - and nothing when the code is regenerated from it already", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello."]));
     writeCodeRecord(buildDir(), plainFileParser("app.plain", [dir])[1]);
     writeFileSync(join(buildDir(), "app.py"), "print('hello')\n");
@@ -182,7 +182,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     expect(next).toContain("Every build queued since this run started has finished");
   });
 
-  it("halts a struggling pulse, keeping why - so it grows again from the clarified spec", async () => {
+  it("halts a struggling pulse, keeping why - so it is regenerated again from the clarified spec", async () => {
     const registry = createJobRegistry();
     const started = registry.start({ kind: "regenerate", summary: "app.plain fs 2", run: async () => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: "" }) });
     const said = await call(haltTool({ jobs: registry }), { job_id: started.id, reason: "the spec now says a duplicate email is refused with 409" });
@@ -192,7 +192,7 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     expect(registry.get(started.id)!.note).toContain("a duplicate email is refused with 409");
   });
 
-  it("knows the goal from drift: fully grown - the code grown from the spec as it stands, and nothing growing", async () => {
+  it("knows the goal from drift: fully regenerated - the code regenerated from the spec as it stands, and nothing regenerating", async () => {
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false });
     const drift = driftTool({ cwd: dir, loop: () => loop });

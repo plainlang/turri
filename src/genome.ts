@@ -197,7 +197,7 @@ export async function runSkill(opts: {
     tools: [...builtins, ...names],
     model: opts.model,
     // A skill writes specs; the rules it is held to are in its system prompt - and what this machine can build, so the
-    // stack it offers or chooses is one that can be grown here.
+    // stack it offers or chooses is one that can be regenerated here.
     rules: true,
     system: toolchainsBlock(),
     resumeFrom: resumed?.sessionFile,

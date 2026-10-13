@@ -40,7 +40,7 @@ describe("what the chat is told it is", () => {
 });
 
 describe("what the chat is told to do when a pulse stops on its environment", () => {
-  it("heals it before growing it again - the sandbox's by config, a missing tool found or installed with the person's yes - and never makes up a credential", () => {
+  it("heals it before regenerating it again - the sandbox's by config, a missing tool found or installed with the person's yes - and never makes up a credential", () => {
     expect(JOB_FINISHED_REACTION).toContain("stops the same way again until that is fixed: never regenerate it before");
     expect(JOB_FINISHED_REACTION).toContain("Add the folder its report names to\n  `toolchains:` in config.turri.yaml");
     expect(JOB_FINISHED_REACTION).toContain("whether it is installed somewhere off the PATH");

@@ -10,7 +10,7 @@ import { listFiles } from "./testing.ts";
  *
  * Every render is a fresh session, and without this each one begins by rediscovering the
  * codebase - listing directories, grepping for where things are - which on a long module is
- * the same exploration repeated once per functionality, growing as the code does. The
+ * the same exploration repeated once per functionality, getting longer as the code does. The
  * harness already knows the answers, and knows them exactly: the files, which
  * functionality put which of them there, and the test command that passed. None of it is
  * the agent's recollection, so none of it can be stale.

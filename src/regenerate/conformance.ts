@@ -433,7 +433,7 @@ export async function renderConformanceTests(
   // What it hands over at the end of a turn, for its reviewer.
   const work = createWorkLedger();
   stage(`starting the conformance agent${options.model ? ` (${options.model})` : ""}`);
-  // One session for the whole run: its task is its instructions, its work compacted as it grows.
+  // One session for the whole run: its task is its instructions, its work compacted as it gets longer.
   const executor = await createExecutor({
     cwd: conformanceDir,
     customTools: [
@@ -765,8 +765,9 @@ export async function renderConformanceTests(
         } else if (verdict.culprit === "code") {
           reportActivity(`  the code: ${reason}`);
           stage("the code is wrong - the coding agent fixes it");
-          // One fixer for the run, starting each fix from what the ones before it tried: its work is compacted as it
-          // grows, so a session carried through the run does not re-read every earlier fix and suite output whole.
+          // One fixer for the run, starting each fix from what the ones before it tried: its work is compacted as
+          // it gets longer, so a session carried through the run does not re-read every earlier fix and suite output
+          // whole.
           const fixed = await changing(() => askFixer(codeFixPrompt({ run: recheck, reason: verdict.reason })));
           recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
           if (idle(fixed.files)) break;

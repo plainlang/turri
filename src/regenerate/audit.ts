@@ -169,7 +169,7 @@ export function beforeCommand(scope: AuditScope): AuditSnapshot {
     trees.push({ root, files: all, kept: keep(all), from: "copy" });
   }
 
-  // The module's lineage: its refs and settings - the objects only grow.
+  // The module's lineage: its refs and settings - the objects are only ever added to.
   const lineage = join(scope.module, ".plaingit");
   const refs = walk(lineage, (path) => !within(path, join(lineage, "objects")) && !within(path, join(lineage, "logs")));
   trees.push({ root: lineage, files: refs, kept: keep(refs), from: "copy" });

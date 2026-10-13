@@ -217,13 +217,13 @@ describe("a job's cases", () => {
     expect(cases.mechanical).toBe(false);
   });
 
-  it("grows again a functional spec marked to - not a change to it, whatever else changed in its text - and nothing else", () => {
+  it("regenerates again a functional spec marked to - not a change to it, whatever else changed in its text - and nothing else", () => {
     const built = codeTree(shop());
     const marked = { ...built, "functional specs": fs(built).map((entry, index) => (index === 1 ? { ...entry, [REGENERATE_AGAIN]: true } : entry)) } as MarshalledPlainSource;
     const cases = casesOf(marked, codeWork(marked, shop()));
     expect(cases).toMatchObject({ add: [], patch: [], delete: [], mechanical: false });
     expect(cases.again.map((entry) => entry.frid)).toEqual(["2"]);
-    // Grown again as it reads now: its text changed as well, it is still grown again, not patched.
+    // Regenerated again as it reads now: its text changed as well, it is still regenerated again, not patched.
     const reworded = { ...shop(), "functional specs": fs(shop()).map((entry, index) => (index === 1 ? { ...entry, markdown: `${entry.markdown} Twice.` } : entry)) } as MarshalledPlainSource;
     expect(casesOf(marked, codeWork(marked, reworded)).again.map((entry) => entry.frid)).toEqual(["2"]);
   });
@@ -261,7 +261,7 @@ describe("a job's cases", () => {
     expect(casesOf({}, codeWork(null, now)).add.map((entry) => entry.frid)).toEqual(["7"]);
   });
 
-  it("grows again a functional spec of a module below marked to, by that module and its number", () => {
+  it("regenerates again a functional spec of a module below marked to, by that module and its number", () => {
     const required = (marked: boolean) =>
       ({ "required functional specs": [{ module: "base", frid: "2", markdown: "- A :Customer: signs in.", ...(marked ? { [REGENERATE_AGAIN]: true } : {}) }] }) as MarshalledPlainSource;
     const cases = casesOf(required(true), codeWork(required(true), required(false)), { module: "shop" });
@@ -287,7 +287,7 @@ describe("a job's cases", () => {
     expect(casesOf(built, codeWork(built, now)).patch.map((entry) => entry.frid)).toContain("1");
   });
 
-  it("patches its own functional spec for a concept redefined, though one of a module below with that number is grown again", () => {
+  it("patches its own functional spec for a concept redefined, though one of a module below with that number is regenerated again", () => {
     const tree = (marked: boolean, customer: string) =>
       ({
         definitions: [item(`- :Customer: is ${customer}.`)],
