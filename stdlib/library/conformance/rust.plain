@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/library/conformance/common
+description: Conformance tests for stdlib/library/rust as a Cargo package depending on it by path.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Cargo package of their own that depends on the library by path, run with `cargo test`.

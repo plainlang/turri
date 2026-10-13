@@ -1,0 +1,11 @@
+---
+description: How every stdlib command-line tool's conformance tests run - the built tool as a separate process.
+---
+
+***test reqs***
+
+- :ConformanceTests: run the built tool as a separate process, and check its standard output, standard error and exit code.
+- :ConformanceTests: run each case in a temporary directory of its own, with only the environment variables the case sets.
+  - The tool is run by its absolute path in the built code - the built binary, jar or script - never a path relative to the working directory, which is the case's temporary directory.
+- :ConformanceTests: check a failure by its exit code and that its message starts with `Error: `, never by the rest of the message.
+- :ConformanceTests: pass the formatter, the linter and the type checker of their language as the conformance testing script runs them, and are typed throughout where their language allows it.

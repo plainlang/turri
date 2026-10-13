@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/backend/conformance/common
+description: Conformance tests for stdlib/backend/java-springboot as a Maven project with JUnit 5 and the JDK's HttpClient.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Maven project of their own, using JUnit 5, AssertJ and the JDK's `HttpClient`, run with `mvn test`.

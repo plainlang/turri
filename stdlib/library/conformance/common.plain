@@ -1,0 +1,9 @@
+---
+description: How every stdlib library's conformance tests run - through its public entry point only.
+---
+
+***test reqs***
+
+- :ConformanceTests: use the library through its public entry point only, as its users do.
+- :ConformanceTests: check a failure by its error type, never by its message.
+- :ConformanceTests: pass the formatter, the linter and the type checker of their language as the conformance testing script runs them, and are typed throughout where their language allows it.

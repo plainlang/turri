@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/library/conformance/common
+description: Conformance tests for stdlib/library/go as a Go module importing it.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Go module of their own that imports the library through a `replace` directive to the built code, run with `go test ./...`.

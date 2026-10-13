@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/library/conformance/common
+description: Conformance tests for stdlib/library/java-maven as a Maven project depending on its jar.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Maven project of their own that depends on the library's jar, using JUnit 5 and AssertJ, run with `mvn test`.

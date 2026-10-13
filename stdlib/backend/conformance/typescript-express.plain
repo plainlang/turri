@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/backend/conformance/common
+description: Conformance tests for stdlib/backend/typescript-express in Vitest with fetch.
+---
+
+***test reqs***
+
+- :ConformanceTests: use Vitest and the built-in `fetch`, and run with `npx vitest run`.

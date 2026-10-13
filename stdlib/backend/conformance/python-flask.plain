@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/backend/conformance/common
+description: Conformance tests for stdlib/backend/python-flask in pytest and httpx.
+---
+
+***test reqs***
+
+- :ConformanceTests: use pytest and httpx, and run with `pytest`.

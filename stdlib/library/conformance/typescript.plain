@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/library/conformance/common
+description: Conformance tests for stdlib/library/typescript in Vitest against the built package.
+---
+
+***test reqs***
+
+- :ConformanceTests: use Vitest, import the library from its built `dist/index.js`, and run with `npx vitest run`.

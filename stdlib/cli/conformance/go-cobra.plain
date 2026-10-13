@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/cli/conformance/common
+description: Conformance tests for stdlib/cli/go-cobra as a Go module with os/exec.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Go module of their own, using the `testing` package and `os/exec`, run with `go test ./...`.

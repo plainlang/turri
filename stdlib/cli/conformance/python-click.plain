@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/cli/conformance/common
+description: Conformance tests for stdlib/cli/python-click in pytest with subprocess.
+---
+
+***test reqs***
+
+- :ConformanceTests: use pytest and `subprocess`, run the tool as `uv run --project <the built code> <tool>` - `--project`, because the working directory is the case's temporary directory - and run with `pytest`.

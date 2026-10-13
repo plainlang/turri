@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/backend/conformance/common
+description: Conformance tests for stdlib/backend/go-gin as a Go module with go test.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Go module of their own, using the `testing` package and `net/http`, run with `go test ./...`.

@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/library/conformance/common
+description: Conformance tests for stdlib/library/python in pytest against the installed package.
+---
+
+***test reqs***
+
+- :ConformanceTests: use pytest, with the library installed from the built code, and run with `pytest`.

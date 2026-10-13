@@ -1,0 +1,12 @@
+---
+description: How every stdlib backend's conformance tests run - against the service started from the built code, over HTTP only.
+---
+
+***test reqs***
+
+- :ConformanceTests: start the service from the built code as a separate process, on a free port given in `PORT`, and wait until it accepts connections, for at most 30 seconds.
+  - They build and start it exactly as its stack's implementation reqs say - "It builds with ..." and "It starts with ..." - from the built code's own folder.
+- :ConformanceTests: reach the service over HTTP only, and never import its code.
+- :ConformanceTests: check a failure by its status code and the `error.code` of its body, never by its message.
+- :ConformanceTests: stop the service when they finish, passing or failing.
+- :ConformanceTests: pass the formatter, the linter and the type checker of their language as the conformance testing script runs them, and are typed throughout where their language allows it.

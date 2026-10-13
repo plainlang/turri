@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/cli/conformance/common
+description: Conformance tests for stdlib/cli/typescript-commander in Vitest with child_process.
+---
+
+***test reqs***
+
+- :ConformanceTests: use Vitest and `node:child_process`, run the tool as `node dist/cli.js`, and run with `npx vitest run`.

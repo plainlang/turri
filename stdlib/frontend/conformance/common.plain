@@ -1,0 +1,11 @@
+---
+description: How every stdlib frontend's conformance tests run - in Chromium through Playwright, against the served build, with the backend stood in.
+---
+
+***test reqs***
+
+- :ConformanceTests: use Playwright with Chromium, and run with `npx playwright test`.
+- :ConformanceTests: build the app, serve the build on a free port given in `PORT`, and drive it through the browser only.
+- :ConformanceTests: answer every backend call with Playwright's `page.route`, never a real backend, and answer an error with the body `{"error": {"code", "message"}}`.
+- :ConformanceTests: find elements by role, label or text, else by `data-testid`, and never by a CSS class.
+- :ConformanceTests: pass the formatter, the linter and the type checker of their language as the conformance testing script runs them, and are typed throughout where their language allows it.

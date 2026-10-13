@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/cli/conformance/common
+description: Conformance tests for stdlib/cli/rust-clap as a Cargo package with assert_cmd.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Cargo package of their own, using `assert_cmd` and `predicates`, run with `cargo test`.

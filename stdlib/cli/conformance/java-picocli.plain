@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/cli/conformance/common
+description: Conformance tests for stdlib/cli/java-picocli as a Maven project running the jar.
+---
+
+***test reqs***
+
+- :ConformanceTests: are a Maven project of their own, using JUnit 5 and `ProcessBuilder` to run the built jar, run with `mvn test`.

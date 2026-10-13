@@ -1,0 +1,9 @@
+---
+import:
+  - stdlib/backend/conformance/common
+description: Conformance tests for stdlib/backend/typescript-nestjs in Jest with fetch.
+---
+
+***test reqs***
+
+- :ConformanceTests: use Jest with ts-jest and the built-in `fetch`, and run with `npx jest`.

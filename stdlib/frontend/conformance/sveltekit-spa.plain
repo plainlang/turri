@@ -1,0 +1,5 @@
+---
+import:
+  - stdlib/frontend/conformance/common
+description: Conformance tests for stdlib/frontend/sveltekit-spa in Playwright, as for every stdlib frontend.
+---
