@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BEGIN } from "../../src/pi.ts";
 
 /** The chooser's answer, as the stub agent gives it - or none. */
-let answers: Array<{ frids: string[]; why: string }> = [];
+let answers: Array<{ frids: string[]; why: string; groups?: string[][] }> = [];
 const tasks: string[] = [];
 const models: Array<string | undefined> = [];
 type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) => Promise<{ content: Array<{ text: string }> }> }> };
@@ -45,7 +45,7 @@ const specs = [
   { frid: "2", text: "Log every greeting." },
 ];
 
-describe("choosing the conformance tests without a conversation", () => {
+describe("choosing the conformance tests", () => {
   it("asks the harness model with the module's spec and what to choose from, and takes what it chose and why", async () => {
     answers = [{ frids: ["1"], why: "a client relies on the greeting; the log is internal" }];
     const chosen = await chooseConformance({ plainFile: join(dir, "app.plain"), specs, model: "amazon-bedrock/eu.anthropic.claude-opus-5-5" });
@@ -68,5 +68,22 @@ describe("choosing the conformance tests without a conversation", () => {
 
   it("chooses none when the agent never answers", async () => {
     expect((await chooseConformance({ plainFile: join(dir, "app.plain"), specs })).frids).toEqual([]);
+  });
+
+  it("is told, as a pulse ends, that the pulse just regenerated what it chooses from - and plans nothing", async () => {
+    answers = [{ frids: ["1"], why: "the greeting" }];
+    expect(await chooseConformance({ plainFile: join(dir, "app.plain"), specs, when: "pulse" })).toEqual({ frids: ["1"], why: "the greeting" });
+    expect(tasks[0]).toContain("conformance-tests: chosen - a code pulse has just regenerated these");
+    expect(tasks[0]).not.toContain("Plan them too");
+  });
+
+  it("under module, plans the pulses too - every one chosen in exactly one group - and asks again when the groups do not fit", async () => {
+    answers = [
+      { frids: ["1", "2"], why: "both", groups: [["1"]] },
+      { frids: ["1", "2"], why: "both, apart", groups: [["1"], ["2"]] },
+    ];
+    expect(await chooseConformance({ plainFile: join(dir, "app.plain"), specs, when: "module" })).toEqual({ frids: ["1", "2"], why: "both, apart", groups: [["1"], ["2"]] });
+    expect(tasks[0]).toContain("conformance-tests: module - the whole module is regenerated now");
+    expect(tasks[0]).toContain("Plan them too: in groups, each a conformance pulse");
   });
 });

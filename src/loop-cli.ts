@@ -1,14 +1,13 @@
 import { sweepOrphanedGroups } from "./regenerate/shell.ts";
 import { createInterface } from "node:readline/promises";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
 import { c } from "./module-report.ts";
 import { tryItCommand } from "./regenerate/delivery.ts";
 import { describeDiagnosis, diagnoseFailure } from "./regenerate/diagnose.ts";
 import { createJobRegistry, pulseName, type Job } from "./regenerate/jobs.ts";
-import { chooseConformance } from "./regenerate/choose-conformance.ts";
-import type { TouchedSpec } from "./regenerate/drift.ts";
+import { conformanceChooser } from "./regenerate/choose-conformance.ts";
 import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./regenerate/loop.ts";
 import { projectDirOf } from "./regenerate/paths.ts";
 
@@ -58,26 +57,6 @@ export async function runLoop(options: {
     },
   });
   const planner = modelSpec(projectModels(project).harness);
-  // Under conformance-tests: chosen, the harness model chooses what the chat model would: as the work is planned, and as
-  // each code job lands - before it ends, so the choice is scheduled before anything is built on it. A functional spec
-  // it passed over is not offered again for the same text.
-  const choosing: Promise<unknown>[] = [];
-  const offered = new Set<string>();
-  const decide = async (plainFile: string, specs: TouchedSpec[], budget?: number): Promise<string[]> => {
-    const fresh = specs.filter((touched) => !offered.has(`${plainFile}\n${touched.frid}\n${touched.text}`));
-    if (fresh.length === 0 || options.dryRun === true) return [];
-    for (const touched of fresh) offered.add(`${plainFile}\n${touched.frid}\n${touched.text}`);
-    try {
-      const chosen = await chooseConformance({ plainFile, specs: fresh, ...(planner !== undefined ? { model: planner } : {}), ...(budget !== undefined ? { budget } : {}) });
-      const name = basename(plainFile);
-      if (chosen.frids.length === 0) console.log(`conformance for ${name}: none of fs ${fresh.map((touched) => touched.frid).join(", ")} chosen - ${chosen.why}`);
-      else console.log(`conformance for ${name}: fs ${chosen.frids.join(", ")} chosen - ${chosen.why}`);
-      return chosen.frids;
-    } catch (error) {
-      console.log(c.red(`choosing the conformance tests failed: ${error instanceof Error ? error.message : String(error)}`));
-      return [];
-    }
-  };
   const loop = createWorkLoop({
     registry,
     cwd: process.cwd(),
@@ -85,17 +64,11 @@ export async function runLoop(options: {
     ...(model !== undefined ? { modelFor: () => model } : {}),
     ...(planner !== undefined ? { plannerModel: planner } : {}),
     ...(options.dryRun === true ? { dryRun: true } : {}),
-    onChoose: decide,
+    // Under conformance-tests: chosen or module, the chooser decides as a pulse ends, as in the chat.
+    onChoose: conformanceChooser({ model: () => planner, ...(options.dryRun === true ? { dryRun: true } : {}) }),
   });
   let planned = await options.ask(loop);
   console.log(describeModules(planned, { for: "command line" }));
-  // Chosen as the work is planned: conformed as conform does, while the first jobs start.
-  for (const status of planned) {
-    if (status.toChoose === undefined) continue;
-    const { plainFile: file, toChoose, chooseBudget } = status;
-    if (chooseBudget === 0) continue;
-    choosing.push(decide(file, toChoose, chooseBudget).then((frids) => (frids.length > 0 ? loop.conformance(file, { frids, ...(model !== undefined ? { model } : {}) }) : undefined)));
-  }
 
   // A codebase built without a module it now requires is started over only when the person says so.
   const toStartOver = planned.filter((status) => status.startOver !== undefined);
@@ -127,13 +100,8 @@ export async function runLoop(options: {
     process.exit(0);
   }
 
-  // Until nothing more starts: a choice made as the last job ended schedules conformance jobs of its own.
-  for (;;) {
-    await loop.drain();
-    const pending = choosing.splice(0);
-    if (pending.length === 0) break;
-    await Promise.all(pending);
-  }
+  // Until nothing more starts: a choice is made inside the pulse it follows, so draining waits for it.
+  await loop.drain();
   console.log(`\n${describeModules(loop.status(), { for: "command line" })}`);
   const ended = registry.list();
   const failed = ended.filter((job) => job.status === "failed");

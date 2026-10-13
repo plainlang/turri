@@ -698,7 +698,7 @@ turri conform <file.plain> 1 3     # functional specs 1 and 3
 ```
 
 They follow the code: a functional spec gets conformance tests once its code is built. Conformance is
-off by default: `conformance-tests: all` (or `chosen`) in the [config](config.md) turns it on, for modules
+off by default: `conformance-tests: all` (or `chosen`, or `module`) in the [config](config.md) turns it on, for modules
 with `***test reqs***`, and `conform` asks for it in a session. Once a codebase has conformance tests,
 they are always run and kept passing, whether or not the current render writes new ones, and they
 are carried up to the modules built on top of it.
@@ -740,27 +740,35 @@ tests did not pass - and every module built on it, which waits.
 **Up the chain.** A module built on another starts from its code and its conformance tests, copied up, and its
 conformance testing script runs those with its own. So a module waits for the one below it until that one's code
 is built and its conformance tests - those wanted, chosen or scheduled - are written and pass; only then is its
-codebase started from there. Tests asked for with `conform` after a module above was started from it come first all
-the same: while nothing of that module's own is built - its pulse stopped, say - its codebase goes back to nothing,
-the tests are written in the module's own codebase, and the module above starts again from it once they pass. Once
-the module above has built something of its own, the module's code is in that codebase, built on, and `conform`
-refuses, saying so: regenerating the module above from scratch is how to have them first.
-With `conformance-tests: false` none is written unless the conversation asks with `conform`, for
-the session. With `conformance-tests: chosen` they are written for the functional specs chosen: every one with
-acceptance tests - the author said what to check - and those the chat model chooses. It chooses when the work
-is planned, ahead of the code: what `regenerate` returns lists what the
-planned code jobs add or change that no conformance test is for, chosen or scheduled, and the chat model decides
-which are worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why,
-and calls `conform` with them; a code job's report lists any left undecided. With no conversation - `turri regenerate` - an
-agent on `harness-model` (or `models: chooser`) chooses in its place, asked the same: as the work is planned, and once
-a module's code is built - its last code job landed - with every functional spec of it that is built and has none in
-view, it reads the module's spec and names those worth it and why, and they are conformed as `conform` does; one it
-passed over is not offered again while its text is the same. `conformance-budget:` caps how many of a module's
-functional specs are chosen, beside those with acceptance tests - a count, or a share of them: every choice for the
-module counts against it, the chooser is told what is left and can choose no more, and the chat model is told it
-too; the person's own `conform` is not limited. The ones named are added
-to those chosen before, and a functional spec that has conformance tests keeps them: they are rewritten when it
-changes, never taken out because others were named.
+codebase started from there.
+
+**Who chooses, and when.** With `conformance-tests: all` every functional spec is tested, and with `false` none is
+unless the person asks with `conform`, for the session. With `chosen` or `module`, every one with acceptance tests - the
+author said what to check - and those the chooser picks: an agent on `harness-model` (or `models: chooser`), in the chat
+and on the command line alike. It reads the module's spec and names those worth black-box tests - what a user or a
+client relies on, not a detail the unit tests cover - and why.
+
+- `chosen`: it is asked as each code pulse ends, as the pulse's last stage, of what that pulse regenerated that no
+  conformance test is for.
+- `module`: it is asked once, when the module's last code pulse lands, of every functional spec of the module that is
+  built and has none - and it plans them too, into groups, each a conformance pulse of its own.
+
+Either way the choice is made inside the pulse, so it is made - and its conformance pulse scheduled - before anything
+can be built on the module: nothing ever has to be stopped for it. The pulse's report says what it chose and why
+(`conformance: fs 1, 3 chosen - ...`), and the chat is told, not asked: it calls `conform` only when the person asks.
+One the chooser passed over is not offered again while its text is the same. `conformance-budget:` caps how many of a
+module's functional specs are chosen, beside those with acceptance tests - a count, or a share of them: every choice for
+the module counts against it, and the chooser is told what is left and can choose no more; the person's own `conform`
+is not limited. The ones named are added to those chosen before, and a functional spec that has conformance tests
+keeps them: they are rewritten when it changes, never taken out because others were named.
+
+**What the person asks for comes first.** `conform` changes the module named alone, never the modules below it. For a
+module not regenerated yet - one above the module being regenerated, say - its tests are scheduled now and written once
+its code is built, before anything is built on it. For a module already regenerated whose tests are not written, while
+a module above it was started from it - its first pulse running, or code of its own built - the codebase above is
+disposable: a pulse running there is stopped, whatever `allow-to-stop-jobs` says, as the person asked; the codebase is
+deleted whole, its history with it; the tests are written in the module's own codebase; and the module above is
+regenerated from it once they pass. Asked for tests it has already, nothing is touched.
 
 **Scheduled ahead of the code.** `conform` may name functional specs whose code is not built yet:
 each call schedules them as one group, shown at once in what is planned, after the module's last code job. Its

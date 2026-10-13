@@ -70,7 +70,7 @@ describe("/turri-config", () => {
     await run("");
     expect(asked[0]!.options).toContain("review: false");
     expect(asked[0]!.options!.at(-1)).toContain("models.<role>");
-    expect(asked[1]!.options).toEqual(["all", "chosen", "false", "unset - all, where a module has test reqs"]);
+    expect(asked[1]!.options).toEqual(["all", "chosen", "module", "false", "unset - all, where a module has test reqs"]);
     expect(readProjectConfig(dir).conformanceTests).toBe("chosen");
     expect(said[0]).toContain("in effect the next time the work is planned");
   });

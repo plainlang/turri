@@ -88,7 +88,7 @@ describe("the project's config.yaml", () => {
     });
   });
 
-  it("has conformance tests for all the functional specs, for the chosen ones, or for none - true read as all", () => {
+  it("has conformance tests for all the functional specs, for the chosen ones - chosen after each pulse, or once the module is regenerated - or for none - true read as all", () => {
     const read = (value: string) => {
       writeFileSync(join(root, "config.yaml"), `conformance-tests: ${value}\n`);
       return readProjectConfig(root).conformanceTests;
@@ -97,6 +97,7 @@ describe("the project's config.yaml", () => {
     expect(read("true")).toBe(true);
     expect(read("chosen")).toBe("chosen");
     expect(read("Chosen")).toBe("chosen");
+    expect(read("module")).toBe("module");
     expect(read("false")).toBe(false);
     expect(read("some")).toBeUndefined();
   });

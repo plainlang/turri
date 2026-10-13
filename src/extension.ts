@@ -55,6 +55,7 @@ import { registerStacks } from "./stacks.ts";
 import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
 import { supersededByTurri } from "./chat-skills.ts";
 import { TURRI_IDENTITY } from "./identity.ts";
+import { conformanceChooser } from "./regenerate/choose-conformance.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
   createJobRegistry,
@@ -874,7 +875,8 @@ function conformTool(options: {
     promptSnippet: "conform: write and run conformance tests for functional specs - now, or ahead of their code",
     promptGuidelines: [
       "When the user asks for conformance tests - for a module, or some of its functional specs - call conform. Never edit config.turri.yaml for it, and never regenerate a functionality to get them.",
-      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regenerate returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call conform with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "Under conformance-tests: chosen or module, the chooser decides which functional specs get conformance tests - under chosen as each code pulse ends, under module once the whole module is regenerated - and a pulse's report says what it chose and why. You do not choose them: call conform only when the user asks for conformance tests. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "What the user asks for comes first: for a module already regenerated, while a module built on it is being regenerated, conform stops that pulse, deletes the codebase built on it, writes the tests, and the module above is regenerated from it after - say so. For a module not regenerated yet - one above the one being regenerated - the tests are scheduled now and written once its code is built, before anything is built on it.",
       "Conformance tests go in one pulse for all the functional specs tested. Set one_by_one only when the user asks for a pulse a functional spec - one at a time, separately, or the like.",
       "When the user asks for the conformance tests in pulses of their own grouping - 1-3 and 4-6 - pass those groups as groups, in one call: each group is a pulse of its own, never sharing one with another. Without groups, every functional spec named goes in one pulse.",
       "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
@@ -1151,7 +1153,9 @@ export function projectConfigBlock(root: string): string {
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === "chosen"
-            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with conform - when the work is planned, ahead of its code: what is planned lists what the code pulses add or change that has none, and a conformance pulse scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
+            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, those the chooser picks as each code pulse ends from what it regenerated, and those the user asks for with conform. A conformance pulse starts once the module's code is built, before anything is built on it. Once chosen, a functional spec keeps them."
+            : config.conformanceTests === "module"
+            ? "- conformance-tests: module - conformance tests are on for the functional specs chosen: those with acceptance tests always, those the chooser picks - and plans into pulses - once the whole module is regenerated, and those the user asks for with conform. They run before anything is built on the module. Once chosen, a functional spec keeps them."
             : config.conformanceTests === true
             ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are OFF, as with false: renders write none and run none, unless the user asks for them in this conversation.",
@@ -1401,6 +1405,9 @@ function workLoopFor(jobs: JobRegistry, cwd: string, ctx: ExtensionContext): Wor
       modelFor: (plainFile) => modelFor(chosenModels, "spec_changes", projectModel(from.ctx, plainFile) ?? chatModelOf(from.ctx)),
       // The planner reasons about the whole of the work: it runs on the chat's model.
       plannerModel: () => chatModelOf(from.ctx),
+      // Under conformance-tests: chosen or module, the chooser decides as a pulse ends - on the chat's model - so the choice
+      // is made before anything is built on the module; the pulse's report says what it chose, and why.
+      onChoose: conformanceChooser({ model: () => chatModelOf(from.ctx) }),
       // How the work is to be planned: the conversation's steering, and AGENTS.md's - read afresh each plan.
       steering: (plainFile) => steeringFor(plainFile, cwd, steeringStore),
       // Under release-after-pulse, a pulse releases what it landed itself, before the next starts - on the model that

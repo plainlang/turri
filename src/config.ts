@@ -19,8 +19,8 @@ import { projectDirOf } from "./regenerate/paths.ts";
  *   thinking: medium
  * judge-model:                                              # the judge and the test review (default: coding-model)
  *   model: google/gemini-3.1-pro
- * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chat chose) or false (default: false)
- * conformance-budget: 30%                                   # under chosen: how many functional specs a module may have chosen, beside those with acceptance tests - a count or a share (default: no limit)
+ * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chooser picks after each pulse), module (the chooser picks, and plans, once the module is regenerated) or false (default: false)
+ * conformance-budget: 30%                                   # under chosen or module: how many functional specs a module may have chosen, beside those with acceptance tests - a count or a share (default: no limit)
  * review: false                                             # review the code and its tests once they pass (default: true)
  * allow-to-stop-jobs: false                                 # stop a running job the spec moved on from (default: true)
  * release-after-pulse: true                                 # release what each pulse lands, as its last stage, before the next pulse (default: false)
@@ -368,10 +368,12 @@ export interface ProjectConfig {
   judgeModel?: ModelChoice;
   /**
    * Whether conformance tests are written and run, and for what. true (`all`): every functional spec the code is built
-   * from. "chosen": the ones with acceptance tests, and those the conversation chose with conform - kept once
-   * their tests land. false: none, unless the conversation asks. Unset: all, when the module has test reqs.
+   * from. "chosen": the ones with acceptance tests, and those the chooser picks from what each code pulse regenerated, as
+   * the pulse ends. "module": the same, but the chooser is asked once, when the whole module is regenerated - what to test,
+   * and in which pulses. Under both, those the person asks for with conform too, and a choice is kept once its tests land.
+   * false: none, unless the person asks. Unset: all, when the module has test reqs.
    */
-  conformanceTests?: boolean | "chosen";
+  conformanceTests?: boolean | "chosen" | "module";
   /**
    * Under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside
    * those with acceptance tests - a count, or a share of the module's functional specs (rounded up, at least one).
@@ -469,16 +471,21 @@ function whatScriptsRunOn(value: unknown): "copy" | "in-place" | undefined {
   return value === "copy" || value === "in-place" ? value : undefined;
 }
 
-/** `conformance-tests:` - true or all, chosen, false. Anything else is not read. */
-function conformanceSetting(value: unknown): boolean | "chosen" | undefined {
+/** `conformance-tests:` - true or all, chosen, module, false. Anything else is not read. */
+function conformanceSetting(value: unknown): boolean | "chosen" | "module" | undefined {
   if (typeof value === "boolean") return value;
   const word = typeof value === "string" ? value.trim().toLowerCase() : undefined;
-  return word === "all" ? true : word === "chosen" ? "chosen" : word === "false" ? false : word === "true" ? true : undefined;
+  return word === "all" ? true : word === "chosen" ? "chosen" : word === "module" ? "module" : word === "false" ? false : word === "true" ? true : undefined;
 }
 
-/** Whether `conformance-tests:` turns the conformance tests on: all (true) or chosen. Not set, they are off, as with false. */
+/** Whether `conformance-tests:` turns the conformance tests on: all (true), chosen or module. Not set, they are off, as with false. */
 export function conformanceSwitchedOn(setting: ProjectConfig["conformanceTests"]): boolean {
-  return setting === true || setting === "chosen";
+  return setting === true || setting === "chosen" || setting === "module";
+}
+
+/** When the chooser decides which functional specs get conformance tests: after each code pulse, once the module is regenerated, or never - every one, or none. */
+export function choosingWhen(setting: ProjectConfig["conformanceTests"]): "pulse" | "module" | undefined {
+  return setting === "chosen" ? "pulse" : setting === "module" ? "module" : undefined;
 }
 
 /** `conformance-budget:` - a whole number, or a share such as `30%`. Anything else is not read. */
