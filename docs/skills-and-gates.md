@@ -91,9 +91,9 @@ reviewed. A `.plain` file a skill edited with the file tools is not rendered by 
 so, for the conversation to render the change.
 
 A skill acts on the work loop with the conversation's own tools, on the conversation's loop - never
-copies of them (`src/loop-tools.ts`). Every skill with the loop has `drift`: what is left to grow, what
-is growing, and "Fully grown" once nothing is. One that lists `regenerate` and `halt` in `allowed-tools` -
-as `mature` does - can grow what a module's spec holds and halt a pulse, with why. `mature` lists two
+copies of them (`src/loop-tools.ts`). Every skill with the loop has `drift`: what is left to regenerate, what
+is regenerating, and "Fully regenerated" once nothing is. One that lists `regenerate` and `halt` in `allowed-tools` -
+as `mature` does - can regenerate what a module's spec holds and halt a pulse, with why. `mature` lists two
 tools of its own as well: `watch_jobs` waits for its pulses, coming back as soon as one struggles -
 sent back four times or more, five setbacks, a spec conflict, a failure run again, over half an hour -
 with what it went through; `spec_findings` reads back, numbered and each once, what the pulses recorded
@@ -163,9 +163,9 @@ change the step makes and puts its findings on the executor's next tool result.
 - **Build while it interviews.** `write_spec_diff` (`brood`, `spawn`) writes a change to the
   spec and queues its render in one call; the interview carries on while the builds run in the
   background, one after another. `drift` shows how they stand. The person sees its calls as
-  `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `grow/activity.ts`), while its
+  `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `regenerate/activity.ts`), while its
   agent calls it by the one that says what it takes.
-- **Grow, and conform.** A skill that names them in `allowed-tools` gets the conversation's own
+- **Regenerate, and conform.** A skill that names them in `allowed-tools` gets the conversation's own
   `regenerate`, `drift`, `halt` and `conform`, on its loop: `conform` schedules a conformance pulse for functional specs not built
   yet, as it does from the chat. The skill never waits for them.
 - **Choose the render model**, when the user says so - `engine`, the same tool the

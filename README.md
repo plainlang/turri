@@ -82,7 +82,7 @@ write the code, but whether it understands what it is building.
 
 Code that is patched, prompt after prompt, drifts: every misunderstanding stays in it, and the
 next change is made on top. When the software can always be regenerated from durable information
-instead, that understanding is written down - explicit, reviewable and tested - and it grows with
+instead, that understanding is written down - explicit, reviewable and tested - and it evolves with
 the software rather than against it.
 
 ## How it differs from ye old coding agent
@@ -153,15 +153,15 @@ in a conversation, and as a command line for unattended runs.
 ## The name
 
 **turri** is short for [*Turritopsis dohrnii*](https://en.wikipedia.org/wiki/Turritopsis_dohrnii), the immortal
-jellyfish, which, when injured or old, turns back into its young self and grows again - the same jellyfish, from the
+jellyfish, which, when injured or old, turns back into its young self and regenerates - the same jellyfish, from the
 same genes, again and again.
 
 That is what regenerative software asks of software, and what **turri** does:
 
 | *Turritopsis dohrnii* | **turri** |
 | --- | --- |
-| Its genes are what it is: every generation grows from the same ones. | \*\*\*plain is what the software is: every generation of code is regenerated from it. |
-| Injured or old, it does not patch itself: it goes back to the polyp and grows the adult again. | Code that has drifted is not patched prompt after prompt: it is regenerated from \*\*\*plain, as much of it as has to be. |
+| Its genes are what it is: every generation develops from the same ones. | \*\*\*plain is what the software is: every generation of code is regenerated from it. |
+| Injured or old, it does not patch itself: it goes back to the polyp and regenerates the adult. | Code that has drifted is not patched prompt after prompt: it is regenerated from \*\*\*plain, as much of it as has to be. |
 | Every cell can become another, and it is still the same jellyfish. | Every line of code can be replaced, and it is still the same software - because what it is never lived in the code. |
 | It can do it again and again, for as long as it lives. | The code can be regenerated whenever \*\*\*plain changes or a model gets better, for as long as \*\*\*plain is kept. |
 
@@ -261,7 +261,7 @@ Start at the [documentation index](docs/README.md), or go straight to a page:
 | [Deploy](docs/deploy.md) | trying what is built: the last commit in `dist/<module>`, started on your machine, nothing installed without asking |
 | [Running unattended](docs/headless.md) | rendering \*\*\*plain overnight or in CI: the command, keeping it running, the results, resuming, rebuilding one functionality |
 | [Authoring \*\*\*plain](docs/authoring-plain.md) | what \*\*\*plain is made of, the authoring rules, the skills that write and fix it, checking it |
-| [Growing](docs/growing.md) | what each build does and in which order: functionalities, modules, regeneration, changes to \*\*\*plain, conformance and acceptance tests, working notes, what the code is built from |
+| [Regenerating](docs/regenerating.md) | what each build does and in which order: functionalities, modules, regeneration, changes to \*\*\*plain, conformance and acceptance tests, working notes, what the code is built from |
 | [The sandbox](docs/sandbox.md) | what agents can reach, the walls every command passes, time limits, the web tools |
 | [Skills and gates](docs/skills-and-gates.md) | the gate syntax, what the harness enforces, judges, rules |
 | [The \*\*\*plain parser](docs/parser.md) | the TypeScript port, `turri validate`, fidelity to the reference parser |

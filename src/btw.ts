@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskUser, AskUserRequest } from "./ask.ts";
-import { confinedTools } from "./grow/confine.ts";
+import { confinedTools } from "./regenerate/confine.ts";
 import { TURRI_IDENTITY } from "./identity.ts";
 import { ask, BEGIN, createExecutor } from "./pi.ts";
 

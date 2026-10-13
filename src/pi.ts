@@ -12,9 +12,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { inheritModel, stackOf, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
-import { maskToolResults } from "./grow/masking.ts";
-import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool, sandboxGapOf } from "./grow/environment-error.ts";
-import { MODULES_DIR, projectRootOf, sessionsDir } from "./grow/paths.ts";
+import { maskToolResults } from "./regenerate/masking.ts";
+import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool, sandboxGapOf } from "./regenerate/environment-error.ts";
+import { MODULES_DIR, projectRootOf, sessionsDir } from "./regenerate/paths.ts";
 import {
   currentStopSignal,
   describeToolCall,
@@ -26,8 +26,8 @@ import {
   reportAgent,
   reportTranscript,
   reportUsage,
-} from "./grow/activity.ts";
-import { debugLogOf, startDebugLog } from "./grow/debug-log.ts";
+} from "./regenerate/activity.ts";
+import { debugLogOf, startDebugLog } from "./regenerate/debug-log.ts";
 
 type ThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
 

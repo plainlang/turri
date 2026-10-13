@@ -5,10 +5,10 @@ import { parseArgs, runLoop } from "./loop-cli.ts";
 const USAGE = `usage: turri regenerate [file.plain] [frid ...] [options]
 
 Regenerates the module's code from its spec as it is now, and everything it requires, bottom first, as
-the chat does: what is left to grow - from what each module's code was grown from to its spec now -
-is planned into jobs, and they run one after the other until the code is grown from the spec, each
-followed by the conformance tests of what it grew when they are on. Then it says how each went.
-With functional specs named, those are grown again though their spec did not change - as regenerate
+the chat does: what is left to regenerate - from what each module's code was regenerated from to its
+spec now - is planned into jobs, and they run one after the other until the code is regenerated from
+the spec, each followed by the conformance tests of what it regenerated when they are on. Then it says
+how each went. With functional specs named, those are regenerated though their spec did not change - as regenerate
 does in the chat with functionalities named: their code rewritten or started over, doing what the spec says.
 
 The project's config.turri.yaml, in the current directory, gives the defaults: module (the file to
@@ -16,7 +16,7 @@ build when none is given), coding-model (the agents that build), harness-model (
 conformance-tests.
 
   --dry-run                plan the work and print the prompt of the first job, and run nothing (turri glimpse)
-  --start-over             start over, without asking, a codebase grown without a module it now requires
+  --start-over             start over, without asking, a codebase regenerated without a module it now requires
   --from-scratch           delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it
   --build-dir <dir>        default: plain_modules/<module>/code
   --model <provider/id>    model for the agents
@@ -25,13 +25,13 @@ conformance-tests.
 
 /** Options of the build this replaced, and what to do instead. */
 const GONE: Record<string, string> = {
-  force: "to grow a functionality again, name it: turri regenerate <file.plain> <frid>",
+  force: "to regenerate a functionality again, name it: turri regenerate <file.plain> <frid>",
   only: "every module the spec requires is built, bottom first",
   to: "the whole spec is built: stop the jobs to stop partway",
   from: "every functionality not built is queued; built ones are skipped",
   "conformance-root": "conformance tests are in plain_modules/<module>/tests",
   "max-regression-rounds": "each conformance job runs the whole suite",
-  "try-it": "run turri release to try what is grown",
+  "try-it": "run turri release to try what is regenerated",
   conformance: `set conformance-tests: in ${CONFIG_FILE}, or turri conform`,
   "no-conformance": `set conformance-tests: false in ${CONFIG_FILE}`,
   "template-dir": "set PLAIN_TEMPLATE_DIRS",
@@ -61,7 +61,7 @@ runLoop({
   startOver: options["start-over"] !== undefined,
   ask: (loop) =>
     again.length > 0
-      ? loop.growAgain(named, again, options.model !== undefined ? { model: options.model } : {})
+      ? loop.regenerateAgain(named, again, options.model !== undefined ? { model: options.model } : {})
       : options["from-scratch"] !== undefined
         ? loop.fromScratch(named, options.model !== undefined ? { model: options.model } : {})
         : loop.bringUp(named, options.model !== undefined ? { model: options.model } : {}),

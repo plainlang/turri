@@ -6,7 +6,7 @@
  */
 
 import { isKeyRelease, isKeyRepeat, matchesKey } from "@earendil-works/pi-tui";
-import { PANEL_KEY } from "./grow/job-panel.ts";
+import { PANEL_KEY } from "./regenerate/job-panel.ts";
 
 export interface AskUserRequest {
   question: string;

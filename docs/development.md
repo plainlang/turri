@@ -10,7 +10,7 @@ folder of their own, as test files running side by side would otherwise share on
 
 ## Mutation testing
 
-`npm run mutation` runs [Stryker](https://stryker-mutator.io) over the core of growing - the parts in
+`npm run mutation` runs [Stryker](https://stryker-mutator.io) over the core of regeneration - the parts in
 `stryker.config.mjs` - one part at a time, each part's report in `reports/mutation/<part>/`. A part with a report is
 skipped, so a run that is stopped goes on from the part it was in; `npm run mutation -- <part>` runs one again, and
 `npm run mutation -- --summary` sums up the reports there are. It takes hours: each part runs the suite once to find
@@ -46,18 +46,18 @@ the launcher and extension beside itself, whichever they are. To try the package
 | `src/loop-tools.ts` | `regenerate`, `drift` and `halt` - one definition each, for the conversation and the skills alike |
 | `src/mature-tools.ts` | `mature`'s own two: `watch_jobs` and `spec_findings` |
 | `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) - and `highlight.ts`, which highlights \*\*\*plain with plyn's grammar, `plain.tmLanguage.json` (`npm run grammar:sync` refreshes it from [plyn](https://github.com/plainlang/plyn)) |
-| `src/grow/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
-| `src/grow/regenerate.ts`, `src/grow/conform.ts` | a code job - a spec diff rendered in the code - and a conformance job |
-| `src/grow/loop.ts`, `src/grow/records.ts`, `src/grow/drift.ts`, `src/grow/jobs.ts` | the work loop, the records and the work derived from them, and background jobs |
-| `src/grow/chunk-plan.ts`, `src/grow/cases.ts` | cutting the work into jobs, and what a job's agents are told by its cases |
-| `src/grow/regression.ts` | the whole conformance suite run, and the repair agent that may not touch tests |
-| `src/grow/lineage.ts` | module history in `.plaingit` |
-| `src/grow/release.ts`, `src/release-tools.ts`, `src/release-cli.ts` | deploy: the last commit to `dist/<module>`, what installs software, what it starts on the host - see [deploy](deploy.md) |
-| `src/grow/confine.ts`, `src/grow/agent-shell.ts`, `src/grow/command-check.ts`, `src/grow/os-sandbox.ts`, `src/grow/audit.ts`, `src/grow/agent-env.ts`, `src/grow/shell.ts` | the file-tool fence and the walls around every agent command: the check, the OS sandbox, the audit, the module's environment, the host runner - see [sandbox](sandbox.md) |
-| `src/grow/engine.ts` | choosing and resolving render models |
-| `src/grow/job-panel.ts`, `src/grow/transcript-view.ts`, `src/grow/diff-view.ts` | the job panel, the side panel's colours, and a spec diff as they show it - highlighted and banded |
-| `src/grow/spec-map.ts`, `src/grow/spec-map-view.ts` | regen: each item's mark, from the records, the `.plain` files and the work loop's plan (`mapPlan`), and the map drawn |
-| `src/grow/debug-log.ts` | each render agent's whole conversation, always streamed to `.turri/debug/` |
+| `src/regenerate/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
+| `src/regenerate/regenerate.ts`, `src/regenerate/conform.ts` | a code job - a spec diff rendered in the code - and a conformance job |
+| `src/regenerate/loop.ts`, `src/regenerate/records.ts`, `src/regenerate/drift.ts`, `src/regenerate/jobs.ts` | the work loop, the records and the work derived from them, and background jobs |
+| `src/regenerate/chunk-plan.ts`, `src/regenerate/cases.ts` | cutting the work into jobs, and what a job's agents are told by its cases |
+| `src/regenerate/regression.ts` | the whole conformance suite run, and the repair agent that may not touch tests |
+| `src/regenerate/lineage.ts` | module history in `.plaingit` |
+| `src/regenerate/release.ts`, `src/release-tools.ts`, `src/release-cli.ts` | deploy: the last commit to `dist/<module>`, what installs software, what it starts on the host - see [deploy](deploy.md) |
+| `src/regenerate/confine.ts`, `src/regenerate/agent-shell.ts`, `src/regenerate/command-check.ts`, `src/regenerate/os-sandbox.ts`, `src/regenerate/audit.ts`, `src/regenerate/agent-env.ts`, `src/regenerate/shell.ts` | the file-tool fence and the walls around every agent command: the check, the OS sandbox, the audit, the module's environment, the host runner - see [sandbox](sandbox.md) |
+| `src/regenerate/engine.ts` | choosing and resolving render models |
+| `src/regenerate/job-panel.ts`, `src/regenerate/transcript-view.ts`, `src/regenerate/diff-view.ts` | the job panel, the side panel's colours, and a spec diff as they show it - highlighted and banded |
+| `src/regenerate/spec-map.ts`, `src/regenerate/spec-map-view.ts` | regen: each item's mark, from the records, the `.plain` files and the work loop's plan (`mapPlan`), and the map drawn |
+| `src/regenerate/debug-log.ts` | each render agent's whole conversation, always streamed to `.turri/debug/` |
 | `genome/` | what turri knows and can do: `genome/skills/`, the skill library, and `genome/rules/`, the \*\*\*plain authoring rules |
 
 ## Known edges
@@ -65,7 +65,7 @@ the launcher and extension beside itself, whichever they are. To try the package
 - Judges default to the executor's model. Real separation wants a different provider - set
   `model:` on the gate. An unconfigured model falls back to the executor's with a note rather than
   failing the run.
-- The executor keeps one session across steps and retries, so context grows with attempts. Long
+- The executor keeps one session across steps and retries, so context builds up with attempts. Long
   skills want compaction or a session per step.
 - A gate's escalation lives in memory (LangGraph's `MemorySaver`): it must be answered in the same
   run.

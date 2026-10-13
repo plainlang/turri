@@ -48,23 +48,23 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 
 | tool | |
 | --- | --- |
-| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to grow is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse growing what the spec no longer wants is stopped. With functionalities named, those are regenerated though their spec did not change - rewritten or started over, planned into pulses as any change is; with `from_scratch`, the whole module, its code deleted first - only when you ask, or agree |
-| `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
+| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to regenerate is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse regenerating what the spec no longer wants is stopped. With functionalities named, those are regenerated though their spec did not change - rewritten or started over, planned into pulses as any change is; with `from_scratch`, the whole module, its code deleted first - only when you ask, or agree |
+| `drift` | what is left to regenerate: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
-| `conform` | write and run conformance tests for functional specs - now, or ahead of their code: every one tested in one conformance pulse, as far as a size guardrail lets (or one a functional spec, or a pulse each of groups you name - 1-3 and 4-6 - when you ask for that), started once every one named is grown; whatever the config says |
-| `validate` | validate a spec, growing nothing |
-| `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |
+| `conform` | write and run conformance tests for functional specs - now, or ahead of their code: every one tested in one conformance pulse, as far as a size guardrail lets (or one a functional spec, or a pulse each of groups you name - 1-3 and 4-6 - when you ask for that), started once every one named is regenerated; whatever the config says |
+| `validate` | validate a spec, regenerating nothing |
+| `engine` | show or choose the model the code is regenerated on - see [below](#choosing-a-model) |
 | `pulses` | the pulses - running, planned and finished - or one of them |
 | `halt` | halt a pulse, or what `activate` started |
 | `diagnose` | why a pulse did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
-| `lineage` | a module's lineage: what each regeneration and conformance run changed in it, and what it grew from |
+| `lineage` | a module's lineage: what each regeneration and conformance run changed in it, and what it was regenerated from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
-| `release`, `activate` | try what is grown: release it to `dist/<module>` and activate it on this machine, installing what it needs - see [deploy](deploy.md) |
+| `release`, `activate` | try what is regenerated: release it to `dist/<module>` and activate it on this machine, installing what it needs - see [deploy](deploy.md) |
 | `ask_user` | put a question to you as a dialog to pick from - several at once, "Something else…" to type, or "Chat about this" to talk it over first; Esc in either goes back to the options |
 | `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
 
-What each render does, in order, is in [growing the code](growing.md).
+What each render does, in order, is in [regenerating the code](regenerating.md).
 
 The conversation knows the ***plain standard library from its first turn: the stdlib rule in its
 system prompt lists every stack and where the templates are, so "build this as a Flask backend"
@@ -80,7 +80,7 @@ command line ("run it headless", "use the CLI", or the command itself). pi confi
 
 ## Pulses
 
-A pulse is one unit of work growing the code. It was called a job, and still is where a name is kept -
+A pulse is one unit of work regenerating the code. It was called a job, and still is where a name is kept -
 `job_id`, `parallel-jobs`, `allow-to-stop-jobs`, `.turri/jobs/` - and in a project's own files written before:
 the chat is told the two are the same, so an `AGENTS.md` or a skill that says "job" needs no change.
 
@@ -96,7 +96,7 @@ come waits for a free slot, and says so.
 
 - **The panel** above the input, while something runs, shows on top what finished - a line a module, its
   pulses oldest first, each with its mark (green, red or amber, as in the side panel), number and kind - what
-  it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regenerate · ✓ 4 conformance`, the newest that fit the width -
+  it regenerated is in the side panel - `cognio  … 2 earlier · ✓ 3 regenerate · ✓ 4 conformance`, the newest that fit the width -
   then a rule, and under it each running pulse - `cognio · regenerate pulse 5`, `cognio · conformance pulse 6` - its time and cost, and what its agents are doing. A module whose work is being planned into pulses shows at once,
   before any pulse runs - `shorty · planning the pulses · 12s` - the planner is an agent, and takes a while; a
   `/regenerate` says it began the moment it is sent. Pulses are numbered within their module, as regen numbers
@@ -129,7 +129,7 @@ come waits for a free slot, and says so.
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time.
-  It opens on **regen**: the spec itself, in full, with how far the code has grown into it drawn
+  It opens on **regen**: the spec itself, in full, with how much of it the code has been regenerated from drawn
   onto it.
 
   Every item of the spec - a definition, a req, a functional spec with its sub-bullets and acceptance tests,
@@ -170,8 +170,8 @@ come waits for a free slot, and says so.
 
   A changed item shows what changed in it: its first line word by word - what is gone struck through in red,
   what is new in green, what is kept highlighted as it reads now - and, under it, only the sub-bullets that changed. A spec never built that is taken
-  out is simply gone. The top line has a strip of the module's functional specs - built, growing, planned,
-  waiting - and how many are built, then what is happening: `pulse 3 of 8 growing`, or why nothing is -
+  out is simply gone. The top line has a strip of the module's functional specs - built, regenerating, planned,
+  waiting - and how many are built, then what is happening: `pulse 3 of 8 regenerating`, or why nothing is -
   `not asked to build - regenerate plans it` (turri was just opened, or nothing has asked for the module: the
   plan lives in memory and is made again on the next regeneration), `planning`, `waits for backend`, or
   `! needs you`. `enter` opens an item: all of
@@ -180,10 +180,10 @@ come waits for a free slot, and says so.
 
   One module is shown at a time, with a tab for each module of the chain on the line under the top line, in
   the chain's order - the module it is built on to the left: `d365_version_api  [d365_http_client]  d365_utils
-  12 ›`. A tab growing spins, one stuck says `!`; what does not fit is counted at either end. `←` `→` go from
-  one tab to the next. The module shown is the one in focus - the one growing now, else the one asked for,
+  12 ›`. A tab regenerating spins, one stuck says `!`; what does not fit is counted at either end. `←` `→` go from
+  one tab to the next. The module shown is the one in focus - the one regenerating now, else the one asked for,
   else the first - until you pick another tab; it goes back to following once another module is in focus, or
-  the one in focus starts growing. Under the module's own text is what it imports, under **imported**, a
+  the one in focus starts regenerating. Under the module's own text is what it imports, under **imported**, a
   folded block a file, `▸ from stdlib/backend/python-fastapi · 7 reqs · all built`, closed until opened. The
   modules it requires are tabs of their own: a chain of many modules is never drawn nested, one in the next.
   A map longer than the screen has a minimap down its right edge, a cell a slice in the colour of
@@ -197,9 +197,9 @@ come waits for a free slot, and says so.
   tab, `o` and `c` open or close everything shown, `pgup` `pgdn` and the
   wheel scroll, `g`/`G` go to the top and the bottom.
 
-  `p` goes to the **pulses** - and back - onto the pulse that grows the item under the cursor, and
-  back onto the first item the pulse under the cursor grows. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
-  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · conformance pulse 2`) - so it is named wherever a pulse is named in a line (the job panel, the `pulses` tool, `/halt`, the command line), never by what it grows, which is in it, opened - its time (none while it is queued: it has not started) and its cost - a
+  `p` goes to the **pulses** - and back - onto the pulse that regenerates the item under the cursor, and
+  back onto the first item the pulse under the cursor regenerates. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
+  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · conformance pulse 2`) - so it is named wherever a pulse is named in a line (the job panel, the `pulses` tool, `/halt`, the command line), never by what it regenerates, which is in it, opened - its time (none while it is queued: it has not started) and its cost - a
   finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
   Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
   and what each spent, and whether it did not pass. Under it is a row
@@ -228,9 +228,10 @@ come waits for a free slot, and says so.
   running keeps the stack it started with. The chat model switches it too when you ask. See
   [stacks](config.md#stacks).
 - **`/regenerate [module | file.plain] [functionality ...] [from scratch] [how to cut the work]`** regenerates a module from its spec as it is now, as
-  the `regenerate` tool does: what is left to grow is planned into pulses - one functional spec at a time, a few
+  the `regenerate` tool does: what is left to regenerate is planned into pulses - one functional spec at a time, a few
   together or the whole module in one, as the planner judges - and the first starts. Words after the module are
-  guidance for that plan (`/regenerate app models first`). With no module named: the one `module:` in
+  guidance for that plan (`/regenerate app models first`). A module's name typed with spaces for its underscores is
+  that module - `/regenerate d365_function executor` is `d365_function_executor`. With no module named: the one `module:` in
   `config.turri.yaml` names, else the folder's top modules, to pick from. Asked for from scratch - `from scratch`,
   `start over`, `delete the module` - it asks first, then deletes the module's code and conformance tests in every
   codebase where they live, committed so `/lineage` keeps them, and regenerates the whole module from its spec,
@@ -241,12 +242,16 @@ come waits for a free slot, and says so.
   `regenerate` with `functionalities`.
 - **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
   server `activate` started; it lists both when no id is given.
+- **What these commands show you, the chat knows.** What `/regenerate` and `/halt activated` tell you - a spec that
+  does not parse, the pulses planned, a server halted - stays in the chat under the command, and since a slash command
+  runs outside the conversation, it is put in the conversation as well: say "fix it" next and turri knows what you are
+  looking at. A halted pulse reaches it as every pulse's end does.
 - **Nothing is queued.** What is left to build is worked out from what each codebase is built from
   and the spec as it is now - again whenever a pulse ends or the spec changes - and the first pulse of
-  it runs; see [a whole module](growing.md#a-whole-module). Changes that overlap never pile up: the next pulse
+  it runs; see [a whole module](regenerating.md#a-whole-module). Changes that overlap never pile up: the next pulse
   builds the spec as it is. The pulses planned after the one running are listed behind it, as queued,
   and so is each module waiting for the one it is built on - "waits for base" - until it can be planned.
-  A change inside what the running pulse grows - a spec it grows reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a pulse at most. Otherwise a pulse building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.turri.yaml`, which has it land first and the change grown on top. To drop something, take it out of the spec - one spec diff. Stopping a pulse leaves its change
+  A change inside what the running pulse regenerates - a spec it regenerates reworded or given a sub-bullet, a definition or req it is given, a file they link - steers it: its agent is told, and it lands the spec as it is now there, twice a pulse at most. Otherwise a pulse building something the spec no longer wants is stopped and rolled back - unless `allow-to-stop-jobs: false` in `config.turri.yaml`, which has it land first and the change regenerated on top. To drop something, take it out of the spec - one spec diff. Stopping a pulse leaves its change
   in the spec: the codebase waits until the spec changes or it is asked for again.
 - **A change to a module below** is made in the codebase at the tip of the chain, where its code
   lives; the codebase below is left as it was, and is brought up to its own spec only when a new
@@ -269,7 +274,7 @@ come waits for a free slot, and says so.
   own source, skills and rules, says what happened, why, whether the fix belongs in the spec, the
   environment, the code or turri itself, and exactly what to do.
 - **When a pulse finishes** the transcript shows its line - `✓`, `✗` or `■`, its module, kind and number,
-  how long it took and what it cost, never what it grew -
+  how long it took and what it cost, never what it regenerated -
   `✓ shorty · conformance pulse 4 finished after 3m 47s · 488.6k tok · $0.02` - and the chat, which
   gets its whole report, reacts then and there, whatever else is running or queued, without waiting
   for you to speak: at once when it is idle, else as soon as the reply it is in ends. It does what the
@@ -431,16 +436,16 @@ linked resources resolve the way the parser expects. For a long run - a whole sp
 
 ```bash
 turri validate <file.plain>            # validate a spec - no model, no API key
-turri drift <file.plain>               # what is left to grow - no model, starts nothing
-turri regenerate <file.plain>              # grow what the code is not grown from yet, and what it requires
+turri drift <file.plain>               # what is left to regenerate - no model, starts nothing
+turri regenerate <file.plain>              # regenerate what the code is not built from yet, and what it requires
 turri glimpse <file.plain>             # plan it, and print the first job's prompt - starts nothing
-turri regenerate <file.plain> 2            # grow functionality 2 again, changed or not
+turri regenerate <file.plain> 2            # regenerate functionality 2 again, changed or not
 turri regenerate <file.plain> --from-scratch   # delete the module's code and tests (its lineage keeps them), regenerate all of it
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regenerate it
 turri conform <file.plain> 1           # black-box tests for functionality 1
-turri lineage <module>                 # what grew into a module, and when
+turri lineage <module>                 # what each regeneration changed in a module, and when
 turri cultivate brood                  # run a skill directly - by name, the project's too, or by its folder
-turri release <file.plain>             # release what is grown to dist/<module>, and activate it here
+turri release <file.plain>             # release what is regenerated to dist/<module>, and activate it here
 ```
 
 The ones that build take `--model provider/model-id`; `regenerate` also takes `--build-dir` and

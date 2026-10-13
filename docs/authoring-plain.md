@@ -88,7 +88,7 @@ It is built in three layers, and a stack imports the other two:
   `Result`), the logging library, and the unit test framework and layout. A module on a stack the library does not have can import its language alone.
   The formatter, linter and type checker a language names are enforced by the testing scripts, which
   run them with the tests - the unit testing script on the code, the conformance testing script on the
-  tests - and count them as the tests (see [the static checks](growing.md#the-static-checks)).
+  tests - and count them as the tests (see [the static checks](regenerating.md#the-static-checks)).
 - **The kind's `common`** - what every stack of a kind shares:
 
   | kind | settles |

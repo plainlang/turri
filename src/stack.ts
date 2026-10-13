@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { plainFileParser } from "./plain/parser.ts";
-import { resolveTemplateDirs } from "./grow/paths.ts";
-import { sectionsOf } from "./grow/state.ts";
-import { onThisMachine } from "./grow/test-scripts.ts";
+import { plainFileParser, withParseCache } from "./plain/parser.ts";
+import { resolveTemplateDirs } from "./regenerate/paths.ts";
+import { sectionsOf } from "./regenerate/state.ts";
+import { onThisMachine } from "./regenerate/test-scripts.ts";
 
 /**
  * What a project's specs need of this machine: the toolchains its implementation reqs name, and whether the machine
@@ -55,17 +55,21 @@ export function projectImplementationReqs(project: string): Array<{ module: stri
   } catch {
     return [];
   }
-  const modules: Array<{ module: string; reqs: string[] }> = [];
-  for (const name of files) {
-    const path = join(project, name);
-    try {
-      const [module, tree] = plainFileParser(basename(path), resolveTemplateDirs(path), { allowNoFunctionalities: true });
-      modules.push({ module, reqs: sectionsOf(tree)["implementation reqs"] });
-    } catch {
-      // A file that does not parse, or an import module read on its own, names nothing here.
+  // One parse a module for all of them: each parse goes down its requires chain, and a project of long chains would
+  // parse the modules at the bottom once for every module above them.
+  return withParseCache(() => {
+    const modules: Array<{ module: string; reqs: string[] }> = [];
+    for (const name of files) {
+      const path = join(project, name);
+      try {
+        const [module, tree] = plainFileParser(basename(path), resolveTemplateDirs(path), { allowNoFunctionalities: true });
+        modules.push({ module, reqs: sectionsOf(tree)["implementation reqs"] });
+      } catch {
+        // A file that does not parse, or an import module read on its own, names nothing here.
+      }
     }
-  }
-  return modules;
+    return modules;
+  });
 }
 
 /** Whether a command is on this machine's PATH. */
@@ -122,7 +126,7 @@ export function toolchainsBlock(has: (command: string) => boolean = toolchainHer
     ...(missing.length > 0 ? [`It lacks, to build: ${named(missing)} - not installed.`] : []),
     "Every frontend stack - React, Vue, Svelte, Angular - is TypeScript, and needs Node and npm.",
     "Choosing a stack, offer only those in a language it can build now, and choose only among them. A stack in a",
-    "language it lacks cannot be grown here until the person installs its toolchain - nothing is installed for them;",
+    "language it lacks cannot be regenerated here until the person installs its toolchain - nothing is installed for them;",
     "asked for one anyway, say what to install first, and that `turri doctor` checks it.",
     "</toolchains on this machine>",
   ].join("\n");

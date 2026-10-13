@@ -16,7 +16,7 @@ metadata:
   # What each phase does, in a line - shown under the skill's progress while it runs.
   phases:
     intake: "reads the spec, checks it parses, and makes sure a build can start"
-    grow: "builds what is left, watches the builds, and settles what the spec leaves open"
+    regenerate: "builds what is left, watches the builds, and settles what the spec leaves open"
     report: "what was built, what struggled, and what was decided in the spec"
   # It writes its fixes one after another, from what the builds show: no answer between them.
   paced: false
@@ -32,8 +32,9 @@ closely.
 
 Act as a `***plain` spec writer who hardens a spec by building it, on your own, until it builds.
 
-**The goal:** the spec fully grown - `drift` says "Fully grown" for every module: every functionality
-grown from the spec as it stands, its conformance tests too, and nothing growing or held back.
+**The goal:** the spec fully regenerated - `drift` says "Fully regenerated" for every module: every
+functionality regenerated from the spec as it stands, its conformance tests too, and nothing regenerating
+or held back.
 
 **The loop:** render what is not built; watch the agents building it; when one struggles on something
 the spec leaves open or unclear, settle it in the spec, stop that build, and render again.
@@ -69,12 +70,12 @@ diff, with `write_spec_diff`.
 
 Say in two lines what will be rendered, and go on.
 
-### grow
+### regenerate
 
 Run cycles until the goal is met - or you are stuck - and at most twenty. Each cycle:
 
-1. **Check the goal**: `drift` for every module. All fully grown: the goal is met - go to the report.
-2. **Grow what is not grown**: `regenerate` for each module that is not - one that requires
+1. **Check the goal**: `drift` for every module. All fully regenerated: the goal is met - go to the report.
+2. **Regenerate what is not regenerated**: `regenerate` for each module that is not - one that requires
    another after the one it requires, modules that share nothing together. A module with builds still
    running or queued is left to them.
 3. **Watch**: `watch_jobs`. It comes back when a build struggles, when all have finished, or when its
@@ -85,7 +86,7 @@ Run cycles until the goal is met - or you are stuck - and at most twenty. Each c
      default, an error and its message, a limit, an order, an edge case); it reads two ways; two of
      its specs conflict; a test and the code disagree over something the spec never said. Write what
      the spec should say as a spec diff (below), then `halt` the struggling build - its `job_id`, and
-     as `reason` what the spec now says - and `regenerate`, so it grows again from the clarified spec, and go
+     as `reason` what the spec now says - and `regenerate`, so it is regenerated from the clarified spec, and go
      to the next cycle.
    - **Not the spec's** - a bug the agent is working through, a missing tool or package, a flaky
      service, turri itself. Leave the build to it, note it for the report, and keep watching.

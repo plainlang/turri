@@ -108,7 +108,7 @@ export function refusal(what: string): string {
 export const TOOLS_NOT_CLI = [
   "<turri-tools>",
   "In this conversation, you do your work with your tools - regenerate, conform, cultivate and the rest - which run as",
-  "background jobs the user can watch and halt. To try what is grown, release it - never by hand in plain_modules. Never",
+  "background jobs the user can watch and halt. To try what is regenerated, release it - never by hand in plain_modules. Never",
   "run your own command line (turri regenerate, glimpse, conform, spec-diff, cultivate, release, turri itself; npm run",
   "regenerate and the like) or start another pi through bash:",
   "that is a separate headless run the user cannot see or stop. Only when the user explicitly asks for the",

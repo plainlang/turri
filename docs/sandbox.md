@@ -46,13 +46,13 @@ enforced and are the same on every platform:
   and anything a command changes outside is put back, and it is told;
 - that the project's dependencies are its own, through the build manifest, and installing anything else is not: what
   the machine lacks it reports with `report_environment_error`, naming what is missing, and goes no further with what
-  depends on it (see [when the environment lacks something](growing.md#when-the-environment-lacks-something));
+  depends on it (see [when the environment lacks something](regenerating.md#when-the-environment-lacks-something));
 - that it may stop only what it started, and that a port something else holds means another port; that `ps` may show
   nothing but what it started, so a server is checked with `kill -0 $!`, its log or a request;
 - that temporary files go in `$TMPDIR`, `/tmp` being outside its walls.
 
 Beside its walls, an agent that writes code or tests - the coding agent, the conformance agent, the code fixer, the
-repair agent - is told up front what it would otherwise go looking for (`src/grow/workspace.ts`): whether its folder is
+repair agent - is told up front what it would otherwise go looking for (`src/regenerate/workspace.ts`): whether its folder is
 empty, with nothing above it to find, or holds code whose unit tests passed when it was committed; that it is not a git
 repository, and `my_diff` shows its work; the versions of the toolchains its module's implementation reqs name, probed
 once on this machine, or that one is missing; that the package caches and Maven's repository are set for it, and to
@@ -61,11 +61,11 @@ leave `JAVA_TOOL_OPTIONS` set; and that the network is open.
 No other path is named - nothing into `plain_modules/.turri`. A test run or a command whose output was cut names the
 whole of it by an id - not a file in its folder, which `read` says if it is given one - and the agent reads it with
 `read_output`: not by a path into `plain_modules/.turri` or to a
-temporary file on this machine (see [long output](growing.md#the-tests-must-actually-pass)).
+temporary file on this machine (see [long output](regenerating.md#the-tests-must-actually-pass)).
 
 ## File tools
 
-`src/grow/confine.ts` rebuilds `read`, `write`, `edit`, `ls`, `grep` and `find` from pi's own
+`src/regenerate/confine.ts` rebuilds `read`, `write`, `edit`, `ls`, `grep` and `find` from pi's own
 factories with a check in front of every path. The check runs twice: once on the argument the
 tool was called with, and once on the absolute path the tool resolved it to, because the two can
 differ. Symlinks are resolved before comparing, so a link cannot walk out, and a glob containing
@@ -78,13 +78,13 @@ audit keep it from commands.
 Credentials are the person's: no agent writes a `.env` or a variant of one (`.env.local`, `.env.test`) - a
 template, `.env.example`, is fine. The file tools refuse it, the command check refuses a command that would
 write one, and what a command does to one anyway is put back by the audit, the agent told why. A made-up credential makes every later run fail without anyone seeing why; a missing one is the
-judge's to report (see [growing the code](growing.md)), the person's to provide.
+judge's to report (see [regenerating the code](regenerating.md)), the person's to provide.
 
 ## Commands on this machine
 
 `bash` is the case no argument check can cover - one string, and no way to read for certain where it will read or
 write. So every command an agent runs - its `bash`, a service it starts - goes through every wall at once
-(`src/grow/agent-shell.ts`, `agentShell`), from its role's fence, the same as its file tools':
+(`src/regenerate/agent-shell.ts`, `agentShell`), from its role's fence, the same as its file tools':
 
 1. **the command check**, before it runs - refused with exit 126 and the reason, a line in the job's log;
 2. **the module's own environment** - not yours: the path, the locale, the terminal, the user and the toolchains'
@@ -99,7 +99,7 @@ write. So every command an agent runs - its `bash`, a service it starts - goes t
 
 The job's log says, for each agent with a shell, which walls are up - and where no OS sandbox starts, why.
 
-The command runs through the host runner (`src/grow/shell.ts`): `bash -c` from the agent's folder, in a process group of
+The command runs through the host runner (`src/regenerate/shell.ts`): `bash -c` from the agent's folder, in a process group of
 its own. No command can hang a build: every one has a time limit - 2 minutes, or `TURRI_COMMAND_TIMEOUT` seconds: the
 agent's own `bash` unless it gives a timeout (at most 30 minutes), its unit and conformance test runs, the harness's own
 runs. A command that runs out is killed, it and everything it started, and reports exit 124 with a note on what to do
@@ -114,12 +114,12 @@ turri next starts. On Windows there are no process groups: a command's process t
 best effort.
 
 The project's testing scripts - their static checks included - are not agents' commands: they are
-yours, and run on this machine as you would run them, unfenced, in your own environment - see [the testing scripts](growing.md#the-testing-scripts). The agent gets their
+yours, and run on this machine as you would run them, unfenced, in your own environment - see [the testing scripts](regenerating.md#the-testing-scripts). The agent gets their
 output, nothing more.
 
 ### The command check
 
-Before an agent's command runs, its text is checked (`src/grow/command-check.ts`, `checkCommand`), on every platform, and
+Before an agent's command runs, its text is checked (`src/regenerate/command-check.ts`, `checkCommand`), on every platform, and
 refused - not run - with the rule it broke and what to do instead, when it:
 
 - names a path outside the role's roots - absolute, a `..` that climbs out of the agent's folder (after the `cd`s
@@ -144,7 +144,7 @@ run time (`$(...)`, a variable, a script that reads one from a file): the OS san
 
 ### The OS sandbox
 
-Under the check, where the OS offers one, the command runs behind an OS sandbox (`src/grow/os-sandbox.ts`), driven
+Under the check, where the OS offers one, the command runs behind an OS sandbox (`src/regenerate/os-sandbox.ts`), driven
 directly from the role's fence: Seatbelt (`sandbox-exec`) on macOS, bubblewrap on Linux and WSL2. It is an extra wall,
 never where a rule lives - where neither starts (native Windows, WSL1, a container that does not allow user
 namespaces) the check and the audit hold alone. What a command behind it reaches:
@@ -174,14 +174,14 @@ which bubblewrap falls back to binding the host's `/proc` rather than mounting i
 ### The audit
 
 After every agent command, on every platform - a sandbox up or not - turri puts back what the command's role may not
-change inside the project (`src/grow/audit.ts`): the specs, `config*.yaml`, the testing scripts, every credential file
+change inside the project (`src/regenerate/audit.ts`): the specs, `config*.yaml`, the testing scripts, every credential file
 (the agent's own folder included), the code record, the module's lineage `.plaingit` (its refs and settings), the other
 modules, the folders the role only reads, and the part of its own module it does not write - the coding agent's
 conformance tests. A changed file is put back, a new one removed, a deleted one brought back: from a copy kept before
 the command, or - another module - as its last commit has it, unless a pulse is at work in that module, whose writes are
 not this command's to undo (left, and logged). Nor is a change the conversation made while the command ran: the chat's
 `edit` and `write`, a spec diff it applied, or anything while a command of its own ran - the chat editing a spec beside a
-pulse is the person's change, not the agent's, so it is left and logged (`src/grow/conversation-writes.ts`). The agents
+pulse is the person's change, not the agent's, so it is left and logged (`src/regenerate/conversation-writes.ts`). The agents
 of a pulse start without extensions, so nothing of theirs is marked so. The agent is told in its command's result what was put back; the job's
 log gets a line; you are not told, and the pulse goes on. It compares sizes and modification times, skipping
 dependencies and build output, and contents only where those differ - about 35 ms on a project of 3000 files. Outside
@@ -230,4 +230,4 @@ It lives in `plain_modules/.turri`, which ignores itself in git:
 The agents use this machine's toolchains, and install nothing on it: not a toolchain, a system package, a driver or a
 global package. The project's own dependencies are theirs, through its package manager, into the project and its
 caches. What the machine lacks is yours to install: an agent that finds something missing reports it, the pulse stops,
-and you are told what to install - see [when the environment lacks something](growing.md#when-the-environment-lacks-something).
+and you are told what to install - see [when the environment lacks something](regenerating.md#when-the-environment-lacks-something).

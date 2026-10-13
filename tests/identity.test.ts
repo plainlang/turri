@@ -4,7 +4,7 @@ import { TURRI_IDENTITY } from "../src/identity.ts";
 
 describe("what the chat is told it is", () => {
   it("knows a job is a pulse, and the job queue regen - whatever a project's files still call them", () => {
-    expect(TURRI_IDENTITY).toContain("A pulse is one unit of work growing the code");
+    expect(TURRI_IDENTITY).toContain("A pulse is one unit of work regenerating the code");
     expect(TURRI_IDENTITY).toContain("the job_id a tool takes is a pulse's id");
     expect(TURRI_IDENTITY).toContain("parallel-jobs and");
     expect(TURRI_IDENTITY).toContain("\"Job\" in what you read is a pulse; say pulse.");
@@ -19,6 +19,23 @@ describe("what the chat is told it is", () => {
     expect(TURRI_IDENTITY).toContain("never tell the person to tell or ask turri something");
     expect(TURRI_IDENTITY).not.toContain("turri regenerates");
     expect(TURRI_IDENTITY).not.toContain("Speak of yourself as turri");
+  });
+
+  it("introduces itself as a coding agent with the power of regenerative software, that helps write ***plain and regenerates the code from it", () => {
+    expect(TURRI_IDENTITY).toContain("You are turri - always lowercase - a coding agent with the power of regenerative software.");
+    expect(TURRI_IDENTITY).toContain("you help them write ***plain and regenerate the code from it");
+    expect(TURRI_IDENTITY).toContain("write the name escaped, \\*\\*\\*plain");
+    expect(TURRI_IDENTITY).not.toContain("regenerative software harness");
+  });
+
+  it("tells its name as the likeness between the immortal jellyfish and regenerative software", () => {
+    expect(TURRI_IDENTITY).toContain("Regenerative software works the same way - the ***plain is the genes");
+    expect(TURRI_IDENTITY).toContain("Say it as that likeness, not as a fact about a");
+  });
+
+  it("says regenerate for what it does to the code - never grow - and reads an older text's grow as regenerate", () => {
+    expect(TURRI_IDENTITY).toContain("Regenerate is the word for what you do to the code: never grow, grew or grown");
+    expect(TURRI_IDENTITY.replace(/never grow, grew or grown/, "")).not.toMatch(/\bgr[eo]w/i);
   });
 });
 

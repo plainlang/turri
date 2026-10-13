@@ -171,5 +171,5 @@ A few more things to ask for along the way:
 - [The other examples](README.md) - a CLI, a backend service with conformance tests, an integration.
 - [Using **turri**](../docs/using.md) - the conversation, the skills and tools, the side panel, the command line.
 - [Authoring \*\*\*plain](../docs/authoring-plain.md) - how specs are written, and the skills that write them.
-- [Growing](../docs/growing.md) - what a pulse does, step by step.
+- [Regenerating](../docs/regenerating.md) - what a pulse does, step by step.
 - [The project config](../docs/config.md) - every key of `config.turri.yaml`.

@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** What each spec diff rendered: a spec diff that lands records the spec it was given, as the real one does. */
 const diffs: string[] = [];
-vi.mock("../src/grow/regenerate.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/grow/regenerate.ts")>();
+vi.mock("../src/regenerate/regenerate.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/regenerate/regenerate.ts")>();
   return {
     ...actual,
     renderSpecDiff: async (options: { diff?: string; spec?: { tree: object; chain?: Array<{ buildDir: string }> } }) => {
       diffs.push(options.diff ?? "");
       const buildDir = options.spec!.chain!.at(-1)!.buildDir;
       writeFileSync(join(buildDir, "app.py"), "# built\n", { flag: "a" });
-      (await import("../src/grow/records.ts")).writeCodeRecord(buildDir, options.spec!.tree as never);
+      (await import("../src/regenerate/records.ts")).writeCodeRecord(buildDir, options.spec!.tree as never);
       return { passed: true, stoppedAt: null };
     },
     describeSpecDiff: () => "rendered",
@@ -22,10 +22,10 @@ vi.mock("../src/grow/regenerate.ts", async (importOriginal) => {
 
 const { collectFindings, createMatureTools, noteStamp } = await import("../src/mature-tools.ts");
 const { driftTool, haltTool, regenerateTool } = await import("../src/loop-tools.ts");
-const { createJobRegistry } = await import("../src/grow/jobs.ts");
-const { createWorkLoop } = await import("../src/grow/loop.ts");
-const { recordNote, NOTES_FILE } = await import("../src/grow/notes.ts");
-const { writeCodeRecord } = await import("../src/grow/records.ts");
+const { createJobRegistry } = await import("../src/regenerate/jobs.ts");
+const { createWorkLoop } = await import("../src/regenerate/loop.ts");
+const { recordNote, NOTES_FILE } = await import("../src/regenerate/notes.ts");
+const { writeCodeRecord } = await import("../src/regenerate/records.ts");
 const { plainFileParser } = await import("../src/plain/parser.ts");
 
 let dir: string;
@@ -196,15 +196,15 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     writeFileSync(join(dir, "app.plain"), spec(["- Say hello.", "- Say goodbye."]));
     const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false });
     const drift = driftTool({ cwd: dir, loop: () => loop });
-    expect(await call(drift, { plain_file: "app.plain" })).not.toContain("Fully grown");
+    expect(await call(drift, { plain_file: "app.plain" })).not.toContain("Fully regenerated");
     const tree = plainFileParser("app.plain", [dir])[1];
     const specs = tree["functional specs"] as unknown[];
     writeCodeRecord(buildDir(), { ...tree, "functional specs": specs.slice(0, 1) } as never);
     writeFileSync(join(buildDir(), "app.py"), "print('hi')\n");
     const half = await call(drift, { plain_file: "app.plain" });
     expect(half).toContain("adds fs 2");
-    expect(half).not.toContain("Fully grown");
+    expect(half).not.toContain("Fully regenerated");
     writeCodeRecord(buildDir(), tree);
-    expect(await call(drift, { plain_file: "app.plain" })).toContain("Fully grown: every codebase is grown from the spec as it is");
+    expect(await call(drift, { plain_file: "app.plain" })).toContain("Fully regenerated: every codebase is regenerated from the spec as it is");
   });
 });

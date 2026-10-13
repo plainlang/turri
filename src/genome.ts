@@ -5,7 +5,7 @@ import { compileSkill, type Reporter } from "./graph.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createExecutor } from "./pi.ts";
 import { toolchainsBlock } from "./stack.ts";
-import { describeToolCall, describeToolResult } from "./grow/activity.ts";
+import { describeToolCall, describeToolResult } from "./regenerate/activity.ts";
 import { createLiveReviewer, type LiveReviewer } from "./review/live.ts";
 import { loadSkill, readRubric, type Skill } from "./skill.ts";
 import { createAskUserTool, createEndQuestionsTool, createReviewTools, createWriteArtifactTool, withReviewNote, type AskUser } from "./tools.ts";
@@ -13,14 +13,14 @@ import { DISMISSED } from "./ask.ts";
 import { createQuestioning, levelOf, questioningQuestion, type Questioning, type QuestioningState } from "./questioning.ts";
 import { createSpecDiffTools } from "./spec-tools.ts";
 import { createMatureTools, MATURE_TOOLS } from "./mature-tools.ts";
-import type { JobRegistry } from "./grow/jobs.ts";
+import type { JobRegistry } from "./regenerate/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
 /** The conversation's tools a skill acts on the work loop with - never pi built-ins. */
 const LOOP_TOOLS = ["regenerate", "drift", "halt", "conform"];
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
-import type { WorkLoop } from "./grow/loop.ts";
+import type { WorkLoop } from "./regenerate/loop.ts";
 
 export interface EscalationRequest {
   step: string;

@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { describeGates, runSkill } from "./genome.ts";
 import type { Decision, Reporter } from "./graph.ts";
 import { runAsk } from "./ask.ts";
-import { skillRunDir } from "./grow/paths.ts";
+import { skillRunDir } from "./regenerate/paths.ts";
 import { loadSkill } from "./skill.ts";
 import { discoverSkills } from "./skills.ts";
 import { PACKAGE_ROOT } from "./environment.ts";

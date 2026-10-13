@@ -129,7 +129,7 @@ describe("the project's config.yaml", () => {
 describe("parallel-jobs", () => {
   it("is how many jobs the chat runs at once - the config's, else what the machine holds, and never the environment's", async () => {
     const { parallelJobs } = await import("../src/extension.ts");
-    const { defaultParallelJobs } = await import("../src/grow/jobs.ts");
+    const { defaultParallelJobs } = await import("../src/regenerate/jobs.ts");
     expect(parallelJobs(root)).toBe(defaultParallelJobs());
     writeFileSync(join(root, "config.yaml"), "parallel-jobs: 6\n");
     expect(readProjectConfig(root).parallelJobs).toBe(6);
@@ -345,8 +345,8 @@ describe("a stack's config file", () => {
   it("is a stack the testing scripts are found for, and without one chosen the project cannot say which of two it means - and says where to name it", async () => {
     const { mkdirSync } = await import("node:fs");
     const { chooseStack } = await import("../src/config.ts");
-    const { projectDirOf } = await import("../src/grow/paths.ts");
-    const { findTestScripts } = await import("../src/grow/test-scripts.ts");
+    const { projectDirOf } = await import("../src/regenerate/paths.ts");
+    const { findTestScripts } = await import("../src/regenerate/test-scripts.ts");
     rmSync(join(root, "config.turri.yaml"));
     rmSync(join(root, "config.turri.backend.yaml"));
     writeFileSync(join(root, "config.turri.backend.yaml"), "unittests-script: test_scripts/run_unittests_python.sh\n");

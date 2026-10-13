@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ROLES, CONFIG_KEYS, projectModels, readProjectConfig, ROLE_THINKING } from "../src/config.ts";
 import { BEDROCK_REGIONS, bedrockMakerOf, bedrockModels, bedrockRegionOf, DEFAULTS, defaultParallel, initConfig, main, QUICK_START_CONFIG, quickStartConfig, VENDORS, vendorOf, withModels, type Vendor } from "../src/init-config.ts";
-import { defaultParallelJobs } from "../src/grow/jobs.ts";
+import { defaultParallelJobs } from "../src/regenerate/jobs.ts";
 import { DEFAULT_COMPACT_AT, DEFAULT_TURN_LIMIT_MS } from "../src/pi.ts";
-import { MAX_LINES_PER_JOB, MAX_SPECS_PER_JOB } from "../src/grow/chunk-plan.ts";
+import { MAX_LINES_PER_JOB, MAX_SPECS_PER_JOB } from "../src/regenerate/chunk-plan.ts";
 
 let dir: string;
 beforeEach(() => {

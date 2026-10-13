@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
 import { createDeployState } from "./release-tools.ts";
 import { runReleaseAgent } from "./release-agent.ts";
-import { listDeployed, runningDeployed, stopDeployed } from "./grow/release.ts";
+import { listDeployed, runningDeployed, stopDeployed } from "./regenerate/release.ts";
 
 const USAGE = `usage: turri release [file.plain] [options]
 

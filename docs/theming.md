@@ -37,7 +37,7 @@ illegible - so the dark theme's accent is brand yellow, and blue appears only in
 and in both themes' HTML-export backgrounds. The one place blue stands for something in both is the spec
 map's `◆` - a functional spec its conformance tests pass for: brand blue in a light theme, and in a dark
 one its tint 55% of the way to white, `#919aec`, 7.34:1 on brand black (`brandBlue` in
-`src/grow/plain-palette.ts`).
+`src/regenerate/plain-palette.ts`).
 
 `--color-brand-status-warning` on white is 3.49:1, under the 4.5:1 bar for body text, so it is used
 only for accents in the light theme, never for prose.
@@ -63,7 +63,7 @@ brand look, set it to brand black, `#0f0f0f`, in your terminal profile.
 
 A spec diff in the panels is not painted with the theme's colours for code: those are made for code,
 and the turri themes' backgrounds are all the surface colour, so a diff drawn with them would have no
-fills and hardly any highlighting. It has a palette of its own (`src/grow/plain-palette.ts`), one for
+fills and hardly any highlighting. It has a palette of its own (`src/regenerate/plain-palette.ts`), one for
 a dark theme and one for a light, picked by the theme's appearance: a hue for each piece of \*\*\*plain -
 a section's header, a concept, a link, text in quotes or backticks, a front matter key, a module,
 a comment - at least 7:1 on the surface, and a fill behind each added and removed line, green and red,

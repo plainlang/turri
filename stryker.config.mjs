@@ -4,10 +4,10 @@
 
 /** The core of growing: how work is planned, what is built and left, and how a spec is cut into steps. */
 export const PARTS = {
-  "chunk-plan": ["src/grow/chunk-plan.ts"],
-  "spec-steps": ["src/grow/spec-steps.ts"],
-  records: ["src/grow/records.ts"],
-  drift: ["src/grow/drift.ts", "src/grow/cases.ts", "src/grow/lanes.ts", "src/grow/steering.ts"],
+  "chunk-plan": ["src/regenerate/chunk-plan.ts"],
+  "spec-steps": ["src/regenerate/spec-steps.ts"],
+  records: ["src/regenerate/records.ts"],
+  drift: ["src/regenerate/drift.ts", "src/regenerate/cases.ts", "src/regenerate/lanes.ts", "src/regenerate/steering.ts"],
 };
 
 const part = process.env.TURRI_MUTATION_PART;

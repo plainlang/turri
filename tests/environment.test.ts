@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeVersionOk } from "../src/environment.ts";
-import { defaultParallelJobs } from "../src/grow/jobs.ts";
-import { sandboxSummary } from "../src/grow/os-sandbox.ts";
+import { defaultParallelJobs } from "../src/regenerate/jobs.ts";
+import { sandboxSummary } from "../src/regenerate/os-sandbox.ts";
 
 describe("the Node turri runs on", () => {
   it("is 22.19 or newer - it runs .ts files itself, and pi needs 22.19", () => {

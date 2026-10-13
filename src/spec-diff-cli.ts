@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkPlainFile } from "./plain/check.ts";
-import { applySpecDiff, revertSpecDiff } from "./grow/regenerate.ts";
+import { applySpecDiff, revertSpecDiff } from "./regenerate/regenerate.ts";
 import { parseArgs, runLoop } from "./loop-cli.ts";
 
 const USAGE = `usage: turri spec-diff <file.plain> <diff-file> [options]
@@ -11,7 +11,7 @@ counterpart of regenerate, given a diff. The diff is applied first, unless it is
 turri regenerate does, what is left to build is planned into jobs and built.
 
   --model <provider/id>    model for the agents (default: config.turri.yaml's coding-model)
-  --start-over             start over, without asking, a codebase grown without a module it now requires`;
+  --start-over             start over, without asking, a codebase regenerated without a module it now requires`;
 
 const { positional, options } = parseArgs(process.argv.slice(2), ["--start-over"], USAGE);
 const [plainFile, diffFile] = positional;

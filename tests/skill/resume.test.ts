@@ -5,9 +5,9 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { interruptedRun } from "../../src/genome.ts";
 import { compileSkill } from "../../src/graph.ts";
-import { createJobRegistry } from "../../src/grow/jobs.ts";
-import { createWorkLoop } from "../../src/grow/loop.ts";
-import { writeCodeRecord } from "../../src/grow/records.ts";
+import { createJobRegistry } from "../../src/regenerate/jobs.ts";
+import { createWorkLoop } from "../../src/regenerate/loop.ts";
+import { writeCodeRecord } from "../../src/regenerate/records.ts";
 import type { Skill } from "../../src/skill.ts";
 
 /** An agent session that records what it is asked and answers nothing. */

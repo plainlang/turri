@@ -73,7 +73,7 @@ Removing that file is the one thing `doctor` changes, and it asks first; `turri 
 terminal - piped, or in CI - it asks nothing and changes nothing. Run it again whenever something breaks;
 `turri doctor --no-models` leaves out the models' requests.
 
-The chat is told every turn which wall is up and what the project's modules need of this machine that it lacks.
+The chat is told every turn which wall is up and what the project's modules need of this machine that it lacks. What they need is worked out from every spec of the project - seconds, on a project of long requires chains - so it is worked out once the chat is up and again after a turn in which a spec changed, never while your message waits: a turn is told what was known last.
 
 ## turri and `pi`
 

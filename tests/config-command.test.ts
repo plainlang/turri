@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerTurriConfig, type LiveHooks } from "../src/config-command.ts";
 import { modelSpec, projectModels, readProjectConfig } from "../src/config.ts";
-import { createJobRegistry } from "../src/grow/jobs.ts";
+import { createJobRegistry } from "../src/regenerate/jobs.ts";
 
 let dir: string;
 beforeEach(() => {

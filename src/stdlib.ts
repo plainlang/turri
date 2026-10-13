@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { STDLIB_DIR } from "./grow/paths.ts";
+import { STDLIB_DIR } from "./regenerate/paths.ts";
 
 /**
  * The ***plain standard library, as the agents that write specs are told it: every stack's import name,

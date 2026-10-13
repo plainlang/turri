@@ -1,9 +1,9 @@
 // Whether the terminal shows images, before anything draws: the banner's jellyfish is a picture or text.
 import "./terminal-images.ts";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { conversationCommand, conversationSettled, conversationWriting } from "./grow/conversation-writes.ts";
+import { conversationCommand, conversationSettled, conversationWriting } from "./regenerate/conversation-writes.ts";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
@@ -12,38 +12,38 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
 import { AGENT_ROLES, chosenStack, CONFIG_FILE, configForSpec, hasProjectConfig, LEGACY_CONFIG_FILE, projectConfigFile, stackConfigFileIn, stackOf, stacksOf, withStack, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
-import { modulesRoot, skillRunDir } from "./grow/paths.ts";
-import { sweepOrphanedGroups } from "./grow/shell.ts";
+import { modulesRoot, skillRunDir } from "./regenerate/paths.ts";
+import { sweepOrphanedGroups } from "./regenerate/shell.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine, toolchainsBlock } from "./stack.ts";
-import { sandboxAvailable, sandboxSummary } from "./grow/os-sandbox.ts";
-import { findTestScripts } from "./grow/test-scripts.ts";
+import { sandboxAvailable, sandboxSummary } from "./regenerate/os-sandbox.ts";
+import { findTestScripts } from "./regenerate/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
 import { asksFromScratch, driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regenerateTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
-import { createWebTools } from "./grow/web.ts";
+import { createWebTools } from "./regenerate/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./genome.ts";
 import type { Reporter } from "./graph.ts";
 import { loadSkill, skillStatus, type Skill } from "./skill.ts";
-import { runningDeployed, stopDeployed } from "./grow/release.ts";
+import { runningDeployed, stopDeployed } from "./regenerate/release.ts";
 import { createDeployState, createDeployTools, type DeployState } from "./release-tools.ts";
 import { runReleaseAgent } from "./release-agent.ts";
-import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./grow/steer.ts";
+import { createSteeringStore, EVERY_MODULE, moduleNameOf, queueSectionOf, steeringFor } from "./regenerate/steer.ts";
 import { askedForCommandLine, refusal, selfInvocation, TOOLS_NOT_CLI } from "./self-invocation.ts";
-import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./grow/engine.ts";
+import { describeChoices, describeResolution, type ModelChoices, modelFor, type RenderWork, resolveModel } from "./regenerate/engine.ts";
 import { checkPlainFile, checkPlainTargets, formatCheckResults } from "./plain/check.ts";
-import { whyFailed } from "./grow/diagnose-job.ts";
-import { createWorkLoop, describeModules, isUpToDate, previewJobs, type WorkLoop } from "./grow/loop.ts";
-import { brandBlue, plainPaint } from "./grow/plain-palette.ts";
-import { createJobPanel, didNotPass, keyPressed, PANEL_KEY, spinner } from "./grow/job-panel.ts";
+import { whyFailed } from "./regenerate/diagnose-job.ts";
+import { createWorkLoop, describeModules, isUpToDate, previewJobs, type WorkLoop } from "./regenerate/loop.ts";
+import { brandBlue, plainPaint } from "./regenerate/plain-palette.ts";
+import { createJobPanel, didNotPass, keyPressed, PANEL_KEY, spinner } from "./regenerate/job-panel.ts";
 import { skillAboutLine, skillProgressLine } from "./skill-progress.ts";
-import { createSidePanel } from "./grow/side-panel.ts";
-import { createSpecMapSource, defaultMapFiles } from "./grow/spec-map.ts";
-import { createSpecMapState } from "./grow/spec-map-view.ts";
-import { createJobsTreeState, selectJob } from "./grow/jobs-tree.ts";
-import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
-import { HISTORY_DIR, historyLog, historyShow } from "./grow/lineage.ts";
-import { defaultBuildDir } from "./grow/paths.ts";
-import { describeUsage, type SpecConflict } from "./grow/activity.ts";
-import { describeSpecConflict } from "./grow/stop-report.ts";
+import { createSidePanel } from "./regenerate/side-panel.ts";
+import { createSpecMapSource, defaultMapFiles } from "./regenerate/spec-map.ts";
+import { createSpecMapState } from "./regenerate/spec-map-view.ts";
+import { createJobsTreeState, selectJob } from "./regenerate/jobs-tree.ts";
+import { describeDiagnosis, diagnoseFailure } from "./regenerate/diagnose.ts";
+import { HISTORY_DIR, historyLog, historyShow } from "./regenerate/lineage.ts";
+import { defaultBuildDir } from "./regenerate/paths.ts";
+import { describeUsage, type SpecConflict } from "./regenerate/activity.ts";
+import { describeSpecConflict } from "./regenerate/stop-report.ts";
 import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
 import { loadRules, renderRulesBlock } from "./rules.ts";
@@ -67,7 +67,7 @@ import {
   type Job,
   type JobOutcome,
   type JobRegistry,
-} from "./grow/jobs.ts";
+} from "./regenerate/jobs.ts";
 
 /**
  * Makes gated skills reachable from a conversation.
@@ -282,6 +282,11 @@ export default function (pi: ExtensionAPI) {
   // pi's skills that turri has already - its own and the project's, run with cultivate, and any about ***plain from
   // another tool - are left out of the list the conversation is offered (chat-skills.ts); the person is told once.
   const turriRuns = new Set(discoveredSkills.skills.map((skill) => skill.name));
+  // What the modules need of this machine: worked out once the chat is up, and after a turn when a spec changed - never
+  // while a message waits to be sent.
+  const machine = machineNeeds(cwd);
+  pi.on("session_start", () => machine.refreshSoon());
+  pi.on("agent_settled", () => machine.refreshSoon());
   let leftOutSaid = false;
   pi.on("before_agent_start", (event, ctx) => {
     const offered = event.systemPromptOptions.skills;
@@ -299,7 +304,7 @@ export default function (pi: ExtensionAPI) {
       }
     }
     return {
-      systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd), rulesBlock()].filter((part) => part !== "").join("\n\n"),
+      systemPrompt: [event.systemPrompt, TURRI_IDENTITY, TOOLS_NOT_CLI, projectConfigBlock(cwd), machineBlock(cwd, machine.now()), rulesBlock()].filter((part) => part !== "").join("\n\n"),
     };
   });
 
@@ -628,7 +633,7 @@ export default function (pi: ExtensionAPI) {
       const specsChanged = changes.filter((path) => path.endsWith(".plain"));
       const unrendered =
         specsChanged.length > 0 && !skill.allowedTools.includes("write_spec_diff")
-          ? `${specsChanged.join(", ")} changed, and nothing grows from that yet: call regenerate for it, and the code is brought up to the spec.`
+          ? `${specsChanged.join(", ")} changed, and nothing is regenerated from that yet: call regenerate for it, and the code is brought up to the spec.`
           : "";
       const gated = skill.steps.some((step) => step.gate !== undefined);
       const text = result.ok
@@ -669,14 +674,18 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerCommand("regenerate", {
     description: "Regenerate a module from its spec as it is now, in pulses the planner cuts - named functionalities though they did not change, or all of it from scratch: /regenerate [module | file.plain] [functionality ...] [from scratch] [how to cut the work]",
     handler: async (args, ctx) => {
-      const [first = "", ...rest] = args.trim().split(/\s+/).filter((word) => word !== "");
-      const named = first !== "" ? plainFileNamed(cwd, first) : undefined;
+      const command = `/regenerate ${args.trim()}`.trim();
+      await echoCommand(pi, command);
+      const say = (text: string, level: "info" | "warning" | "error") => shownAfterCommand(pi, ctx, command, text, level, true);
+      const all = args.trim().split(/\s+/).filter((word) => word !== "");
+      const [first = ""] = all;
+      const { named, rest } = moduleNamedFirst(cwd, all);
       if (named === undefined && first.endsWith(".plain")) {
-        if (ctx.hasUI) ctx.ui.notify(`There is no ${first} here.`, "error");
+        say(`There is no ${first} here.`, "error");
         return;
       }
       // Functionalities named first, by id - 3, 2.1, fs 4 - as on the command line; what follows them is guidance.
-      const words = named !== undefined ? rest : [first, ...rest].filter((word) => word !== "");
+      const words = rest;
       const again: string[] = [];
       while (words.length > 0 && /^(fs)?\d+(\.\d+)*,?$/i.test(words[0]!)) again.push(words.shift()!.replace(/^fs/i, "").replace(/,$/, ""));
       const guidance = words.join(" ").trim();
@@ -684,7 +693,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       if (plainFile === undefined) {
         const modules = defaultMapFiles(cwd);
         if (modules.length === 0) {
-          if (ctx.hasUI) ctx.ui.notify("No .plain file to regenerate: name one - /regenerate app.plain - or set module: in config.turri.yaml.", "warning");
+          say("No .plain file to regenerate: name one - /regenerate app.plain - or set module: in config.turri.yaml.", "warning");
           return;
         }
         if (modules.length === 1 || !ctx.hasUI) plainFile = modules[0]!;
@@ -697,14 +706,14 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       }
       const check = checkPlainFile(plainFile);
       if (!check.ok) {
-        if (ctx.hasUI) ctx.ui.notify(`${relative(cwd, plainFile) || plainFile} does not parse, so nothing can grow from it yet: ${check.error}`, "error");
+        say(`${relative(cwd, plainFile) || plainFile} does not parse, so nothing can be regenerated from it yet: ${check.error}`, "error");
         return;
       }
       // From scratch - started over, its code deleted - asked in the person's words: confirmed first, as it deletes.
       const scratch = asksFromScratch(guidance);
       const module = basename(plainFile).replace(/\.plain$/, "");
       if (scratch && again.length > 0) {
-        if (ctx.hasUI) ctx.ui.notify("Name functionalities or ask for it from scratch, not both: from scratch regenerates every one of them.", "warning");
+        say("Name functionalities or ask for it from scratch, not both: from scratch regenerates every one of them.", "warning");
         return;
       }
       if (scratch && ctx.hasUI) {
@@ -717,35 +726,101 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       const loop = workLoopFor(jobs, cwd, ctx);
       const model = jobModel(ctx, again.length > 0 ? "functionalities" : "spec_changes", undefined, plainFile);
       const request = { ...(model !== undefined ? { model } : {}), ...(guidance !== "" ? { guidance } : {}) };
-      // Said at once: what follows takes a while - the planner is an agent - and the live panel shows it as it goes.
-      if (ctx.hasUI) {
-        ctx.ui.notify(
-          scratch
-            ? `Deleting ${module}'s code, then planning all of it again…`
-            : again.length > 0
-              ? `Planning ${module}'s functionalit${again.length === 1 ? "y" : "ies"} ${again.join(", ")} again…`
-              : `Planning ${module}'s pulses…`,
-          "info",
-        );
-      }
+      // Said at once, and kept in the chat: what follows takes a while - the planner is an agent - and the person sees it
+      // began, not a chat that stays empty until the first pulse starts. The plan is said under it once it is made.
+      say(
+        scratch
+          ? `Deleting ${module}'s code, then planning all of it again…`
+          : again.length > 0
+            ? `Planning ${module}'s functionalit${again.length === 1 ? "y" : "ies"} ${again.join(", ")} again…`
+            : `Planning ${module}'s pulses…`,
+        "info",
+      );
+      await nextFrame();
       try {
         const statuses = scratch
           ? await loop.fromScratch(plainFile, request)
           : again.length > 0
-            ? await loop.growAgain(plainFile, again, request)
+            ? await loop.regenerateAgain(plainFile, again, request)
             : await loop.bringUp(plainFile, request);
         // Nothing to do: say how to build it again anyway.
         const hint = statuses.length > 0 && statuses.every(isUpToDate)
           ? `\nTo regenerate parts of it anyway, name their functionalities - /regenerate ${basename(plainFile)} 2.1 - or start over with /regenerate ${basename(plainFile)} from scratch.`
           : "";
-        if (ctx.hasUI) ctx.ui.notify(describeModules(statuses) + hint, "info");
+        say(describeModules(statuses) + hint, "info");
       } catch (error) {
-        if (ctx.hasUI) ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+        say(error instanceof Error ? error.message : String(error), "error");
       }
     },
   });
 }
 
+
+/**
+ * What a slash command showed the person: kept in the chat, where they read it, and put in the conversation as well -
+ * unseen there - so that when they speak of it next ("fix it"), the agent knows what they saw. A command runs outside
+ * the agent's turns, and a notification is gone in seconds and reaches no model.
+ */
+export function shownAfterCommand(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  command: string,
+  text: string,
+  level: NonNullable<CommandOutcome["level"]>,
+  /** The command is in the chat already, above it (echoCommand): the text alone. */
+  echoed = false,
+): void {
+  try {
+    pi.appendEntry(COMMAND_OUTCOME, { command, text, level, ...(echoed ? { echoed } : {}) } satisfies CommandOutcome);
+  } catch {
+    // Shown for a moment all the same.
+    if (ctx.hasUI) ctx.ui.notify(text, level);
+  }
+  void pi.sendMessage({ customType: COMMAND_OUTCOME, content: `The person ran ${command}, and was shown:\n${text}`, display: false });
+}
+
+export const COMMAND_OUTCOME = "turri_command_outcome";
+
+interface CommandOutcome {
+  command: string;
+  /** None: the command itself, as the person typed it. */
+  text?: string;
+  level?: "info" | "warning" | "error";
+  echoed?: boolean;
+}
+
+/** Longer than a frame of the TUI's (16ms): an entry appended before it is drawn by its end. */
+const ONE_FRAME_MS = 20;
+
+/**
+ * What the person typed, put in the chat the moment they send it - before the command does anything - and drawn before
+ * it goes on: a command's work can hold the event loop (a long requires chain parsed), and the chat stays as it was
+ * until it lets go. What the command says comes under it.
+ */
+export async function echoCommand(pi: ExtensionAPI, command: string): Promise<void> {
+  try {
+    pi.appendEntry(COMMAND_OUTCOME, { command } satisfies CommandOutcome);
+  } catch {
+    return;
+  }
+  await nextFrame();
+}
+
+/** Until the TUI has drawn what was just put in the chat. */
+export const nextFrame = () => new Promise<void>((resolve) => setTimeout(resolve, ONE_FRAME_MS));
+
+/**
+ * The module a /regenerate's first words name, and the words after it - all of them when none is named. A name typed
+ * with spaces for its underscores - "d365_function executor" - is the module d365_function_executor: the most words
+ * that name one win.
+ */
+export function moduleNamedFirst(cwd: string, words: string[]): { named?: string; rest: string[] } {
+  for (let count = words.length; count >= 1; count -= 1) {
+    const named = plainFileNamed(cwd, words.slice(0, count).join("_"));
+    if (named !== undefined) return { named, rest: words.slice(count) };
+  }
+  return { rest: words };
+}
 
 /** The .plain file a /regenerate argument names - a path, or a module's name in the folder - if it names one. */
 function plainFileNamed(cwd: string, word: string): string | undefined {
@@ -935,15 +1010,16 @@ export function changedFiles(before: Map<string, string>, after: Map<string, str
 /**
  * This machine, for the chat's agent, read afresh every turn: which wall is up under the agents' commands, whether the
  * machine has the toolchains the project's modules name, and what in its testing scripts it lacks - for the person to
- * install or fix; the agents install nothing.
+ * install or fix; the agents install nothing. `modules`: what the modules need, when it is known already - working it
+ * out parses every spec of the project.
  */
-export function machineBlock(cwd: string): string {
+export function machineBlock(cwd: string, modules: ReturnType<typeof stackOnMachine> = stackOnMachine(cwd)): string {
   const wall = sandboxAvailable();
   const walls =
     wall.kind === "none"
       ? `behind the command check and the audit alone - no OS sandbox: ${wall.why}${wall.fix !== undefined ? ` (to give it one: ${wall.fix})` : ""}`
       : `behind the command check, ${wall.kind === "seatbelt" ? "Seatbelt" : "bubblewrap"} and the audit`;
-  const modules = stackOnMachine(cwd).filter(({ needs }) => needs.length > 0);
+  const needing = modules.filter(({ needs }) => needs.length > 0);
   const scripts = findTestScripts(cwd);
   const misfits = [scripts.unit, scripts.prepare, scripts.conformance].flatMap((script) => {
     if (script === undefined) return [];
@@ -954,7 +1030,7 @@ export function machineBlock(cwd: string): string {
   return [
     "<this machine>",
     `The agents' commands run on this machine, with its toolchains, ${walls}. The testing scripts run here too, unfenced, in the person's environment. Nothing is installed by an agent: what the machine lacks is the person's to install.`,
-    ...modules.map(({ module, needs, missing }) =>
+    ...needing.map(({ module, needs, missing }) =>
       `- ${module}: its implementation reqs need ${needs.map((need) => `${need.toolchain} (${need.words.join(", ")})`).join(", ")}${missing.length > 0 ? ` - this machine LACKS ${missing.map((need) => need.toolchain).join(", ")}` : " - this machine has them"}.`,
     ),
     ...misfits,
@@ -962,6 +1038,49 @@ export function machineBlock(cwd: string): string {
     "",
     toolchainsBlock(),
   ].join("\n");
+}
+
+/**
+ * What the project's modules need of this machine, kept between turns - working it out parses every spec, seconds on a
+ * project of long requires chains, and a message is never kept waiting for it. Worked out once the chat is up, and again
+ * when a turn has settled and a spec changed since: a turn is told what was known last, at most a turn behind.
+ */
+export function machineNeeds(cwd: string, work: (cwd: string) => ReturnType<typeof stackOnMachine> = stackOnMachine) {
+  let known: { stamp: string; modules: ReturnType<typeof stackOnMachine> } | undefined;
+  /** The project's specs as they are on disk: their names and when each last changed. */
+  const stamp = (): string => {
+    try {
+      return readdirSync(cwd)
+        .filter((name) => name.endsWith(".plain"))
+        .sort()
+        .map((name) => `${name}\0${statSync(join(cwd, name)).mtimeMs}`)
+        .join("\n");
+    } catch {
+      return "";
+    }
+  };
+  const refresh = () => {
+    const now = stamp();
+    if (known?.stamp === now) return;
+    known = { stamp: now, modules: work(cwd) };
+  };
+  return {
+    /** What is known - worked out now only when nothing is yet. */
+    now(): ReturnType<typeof stackOnMachine> {
+      if (known === undefined) refresh();
+      return known!.modules;
+    },
+    /** Worked out again, if a spec changed - once the chat has drawn what it is drawing. */
+    refreshSoon(): void {
+      setTimeout(() => {
+        try {
+          refresh();
+        } catch {
+          // Told what was known last.
+        }
+      }, ONE_FRAME_MS);
+    },
+  };
 }
 
 /** Whether a folder holds a project's config: config.turri.yaml, a module's own, or the config.turri.yaml read until there is one. */
@@ -1183,16 +1302,16 @@ function setRenderModelTool(pi: ExtensionAPI, conversation?: ExtensionContext) {
     name: "engine",
     label: "Engine",
     description:
-      "The engine: which model the agents that grow the code run on. With no model, say which it is. With one, choose it " +
+      "The engine: which model the agents that regenerate the code run on. With no model, say which it is. With one, choose it " +
       "for the rest of this session: for spec changes " +
       "(render spec diff pulses, and the ones write_spec_diff queues), for functionalities (render, module, " +
       "regenerate with functionalities named, conformance), or for everything. By default " +
       "each runs on the model the project's config.turri.yaml names, or else the conversation's model. The model may be given as provider/model-id or by name as " +
       "the user said it; a name that fits more than one model, or none with credentials, comes back as a " +
       "list - ask the user which they meant, never pick one yourself. Pulses already queued keep their model.",
-    promptSnippet: "the engine: show or choose the model that grows the code",
+    promptSnippet: "the engine: show or choose the model that regenerates the code",
     promptGuidelines: [
-      "When the user says which model should grow or build something, call engine with it - once; it holds for the rest of the session. To say which one it is, call engine with no model.",
+      "When the user says which model should regenerate or build something, call engine with it - once; it holds for the rest of the session. To say which one it is, call engine with no model.",
       "If engine returns several candidates, ask the user which one with ask_user or in your reply, then call it again with the exact provider/model-id.",
       "Say which model a render will run on when you start one on something other than the conversation's model.",
     ],
@@ -1248,9 +1367,9 @@ function registerRenderModels(pi: ExtensionAPI) {
   pi.registerTool(setRenderModelTool(pi));
 
   pi.registerCommand("engine", {
-    description: "Show the engine: which model grows spec changes and functionalities. To change it, say so in the conversation.",
+    description: "Show the engine: which model regenerates spec changes and functionalities. To change it, say so in the conversation.",
     handler: async (_args, ctx) => {
-      const text = `The engine:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}\n\nTo change it, say so - e.g. "grow spec changes with gpt 5.5".`;
+      const text = `The engine:\n${describeChoices(chosenModels, chatModelOf(ctx), projectModelLabel(ctx))}\n\nTo change it, say so - e.g. "regenerate spec changes with gpt 5.5".`;
       if (ctx.hasUI) ctx.ui.notify(text, "info");
     },
   });
@@ -1405,9 +1524,9 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     name: "pulses",
     label: "Pulses",
     description:
-      "What is growing: with no pulse, every pulse of this session - running, planned and finished - and what deploy started; " +
+      "What is regenerating: with no pulse, every pulse of this session - running, planned and finished - and what deploy started; " +
       "with a pulse's id, that pulse - whether it is still running, its latest output, and its report once it has finished.",
-    promptSnippet: "pulses: every pulse, or one - what is growing and how it is going",
+    promptSnippet: "pulses: every pulse, or one - what is regenerating and how it is going",
     parameters: Type.Object({
       job_id: Type.Optional(Type.String({ description: "The id returned when the pulse started. Omitted: every pulse" })),
       wait: Type.Optional(
@@ -1458,7 +1577,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       const deployed = runningDeployed();
       let id = args.trim();
       if (id === "") {
-        if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is growing or queued.", "info");
+        if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is regenerating or queued.", "info");
         const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${pulseName(job)}`;
         const labels = [...live.map(label), ...deployed.map((item) => deployedLabel(item.name, item.url ?? item.command))];
         const picked = await ctx.ui.select("Halt which?", labels);
@@ -1471,7 +1590,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       const name = /^(?:activated|deploy)\s+(.+)$/.exec(id)?.[1]?.trim();
       if (name !== undefined) {
         const stopped = await stopDeployed({ name });
-        return ctx.ui.notify(stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running as ${name}.`, "info");
+        return shownAfterCommand(pi, ctx, `/halt ${id}`, stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running as ${name}.`, "info");
       }
       ctx.ui.notify(stopJob(jobs, id), "info");
     },
@@ -1480,7 +1599,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // Debug mode, for the render agents started from now on - see debug-log.ts.
   // A module's history: every render, regeneration and conformance run, as git commits.
   pi.registerCommand("lineage", {
-    description: "Show a module's lineage - every generation of its code and tests, and what each grew from: /lineage [module]",
+    description: "Show a module's lineage - every generation of its code and tests, and what each was regenerated from: /lineage [module]",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const modules = modulesWithHistory(cwd);
@@ -1499,9 +1618,9 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     label: "Lineage",
     description:
       "Read a module's lineage: every generation of its code and tests - each regeneration, conformance run and spec change, " +
-      "with what it grew from - as git commits. Without a commit, the log; with one, that commit in full - its message and " +
+      "with what it was regenerated from - as git commits. Without a commit, the log; with one, that commit in full - its message and " +
       "the change it made.",
-    promptSnippet: "a module's lineage: what grew into it, and when",
+    promptSnippet: "a module's lineage: what was regenerated into it, and when",
     parameters: Type.Object({
       module: Type.String({ description: "The module's name" }),
       commit: Type.Optional(Type.String({ description: "A commit from the log, to see in full" })),
@@ -1664,8 +1783,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // The side panel's two views: /regen opens it on regen - the spec, with how far the code has grown into it - and
   // /pulses on every pulse, growing, planned and finished, and what each grows. What the agents did is in each pulse's log.
   for (const [name, description, view] of [
-    ["regen", `regen, in the side panel: every item of the spec, built, growing, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
-    ["pulses", `The pulses, in the side panel: every pulse, growing, planned and finished, and what each grows. ${PANEL_KEY} opens the panel too.`, "pulses"],
+    ["regen", `regen, in the side panel: every item of the spec, built, regenerating, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
+    ["pulses", `The pulses, in the side panel: every pulse, regenerating, planned and finished, and what each regenerates. ${PANEL_KEY} opens the panel too.`, "pulses"],
   ] as const) {
     pi.registerCommand(name, {
       description,
@@ -1836,7 +1955,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
     name: "steer",
     label: "Steer",
     description:
-      "Say how the work is to be planned from now on - which functional specs grow together, what goes first, how " +
+      "Say how the work is to be planned from now on - which functional specs are regenerated together, what goes first, how " +
       "big a pulse may be - for the whole project, or one module: every plan after this follows it as a strong preference, " +
       "within the planner's limits, for the rest of the session. It changes nothing queued by itself: the next plan of the " +
       "module follows it - regenerate makes one now. What the project's AGENTS.md says under a heading " +
@@ -1884,7 +2003,7 @@ function registerSteering(pi: ExtensionAPI, cwd: string) {
 
 /**
  * Deploy: the conversation puts what is built out in dist/<module> and starts it on this machine (see
- * grow/release.ts), installing what it needs in its own shell - nothing is put to the person. What it
+ * regenerate/release.ts), installing what it needs in its own shell - nothing is put to the person. What it
  * started is stopped when the session ends.
  */
 const SIDE_ENTRY = "turri_btw";
@@ -1905,6 +2024,17 @@ function registerSideQuestions(pi: ExtensionAPI, cwd: string, jobs: JobRegistry)
         ctx.ui.notify(`The side question could not be answered: ${error instanceof Error ? error.message : String(error)}`, "error"),
       );
     },
+  });
+
+  pi.registerEntryRenderer(COMMAND_OUTCOME, (entry, _options, theme) => {
+    const data = entry.data as CommandOutcome | undefined;
+    if (data === undefined) return undefined;
+    const box = new Box(1, 0);
+    // The command as typed; what it said, under it - or, said without it above, with it.
+    const said = data.text !== undefined ? theme.fg(data.level === undefined || data.level === "info" ? "text" : data.level, data.text) : undefined;
+    const lines = data.text === undefined ? [theme.bold(theme.fg("accent", data.command))] : data.echoed === true ? [said!] : [theme.fg("muted", data.command), said!];
+    box.addChild(new Text(lines.join("\n"), 0, 0));
+    return box;
   });
 
   pi.registerEntryRenderer(SIDE_ENTRY, (entry, _options, theme) => {
@@ -1966,7 +2096,7 @@ function checkPlainTool(cwd: string) {
       "Validate one or more .plain specifications without rendering: parses each file, resolves its " +
       "imports and required modules, and reports every syntax, concept and structure error with the " +
       "line it is on. Pass a directory to check every .plain file in it. Fast, free, and offline.",
-    promptSnippet: "validate a .plain spec, growing nothing",
+    promptSnippet: "validate a .plain spec, regenerating nothing",
     promptGuidelines: [
       "Run validate after editing a .plain file, and before telling the user a spec is valid or ready. Never shell out to another renderer to check one.",
     ],
@@ -2257,7 +2387,7 @@ function registerBranding(
 
     const lines = [
       `${theme.fg("accent", "turri")}  ${theme.fg("muted", `v${data.version}`)}`,
-      theme.fg("text", "regenerative software - the code grows back from the spec"),
+      theme.fg("text", "regenerative software - the code is regenerated from the spec"),
       theme.fg(
         "muted",
         `${data.rules} rules · ${data.skills} skill${data.skills === 1 ? "" : "s"}` +

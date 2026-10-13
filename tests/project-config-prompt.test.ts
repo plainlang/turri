@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { projectConfigBlock, machineBlock } from "../src/extension.ts";
-import { onThisMachine } from "../src/grow/test-scripts.ts";
+import { onThisMachine } from "../src/regenerate/test-scripts.ts";
 
 const onPath = (command: string) => onThisMachine(command) !== undefined;
 

@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { copyFileSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
-import { projectDirOf } from "./grow/paths.ts";
+import { projectDirOf } from "./regenerate/paths.ts";
 
 /**
  * The project's `config.turri.yaml`, at its root - the folder that holds `plain_modules` - or, before it had one, its `config.yaml`.

@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const rendered: string[] = [];
 const renderedIn: string[] = [];
 // A render that lands leaves code, and the record of what it is built from, committed - as the real one does.
-vi.mock("../src/grow/regenerate.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/grow/regenerate.ts")>();
+vi.mock("../src/regenerate/regenerate.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/regenerate/regenerate.ts")>();
   return {
     ...actual,
     renderSpecDiff: async (options: { diff: string; spec: { tree: object; chain: Array<{ moduleName: string; buildDir: string }> } }) => {
@@ -17,17 +17,17 @@ vi.mock("../src/grow/regenerate.ts", async (importOriginal) => {
       renderedIn.push(tip.moduleName);
       mkdirSync(tip.buildDir, { recursive: true });
       writeFileSync(join(tip.buildDir, `${tip.moduleName}.py`), "# built\n", { flag: "a" });
-      (await import("../src/grow/records.ts")).writeCodeRecord(tip.buildDir, options.spec.tree as never);
-      (await import("../src/grow/lineage.ts")).recordHistory(tip.buildDir, "spec diff");
+      (await import("../src/regenerate/records.ts")).writeCodeRecord(tip.buildDir, options.spec.tree as never);
+      (await import("../src/regenerate/lineage.ts")).recordHistory(tip.buildDir, "spec diff");
       return { moduleName: tip.moduleName, buildDir: tip.buildDir, diff: "already applied", response: "", runs: [], attempts: 0, testRemovals: [], files: { added: [], changed: [], removed: [] }, passed: true, stoppedAt: null };
     },
   };
 });
 
 const { createSpecDiffTools } = await import("../src/spec-tools.ts");
-const { createWorkLoop } = await import("../src/grow/loop.ts");
-const { createJobRegistry } = await import("../src/grow/jobs.ts");
-const { readRecord } = await import("../src/grow/records.ts");
+const { createWorkLoop } = await import("../src/regenerate/loop.ts");
+const { createJobRegistry } = await import("../src/regenerate/jobs.ts");
+const { readRecord } = await import("../src/regenerate/records.ts");
 
 let dir: string;
 let cwd: string;

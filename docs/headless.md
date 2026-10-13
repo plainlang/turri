@@ -61,7 +61,7 @@ judge-model: anthropic/claude-opus-5-5    # the judge and the test review (defau
 conformance-tests: true            # write and run conformance tests where there are test reqs (default: false)
 ```
 
-The same file names the [testing scripts](growing.md#the-testing-scripts); every key is in
+The same file names the [testing scripts](regenerating.md#the-testing-scripts); every key is in
 [the project config](config.md). Options on the command
 line win over it; `turri regenerate`, `spec-diff` and `conform` take its
 `coding-model` too, and `--coding-model` means the same as `--model` on every one of them.
@@ -85,7 +85,7 @@ Useful options - `turri regenerate --help` lists all of them:
 `turri regenerate` queues the jobs the chat's `regenerate` does - a spec diff that brings what
 is built in line, when it no longer matches the spec, then one render functionality job per
 functional spec not built, each with its conformance job - and runs them all to the end, the queue
-master reworking them as in the chat (see [a whole module](growing.md#a-whole-module)).
+master reworking them as in the chat (see [a whole module](regenerating.md#a-whole-module)).
 Conformance tests follow `conformance-tests:` in `config.turri.yaml`.
 
 ## In the morning

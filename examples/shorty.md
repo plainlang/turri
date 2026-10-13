@@ -109,4 +109,4 @@ again: `◆` turns into a dimmed, hollow `◇`, then fills in again once they pa
 ## Where next
 
 - [hubsync](hubsync.md), an integration - conformance tests against a live third-party API.
-- [Growing](../docs/growing.md#conformance-tests) - what a conformance pulse does, step by step.
+- [Regenerating](../docs/regenerating.md#conformance-tests) - what a conformance pulse does, step by step.

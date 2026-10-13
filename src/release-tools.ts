@@ -11,9 +11,9 @@ import {
   startDeployed,
   stopDeployed,
   type Deployment,
-} from "./grow/release.ts";
-import { projectDirOf } from "./grow/paths.ts";
-import type { JobRegistry } from "./grow/jobs.ts";
+} from "./regenerate/release.ts";
+import { projectDirOf } from "./regenerate/paths.ts";
+import type { JobRegistry } from "./regenerate/jobs.ts";
 import { haltTool } from "./loop-tools.ts";
 
 /**
@@ -117,7 +117,7 @@ export function createDeployTools(options: {
       "person wants to try, run, see or use what was built, and whenever guidance says to release after a pulse: when " +
       "the module's last commit is already released it does nothing and says so, so never decide that yourself. It says " +
       "what to do next.",
-    promptSnippet: "release the grown code for the person to try - as the project's release guidance says, or to dist/<module> - then activate it",
+    promptSnippet: "release the regenerated code for the person to try - as the project's release guidance says, or to dist/<module> - then activate it",
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "A .plain file of the module. Default: the project's module from config.turri.yaml." })),
       in_module: Type.Optional(Type.String({ description: "The codebase to take, when modules built on this one branch" })),

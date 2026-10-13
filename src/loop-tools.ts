@@ -4,10 +4,10 @@ import { defineTool, type ExtensionContext, type ToolDefinition } from "@earendi
 import { Type } from "typebox";
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { checkPlainFile } from "./plain/check.ts";
-import { describeDrift, describeModules, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
-import type { RenderWork } from "./grow/engine.ts";
-import { pulseName, type JobRegistry } from "./grow/jobs.ts";
-import { stopDeployed } from "./grow/release.ts";
+import { describeDrift, describeModules, type ModuleStatus, type WorkLoop } from "./regenerate/loop.ts";
+import type { RenderWork } from "./regenerate/engine.ts";
+import { pulseName, type JobRegistry } from "./regenerate/jobs.ts";
+import { stopDeployed } from "./regenerate/release.ts";
 
 /**
  * The tools that act on the work loop - `regenerate`, `drift` and `halt` - defined once, for the conversation and for the
@@ -17,7 +17,7 @@ import { stopDeployed } from "./grow/release.ts";
 
 type AnyTool = ToolDefinition<any, any, any>;
 
-/** How the queue is to be planned, for the work this call queues - see grow/steer.ts. */
+/** How the queue is to be planned, for the work this call queues - see regenerate/steer.ts. */
 export const GUIDANCE_PARAM = Type.Optional(
   Type.String({
     description:
@@ -92,7 +92,7 @@ export async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: 
     "",
     wait
       ? "Tell the user how it went."
-      : "It grows in the background. " +
+      : "It regenerates in the background. " +
         "Nothing to wait for: if what you are doing has a next step - a question to ask, a file to edit, functional specs to conform - take it now, " +
         "in this same turn, and tell the user what runs and what is planned alongside it, never as a reply that ends your turn. " +
         "Use pulses with a pulse's id if they ask how it is going.",
@@ -114,8 +114,8 @@ export function stopJob(jobs: JobRegistry, named: string, reason?: string): stri
   // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
   const inSpec =
     target.kind === "regenerate"
-      ? " Its change is still in the .plain files: nothing more grows in that codebase until the spec changes or it is asked " +
-        "for again with regenerate - then it grows with the rest. To drop the change, take it out of the spec and regenerate; to change " +
+      ? " Its change is still in the .plain files: nothing more is regenerated in that codebase until the spec changes or it is asked " +
+        "for again with regenerate - then it is regenerated with the rest. To drop the change, take it out of the spec and regenerate; to change " +
         "how the work is cut or ordered, use steer."
       : "";
   return stopped.status === "stopped"
@@ -160,17 +160,17 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
     description:
       "Regenerate a .plain module's code from its spec as the files have it now - and every module it requires, bottom of the " +
       "requires chain first. Call it after any change to the spec, by any means: the file tools, a skill, the user in an " +
-      "editor. It takes no diff: what is left to grow - from what each module's code was grown from to its spec now - is " +
-      "worked out and planned into pulses, and a pulse running that grows something the spec no longer wants is stopped and " +
-      "rolled back. Nothing to do where the code is grown from the spec as it is. With functionalities named, those are " +
+      "editor. It takes no diff: what is left to regenerate - from what each module's code was regenerated from to its spec now - is " +
+      "worked out and planned into pulses, and a pulse running that regenerates something the spec no longer wants is stopped and " +
+      "rolled back. Nothing to do where the code is regenerated from the spec as it is. With functionalities named, those are " +
       "regenerated though their spec did not change - rewritten or started over, better made, what they replace taken out - " +
       "planned into pulses as any change is, the ones next to each other together; their conformance tests stay as they are.",
     promptSnippet: "regenerate a module's code from its spec as it is now - after any change to the spec",
     promptGuidelines: [
-      "Call regenerate after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
+      "Call regenerate after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is regenerated with the spec now.",
       "regenerate returns at once with what runs and what is planned. Report it, keep talking, and use pulses when the user asks; the pulses report when they finish.",
       "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regenerate. When they want ones already built regenerated as their spec stands - better made, on another model, after many patches - name them in functionalities, all in one call.",
-      "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and grows again every functional spec that uses what links it.",
+      "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and regenerates every functional spec that uses what links it.",
       "Never stop pulses and start them again yourself to follow a spec change: regenerate does it.",
       "Set from_scratch only when the user asks for the module to be regenerated from scratch - started over, its code deleted - in this conversation, or agrees to it when a module's status says it has to start over: never to fix a pulse that did not land.",
     ],
@@ -195,7 +195,7 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
     async execute(_id, given, _signal, _onUpdate, ctx) {
       const plainFile = plainFileOf(options.cwd, given, "regenerate");
       const check = checkPlainFile(plainFile);
-      if (!check.ok) throw new Error(`${relative(options.cwd, plainFile) || plainFile} does not parse, so nothing can grow from it yet: ${check.error}`);
+      if (!check.ok) throw new Error(`${relative(options.cwd, plainFile) || plainFile} does not parse, so nothing can be regenerated from it yet: ${check.error}`);
       const again = given.functionalities ?? [];
       if (again.length > 0 && given.from_scratch === true) throw new Error("Name functionalities or set from_scratch, not both: from scratch regenerates every one of them.");
       // Named functionalities are work on functionalities, as engine chooses a model for it; the rest, spec changes.
@@ -207,7 +207,7 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
         given.from_scratch === true
           ? await loop.fromScratch(plainFile, request)
           : again.length > 0
-            ? await loop.growAgain(plainFile, again, request)
+            ? await loop.regenerateAgain(plainFile, again, request)
             : await loop.bringUp(plainFile, request);
       return loopReply(loop, statuses, options.wait !== undefined ? options.wait(ctx, given.wait) : given.wait === true);
     },
@@ -220,13 +220,13 @@ export function driftTool(options: LoopToolsOptions & { loop: (ctx: ExtensionCon
     name: "drift",
     label: "Drift",
     description:
-      "How far a module's code has drifted from its spec: in each codebase where it lives, what is left to grow - the " +
-      "functional specs to add, change, grow again or take out, and reqs or definitions alone - and the conformance tests " +
-      "left to write, those scheduled ahead of their code, what is growing now, and why nothing grows where nothing does; " +
-      "with nothing left, it says the module is fully grown. It plans nothing and starts nothing, and calls no model.",
-    promptSnippet: "drift: what is left to grow in a module, code and conformance tests - starting nothing",
+      "How far a module's code has drifted from its spec: in each codebase where it lives, what is left to regenerate - the " +
+      "functional specs to add, change, regenerate again or take out, and reqs or definitions alone - and the conformance tests " +
+      "left to write, those scheduled ahead of their code, what is regenerating now, and why nothing is regenerated where nothing is; " +
+      "with nothing left, it says the module is fully regenerated. It plans nothing and starts nothing, and calls no model.",
+    promptSnippet: "drift: what is left to regenerate in a module, code and conformance tests - starting nothing",
     promptGuidelines: [
-      "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last grown. To see the next pulse's prompt as well, use glimpse.",
+      "Use drift when the user asks what is left to build, whether a module is up to date with its spec, or what changed since it was last regenerated. To see the next pulse's prompt as well, use glimpse.",
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
@@ -257,8 +257,8 @@ export function haltTool(options: Pick<LoopToolsOptions, "jobs">): AnyTool {
     description:
       jobs !== undefined
         ? "Halt a pulse, or what activate started. A pulse: a queued one never starts, a running one has its agent stopped at once, " +
-          "and the pulses queued behind it move up - what a running pulse already changed is rolled back, and what it was growing " +
-          "counts as not grown. What activate started: the one named, or every one."
+          "and the pulses queued behind it move up - what a running pulse already changed is rolled back, and what it was regenerating " +
+          "counts as not regenerated. What activate started: the one named, or every one."
         : "Stop what activate started: the one named, or every one.",
     promptSnippet: jobs !== undefined ? "halt a pulse, or what activate started" : "stop a deployed server, or all of them",
     promptGuidelines:

@@ -169,7 +169,7 @@ export const DEFAULTS = {
   maxLinesPerPulse: 120,
 } as const;
 
-/** How many pulses run at once without a setting: half this machine's cores, one to four - as grow/jobs.ts has it. */
+/** How many pulses run at once without a setting: half this machine's cores, one to four - as regenerate/jobs.ts has it. */
 export function defaultParallel(cores: number = availableParallelism()): number {
   return Math.min(4, Math.max(1, Math.floor(cores / 2)));
 }
@@ -194,7 +194,7 @@ export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoi
     "# Whether the code and its tests are reviewed once they pass - two reviews at most, the second weighed by the arbiter.",
     `review: ${DEFAULTS.review}`,
     "",
-    "# Whether turri stops a running pulse the spec has moved on from. false: it lands, the change grown on top.",
+    "# Whether turri stops a running pulse the spec has moved on from. false: it lands, the change regenerated on top.",
     `allow-to-stop-jobs: ${DEFAULTS.allowToStopJobs}`,
     "",
     "# Whether every pulse that lands code releases it, as the project's release guidance says.",

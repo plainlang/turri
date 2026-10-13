@@ -1,11 +1,11 @@
 import { readProjectConfig, CONFIG_FILE } from "./config.ts";
-import { createJobRegistry } from "./grow/jobs.ts";
-import { createWorkLoop, describeDrift } from "./grow/loop.ts";
+import { createJobRegistry } from "./regenerate/jobs.ts";
+import { createWorkLoop, describeDrift } from "./regenerate/loop.ts";
 
 const USAGE = `usage: turri drift [file.plain]
 
 How far the module's code has drifted from its spec, in each codebase where it lives: what is left to
-grow, and the conformance tests left to write. Plans nothing, starts nothing, calls no model.`;
+regenerate, and the conformance tests left to write. Plans nothing, starts nothing, calls no model.`;
 
 const [given] = process.argv.slice(2).filter((arg) => !arg.startsWith("-"));
 if (process.argv.includes("--help") || process.argv.includes("-h")) {

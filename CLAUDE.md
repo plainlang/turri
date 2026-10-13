@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 turri is a harness that builds code from \*\*\*plain specs (`.plain` files). The harness, not the
 agent, decides what runs next and when work is done. It runs as a [pi](https://github.com/earendil-works/pi)
 extension (`turri`) and as a CLI for unattended runs. `docs/` describes the behaviour in
-detail. `docs/growing.md`, `docs/sandbox.md` and `docs/skills-and-gates.md` are the ones to read
+detail. `docs/regenerating.md`, `docs/sandbox.md` and `docs/skills-and-gates.md` are the ones to read
 before changing the harness.
 
 ## Commands
@@ -15,8 +15,8 @@ npm install && npm link                        # `turri` on PATH, pointing at th
 npm run typecheck                              # tsc --noEmit - covers src/ only, not tests/
 npm run build                                  # src/ compiled into dist/ - the npm package only; npm pack runs it
 npm test                                       # the whole vitest suite, about a minute
-npx vitest run tests/grow/records.test.ts    # one file
-npx vitest run tests/grow/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
+npx vitest run tests/regenerate/records.test.ts    # one file
+npx vitest run tests/regenerate/loop.test.ts -t "one suite"   # matching tests in one file (-t alone still loads every file)
 npm run chat                                   # pi with the extension loaded straight from src/
 turri validate tests/data/simple.plain      # parse and validate a spec: no model, no API key
 turri regenerate <file.plain> --dry-run      # plan the work, print each codebase's first prompt, start nothing
@@ -84,12 +84,12 @@ coding agents. turri's own skills are found relative to the package, not the cwd
 is reported as pending, not dropped. A project's own skills, in `.turri/skills/` and `.agents/skills/`, are found
 beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` lets `skills/` through.
 
-**Growing the code (`src/grow/`)**, one unit of work at a time:
+**Growing the code (`src/regenerate/`)**, one unit of work at a time:
 
 - A job is a spec diff: `regenerate.ts` `renderSpecDiff` grows one in the code, landing on its unit
   tests. `prompt.ts` builds the only thing the agent sees; it can't read `.plain` files, and it is told
   what to do with each functional spec by the job's cases (`cases.ts`: fresh, add, patch, again, delete,
-  mechanical; again is the functional specs `regenerate` names, marked `grow_again` in the code record). The agent works, then the harness runs the project's unit testing script
+  mechanical; again is the functional specs `regenerate` names, marked `regenerate_again` in the code record). The agent works, then the harness runs the project's unit testing script
   itself and inventories test files to catch deleted tests, sending the agent back up to 20 times - and for a best-guess draft when a turn wrote nothing.
   Once they pass, `unit-review.ts` has a read-only reviewer - one session for the loop, shown the
   whole work diff first, then the diff since its last review (`workSnapshot`) and the coder's
@@ -99,7 +99,7 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
   labelled and checked by label; `conform.ts` runs it for a conformance job, then
   `regression.ts` runs the whole suite (a repair agent that may not touch tests).
-- Nothing is queued (`docs/growing.md`). `loop.ts` works out what is left to grow - `drift.ts`
+- Nothing is queued (`docs/regenerating.md`). `loop.ts` works out what is left to grow - `drift.ts`
   `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
   reqs or acceptance tests) to the spec now - has `chunk-plan.ts` cut it into jobs from the functional
   specs outward (an agent groups them, by default, up to `max-specs-per-pulse`, code gives each group the definitions it uses, an agent
@@ -107,7 +107,7 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
   its tip codebase; the ones below are left behind. A running job the spec no longer wants is stopped
   (`stillWanted`) - unless the change is inside what it grows, which steers it instead (`steering.ts`: its agent
 told mid-turn or at its next turn, its record moved, twice a job at most). `regenerate`, `write_spec_diff`, `turri spec-diff` and
-  `turri regenerate` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
+  `turri regenerate` all go through `bringUp`. Steering (`regenerate/steer.ts`: `steer`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
   spec diff's conformance run, the whole suite with it - once the module's code is built, before anything is built on it; `conform`
@@ -120,8 +120,9 @@ told mid-turn or at its next turn, its record moved, twice a job at most). `rege
 - `lineage.ts`: each `plain_modules/<m>` is a git repo with its git dir at `.plaingit`. Every unit of
   work starts from the last commit (`startWork`) and either commits or is rolled back whole
   (`abandonWork`), commits included. Code, tests and tree must never disagree.
-- `notes.ts`: `code/.turri-notes.md`, the agents' working notes. Agents edit it only through
-  the `update_notes` tool, and every line is stamped by the harness.
+- `notes.ts`: `code/.turri-notes.md`, the coding agents' working notes, and `tests/.turri-notes.md`, the
+  conformance agent's - never one in the other. Agents edit them only through the `update_notes` tool, and every
+  line is stamped by the harness.
 - `test-scripts.ts` finds and runs the project's `run_unittests_*.sh` / `run_conformance_tests_*.sh`,
   from `config.turri.yaml` (with the chosen stack's over it), then the project root, then `test_scripts/`. A script run is the only thing
   that decides pass or fail.
@@ -139,10 +140,10 @@ loading and pi's skills for every agent it starts (`noContextFiles`, `noSkills` 
 opened with `BEGIN`), so pi's compaction never sums it up. The coding agent, the conformance agent,
 the code fixer, the repair agent and both reviewers keep one session per job and are compacted by
 the harness between turns past `compact-at` (`compactIfDue` in `pi.ts`, instructions per role in
-`grow/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
+`regenerate/compaction.ts`); the arbiter, judges, explorer and planners stay fresh. Each job tallies its
 agents (`reportAgent`, `Job.agents`) into its log.
 
-**Release (`grow/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is grown: the model
+**Release (`regenerate/release.ts`, `release-tools.ts`, `release-cli.ts`).** Trying what is grown: the model
 first looks for guidance on how the project is released (what the person said, AGENTS.md, a skill) and
 passes it to `release` - then it is followed from the host codebase (`releaseInPlace`, nothing
 exported); without guidance `release` exports the tip module's last `.plaingit` commit (`git archive`
@@ -177,7 +178,7 @@ the stack `<name>`) until turri first writes a setting, which copies them to the
   session's tools directly (`write`, `run_unit_tests`, `update_notes`, ...). An agent's task comes as
   `opts.task` to `createExecutor` and its first `ask` is `BEGIN`: a stub that checks prompts reads the
   task from the session it made. The module under test is
-  then loaded with a dynamic `await import(...)` after the mock. `tests/grow/conformance-loop.test.ts`
+  then loaded with a dynamic `await import(...)` after the mock. `tests/regenerate/conformance-loop.test.ts`
   is the reference example.
 - `tests/test-scripts.ts` `writeTestScripts()` gives a temp project minimal Python testing scripts.
 - The gate machinery (retry, escalation, no-artifact rejection) has no automated coverage. It is

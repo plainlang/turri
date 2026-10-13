@@ -11,8 +11,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createDeployTools, DEPLOY_TOOLS, type DeployState } from "./release-tools.ts";
-import { hostDirOf, shortPath } from "./grow/release.ts";
-import { projectDirOf } from "./grow/paths.ts";
+import { hostDirOf, shortPath } from "./regenerate/release.ts";
+import { projectDirOf } from "./regenerate/paths.ts";
 import { ask, BEGIN, createExecutor } from "./pi.ts";
 
 /**

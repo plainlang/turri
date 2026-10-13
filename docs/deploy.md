@@ -34,7 +34,7 @@ with `scripts/deploy_integrations.sh`, then the app is started with `scripts/sta
 same said in the chat.
 
 The chat reacts to every pulse that finishes as it finishes, without waiting for you to speak: guidance
-that says to release after a build - *release each integration once it is grown* - is followed then.
+that says to release after a build - *release each integration once it is regenerated* - is followed then.
 It never has to work out whether what a pulse landed is already out: `release` does. When the module's
 last commit is what its last release in this conversation shipped, it does nothing - nothing exported,
 nothing stopped, what runs left running - and says so; `again: true` releases it anyway, for when what

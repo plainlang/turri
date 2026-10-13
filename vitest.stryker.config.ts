@@ -9,13 +9,13 @@ export default mergeConfig(
   defineConfig({
     test: {
       exclude: [
-        "tests/grow/shell.test.ts",
-        "tests/grow/os-sandbox.test.ts",
-        "tests/grow/agent-shell.test.ts",
-        "tests/grow/services.test.ts",
-        "tests/grow/self-check.test.ts",
-        "tests/grow/gates.test.ts",
-        "tests/grow/host-scripts.test.ts",
+        "tests/regenerate/shell.test.ts",
+        "tests/regenerate/os-sandbox.test.ts",
+        "tests/regenerate/agent-shell.test.ts",
+        "tests/regenerate/services.test.ts",
+        "tests/regenerate/self-check.test.ts",
+        "tests/regenerate/gates.test.ts",
+        "tests/regenerate/host-scripts.test.ts",
         "**/node_modules/**",
       ],
     },

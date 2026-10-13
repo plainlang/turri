@@ -1,16 +1,16 @@
-import { sweepOrphanedGroups } from "./grow/shell.ts";
+import { sweepOrphanedGroups } from "./regenerate/shell.ts";
 import { createInterface } from "node:readline/promises";
 import { basename, resolve } from "node:path";
 import { configForSpec, modelSpec, projectModels, readProjectConfig } from "./config.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
 import { c } from "./module-report.ts";
-import { tryItCommand } from "./grow/delivery.ts";
-import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
-import { createJobRegistry, pulseName, type Job } from "./grow/jobs.ts";
-import { chooseConformance } from "./grow/choose-conformance.ts";
-import type { TouchedSpec } from "./grow/drift.ts";
-import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
-import { projectDirOf } from "./grow/paths.ts";
+import { tryItCommand } from "./regenerate/delivery.ts";
+import { describeDiagnosis, diagnoseFailure } from "./regenerate/diagnose.ts";
+import { createJobRegistry, pulseName, type Job } from "./regenerate/jobs.ts";
+import { chooseConformance } from "./regenerate/choose-conformance.ts";
+import type { TouchedSpec } from "./regenerate/drift.ts";
+import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./regenerate/loop.ts";
+import { projectDirOf } from "./regenerate/paths.ts";
 
 /**
  * What every command that builds - `turri regenerate`, `conform`, `spec-diff` - does around its own

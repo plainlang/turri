@@ -1,10 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { formatDuration, type Job, type JobRegistry } from "./grow/jobs.ts";
-import { readNotes } from "./grow/notes.ts";
-import { modulesRoot, projectDirOf } from "./grow/paths.ts";
+import { formatDuration, type Job, type JobRegistry } from "./regenerate/jobs.ts";
+import { readNotes } from "./regenerate/notes.ts";
+import { modulesRoot, projectDirOf } from "./regenerate/paths.ts";
 
 /**
  * The tools a skill that matures a spec works with, besides the conversation's regenerate, drift and halt: wait for
@@ -58,12 +58,14 @@ export function collectFindings(options: { project: string; jobs: Job[]; since: 
   const since = noteStamp(options.since);
   const found: Omit<SpecFinding, "id">[] = [];
   for (const { module, buildDir } of codebasesOf(options.project)) {
-    const notes = readNotes(buildDir);
-    for (const [section, kind] of [["assumptions", "assumption"], ["pitfalls", "pitfall"]] as const) {
-      for (const line of notes[section]) {
-        const item = stamped(line);
-        if (item === undefined || item.stamp < since) continue;
-        found.push({ kind, where: `${module} (${item.source})`, text: item.text });
+    // The code's notes, and its conformance tests' beside them.
+    for (const notes of [readNotes(buildDir), readNotes(join(dirname(buildDir), "tests"))]) {
+      for (const [section, kind] of [["assumptions", "assumption"], ["pitfalls", "pitfall"]] as const) {
+        for (const line of notes[section]) {
+          const item = stamped(line);
+          if (item === undefined || item.stamp < since) continue;
+          found.push({ kind, where: `${module} (${item.source})`, text: item.text });
+        }
       }
     }
   }
@@ -180,7 +182,7 @@ export function createMatureTools(options: { jobs: JobRegistry; cwd: string; sta
         "Every build:",
         ...all.map(jobLine),
         "",
-        "Read what the builds had to decide themselves with spec_findings; see how far the spec is grown with drift.",
+        "Read what the builds had to decide themselves with spec_findings; see how far the spec is regenerated with drift.",
       ].join("\n");
       return { content: [{ type: "text" as const, text }], details: { pending: left.length, struggling: found.map((item) => item.job.id) } };
     },
