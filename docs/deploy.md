@@ -74,7 +74,7 @@ then:
    comes back with the end of its output. A port something else holds is said, with what holds it,
    and nothing is started there: the app is not moved to a port you were not told about.
 
-What it started is listed by the `growth` tool and by **`/halt`**, and stopped by **`/halt activated <name>`**, by
+What it started is listed by the `pulses` tool and by **`/halt`**, and stopped by **`/halt activated <name>`**, by
 `halt`, by the next deploy of the module, and when the chat exits.
 
 ## After every pulse
@@ -105,5 +105,5 @@ them, and releases as above - as the guidance says, or to `dist/<module>` - then
 start it and starts it here, installing what it needs without asking. It stays in the foreground with the servers'
 output; `Ctrl-C` stops them. If it does not get there, deploy from the chat instead.
 
-`turri regenerate`, `spec-diff` and `bind` end a build that landed with
+`turri regenerate`, `spec-diff` and `conform` end a build that landed with
 `To try it: turri release <spec>`.

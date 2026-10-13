@@ -25,7 +25,7 @@ import {
   writeTestsRecord,
   type Chosen,
 } from "./records.ts";
-import { describeSpecDiffConformance, renderSpecDiffConformance } from "./bind.ts";
+import { describeSpecDiffConformance, renderSpecDiffConformance } from "./conform.ts";
 import { conformanceDirFor } from "./conformance.ts";
 import { modulesRoot } from "./paths.ts";
 import { budgetFor, configForSpec, conformanceSwitchedOn } from "../config.ts";
@@ -102,8 +102,10 @@ export interface ModuleStatus {
   /**
    * The jobs planned after it, in order: the module's code jobs, then its conformance jobs. A conformance job scheduled
    * for functional specs not all built yet - `waitsFor`, those that are not - comes after the module's last code job.
+   * The module's conformance tests, wanted for all of it while its code is still to build - `afterCode` - come last:
+   * they are planned into pulses only once the code is built, but are shown, so asking for them is seen to have worked.
    */
-  planned: Array<{ title: string; cases: JobCases; track: Track; waitsFor?: string[]; planning?: true }>;
+  planned: Array<{ title: string; cases: JobCases; track: Track; waitsFor?: string[]; planning?: true; afterCode?: true }>;
   /**
    * What the plan of its code did not do as asked: the person's wishes its planner did not follow and why, an answer
    * that did not hold, a group split for its size.
@@ -118,6 +120,8 @@ export interface ModuleStatus {
   chooseBudget?: number;
   /** Why nothing runs there, when nothing does. */
   why?: string;
+  /** What asking for conformance tests changed there, when it changed nothing: they were on for the whole module already. */
+  conformanceNote?: string;
   /**
    * It now requires modules its code was not built on - `requires` - and is built only once its code is started
    * over on them: these codebases' code and tests taken out, kept in their history, and built again from the
@@ -226,7 +230,7 @@ export function describeDrift(reports: DriftReport[]): string {
       if (report.conformance === null) lines.push("  conformance tests: written for what is built - no drift");
       else if (report.conformance !== undefined) lines.push(`  conformance tests: to write or change - ${cases(report.conformance)}`);
       else lines.push("  conformance tests: none written here");
-      for (const group of report.scheduled) lines.push(`  bound ahead: fs ${group.frids.join(", fs ")} - once ${group.unbuilt.map((frid) => `fs ${frid}`).join(", ")} ${group.unbuilt.length === 1 ? "is" : "are"} grown`);
+      for (const group of report.scheduled) lines.push(`  conformance tests ahead of their code: fs ${group.frids.join(", fs ")} - once ${group.unbuilt.map((frid) => `fs ${frid}`).join(", ")} ${group.unbuilt.length === 1 ? "is" : "are"} grown`);
       if (report.running !== undefined) lines.push(`  growing now: pulse ${report.running.jobId} - ${report.running.title}`);
       if (report.why !== undefined) lines.push(`  ${report.why}`);
       if (report.startOver !== undefined) lines.push(`  it has to be regenerated from scratch on ${report.startOver.requires.join(", ")} before anything more grows there`);
@@ -277,7 +281,7 @@ export interface WorkLoop {
   status(): ModuleStatus[];
   /**
    * The jobs planned after the running ones, as jobs are listed - queued, each after the one before it -
-   * for the job panel and growth. Not started, they are not the registry's: planned again, they change.
+   * for the job panel and pulses. Not started, they are not the registry's: planned again, they change.
    */
   planned(): Job[];
   /**
@@ -325,6 +329,8 @@ export interface MapCodebase {
   conformance: boolean;
   /** Why nothing runs there, when nothing does. */
   why?: string;
+  /** What asking for conformance tests changed there, when it changed nothing: they were on for the whole module already. */
+  conformanceNote?: string;
   /**
    * Halted, or the planner found no plan: it needs the person. `pulse`, the pulse that did not land; `cause`, what went
    * wrong in it, in a few words - its tests never passed, the machine lacks a toolchain.
@@ -399,7 +405,7 @@ export function createWorkLoop(options: {
   /**
    * Under `conformance-tests: chosen`, asked what a code job that landed built or changed that no conformance test is
    * for - by whoever chooses without a conversation (`turri regenerate`) - before the job ends: the functional specs it
-   * names are scheduled as bind schedules them. The conversation is told in the job's report instead.
+   * names are scheduled as conform schedules them. The conversation is told in the job's report instead.
    */
   onChoose?: (plainFile: string, specs: TouchedSpec[], budget?: number) => Promise<string[] | undefined>;
   /**
@@ -576,7 +582,7 @@ export function createWorkLoop(options: {
     return frids.map((frid) => ({ frid, text: items[Number(frid) - 1]!.markdown.trim().split("\n")[0]!.replace(/^-\s*/, "").trim() }));
   };
 
-  /** Functional specs of a module scheduled for conformance tests, beside those chosen before - as bind does for the module's own. */
+  /** Functional specs of a module scheduled for conformance tests, beside those chosen before - as conform does for the module's own. */
   const schedule = (state: ModuleState, frids: string[]) => {
     const before = state.conformance;
     // Every one is tested already: nothing to add.
@@ -731,7 +737,7 @@ export function createWorkLoop(options: {
       (diff) => whereInFiles(diff, state.chain),
     );
     const job: Job = options.registry.start({
-      kind: conformance ? "bind" : "regenerate",
+      kind: conformance ? "conformance" : "regenerate",
       summary: `${basename(tip.plainFile)} ${conformance ? "conformance: " : ""}${planned.title}`,
       module: tip.moduleName,
       // Numbered as regen numbers it: the module's pulses this session, from 1.
@@ -1151,10 +1157,20 @@ export function createWorkLoop(options: {
             },
           ]
         : [];
+    // The module's conformance tests, wanted for all of it while code is still to build: planned once it is built, shown now.
+    const codeToBuild = lastCode !== -1 || (state.running === undefined && state.planning === "code");
+    const testReqs = ((state.seen?.tree[TEST_REQUIREMENTS] as unknown[] | undefined) ?? []).length > 0;
+    const plainFile = tipEntry(state).plainFile;
+    const wholeModule = (state.conformance !== undefined && state.conformance.chosen === undefined) || (configConformance(plainFile) && !configChosen(plainFile));
+    const afterCode: ModuleStatus["planned"] =
+      codeToBuild && testReqs && wholeModule && state.conformanceHalted === undefined && !jobs.some((job) => job.track === "conformance")
+        ? [{ title: "conformance tests", cases: { fresh: false, add: [], patch: [], again: [], delete: [], mechanical: false }, track: "conformance", afterCode: true }]
+        : [];
     const listed: Array<{ entry: ModuleStatus["planned"][number]; job?: PlannedJob }> = [
       ...planningNow.map((entry) => ({ entry })),
       ...jobs.flatMap((job, index) => [{ entry: { title: job.title, cases: job.cases, track: job.track }, job }, ...scheduledAt(index).map((entry) => ({ entry }))]),
       ...scheduledAt(-1).map((entry) => ({ entry })),
+      ...afterCode.map((entry) => ({ entry })),
     ];
     const planned = listed.map((item) => item.entry);
     const choose = new Map<string, TouchedSpec>();
@@ -1294,6 +1310,11 @@ export function createWorkLoop(options: {
       const asks = named.length > 0 ? [...new Set(named)] : undefined;
       // Refused before anything is chosen: a functional spec the spec does not have is built by no code job, so its tests could never be written.
       const specs = tip !== undefined && asks !== undefined ? scheduledSpecs(tip, asks) : undefined;
+      // On for the whole module already - asked for before, or by the config: asked again, nothing changes, and it is said.
+      const already = new Set(states.filter((state) => {
+        const file = tipEntry(state).plainFile;
+        return (state.conformance !== undefined && state.conformance.chosen === undefined) || (configConformance(file) && !configChosen(file));
+      }));
       for (const state of states) {
         // The functional specs named are the module's own: they are scheduled in its codebase, beside those chosen before.
         const named = state === tip ? specs : undefined;
@@ -1315,7 +1336,12 @@ export function createWorkLoop(options: {
         state.halted = undefined;
       }
       await tick();
-      return [...new Set(states)].map(statusOf);
+      return [...new Set(states)].map((state) => {
+        const status = statusOf(state);
+        if (!already.has(state)) return status;
+        const built = status.planned.some((job) => job.afterCode === true) ? "they are planned into pulses once its code is built" : "every functional spec of it is tested";
+        return { ...status, conformanceNote: `conformance tests were on for the whole of ${status.module} already: ${built}` };
+      });
     },
     async startOver(plainFile, request = {}) {
       const file = resolve(options.cwd, plainFile);
@@ -1358,7 +1384,7 @@ export function createWorkLoop(options: {
         if (before !== undefined) lastOf.set(tip.moduleName, before);
         const row = (id: string, summary: string, note: string, waitingOn: string[], conformance = false): Job => ({
           id,
-          kind: conformance ? "bind" : "regenerate",
+          kind: conformance ? "conformance" : "regenerate",
           summary,
           module: tip.moduleName,
           note,
@@ -1394,6 +1420,8 @@ export function createWorkLoop(options: {
             `${basename(tip.plainFile)} ${job.track === "conformance" ? "conformance: " : ""}${job.title}`,
             job.waitsFor !== undefined
               ? `Scheduled, not started: the conformance tests of ${job.title}, once ${waitsText(job.waitsFor)} built - the code record has to have them first.`
+            : job.afterCode === true
+              ? "Not planned yet: the module's conformance tests are planned into pulses once its code is built."
             : job.planning === true
               ? `Being planned into pulses now: ${job.title}. The first starts as soon as the plan is made.`
               : `Planned, not started: ${casesText(job.cases)}. It is planned again whenever the spec changes or a pulse before it ends.`,
@@ -1465,10 +1493,10 @@ export function createWorkLoop(options: {
   return loop;
 }
 
-/** Why a codebase with work left has no plan: the planner found none. */
 /** Why nothing runs in a codebase whose code - and conformance tests, where they are wanted - is built from its spec as it is. */
 export const UP_TO_DATE = "built from the spec as it is";
 
+/** Why a codebase with work left has no plan: the planner found none. */
 const NO_PLAN = "the planner found no way to cut the work into pulses that hold together";
 
 /** A diff's lines placed in the .plain files of a chain - the tip's first - named as they are from the project. */
@@ -1576,7 +1604,7 @@ export function chooseNote(plainFile: string, specs: TouchedSpec[], budget?: num
     "and no conformance test is for them or scheduled:",
     ...specs.map((touched) => `- fs ${touched.frid}: ${touched.text}`),
     `Decide which of them black-box conformance tests are worth it for - what a user or a client of ${basename(plainFile)} relies on,`,
-    "not an internal detail its unit tests already cover - and say why. For those, call bind with their",
+    "not an internal detail its unit tests already cover - and say why. For those, call conform with their",
     "numbers; the rest stay without. A functional spec with acceptance tests always has them.",
     ...(budget !== undefined ? [budgetLine(budget)] : []),
   ].join("\n");
@@ -1595,7 +1623,7 @@ function chooseNow(plainFile: string, specs: TouchedSpec[], budget?: number): st
     "  conformance-tests: chosen - the code pulses above add or change these, and no conformance test is for them or scheduled:",
     ...specs.map((touched) => `  - fs ${touched.frid}: ${touched.text}`),
     `  Decide now which are worth black-box tests - what a user or a client of ${basename(plainFile)} relies on, not an internal`,
-    "  detail its unit tests cover - say why, and call bind with their numbers: one call a conformance pulse,",
+    "  detail its unit tests cover - say why, and call conform with their numbers: one call a conformance pulse,",
     "  scheduled now and started once the module's code is built, before anything is built on it. The rest stay without.",
     ...(budget !== undefined ? [`  ${budgetLine(budget)}`] : []),
   ];
@@ -1632,7 +1660,9 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
       }
       status.planned.forEach((job, index) =>
         lines.push(
-          job.waitsFor !== undefined
+          job.afterCode === true
+            ? `  ${index + 1}. conformance tests - planned once the code is built`
+            : job.waitsFor !== undefined
             ? `  ${index + 1}. conformance tests: ${job.title} - scheduled, starts once ${waitsText(job.waitsFor)} built`
             : job.planning === true
               ? `  ${index + 1}. ${job.track === "conformance" ? "conformance tests: " : ""}${job.title} - being planned into pulses`
@@ -1641,6 +1671,7 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
       );
       if (status.planNotes !== undefined) lines.push("  what the plan did not do as asked:", ...status.planNotes.map((note) => `    - ${note}`));
       if (status.why !== undefined) lines.push(`  ${status.why}`);
+      if (status.conformanceNote !== undefined) lines.push(`  ${status.conformanceNote}`);
       if (status.toChoose !== undefined && options.for !== "command line") lines.push(...chooseNow(status.plainFile, status.toChoose, status.chooseBudget));
       lines.push(...startOver(status));
       return lines.join("\n");

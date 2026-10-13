@@ -1,7 +1,7 @@
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { describeAgents } from "./activity.ts";
-import { didNotPass, finishedMark, pulseCost, pulseName, spinner } from "./job-panel.ts";
-import { formatDuration, type Job } from "./jobs.ts";
+import { didNotPass, finishedMark, pulseCost, spinner } from "./job-panel.ts";
+import { formatDuration, pulseName, type Job } from "./jobs.ts";
 import { diffFiles, fileHeader, PLAIN_PAINT } from "./diff-view.ts";
 import type { TranscriptStyle } from "./transcript-view.ts";
 
@@ -140,7 +140,7 @@ function plannedOf(job: Job): Array<{ title: string; jobId: string }> {
 /** A job named for the one reading about another: what it was, and its id. */
 function named(jobs: Job[], id: string): string {
   const job = jobs.find((other) => other.id === id);
-  return job !== undefined ? `${job.summary} (pulse ${id}, ${job.status})` : `pulse ${id}`;
+  return job !== undefined ? `${pulseName(job)} (${job.module === undefined ? `pulse ${id}, ` : ""}${job.status})` : `pulse ${id}`;
 }
 
 /** All of a job, opened: what it builds, and - running - what it is doing; waiting, what it waits on; done, how it ended. */
@@ -219,7 +219,7 @@ export function jobsTreeLines(jobs: Job[], state: JobsTreeState, width: number, 
     // A line says which module, which pulse, how long and what it cost - and the mark where it is, or how it ended; the rest - what it grows too - is in it, opened.
     // A queued pulse has not started: it has no time to show.
     const time = job.status === "queued" ? "" : ` · ${formatDuration(job)}`;
-    const head = `${pointer}   ${open ? "▾" : "▸"} ${markOf(job, style)} ${pulseName(job, { title: false })}${time}${pulseCost(job)}`;
+    const head = `${pointer}   ${open ? "▾" : "▸"} ${markOf(job, style)} ${pulseName(job)}${time}${pulseCost(job)}`;
     const [first = "", ...rest] = wrapTextWithAnsi(head, Math.max(10, width));
     lines.push(here ? style.heading(first) : first, ...rest.map((line) => `        ${line}`));
     if (open) lines.push(...detailLines(job, jobs, width, style));

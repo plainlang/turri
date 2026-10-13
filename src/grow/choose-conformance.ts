@@ -8,9 +8,9 @@ import type { TouchedSpec } from "./drift.ts";
 
 /**
  * Under `conformance-tests: chosen`, which functional specs get conformance tests is the chat model's to choose - told
- * what each code job adds or changes that none is for, it calls bind for those worth it. With no conversation - `turri
+ * what each code job adds or changes that none is for, it calls conform for those worth it. With no conversation - `turri
  * regenerate` - this agent chooses in its place, on the same model (`harness-model`) and asked the same question: it reads
- * the module's spec and names the ones worth black-box tests, and why. Those are bound as bind binds them.
+ * the module's spec and names the ones worth black-box tests, and why. Those are conformed as conform does.
  */
 
 export interface ConformanceChoice {

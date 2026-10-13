@@ -212,7 +212,7 @@ It runs the interview skill, asks you about the problem, the stack and the produ
   model and cost - and the queue behind it;
 - ask to try it at any time - "let me try it" - and **`release`** puts what is built so far in
   `dist/<module>` and **`activate`** starts it, installing what it needs - nothing to approve;
-- the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - \*\*\*plain, every item marked planned, working, regenerated, bound or needs you - and `p` turns it to the **pulses** (`/pulses`) - every pulse, running, queued and finished, and what each regenerates; what its agents did is in each pulse's log in `.turri/jobs/`;
+- the **side panel** (`ctrl+h`) takes the screen and opens on **regen** (`/regen`) - \*\*\*plain, every item marked planned, working, regenerated, validating, conform or needs you - and `p` turns it to the **pulses** (`/pulses`) - every pulse, running, queued and finished, and what each regenerates; what its agents did is in each pulse's log in `.turri/jobs/`;
 - **`/halt`** halts a pulse, **`/lineage`** shows every generation of a
   module, and the **`drift`** tool says what is left to regenerate;
 - **`/btw <question>`** asks turri something on the side - answered at once, even in the middle of a skill's interview
@@ -228,7 +228,7 @@ Other things to ask for:
 
 > Add password reset to \*\*\*plain.
 >
-> Regenerate the whole module, and bind every functionality to conformance tests.
+> Regenerate the whole module, and conform every functionality with conformance tests.
 >
 > Regenerate changes to \*\*\*plain with a faster model.
 

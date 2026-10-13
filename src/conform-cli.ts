@@ -1,9 +1,9 @@
 import { parseArgs, runLoop } from "./loop-cli.ts";
 
-const USAGE = `usage: turri bind <file.plain> [frid ...] [options]
+const USAGE = `usage: turri conform <file.plain> [frid ...] [options]
 
 Writes and runs the black-box conformance tests of a module's functional specs - those named, or
-every one - on the code as it is built, as the chat's bind does, whatever the config's
+every one - on the code as it is built, as the chat's conform does, whatever the config's
 conformance-tests says: from the spec's test reqs and acceptance tests, with the whole suite the
 module inherits, a failure fixed in the test or the code, whichever is wrong. Every functional spec
 tested goes in one pulse, as far as the size guardrail lets.

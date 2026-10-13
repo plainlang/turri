@@ -414,10 +414,10 @@ export function createJobRegistry(options?: {
           if (failedAhead !== undefined) {
             job.failedForGood = true;
             if (failedAhead.environment !== undefined) {
-              throw new Error(`Not run: pulse ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) stopped, and this waits for it.\n\n${failedAhead.environment}`);
+              throw new Error(`Not run: pulse ${failedAhead.id} ahead of it in the queue (${pulseName(failedAhead)}) stopped, and this waits for it.\n\n${failedAhead.environment}`);
             }
             throw new Error(
-              `Not run: pulse ${failedAhead.id} ahead of it in the queue (${failedAhead.summary}) failed twice, so nothing queued behind it runs.` +
+              `Not run: pulse ${failedAhead.id} ahead of it in the queue (${pulseName(failedAhead)}) failed twice, so nothing queued behind it runs.` +
                 (failedAhead.diagnosis !== undefined ? `\n\n${failedAhead.diagnosis}` : ""),
             );
           }
@@ -541,12 +541,22 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
+/**
+ * What a pulse is called wherever it is shown in a line: its module, kind and number - `shorty · regenerate pulse 3`,
+ * `shorty · conformance pulse 6` - never what it grows, which is the agents' words and long. A job of no module, what was
+ * asked for.
+ */
+export function pulseName(job: Job): string {
+  if (job.module === undefined) return job.summary;
+  return job.pulse !== undefined ? `${job.module} · ${job.kind} pulse ${job.pulse}` : `${job.module} ${job.kind}`;
+}
+
 /** What the agent is told when it checks on a job. */
 export function describeJob(job: Job): string {
   if (job.status === "queued") {
-    return `pulse ${job.id} (${job.kind}): queued behind ${job.waitingOn.map((id) => `pulse ${id}`).join(" and ")} — ${job.summary}. It starts when that finishes.`;
+    return `${pulseName(job)}: queued behind ${job.waitingOn.map((id) => `pulse ${id}`).join(" and ")}. It starts when that finishes.`;
   }
-  const header = `pulse ${job.id} (${job.kind}): ${job.status}, ${formatDuration(job)} — ${job.summary}`;
+  const header = `${pulseName(job)}: ${job.status}, ${formatDuration(job)}`;
   if (job.status === "running") {
     return [
       header,

@@ -36,7 +36,7 @@ vi.mock("../../src/grow/conformance.ts", async (importOriginal) => {
   };
 });
 
-const { renderSpecDiffConformance, describeSpecDiffConformance } = await import("../../src/grow/bind.ts");
+const { renderSpecDiffConformance, describeSpecDiffConformance } = await import("../../src/grow/conform.ts");
 const { readRecord, writeCodeRecord } = await import("../../src/grow/records.ts");
 const { plainFileParser } = await import("../../src/plain/parser.ts");
 const { resolveTemplateDirs } = await import("../../src/grow/paths.ts");

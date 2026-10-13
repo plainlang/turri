@@ -6,14 +6,14 @@ import { PACKAGE_ROOT } from "./environment.ts";
 import { c } from "./module-report.ts";
 import { tryItCommand } from "./grow/delivery.ts";
 import { describeDiagnosis, diagnoseFailure } from "./grow/diagnose.ts";
-import { createJobRegistry, type Job } from "./grow/jobs.ts";
+import { createJobRegistry, pulseName, type Job } from "./grow/jobs.ts";
 import { chooseConformance } from "./grow/choose-conformance.ts";
 import type { TouchedSpec } from "./grow/drift.ts";
 import { createWorkLoop, describeModules, promptOf, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
 import { projectDirOf } from "./grow/paths.ts";
 
 /**
- * What every command that builds - `turri regenerate`, `bind`, `spec-diff` - does around its own
+ * What every command that builds - `turri regenerate`, `conform`, `spec-diff` - does around its own
  * request of the work loop, as the chat does it: the project's models, a job that fails run once more and, failing again,
  * diagnosed, a line as each job starts and ends; then the loop run until nothing more can start, how each job ended,
  * and exit 1 when any failed. With `dryRun`, the work is planned and the prompt of the first job each codebase would
@@ -49,11 +49,11 @@ export async function runLoop(options: {
       const line = job.status === "running" ? `${job.stage ?? "started"}` : job.status;
       if (seen.get(job.id) === line) return;
       seen.set(job.id, line);
-      if (job.status === "running") console.log(`${c.cyan(`▶ ${job.id}`)} ${job.summary}${job.stage !== undefined ? c.dim(` - ${job.stage}`) : ""}`);
+      if (job.status === "running") console.log(`${c.cyan(`▶ ${job.id}`)} ${pulseName(job)}${job.stage !== undefined ? c.dim(` - ${job.stage}`) : ""}`);
     },
     onFinish: (job: Job) => {
       const mark = job.status === "succeeded" ? c.green("✓") : job.status === "stopped" ? c.dim("■") : c.red("✗");
-      console.log(`${mark} ${job.id} ${job.summary} - ${job.status}`);
+      console.log(`${mark} ${job.id} ${pulseName(job)} - ${job.status}`);
       if (job.status !== "succeeded") console.log(c.dim((job.announce ?? job.report ?? job.error ?? "").trim()));
     },
   });
@@ -89,7 +89,7 @@ export async function runLoop(options: {
   });
   let planned = await options.ask(loop);
   console.log(describeModules(planned, { for: "command line" }));
-  // Chosen as the work is planned: bound as bind binds them, while the first jobs start.
+  // Chosen as the work is planned: conformed as conform does, while the first jobs start.
   for (const status of planned) {
     if (status.toChoose === undefined) continue;
     const { plainFile: file, toChoose, chooseBudget } = status;
@@ -138,7 +138,7 @@ export async function runLoop(options: {
   const ended = registry.list();
   const failed = ended.filter((job) => job.status === "failed");
   console.log(`\n${failed.length === 0 ? c.green(c.bold("all jobs done")) : c.red(c.bold(`${failed.length} job${failed.length === 1 ? "" : "s"} failed`))}`);
-  for (const job of [...ended].reverse()) console.log(`  ${job.id} ${job.summary}: ${job.status}`);
+  for (const job of [...ended].reverse()) console.log(`  ${job.id} ${pulseName(job)}: ${job.status}`);
   if (ended.some((job) => job.status === "succeeded")) console.log(`\n${tryItCommand(plainFile)}`);
   process.exit(failed.length === 0 ? 0 : 1);
 }

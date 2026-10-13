@@ -17,7 +17,7 @@ import type { JobRegistry } from "./grow/jobs.ts";
 
 const WRITE_SPEC_DIFF = "write_spec_diff";
 /** The conversation's tools a skill acts on the work loop with - never pi built-ins. */
-const LOOP_TOOLS = ["regenerate", "drift", "halt", "bind"];
+const LOOP_TOOLS = ["regenerate", "drift", "halt", "conform"];
 /** How much of what the agent said before a question is shown with it: its end, where the brief is. */
 const SAID_MAX = 6000;
 import type { WorkLoop } from "./grow/loop.ts";

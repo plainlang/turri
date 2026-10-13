@@ -241,14 +241,14 @@ describe("the jobs tree", () => {
     const usage = { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, cost: 1.5 };
     const jobs = [
       job("a", "succeeded", { module: "hubspot", startedAt: 0, finishedAt: 42_000, usage, diff: diff("HubSpotClient reads contacts.") }),
-      job("b", "succeeded", { module: "hubspot", kind: "bind", startedAt: 0, finishedAt: 1000, details: { passed: false } }),
+      job("b", "succeeded", { module: "hubspot", kind: "conformance", startedAt: 0, finishedAt: 1000, details: { passed: false } }),
       job("c", "failed", { module: "crm", startedAt: 0, finishedAt: 2000 }),
     ];
     const state = createJobsTreeState();
     state.open.finished = true;
     const lines = jobsTreeLines(jobs, state, 200, style).lines.map((line) => line.trim());
     expect(lines).toContain("▸ <ok>✓ hubspot regenerate · 42s · $1.50");
-    expect(lines).toContain("▸ <bad>✗ hubspot bind · 1s");
+    expect(lines).toContain("▸ <bad>✗ hubspot conformance · 1s");
     expect(lines).toContain("▸ <bad>✗ crm regenerate · 2s");
     expect(lines.join("\n")).not.toContain("HubSpotClient");
   });

@@ -134,7 +134,7 @@ describe("the side panel", () => {
     const diff = "--- a/backend.plain\n+++ b/backend.plain\n@@ -1 +1,2 @@\n+- :OrderController: takes the :AuthData: from the request.\n";
     const job = registry.start({ kind: "regenerate", summary: "backend.plain render spec diff", diff, run: async () => ({ report: "" }) });
     await registry.wait(job.id);
-    const conformance = registry.start({ kind: "bind", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
+    const conformance = registry.start({ kind: "conformance", summary: "backend.plain spec diff conformance", diff, follows: job.id, run: async () => ({ report: "" }) });
     await registry.wait(conformance.id);
     const panel = createSidePanel({ jobs: () => registry.list(), rows: () => 30, style: PLAIN, key: "ctrl+h", back: () => {}, close: () => {} });
     // Newest first: the conformance job, then the spec diff - each opened, past the row of the conformance job's file.

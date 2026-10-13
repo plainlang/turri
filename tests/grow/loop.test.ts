@@ -798,6 +798,28 @@ describe("the work loop", () => {
       expect(tests.ran.flatMap((job) => job.add)).toEqual(["1", "2"]);
     });
 
+    it("asked for the whole module while its code is still to build, are listed last as planned once it is built - and asked again, say they were on already", async () => {
+      writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks."]));
+      const code = runner();
+      const tests = conformanceRunner();
+      const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, conformanceOn: () => false, run: code.run, runConformance: tests.runConformance });
+      code.holdNext();
+      const [before] = await loop.bringUp("app.plain");
+      expect(before!.planned.map((job) => job.track)).toEqual(["code", "code"]);
+      const [status] = await loop.conformance("app.plain");
+      expect(status!.planned.map((job) => `${job.track} ${job.title}`)).toEqual(["code Say goodbye.", "code Say thanks.", "conformance conformance tests"]);
+      expect(describeModules([status!])).toContain("  3. conformance tests - planned once the code is built");
+      expect(status!.conformanceNote).toBeUndefined();
+      // Not a pulse yet: the regeneration lists the code's alone.
+      expect(loop.mapPlan().codebases[0]!.pulses.map((pulse) => pulse.track)).toEqual(["code", "code", "code"]);
+      const [again] = await loop.conformance("app.plain", { frids: ["1", "2"] });
+      expect(describeModules([again!])).toContain("conformance tests were on for the whole of app already: they are planned into pulses once its code is built");
+      code.gate.release!();
+      await loop.drain();
+      expect(tests.ran.map((job) => job.add)).toEqual([["1", "2", "3"]]);
+      expect(loop.status()[0]!.planned).toEqual([]);
+    });
+
     it("scheduled ahead of their code, are written once the module's code is built - after its last code job, the groups together", async () => {
       writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Say thanks.", "Say sorry."]));
       const code = runner();
@@ -973,7 +995,7 @@ describe("the work loop", () => {
       release();
       await loop.drain();
       expect(tests.ran).toEqual([]);
-      const refused = registry.list().find((job) => job.kind === "bind")!;
+      const refused = registry.list().find((job) => job.kind === "conformance")!;
       expect(refused.report).toMatch(/Not started: .*fs 1 is not built - plain_modules\/app\/code\/\.turri\.json does not have it/);
     });
 

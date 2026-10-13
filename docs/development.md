@@ -47,7 +47,7 @@ the launcher and extension beside itself, whichever they are. To try the package
 | `src/mature-tools.ts` | `mature`'s own two: `watch_jobs` and `spec_findings` |
 | `src/plain/` | the \*\*\*plain parser - see [parser](parser.md) - and `highlight.ts`, which highlights \*\*\*plain with plyn's grammar, `plain.tmLanguage.json` (`npm run grammar:sync` refreshes it from [plyn](https://github.com/plainlang/plyn)) |
 | `src/grow/conformance.ts` | conformance tests: writing them, and fixing the test or the code until they pass |
-| `src/grow/regenerate.ts`, `src/grow/bind.ts` | a code job - a spec diff rendered in the code - and a conformance job |
+| `src/grow/regenerate.ts`, `src/grow/conform.ts` | a code job - a spec diff rendered in the code - and a conformance job |
 | `src/grow/loop.ts`, `src/grow/records.ts`, `src/grow/drift.ts`, `src/grow/jobs.ts` | the work loop, the records and the work derived from them, and background jobs |
 | `src/grow/chunk-plan.ts`, `src/grow/cases.ts` | cutting the work into jobs, and what a job's agents are told by its cases |
 | `src/grow/regression.ts` | the whole conformance suite run, and the repair agent that may not touch tests |

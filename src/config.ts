@@ -369,14 +369,14 @@ export interface ProjectConfig {
   judgeModel?: ModelChoice;
   /**
    * Whether conformance tests are written and run, and for what. true (`all`): every functional spec the code is built
-   * from. "chosen": the ones with acceptance tests, and those the conversation chose with bind - kept once
+   * from. "chosen": the ones with acceptance tests, and those the conversation chose with conform - kept once
    * their tests land. false: none, unless the conversation asks. Unset: all, when the module has test reqs.
    */
   conformanceTests?: boolean | "chosen";
   /**
    * Under `conformance-tests: chosen`: how many of a module's functional specs may be chosen for conformance tests, beside
    * those with acceptance tests - a count, or a share of the module's functional specs (rounded up, at least one).
-   * Every choice for the module counts, whenever it was made; the person's own bind is not limited. Unset: no limit.
+   * Every choice for the module counts, whenever it was made; the person's own conform is not limited. Unset: no limit.
    */
   conformanceBudget?: { count: number } | { share: number };
   /**

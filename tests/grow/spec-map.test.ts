@@ -253,7 +253,7 @@ describe("the plan laid over the map", () => {
     const changed = conformance([spec("- Register.", "1", []), spec("- Log in.", "2", ["- Wrong password gives 401."])], [spec("- Register.", "1", []), spec("- Log in.", "2", ["- Wrong password gives 403."])]);
     let [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [changed] })] });
     expect(marked!.items.map((entry) => [entry.text, entry.testing === true])).toEqual([["- Register.", false], ["- Log in.", true]]);
-    expect(marked!.items.map(rungOf)).toEqual(["regenerated", "working"]);
+    expect(marked!.items.map(rungOf)).toEqual(["regenerated", "validating"]);
     // The count is of all the module's pulses; what the running one does comes after it.
     expect(marked!.status).toBe("pulse 2 of 2 growing · conformance tests");
     // Only a definition changed: every one is tested again.
@@ -273,7 +273,7 @@ describe("the plan laid over the map", () => {
       before: `["${FUNCTIONAL_REQUIREMENTS}"]\n`,
       after: `["${FUNCTIONAL_REQUIREMENTS}"]\n${spec("- Register.", "1")}\n`,
     };
-    // Scheduled by bind before its code is built: no trees, its functional specs named by their first line.
+    // Scheduled by conform before its code is built: no trees, its functional specs named by their first line.
     const scheduled: MapPulse = { number: 12, title: "Log in.", track: "conformance", running: false, rowId: "planned-app-2", before: "", after: "", specs: ["Log in."] };
     const [marked] = markSpecMap([first], { files: [], codebases: [codebase(first, { pulses: [planned, scheduled] })] });
     expect(marked!.items.map((entry) => [entry.text.split("\n")[0], entry.testsPulse?.number])).toEqual([["- Register.", 4], ["- Log in.", 12], ["- Log out.", undefined]]);
@@ -306,7 +306,7 @@ describe("the plan laid over the map", () => {
     const off = { ...page(spec, null), conformance: false };
     const testReqs = (marked: MarkedPage) => marked.items.filter((entry) => entry.section === TEST_REQUIREMENTS).length;
     expect(testReqs(markSpecMap([off], noPlan)[0]!)).toBe(0);
-    // The loop's word wins: bind turned them on for this session.
+    // The loop's word wins: conform turned them on for this session.
     expect(testReqs(markSpecMap([off], { files: [], codebases: [codebase(off, { conformance: true })] })[0]!)).toBe(1);
     expect(testReqs(markSpecMap([page(spec, null)], { files: [], codebases: [codebase(page(spec, null), { conformance: false })] })[0]!)).toBe(0);
   });
@@ -512,7 +512,7 @@ describe("the side panel's two views", () => {
     expect(map.find((line) => line.startsWith("›"))).toContain("- Log in.");
   });
 
-  it("draws one mark a row on the ladder - planned, working, regenerated, bound - the same whatever the config says of conformance tests, named in the legend in the corner", () => {
+  it("draws one mark a row on the ladder - planned, working, regenerated, validating, conform - the same whatever the config says of conformance tests, named in the legend in the corner", () => {
     const first = page(
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.", "- Log out.", "- Search."] }),
       tree({ [DEFINITIONS]: ["- :User: is a person."], [FUNCTIONAL_REQUIREMENTS]: ["- Register.", "- Log in.", "- Log out."] }),
@@ -521,7 +521,7 @@ describe("the side panel's two views", () => {
     const rungs = (conformance: boolean) => markSpecMap([{ ...first, conformance }], noPlan)[0]!.items.map((entry) => [entry.text, rungOf(entry)]);
     expect(rungs(true)).toEqual([
       ["- :User: is a person.", "regenerated"],
-      ["- Register.", "bound"],
+      ["- Register.", "conform"],
       ["- Log in.", "regenerated"],
       ["- Log out.", "regenerated"],
       ["- Search.", "toRegenerate"],
@@ -534,16 +534,20 @@ describe("the side panel's two views", () => {
     expect(lines.find((line) => line.includes("- Log in."))).toMatch(/^[ ›] {2}◇ {4}│ - Log in\./);
     expect(lines.find((line) => line.includes("- Search."))).toMatch(/^[ ›] {2}○ {4}│ - Search\./);
     // The legend: up the ladder, every rung whatever the page has - to take out only where something is.
-    expect(legendLines(marked!, style)).toEqual(["○ planned", "⠋ working", "◇ regenerated", "◆ bound", "! needs you"]);
+    expect(legendLines(marked!, style)).toEqual(["○ planned", "⠋ working", "◇ regenerated", "⠋ validating", "◆ conform", "! needs you"]);
     const panel = createSidePanel({ jobs: () => [], map: () => [marked!], rows: () => 20, style, back() {}, close() {}, key: "ctrl+h" });
     const drawn = panel.render(100);
     // In the upper right corner, beside the title and the keys - the keys at the top, where they are seen first.
     const plain = drawn.map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
-    const legend = ["○ planned", "⠋ working", "◇ regenerated", "◆ bound", "! needs you"];
+    // Validating spins in the green of the rungs it is between, working in the accent: told apart at a glance.
+    const painted = legendLines(marked!, { ...style, accent: (text: string) => `<accent>${text}`, success: (text: string) => `<green>${text}` });
+    expect(painted[1]).toBe("<accent>⠋ working");
+    expect(painted[3]).toBe("<green>⠋ validating");
+    const legend = ["○ planned", "⠋ working", "◇ regenerated", "⠋ validating", "◆ conform", "! needs you"];
     // A box in the upper right corner, the panel's first lines beside it.
     expect(plain[0]).toMatch(/ ┌─+┐$/);
-    expect(plain.slice(1, 6).map((line) => line.slice(line.lastIndexOf("│ ", line.length - 2) + 2, -1).trim())).toEqual(legend);
-    expect(plain[6]).toMatch(/ └─+┘$/);
+    expect(plain.slice(1, 7).map((line) => line.slice(line.lastIndexOf("│ ", line.length - 2) + 2, -1).trim())).toEqual(legend);
+    expect(plain[7]).toMatch(/ └─+┘$/);
     // The top line wraps beside it, never cut short; the keys under it - at the top, where they are seen first - and
     // the rule straight under them, stopping short of the box.
     expect(plain.join("\n")).not.toContain("...");

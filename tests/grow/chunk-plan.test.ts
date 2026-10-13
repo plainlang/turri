@@ -229,7 +229,7 @@ describe("cutting the queue's work into jobs", () => {
   };
   const manyReqs = (count: number, what: string) => Array.from({ length: count }, (_, n) => `- :Implementation: ${what} rule ${n + 1}, which runs on\n  over a second line.`);
 
-  it("never puts two groups the conformance tests were asked for in - bind for 1-3, then for 4-6 - in one job", async () => {
+  it("never puts two groups the conformance tests were asked for in - conform for 1-3, then for 4-6 - in one job", async () => {
     const six = [...SPECS, "- A :User: reports a :Comment:."];
     const current = { definitions: DEFS.map(item), "functional specs": six.map((markdown, index) => ({ markdown, frid: String(index + 1) })) } as never;
     const from = { ...input({}, current), track: "conformance" as const, groups: [["1", "2", "3"], ["4", "5", "6"]] };

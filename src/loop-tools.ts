@@ -6,7 +6,7 @@ import { CONFIG_FILE, readProjectConfig } from "./config.ts";
 import { checkPlainFile } from "./plain/check.ts";
 import { describeDrift, describeModules, type ModuleStatus, type WorkLoop } from "./grow/loop.ts";
 import type { RenderWork } from "./grow/engine.ts";
-import type { JobRegistry } from "./grow/jobs.ts";
+import { pulseName, type JobRegistry } from "./grow/jobs.ts";
 import { stopDeployed } from "./grow/release.ts";
 
 /**
@@ -93,9 +93,9 @@ export async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: 
     wait
       ? "Tell the user how it went."
       : "It grows in the background. " +
-        "Nothing to wait for: if what you are doing has a next step - a question to ask, a file to edit, a bind to decide - take it now, " +
+        "Nothing to wait for: if what you are doing has a next step - a question to ask, a file to edit, functional specs to conform - take it now, " +
         "in this same turn, and tell the user what runs and what is planned alongside it, never as a reply that ends your turn. " +
-        "Use growth with a pulse's id if they ask how it is going.",
+        "Use pulses with a pulse's id if they ask how it is going.",
   ].join("\n");
   return { content: [{ type: "text" as const, text }], details: { jobIds } };
 }
@@ -108,9 +108,9 @@ export function stopJob(jobs: JobRegistry, named: string, reason?: string): stri
   const target = matches[0]!;
   const behind = jobs.list().filter((job) => job.status === "queued" && job.waitingOn.includes(target.id));
   const stopped = jobs.stop(target.id);
-  if (stopped === undefined) return `Pulse ${target.id} (${target.summary}) is already ${target.status}.`;
+  if (stopped === undefined) return `${pulseName(target)} is already ${target.status}.`;
   if (reason !== undefined && reason.trim() !== "") stopped.note = `Halted: ${reason.trim()}`;
-  const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${job.summary} (${job.id})`).join(", ")}.` : "";
+  const queued = behind.length > 0 ? ` Queued behind it, now moving up: ${behind.map((job) => `${pulseName(job)} (${job.id})`).join(", ")}.` : "";
   // A spec diff's change is in the .plain files: stopping its render does not take it out of the spec.
   const inSpec =
     target.kind === "regenerate"
@@ -119,8 +119,8 @@ export function stopJob(jobs: JobRegistry, named: string, reason?: string): stri
         "how the work is cut or ordered, use steer."
       : "";
   return stopped.status === "stopped"
-    ? `Stopped ${target.summary} (${target.id}) before it started.${queued}${inSpec}`
-    : `Stopping ${target.summary} (${target.id}): its agent is being stopped now.${queued}${inSpec}`;
+    ? `Stopped ${pulseName(target)} (${target.id}) before it started.${queued}${inSpec}`
+    : `Stopping ${pulseName(target)} (${target.id}): its agent is being stopped now.${queued}${inSpec}`;
 }
 
 export interface LoopToolsOptions {
@@ -168,7 +168,7 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
     promptSnippet: "regenerate a module's code from its spec as it is now - after any change to the spec",
     promptGuidelines: [
       "Call regenerate after editing a .plain file with the file tools - or when the user says they changed one - instead of working out a diff: turri compares what is grown with the spec now.",
-      "regenerate returns at once with what runs and what is planned. Report it, keep talking, and use growth when the user asks; the pulses report when they finish.",
+      "regenerate returns at once with what runs and what is planned. Report it, keep talking, and use pulses when the user asks; the pulses report when they finish.",
       "When the user wants a functionality to come out differently, change its spec - the spec is what persists - then regenerate. When they want ones already built regenerated as their spec stands - better made, on another model, after many patches - name them in functionalities, all in one call.",
       "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and grows again every functional spec that uses what links it.",
       "Never stop pulses and start them again yourself to follow a spec change: regenerate does it.",
@@ -222,7 +222,7 @@ export function driftTool(options: LoopToolsOptions & { loop: (ctx: ExtensionCon
     description:
       "How far a module's code has drifted from its spec: in each codebase where it lives, what is left to grow - the " +
       "functional specs to add, change, grow again or take out, and reqs or definitions alone - and the conformance tests " +
-      "left to write, those bound ahead of their code, what is growing now, and why nothing grows where nothing does; " +
+      "left to write, those scheduled ahead of their code, what is growing now, and why nothing grows where nothing does; " +
       "with nothing left, it says the module is fully grown. It plans nothing and starts nothing, and calls no model.",
     promptSnippet: "drift: what is left to grow in a module, code and conformance tests - starting nothing",
     promptGuidelines: [

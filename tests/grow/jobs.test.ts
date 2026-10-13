@@ -143,7 +143,7 @@ describe("a job that fails", () => {
     const diagnose = vi.fn(async (_job: unknown, failures: string[]) => `What happened: failed ${failures.length} times.\nTo fix - in the spec:\n  1. Say where the auth data comes from.`);
     const registry = createJobRegistry({ retries: 1, diagnose });
     const first = registry.start({
-      kind: "bind",
+      kind: "conformance",
       summary: "backend.plain spec diff conformance",
       lanes: ["queue"],
       run: async () => ((runs += 1), { report: `attempt ${runs}: the tests do not pass`, details: { passed: false } }),

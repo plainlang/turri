@@ -24,7 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "mutation": "node scripts/mutation.mjs",
-    "bind": "tsx src/bind-cli.ts",
+    "conform": "tsx src/conform-cli.ts",
     "regenerate": "tsx src/regenerate-cli.ts",
     "validate": "tsx src/validate-cli.ts",
     "doctor": "node bin/turri.mjs doctor",

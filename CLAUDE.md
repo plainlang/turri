@@ -47,12 +47,12 @@ and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 **Names.** `plain_modules` and `.plaingit` are the ***plain language's, not turri's, and keep their names.
 
 **Entry points.** `src/cli.ts` dispatches `turri <cmd>`: `regenerate` (with frids: grown again), `glimpse` (regenerate
-`--dry-run`), `drift`, `bind`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regenerate-cli.ts`,
-`drift-cli.ts`, `bind-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
+`--dry-run`), `drift`, `conform`, `spec-diff`, `validate`, `lineage`, `release` and `cultivate` import `regenerate-cli.ts`,
+`drift-cli.ts`, `conform-cli.ts`, `spec-diff-cli.ts`, `validate-cli.ts`, `lineage-cli.ts`, `release-cli.ts` and
 `cultivate-cli.ts`, each of which parses `process.argv` itself; the ones that build share `loop-cli.ts` `runLoop`,
 which drives the work loop as the chat does. `doctor` goes to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regenerate`,
-`drift`, `glimpse`, `bind`, `steer`, `engine`, `growth`, `halt`, `diagnose`, `lineage`, `validate`,
+`drift`, `glimpse`, `conform`, `steer`, `engine`, `pulses`, `halt`, `diagnose`, `lineage`, `validate`,
 `cultivate`, `release`, `activate`, `/watch`, `/regenerate`, `/regen`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
 `/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.turri.yaml line by line and
 applies what turri fixed at its start - the chat's model, the coding model chosen this session, `parallel-jobs` - live.
@@ -97,7 +97,7 @@ beside them (`src/skills.ts`), turri's own winning a name; `.turri/.gitignore` l
   agent that passes on only what it upholds; after that fix the work goes on once its tests pass - as
   spec changes and conformance tests do too.
 - `conformance.ts` writes black-box conformance and acceptance tests into `plain_modules/<m>/tests`,
-  labelled and checked by label; `bind.ts` runs it for a conformance job, then
+  labelled and checked by label; `conform.ts` runs it for a conformance job, then
   `regression.ts` runs the whole suite (a repair agent that may not touch tests).
 - Nothing is queued (`docs/growing.md`). `loop.ts` works out what is left to grow - `drift.ts`
   `codeWork`, from the code record (`records.ts`: the spec of the codebase's whole requires chain, no test
@@ -110,7 +110,7 @@ told mid-turn or at its next turn, its record moved, twice a job at most). `rege
   `turri regenerate` all go through `bringUp`. Steering (`grow/steer.ts`: `steer`, AGENTS.md's
   queue section, a tool's `guidance`) reaches the planner's agents. Conformance is a second track in the loop: from `tests/.turri.json`
   to `conformanceTarget` (the chosen functional specs as built, with the test reqs), a conformance job - a
-  spec diff's conformance run, the whole suite with it - once the module's code is built, before anything is built on it; `bind`
+  spec diff's conformance run, the whole suite with it - once the module's code is built, before anything is built on it; `conform`
   turns it on for the session over `conformance-tests: false`.
 - `spec-steps.ts`: a tree written out one item a line, diffed with git into changes by id, and a step
   (`makeStep`) made of some of them - its tree, its diff, its text diff laid out as the module's file.

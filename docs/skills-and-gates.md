@@ -163,8 +163,8 @@ change the step makes and puts its findings on the executor's next tool result.
   background, one after another. `drift` shows how they stand. The person sees its calls as
   `mutate`: a tool can be shown by a name of its own (`SHOWN_AS` in `grow/activity.ts`), while its
   agent calls it by the one that says what it takes.
-- **Grow, and bind conformance tests.** A skill that names them in `allowed-tools` gets the conversation's own
-  `regenerate`, `drift`, `halt` and `bind`, on its loop: `bind` schedules a conformance pulse for functional specs not built
+- **Grow, and conform.** A skill that names them in `allowed-tools` gets the conversation's own
+  `regenerate`, `drift`, `halt` and `conform`, on its loop: `conform` schedules a conformance pulse for functional specs not built
   yet, as it does from the chat. The skill never waits for them.
 - **Choose the render model**, when the user says so - `engine`, the same tool the
   conversation has.

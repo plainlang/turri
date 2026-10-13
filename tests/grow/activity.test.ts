@@ -102,7 +102,7 @@ describe("the panel", () => {
     const jobs = createJobRegistry();
     const first = jobs.start({ kind: "regenerate", summary: "x", module: "backend", pulse: 1, title: "Registration", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(first.id);
-    const second = jobs.start({ kind: "bind", summary: "y", module: "backend", pulse: 2, title: "fs 1", run: async () => ({ report: "", details: { passed: false } }) });
+    const second = jobs.start({ kind: "conformance", summary: "y", module: "backend", pulse: 2, title: "fs 1", run: async () => ({ report: "", details: { passed: false } }) });
     await jobs.wait(second.id);
     const other = jobs.start({ kind: "regenerate", summary: "w", module: "web", pulse: 1, title: "home page", run: async () => ({ report: "", details: { passed: true } }) });
     await jobs.wait(other.id);
@@ -111,14 +111,19 @@ describe("the panel", () => {
     jobs.start({ kind: "regenerate", summary: "z", module: "backend", pulse: 3, title: "Log in with :User:", run: () => new Promise(() => {}) });
     const marks = { success: (t: string) => `<ok>${t}`, error: (t: string) => `<bad>${t}`, warning: (t: string) => `<stop>${t}` };
     const lines = jobPanelLines(jobs.list(), { marks, width: 80 });
-    // What a pulse grows is said all lowercase.
-    expect(lines[0]).toBe("  backend  <ok>✓ 1 regenerate · <bad>✗ 2 bind");
+    expect(lines[0]).toBe("  backend  <ok>✓ 1 regenerate · <bad>✗ 2 conformance");
     expect(lines[1]).toBe("  web      <ok>✓ 1 regenerate");
     expect(lines[2]).toBe(`  ${"─".repeat(76)}`);
-    // What runs is below the rule, by the input: its module, its kind and number, what it grows.
-    expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regenerate pulse 3 · log in with :user: · \d+s$/);
+    // What runs is below the rule, by the input: its module, its kind and number - never what it grows.
+    expect(lines[3]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] backend · regenerate pulse 3 · \d+s$/);
     // ctrl+o expands the agents' trace, not what finished: the side panel lists each.
     expect(jobPanelLines(jobs.list(), { expanded: true, marks, width: 80 }).slice(0, 2)).toEqual(lines.slice(0, 2));
+  });
+
+  it("names a running conformance pulse by its module, kind and number alone - its functional specs run together are not its title", () => {
+    const jobs = createJobRegistry();
+    jobs.start({ kind: "conformance", summary: "b", module: "shorty", pulse: 6, title: ":ShortyApi: answers `GET /api/ping`; :UserAdmin: provisions a :User:", run: () => new Promise(() => {}) });
+    expect(jobPanelLines(jobs.list(), { width: 120 })[0]).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] shorty · conformance pulse 6 · \d+s$/);
   });
 
   it("shows a module being planned at once, nothing running yet - the planner takes a while", () => {

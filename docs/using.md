@@ -35,7 +35,8 @@ alone - no hint and no invitation; the `ctrl+h` under the job panel breathes unt
 While a skill runs, a line above the input shows its phases, every one by name - those done ticked, the one it is in
 marked, the rest to come - and where it is: the skill's name at the left edge, `phase 2 of 4` at the right, and its
 phases centred between them, `✓ intent ━━━━ ⠋ stack ──── ○ testing ──── ○ product`. Under it, dimmed, the phase it is in and what
-it does: `stack - the language, frameworks, storage and architecture`. The phases are the skill's own steps, read from its `SKILL.md`.
+it does: `stack - the language, frameworks, storage and architecture`. The phases are the skill's own steps, read from its `SKILL.md`. A skill of one phase, or none, has nothing to be partway through: its line is the spinner and its name alone,
+`⠹ add-test-requirement`.
 
 `genome/skills/` holds the rest: adding a feature, a concept, a requirement, a resource; splitting a spec
 that is too big; resolving conflicts; checking the environment - see
@@ -51,10 +52,10 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 | `drift` | what is left to grow: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
-| `bind` | bind functional specs to conformance tests - now, or ahead of their code: every one tested in one conformance pulse, as far as a size guardrail lets (or one a functional spec, or a pulse each of groups you name - 1-3 and 4-6 - when you ask for that), started once every one named is grown; whatever the config says |
+| `conform` | write and run conformance tests for functional specs - now, or ahead of their code: every one tested in one conformance pulse, as far as a size guardrail lets (or one a functional spec, or a pulse each of groups you name - 1-3 and 4-6 - when you ask for that), started once every one named is grown; whatever the config says |
 | `validate` | validate a spec, growing nothing |
 | `engine` | show or choose the model the code grows on - see [below](#choosing-a-model) |
-| `growth` | the pulses - running, planned and finished - or one of them |
+| `pulses` | the pulses - running, planned and finished - or one of them |
 | `halt` | halt a pulse, or what `activate` started |
 | `diagnose` | why a pulse did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
 | `lineage` | a module's lineage: what each regeneration and conformance run changed in it, and what it grew from |
@@ -95,9 +96,8 @@ come waits for a free slot, and says so.
 
 - **The panel** above the input, while something runs, shows on top what finished - a line a module, its
   pulses oldest first, each with its mark (green, red or amber, as in the side panel), number and kind - what
-  it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regenerate · ✓ 4 bind`, the newest that fit the width -
-  then a rule, and under it each running pulse - `cognio · regenerate pulse 5 · user search and profiles`, what it grows all lowercase, its
-  time and cost, and what its agents are doing. A module whose work is being planned into pulses shows at once,
+  it grew is in the side panel - `cognio  … 2 earlier · ✓ 3 regenerate · ✓ 4 conformance`, the newest that fit the width -
+  then a rule, and under it each running pulse - `cognio · regenerate pulse 5`, `cognio · conformance pulse 6` - its time and cost, and what its agents are doing. A module whose work is being planned into pulses shows at once,
   before any pulse runs - `shorty · planning the pulses · 12s` - the planner is an agent, and takes a while; a
   `/regenerate` says it began the moment it is sent. Pulses are numbered within their module, as regen numbers
   them. `ctrl+o` expands the agents' trace alone; what finished stays a line a module. The line of keys under
@@ -146,18 +146,19 @@ come waits for a free slot, and says so.
   | Mark | Legend | Means |
   | --- | --- | --- |
   | `○` | planned | it differs from the code - planned into a pulse, being planned, or waiting; the top line says which |
-  | `⠋` | working | being regenerated now, its conformance tests being written, or being taken out |
+  | `⠋` | working | being regenerated now, or being taken out - the spinner in the accent colour |
   | `◇` | regenerated | the code is built from it as it reads now |
-  | `◆` | bound | regenerated, and its conformance tests pass - its code is shown, end to end, to do what the spec says |
+  | `⠋` | validating | its conformance tests being written and run - the spinner green, as `◇` and `◆` are |
+  | `◆` | conform | regenerated, and its conformance tests pass - its code is shown, end to end, to do what the spec says |
   | `!` | needs you | in the pulse that did not land and halted the module, or the planner found no plan |
   | `−` | to take out | taken out of the spec, still in the code - a struck-through red ghost, with the code record's text, until the pulse that takes it out lands |
 
   `◇` and `◆` are both green, and mean the same whatever `conformance-tests:` says: a functional spec regenerated
-  and not bound is `◇` with its conformance tests on, off or not chosen, so changing the setting changes no mark.
-  Tests written for an earlier text leave it at `◇`. Definitions and reqs are never bound: `◇` is as far as they go.
-  Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or `bind` turned
+  and not conformed is `◇` with its conformance tests on, off or not chosen, so changing the setting changes no mark.
+  Tests written for an earlier text leave it at `◇`. Definitions and reqs are never conformed: `◇` is as far as they go.
+  Test reqs are shown only where conformance tests are on - `conformance-tests:` is not `false`, or `conform` turned
   them on this session. A test req is the conformance tests', never built into the code: `◆` once they follow it
-  as it reads now, `⠋` while a conformance pulse writes them for it, `○` until then - and no mark where no
+  as it reads now, the green `⠋` while a conformance pulse writes them for it, `○` until then - and no mark where no
   conformance test is written at all. No pulse numbers are drawn in the gutter - they move whenever the plan is
   made again; `p` on an item goes to the pulse that brings it.
 
@@ -198,7 +199,7 @@ come waits for a free slot, and says so.
 
   `p` goes to the **pulses** - and back - onto the pulse that grows the item under the cursor, and
   back onto the first item the pulse under the cursor grows. The pulses are every pulse as three sections - running, queued, finished - each opened and closed on
-  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · bind pulse 2`) - what it grows is in it, opened - its time (none while it is queued: it has not started) and its cost - a
+  its own (running and queued start open). A pulse is one line: its module, kind and number (`hubspot · regenerate pulse 1`, `hubspot · conformance pulse 2`) - so it is named wherever a pulse is named in a line (the job panel, the `pulses` tool, `/halt`, the command line), never by what it grows, which is in it, opened - its time (none while it is queued: it has not started) and its cost - a
   finished one's mark green when it passed, red when it failed or did not pass, amber when it was stopped.
   Opened, a running one shows what it is doing; a queued one, what it waits for; a finished one, its agents
   and what each spent, and whether it did not pass. Under it is a row
@@ -259,7 +260,7 @@ come waits for a free slot, and says so.
   built - from the test reqs and acceptance tests - with the whole suite the module inherits, and, where one
   fails, fixes the test or the code, whichever is wrong; what they are written for is recorded in
   `tests/.turri.json`. With `conformance-tests: false` none is written until you ask -
-  `bind`, for a module or some of its functional specs. A conformance pulse that does not pass
+  `conform`, for a module or some of its functional specs. A conformance pulse that does not pass
   is undone whole and halts the conformance tests alone: the code goes on being built.
 - **A pulse that fails** - its work errors, or it does not pass - is run once more. Failing again, it
   stops, and so does every pulse queued behind it on the same module, without running - the other
@@ -435,7 +436,7 @@ turri glimpse <file.plain>             # plan it, and print the first job's prom
 turri regenerate <file.plain> 2            # grow functionality 2 again, changed or not
 turri regenerate <file.plain> --from-scratch   # delete the module's code and tests (its lineage keeps them), regenerate all of it
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regenerate it
-turri bind <file.plain> 1              # black-box tests for functionality 1
+turri conform <file.plain> 1           # black-box tests for functionality 1
 turri lineage <module>                 # what grew into a module, and when
 turri cultivate brood                  # run a skill directly - by name, the project's too, or by its folder
 turri release <file.plain>             # release what is grown to dist/<module>, and activate it here

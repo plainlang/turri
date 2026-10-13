@@ -21,7 +21,7 @@ const WRONG = /not passing|did not|failing|failed|✗|undoing|stopped|halt|wrong
 
 export function whyFailed(job: Job): string {
   const ended = describeJob(job);
-  if (job.status === "running" || job.status === "queued") return `${ended}\n\nIt has not ended yet: growth says how it is going.`;
+  if (job.status === "running" || job.status === "queued") return `${ended}\n\nIt has not ended yet: pulses says how it is going.`;
   const transcript = job.transcript;
   // An agent's run is a tool result; the harness's own reaches the agent as the prompt that sends it back.
   const lastRun = [...transcript].reverse().find((entry) => (entry.kind === "result" || entry.kind === "prompt") && FAILED_RUN.test(textOf(entry)));

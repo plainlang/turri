@@ -120,30 +120,35 @@ const strike = (text: string) => `\x1b[9m${text}\x1b[29m`;
 const INDENT = "  ";
 
 /**
- * Where an item stands, as one mark on a ladder every item climbs: planned, working, regenerated, bound - and needs
+ * Where an item stands, as one mark on a ladder every item climbs: planned, working, regenerated, validating, conform - and needs
  * you, off it - named in the legend in the panel's corner. The same mark means the same thing whatever the config says
- * of conformance tests: a functional spec regenerated and not bound is hollow whether its tests are on, off or not
+ * of conformance tests: a functional spec regenerated and not conformed is hollow whether its tests are on, off or not
  * chosen, so changing that changes no mark.
  */
 export const LADDER = {
   toRegenerate: "○",
   regenerated: "◇",
-  bound: "◆",
+  conform: "◆",
   needsYou: "!",
   takenOut: "−",
 } as const;
 
-/** An item's rung: what its one mark shows. Working is regenerating, binding or taking out alike. */
-export type Rung = "toRegenerate" | "working" | "regenerated" | "bound" | "needsYou" | "takenOut" | "none";
+/**
+ * An item's rung: what its one mark shows. Working is regenerating or taking out alike; validating, its conformance tests
+ * being written and run - a spinner of its own colour, the green of the rungs it is between.
+ */
+export type Rung = "toRegenerate" | "working" | "regenerated" | "validating" | "conform" | "needsYou" | "takenOut" | "none";
 
 export function rungOf(item: MarkedItem): Rung {
   if (item.state === "removed") return item.mark === "growing" ? "working" : "takenOut";
-  if (item.mark === "growing" || item.testing === true) return "working";
+  // A test req is only ever grown by a conformance pulse: growing, it is validating.
+  if (item.testing === true || (item.state === "test" && item.mark === "growing")) return "validating";
+  if (item.mark === "growing") return "working";
   if (item.mark === "stuck") return "needsYou";
   if (item.mark === "none") return "none";
-  // A test req is the conformance tests' alone: it is followed by them, bound, or not yet.
-  if (item.state === "test") return item.mark === "built" ? "bound" : "toRegenerate";
-  if (item.mark === "built") return item.tests === "now" ? "bound" : "regenerated";
+  // A test req is the conformance tests' alone: it is followed by them, conform, or not yet.
+  if (item.state === "test") return item.mark === "built" ? "conform" : "toRegenerate";
+  if (item.mark === "built") return item.tests === "now" ? "conform" : "regenerated";
   return "toRegenerate";
 }
 
@@ -156,8 +161,9 @@ const CONTINUED = `${" ".repeat(GUTTER)}${BAR}`;
 function rungGlyph(rung: Rung, style: TranscriptStyle, now: number): string {
   const green = style.success ?? style.added;
   if (rung === "working") return style.accent(spinner(now));
+  if (rung === "validating") return green(spinner(now));
   if (rung === "regenerated") return green(LADDER.regenerated);
-  if (rung === "bound") return green(LADDER.bound);
+  if (rung === "conform") return green(LADDER.conform);
   if (rung === "needsYou") return style.error(LADDER.needsYou);
   if (rung === "takenOut") return style.error(LADDER.takenOut);
   if (rung === "toRegenerate") return style.muted(LADDER.toRegenerate);
@@ -175,12 +181,13 @@ export function columnHeadings(page: MarkedPage, width: number, style: Transcrip
   return [truncateToWidth(`${style.muted(` ${STATUS_HEADING} `)}${BAR}${style.heading(basename(page.plainFile))}`, width), CONTINUED.trimEnd()];
 }
 
-/** The legend, a line a mark, up the ladder: planned, working, regenerated, bound - and needs you, off it. */
+/** The legend, a line a mark, up the ladder: planned, working, regenerated, validating, conform - and needs you, off it. */
 const LEGEND: Array<[Rung, string]> = [
   ["toRegenerate", "planned"],
   ["working", "working"],
   ["regenerated", "regenerated"],
-  ["bound", "bound"],
+  ["validating", "validating"],
+  ["conform", "conform"],
   ["needsYou", "needs you"],
   ["takenOut", "to take out"],
 ];

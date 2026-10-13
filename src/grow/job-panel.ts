@@ -1,5 +1,5 @@
 import { type Color, foregroundAnsi, mixColors, type TerminalColorMode, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatDuration, formatElapsed, type Job } from "./jobs.ts";
+import { formatDuration, formatElapsed, pulseName, type Job } from "./jobs.ts";
 
 /**
  * The live panel above the editor while background work runs.
@@ -73,20 +73,6 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 
 export function spinner(now: number): string {
   return SPINNER[Math.floor(now / 1000) % SPINNER.length]!;
-}
-
-/** What a pulse is listed as: its module and its kind - "hubspot regenerate", "hubspot bind" - or what was asked for. */
-export function pulseName(job: Job, options: { title?: boolean } = {}): string {
-  if (job.module === undefined) return job.summary;
-  // Its module, its kind and number, what it grows: `cognio · regenerate pulse 6 · user search and profiles`.
-  const title = options.title !== false ? pulseTitle(job) : undefined;
-  if (job.pulse !== undefined) return `${job.module} · ${job.kind} pulse ${job.pulse}${title !== undefined ? ` · ${title}` : ""}`;
-  return `${job.module} ${job.kind}`;
-}
-
-/** What a pulse grows, as the panels show it: its plan's title, all lowercase. */
-export function pulseTitle(job: Job): string | undefined {
-  return job.title?.toLowerCase();
 }
 
 /** A finished pulse in its module's line: its mark, number and kind - `✓ 3 regenerate`. What it grew is in the side panel. */

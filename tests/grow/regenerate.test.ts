@@ -480,7 +480,7 @@ describe("conformance for a spec change", () => {
     const treeOf = () => plainFileParser("app.plain", resolveTemplateDirs(join(dir, "app.plain")), { allowNoFunctionalities: true })[1];
     const treeBefore = treeOf();
     expect((await renderSpecDiff({ plainFile: "app.plain", diff, cwd: dir })).passed).toBe(true);
-    const { renderSpecDiffConformance } = await import("../../src/grow/bind.ts");
+    const { renderSpecDiffConformance } = await import("../../src/grow/conform.ts");
     const { changesBetween, serializeTree } = await import("../../src/grow/spec-steps.ts");
     const { describeSpecChange } = await import("../../src/grow/prompt.ts");
     const change = describeSpecChange(changesBetween(serializeTree(treeBefore), serializeTree(treeOf())));

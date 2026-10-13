@@ -58,7 +58,7 @@ export interface PlanInput {
    */
   separately?: boolean;
   /**
-   * For the conformance tests: the functional specs asked for together, a group a request - `bind` called for 1-3, then
+   * For the conformance tests: the functional specs asked for together, a group a request - `conform` called for 1-3, then
    * for 4-6. Never two groups in one job; the functional specs in none are tested together, as before.
    */
   groups?: string[][];
@@ -401,7 +401,7 @@ function anchored(draft: DraftJob[], net: SpecChange[]): DraftJob[] {
 
 /**
  * How the conformance tests are cut, with no agent: every functional spec tested in one job - those of one module
- * together - a new job begun where the next functional spec was asked for in another group (`groups`: bind called for
+ * together - a new job begun where the next functional spec was asked for in another group (`groups`: conform called for
  * 1-3, then for 4-6), or would take the job's functional specs and the definitions they bring past `maxLines`; or,
  * `separately`, a job a functional spec, as the person asked.
  * `size`: the movable lines of the last group of a grouping, its definitions placed.

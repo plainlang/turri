@@ -41,7 +41,7 @@ describe("a job's log", () => {
     expect(text).toMatch(/· an agent's command changed app\.plain - put back\n+\[[\d:.]+\] thinking ▸\nNow the code\./);
   });
 
-  it("ends with each of its agents - turns, compactions and what it cost - and growth says the same", async () => {
+  it("ends with each of its agents - turns, compactions and what it cost - and pulses says the same", async () => {
     const jobs = createJobRegistry();
     const spent = { input: 1000, output: 200, cacheRead: 5000, cacheWrite: 0, cost: 0.05 };
     const job = jobs.start({

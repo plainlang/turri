@@ -417,7 +417,7 @@ change in exactly one job, the spec holding together after each, the last ending
 
 Each planned job knows its cases - which functional specs it adds, changes (their text, or a concept they
 use) and takes out, or none: reqs and definitions only - and the loop says them, with each job's title,
-where the person looks (`drift`, `growth`, and what `regenerate` returns).
+where the person looks (`drift`, `pulses`, and what `regenerate` returns).
 
 **Steering.** How you want the work cut and ordered - "build the batch worker's helpers with the worker",
 "models first" - goes to the grouping and placement agents with every plan, as a strong preference: it
@@ -709,13 +709,13 @@ The unit tests are written by the agent that wrote the code. Conformance tests a
 black box, end to end, written from the spec.
 
 ```bash
-turri bind <file.plain>            # every functional spec the code is built from
-turri bind <file.plain> 1 3        # functional specs 1 and 3
+turri conform <file.plain>         # every functional spec the code is built from
+turri conform <file.plain> 1 3     # functional specs 1 and 3
 ```
 
 They follow the code: a functional spec gets conformance tests once its code is built. Conformance is
 off by default: `conformance-tests: all` (or `chosen`) in the [config](config.md) turns it on, for modules
-with `***test reqs***`, and `bind` asks for it in a session. Once a codebase has conformance tests,
+with `***test reqs***`, and `conform` asks for it in a session. Once a codebase has conformance tests,
 they are always run and kept passing, whether or not the current render writes new ones, and they
 are carried up to the modules built on top of it.
 
@@ -725,22 +725,24 @@ In the work loop, conformance is a track beside the code's. What the conformance
 recorded apart - `tests/.turri.json`: the functional specs they test, as built, with their acceptance
 tests, the definitions and implementation reqs they were written against, and the test reqs they follow -
 and the work is from that record to what they are to be: of the functional specs the code is built from,
-those chosen - every one, or those `bind` names - as the spec has them, with its test reqs. A
+those chosen - every one, or those `conform` names - as the spec has them, with its test reqs. A
 functional spec whose code is behind the spec - built from other text, or not in the code record at all, as while
 `regenerate` grows it again by name - keeps its tests until the code lands; they are taken out only once the spec and the
 code have both dropped it. The harness cuts the work into jobs, and no agent is asked: every functional spec
-tested - added or changed, asked for by `bind`, chosen, or left by the code jobs - is in one conformance job, a
+tested - added or changed, asked for by `conform`, chosen, or left by the code jobs - is in one conformance job, a
 module's own together, as far as a guardrail lets: a new job begins only where the next functional spec would take
 the job's functional specs and the definitions they bring past 120 lines. The reqs they are written against go
-with the first job, and do not count. When the person asks for it - one at a time, separately - `bind`'s
-`one_by_one` (`turri bind --one-by-one`) makes it a job a functional spec instead, until conformance tests are asked
-for again without it. And when the person asks for them in pulses of their own grouping - 1-3 and 4-6 - `bind`'s
+with the first job, and do not count. When the person asks for it - one at a time, separately - `conform`'s
+`one_by_one` (`turri conform --one-by-one`) makes it a job a functional spec instead, until conformance tests are asked
+for again without it. And when the person asks for them in pulses of their own grouping - 1-3 and 4-6 - `conform`'s
 `groups` gives each group a job of its own: a job never takes functional specs of two groups, and within a group the
 guardrail still cuts. Only work that
 touches no functional spec at all, the test reqs changed say, is a job without one. A module's conformance jobs run
 on its lane once its code is built - every code job of it landed - so the module is tested once, as built: one
 explorer, one run of the whole suite, rather than a conformance cycle after each code job; and they pass before
-anything is built on it.
+anything is built on it. Until then they are not planned, but what is planned lists them last - `conformance tests -
+planned once the code is built` - wherever they are on for the whole module, so asking for them is seen to have worked;
+`conform` asked again for a module they are on for already says so, and changes nothing.
 
 A conformance job is a spec diff's conformance run: the tests of its change written, changed or taken out,
 a failure judged - the test or the code wrong - and fixed, then the whole suite with the unit tests, the
@@ -748,31 +750,31 @@ tests the module inherits with them. The run that passed already was of the whol
 folder holds the chain's, copied up - so the suite is run once more only when the code or the tests changed after
 it passed with the unit tests; otherwise it is not run again. Passing, the tests record is written and committed with the tests;
 otherwise all of it - code fixes included - is rolled back, and the module halts until the spec or the code
-changes, or `bind` asks again: its conformance tests, its code - nothing more is built on code whose conformance
+changes, or `conform` asks again: its conformance tests, its code - nothing more is built on code whose conformance
 tests did not pass - and every module built on it, which waits.
 
 **Up the chain.** A module built on another starts from its code and its conformance tests, copied up, and its
 conformance testing script runs those with its own. So a module waits for the one below it until that one's code
 is built and its conformance tests - those wanted, chosen or scheduled - are written and pass; only then is its
 codebase started from there.
-With `conformance-tests: false` none is written unless the conversation asks with `bind`, for
+With `conformance-tests: false` none is written unless the conversation asks with `conform`, for
 the session. With `conformance-tests: chosen` they are written for the functional specs chosen: every one with
 acceptance tests - the author said what to check - and those the chat model chooses. It chooses when the work
 is planned, ahead of the code: what `regenerate` returns lists what the
 planned code jobs add or change that no conformance test is for, chosen or scheduled, and the chat model decides
 which are worth black-box tests - what a user or a client relies on, not a detail the unit tests cover - says why,
-and calls `bind` with them; a code job's report lists any left undecided. With no conversation - `turri regenerate` - an
+and calls `conform` with them; a code job's report lists any left undecided. With no conversation - `turri regenerate` - an
 agent on `harness-model` (or `models: chooser`) chooses in its place, asked the same: as the work is planned, and once
 a module's code is built - its last code job landed - with every functional spec of it that is built and has none in
-view, it reads the module's spec and names those worth it and why, and they are bound as `bind` binds them; one it
+view, it reads the module's spec and names those worth it and why, and they are conformed as `conform` does; one it
 passed over is not offered again while its text is the same. `conformance-budget:` caps how many of a module's
 functional specs are chosen, beside those with acceptance tests - a count, or a share of them: every choice for the
 module counts against it, the chooser is told what is left and can choose no more, and the chat model is told it
-too; the person's own `bind` is not limited. The ones named are added
+too; the person's own `conform` is not limited. The ones named are added
 to those chosen before, and a functional spec that has conformance tests keeps them: they are rewritten when it
 changes, never taken out because others were named.
 
-**Scheduled ahead of the code.** `bind` may name functional specs whose code is not built yet:
+**Scheduled ahead of the code.** `conform` may name functional specs whose code is not built yet:
 each call schedules them as one group, shown at once in what is planned, after the module's last code job. Its
 functional specs are chosen once the code record has every one as the spec has it, and its tests are written once
 the module's code is built. A functional spec the spec does not have - built by no code job - or a module with no
@@ -1006,7 +1008,7 @@ review problem's fate; a reviewer keeps every problem it raised and where each s
 already checked. pi's own compaction, when the context window is nearly full, stays on beneath it.
 
 What each agent of a job did - its turns, its compactions, its tokens and cost - is at the end of the
-job's log in `.turri/jobs/`, and in `growth`.
+job's log in `.turri/jobs/`, and in `pulses`.
 
 ## Working notes
 

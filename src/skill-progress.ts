@@ -10,6 +10,10 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
  *
  * The second line says what the phase it is in does: a phase's name alone - `groundwork` - says little to someone
  * who has not read the skill.
+ *
+ * A skill of one phase, or none, has nothing to be partway through: its line is the spinner and its name alone.
+ *
+ *   ⠋ add-test-requirement
  */
 
 export interface SkillProgress {
@@ -52,6 +56,11 @@ const NARROW = 60;
  * narrow for that, compact from the left, the phases first, as many as fit.
  */
 export function skillProgressLine(progress: SkillProgress, width: number, style: ProgressStyle = PLAIN): string {
+  // One phase or none: nothing to be partway through - the spinner and the skill's name, and the attempt after a gate sent it back.
+  if (progress.phases.length <= 1) {
+    const again = progress.attempt > 1 ? style.muted(`   attempt ${progress.attempt}`) : "";
+    return truncateToWidth(`${style.now(progress.frame)} ${style.heading(progress.skill)}${again}`, width, "…");
+  }
   const head = style.heading(progress.skill);
   const tail = style.muted(whereItIs(progress));
   const steps = stepsOf(progress, style);
@@ -109,7 +118,7 @@ function compact(progress: SkillProgress, steps: string[], width: number, style:
  */
 export function skillAboutLine(progress: SkillProgress, width: number, style: ProgressStyle = PLAIN): string | undefined {
   const phase = progress.phases[progress.current];
-  if (phase === undefined || progress.about === undefined || progress.about === "") return undefined;
+  if (progress.phases.length <= 1 || phase === undefined || progress.about === undefined || progress.about === "") return undefined;
   const text = truncateToWidth(`${phase} - ${progress.about}`, width, "…");
   const left = width < NARROW ? 0 : Math.floor((width - visibleWidth(text)) / 2);
   return `${" ".repeat(left)}${style.muted(text)}`;

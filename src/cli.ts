@@ -78,7 +78,7 @@ const COMMANDS: Record<string, { module: string; blurb: string; args?: string[] 
   regenerate: { module: "./regenerate-cli.ts", blurb: "regenerate a module and its chain from the spec as it is (with frids: grow those again)" },
   glimpse: { module: "./regenerate-cli.ts", blurb: "plan the work and print the first job's prompt, starting nothing", args: ["--dry-run"] },
   drift: { module: "./drift-cli.ts", blurb: "what is left to grow: how far the code has drifted from its spec" },
-  bind: { module: "./bind-cli.ts", blurb: "write and run a module's conformance tests" },
+  conform: { module: "./conform-cli.ts", blurb: "write and run a module's conformance tests" },
   "spec-diff": { module: "./spec-diff-cli.ts", blurb: "apply a change to the specs, given as a git diff, and regenerate it" },
   validate: { module: "./validate-cli.ts", blurb: "validate a ***plain spec, growing nothing" },
   lineage: { module: "./lineage-cli.ts", blurb: "a module's lineage: what grew into it, and when" },

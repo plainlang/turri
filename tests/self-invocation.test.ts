@@ -6,13 +6,13 @@ describe("a shell command that runs turri again", () => {
     expect(selfInvocation("turri regenerate app.plain --model openai/gpt-5.5")).toBe("regenerate");
     expect(selfInvocation("cd ~/proj && turri spec-diff app.plain change.diff")).toBe("spec-diff");
     expect(selfInvocation("nohup turri regenerate app.plain 3 > log 2>&1 &")).toBe("regenerate");
-    expect(selfInvocation("npx turri bind app.plain 1")).toBe("bind");
+    expect(selfInvocation("npx turri conform app.plain 1")).toBe("conform");
     expect(selfInvocation("node bin/turri.mjs cultivate genome/skills/brood")).toBe("cultivate");
     expect(selfInvocation("npm run regenerate -- app.plain")).toBe("regenerate");
     expect(selfInvocation("npx tsx src/regenerate-cli.ts app.plain 1")).toBe("regenerate");
     expect(selfInvocation("turri regenerate app.plain")).toBe("regenerate");
     expect(selfInvocation("turri glimpse app.plain")).toBe("glimpse");
-    expect(selfInvocation("turri bind app.plain 2")).toBe("bind");
+    expect(selfInvocation("turri conform app.plain 2")).toBe("conform");
     expect(selfInvocation("turri release app.plain")).toBe("release");
     expect(selfInvocation('pi -p "build it"')).toBe("pi");
     expect(selfInvocation("turri -p 'render the module'")).toBe("chat");

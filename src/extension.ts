@@ -60,6 +60,7 @@ import {
   defaultParallelJobs,
   describeJob,
   formatDuration,
+  pulseName,
   shouldWait,
   STOPPED_ON_REQUEST,
   type Job,
@@ -584,7 +585,7 @@ export default function (pi: ExtensionAPI) {
         }, (question) => askOnTheSide(pi, ctx, cwd, jobs, question)),
         model: conversationModel(ctx),
         // Renders queued by a step land in the same registry as everything else, so
-        // growth sees them without knowing a skill started them.
+        // pulses sees them without knowing a skill started them.
         // Asked per job as it is queued, so a model chosen mid-interview applies from then on.
         renderQueue: workLoopFor(jobs, cwd, ctx),
         // A skill that waits for its builds and reads what they recorded - `mature` - sees the same jobs.
@@ -592,12 +593,12 @@ export default function (pi: ExtensionAPI) {
         // The person answers the skill's agent while it runs, so it can take "render these with ..." too.
         // validate too: a skill validates what it wrote with the same check the conversation has.
         sharedTools: [setRenderModelTool(pi, ctx), checkPlainTool(cwd), ...createWebTools()],
-        // The conversation's own regenerate, drift, halt and bind, on its loop: a skill waits for nothing, and grows on the model chosen.
+        // The conversation's own regenerate, drift, halt and conform, on its loop: a skill waits for nothing, and grows on the model chosen.
         loopTools: [
           regenerateTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named, work) => jobModel(ctx, work ?? "spec_changes", named, plainFile), wait: () => false }),
           driftTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx) }),
           haltTool({ jobs }),
-          bindTool({ cwd, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
+          conformTool({ cwd, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
         ],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
         // UI there is nobody to ask, so the gate stands.
@@ -761,7 +762,7 @@ function registerDrift(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
 
 function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   pi.registerTool(
-    bindTool({
+    conformTool({
       cwd,
       loop: (ctx) => workLoopFor(jobs, cwd, ctx),
       model: (ctx, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile),
@@ -771,10 +772,10 @@ function registerBind(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
 }
 
 /**
- * bind, for the conversation and for a skill that names it in its allowed-tools - the skill's on the conversation's
+ * conform, for the conversation and for a skill that names it in its allowed-tools - the skill's on the conversation's
  * loop, its pulses scheduled like any other.
  */
-function bindTool(options: {
+function conformTool(options: {
   cwd: string;
   loop: (ctx: ExtensionContext) => WorkLoop;
   model: (ctx: ExtensionContext, plainFile: string, named: string | undefined) => string | undefined;
@@ -782,8 +783,8 @@ function bindTool(options: {
 }) {
   const { cwd } = options;
   return defineTool({
-    name: "bind",
-    label: "Bind conformance tests",
+    name: "conform",
+    label: "Conform",
     description:
       "Write and run the black-box conformance tests of a module's functional specs - the ones named, or every one - on " +
       "the code as it is built, in a pulse of their own - every functional spec tested in one, as far as a size guardrail " +
@@ -794,10 +795,10 @@ function bindTool(options: {
       "once and starts when the module's code is built - every code pulse of it landed - before anything is built on it. A functional spec " +
       "the spec does not have, or a module without test reqs, is refused. A conformance pulse checks, as it starts, that " +
       "the code record has every functional spec it tests, and does not start otherwise.",
-    promptSnippet: "bind functional specs to conformance tests - now, or ahead of their code",
+    promptSnippet: "conform: write and run conformance tests for functional specs - now, or ahead of their code",
     promptGuidelines: [
-      "When the user asks for conformance tests - for a module, or some of its functional specs - call bind. Never edit config.turri.yaml for it, and never regenerate a functionality to get them.",
-      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regenerate returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call bind with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
+      "When the user asks for conformance tests - for a module, or some of its functional specs - call conform. Never edit config.turri.yaml for it, and never regenerate a functionality to get them.",
+      "Under conformance-tests: chosen, choose when the work is planned, not once it is built: what regenerate returns lists the functional specs the planned code pulses add or change that no conformance test is for - decide which are worth black-box tests, say why, and call conform with their numbers straight away. A code pulse's report lists any left undecided. The ones named are added to those chosen before; a functional spec tested already keeps its tests.",
       "Conformance tests go in one pulse for all the functional specs tested. Set one_by_one only when the user asks for a pulse a functional spec - one at a time, separately, or the like.",
       "When the user asks for the conformance tests in pulses of their own grouping - 1-3 and 4-6 - pass those groups as groups, in one call: each group is a pulse of its own, never sharing one with another. Without groups, every functional spec named goes in one pulse.",
       "A conformance pulse that did not start because its code is not built: tell the user which functional specs it waits for, and which code pulse builds them.",
@@ -1030,7 +1031,7 @@ export function projectConfigBlock(root: string): string {
         config.conformanceTests === false
           ? "- conformance-tests: false - conformance tests are OFF: renders write none and run none, unless the user asks for them in this conversation."
           : config.conformanceTests === "chosen"
-            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with bind - when the work is planned, ahead of its code: what is planned lists what the code pulses add or change that has none, and a conformance pulse scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
+            ? "- conformance-tests: chosen - conformance tests are on for the functional specs chosen: those with acceptance tests always, and those you choose with conform - when the work is planned, ahead of its code: what is planned lists what the code pulses add or change that has none, and a conformance pulse scheduled starts once every functional spec it names is built. Once chosen, a functional spec keeps them."
             : config.conformanceTests === true
             ? "- conformance-tests: all - conformance tests are on, for every functional spec of every module that has test reqs."
             : "- conformance-tests: not set - conformance tests are OFF, as with false: renders write none and run none, unless the user asks for them in this conversation.",
@@ -1367,7 +1368,7 @@ async function deliver(
               "It is running now and will report back when it finishes - nothing to wait for: if what you are doing has a " +
               "next step, take it now, in this same turn, and tell the user it has started alongside it, never as a reply " +
               "that ends your turn. ") +
-          `Use growth with "${job.id}" if they ask how it is going.`,
+          `Use pulses with "${job.id}" if they ask how it is going.`,
       },
     ],
     details: { jobId: job.id, status: job.status },
@@ -1400,12 +1401,12 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   });
 
   pi.registerTool({
-    name: "growth",
-    label: "Growth",
+    name: "pulses",
+    label: "Pulses",
     description:
       "What is growing: with no pulse, every pulse of this session - running, planned and finished - and what deploy started; " +
       "with a pulse's id, that pulse - whether it is still running, its latest output, and its report once it has finished.",
-    promptSnippet: "growth: the pulses, or one pulse - what is growing and how it is going",
+    promptSnippet: "pulses: every pulse, or one - what is growing and how it is going",
     parameters: Type.Object({
       job_id: Type.Optional(Type.String({ description: "The id returned when the pulse started. Omitted: every pulse" })),
       wait: Type.Optional(
@@ -1420,7 +1421,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       const planned = shownJobs(jobs).find((job) => job.id === params.job_id && jobs.get(job.id) === undefined);
       if (planned !== undefined) {
         return {
-          content: [{ type: "text" as const, text: `${planned.id} · ${planned.summary}: ${planned.note ?? "planned, not started"}${planned.waitingOn.length > 0 ? ` It runs after ${planned.waitingOn.join(", ")}.` : ""}` }],
+          content: [{ type: "text" as const, text: `${planned.id} · ${pulseName(planned)}: ${planned.note ?? "planned, not started"}${planned.waitingOn.length > 0 ? ` It runs after ${planned.waitingOn.join(", ")}.` : ""}` }],
           details: { status: "planned" },
         };
       }
@@ -1457,7 +1458,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       let id = args.trim();
       if (id === "") {
         if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is growing or queued.", "info");
-        const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${job.summary}`;
+        const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${pulseName(job)}`;
         const labels = [...live.map(label), ...deployed.map((item) => deployedLabel(item.name, item.url ?? item.command))];
         const picked = await ctx.ui.select("Halt which?", labels);
         const job = live.find((candidate) => picked !== undefined && label(candidate) === picked);
@@ -1802,7 +1803,7 @@ function jobLines(all: Job[]): string {
       const after = job.status === "queued" && job.waitingOn.length > 0 ? `  (after ${job.waitingOn.join(", ")})` : "";
       const spent = describeUsage(job.usage);
       const model = job.model ? `  · ${job.model}` : "";
-      return `${job.id}  ${(planned ? "planned" : job.status).padEnd(9)} ${time.padStart(7)}  ${job.kind}: ${job.summary}${model}${after}${spent ? `  · ${spent}` : ""}`;
+      return `${job.id}  ${(planned ? "planned" : job.status).padEnd(9)} ${time.padStart(7)}  ${pulseName(job)}${model}${after}${spent ? `  · ${spent}` : ""}`;
     })
     .join("\n");
 }
@@ -1928,7 +1929,7 @@ async function askOnTheSide(pi: ExtensionAPI, ctx: ExtensionContext, cwd: string
       question,
       conversation: transcriptOf(entries, 24_000),
       ...(skill !== undefined ? { skill: { name: skill.skill, dir: skill.dir, step: skill.step(), trace: skill.trace(), session: skillSessionText(skill.runDir) } } : {}),
-      pulses: jobs.list().map((job) => `${job.id} ${job.status}: ${job.summary}`),
+      pulses: jobs.list().map((job) => `${job.id} ${job.status}: ${pulseName(job)}`),
       projectDir: cwd,
       harnessDir: PACKAGE_ROOT,
     },
@@ -2053,7 +2054,7 @@ function specConflictTask(conflict: SpecConflict): string {
     "4. Only once they have decided, make the change they chose to the .plain file it belongs in - either module's -",
     "   and regenerate it - its conformance tests follow it.",
     "If analyze-2-func-specs finds the two compatible, tell the user so, and that the conformance tests of these two are what",
-    "kept failing - offer to bind them again.",
+    "kept failing - offer to conform them again.",
   ].join("\n");
 }
 

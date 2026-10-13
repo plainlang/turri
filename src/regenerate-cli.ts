@@ -32,7 +32,7 @@ const GONE: Record<string, string> = {
   "conformance-root": "conformance tests are in plain_modules/<module>/tests",
   "max-regression-rounds": "each conformance job runs the whole suite",
   "try-it": "run turri release to try what is grown",
-  conformance: `set conformance-tests: in ${CONFIG_FILE}, or turri bind`,
+  conformance: `set conformance-tests: in ${CONFIG_FILE}, or turri conform`,
   "no-conformance": `set conformance-tests: false in ${CONFIG_FILE}`,
   "template-dir": "set PLAIN_TEMPLATE_DIRS",
 };

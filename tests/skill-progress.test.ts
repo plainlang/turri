@@ -53,6 +53,14 @@ describe("a skill's progress, above the input", () => {
     expect(narrow).toContain("…");
   });
 
+  it("shows a skill of one phase, or none, as the spinner and its name alone - no phases, no where it is, nothing under it", () => {
+    const single = (phases: string[], attempt = 1): SkillProgress => ({ skill: "add-test-requirement", phases, current: phases.length - 1, attempt, frame: "⠹", about: "write it" });
+    expect(skillProgressLine(single(["add-test-requirement"]), 120)).toBe("⠹ add-test-requirement");
+    expect(skillProgressLine(single([]), 120)).toBe("⠹ add-test-requirement");
+    expect(skillProgressLine(single(["add-test-requirement"], 2), 120)).toBe("⠹ add-test-requirement   attempt 2");
+    expect(skillAboutLine(single(["add-test-requirement"]), 120)).toBeUndefined();
+  });
+
   it("reads its phases from the skill itself - brood's four, spawn's three", () => {
     const phases = (name: string) => loadSkill(join(process.cwd(), "genome", "skills", name)).steps.map((step) => step.name);
     expect(phases("brood")).toEqual(["intent", "stack", "testing", "product"]);
