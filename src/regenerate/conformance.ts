@@ -45,6 +45,8 @@ import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-age
 import {
   codeFixPrompt,
   conflictKey,
+  escalatedFixPrompt,
+  type Evidence,
   createCodeFixer,
   answerAsExplorer,
   createAskExplorerTool,
@@ -170,6 +172,12 @@ export interface RenderConformanceTestsResult {
    * times in a row: only the person can fix it, so the run stopped.
    */
   environment?: { reason: string; times: number };
+  /**
+   * The tests' fix for a failure did not make it go away, the judge found it the code's and escalated it to the coding
+   * agent - and the run still failed the same way after the code's fix too: why the judge found it the code's, on what
+   * evidence, and the error the run stopped on.
+   */
+  escalation?: { reason: string; evidence: Evidence[]; error: string; failure: string; changedNothing?: boolean };
   /** The tests were sent back to be written and labelled, and never were: what was missing the last time. */
   unlabelled?: string[];
   /** The tests were optimised as far as REVIEW_ROUNDS reviews could take them: what the last one still suggested. */
@@ -348,6 +356,11 @@ export async function renderConformanceTests(
   let environmentRaises = 0;
   /** How many fixes in a row - the code's or the tests' - changed no file: an agent that will not, or cannot, act on the verdict. */
   let idleFixes = 0;
+  /** The last fix was the tests', for a failure judged theirs: should the run fail the same way again, the judge weighs escalating it. */
+  let testsFix: { signature: string; reason: string; files: string[] } | undefined;
+  /** A failure escalated to the code: should the run still fail the same way after the code's fix, the run stops. */
+  let escalated: { signature: string; reason: string; evidence: Evidence[] } | undefined;
+  let escalation: RenderConformanceTestsResult["escalation"];
   /**
    * One attempt at the failing run, written into the notes' pitfalls - what the next judge reads
    * first - as cause and effect: what failed, how it was judged, and what was changed; the next
@@ -592,6 +605,15 @@ export async function renderConformanceTests(
         if (start !== undefined) abandonWork(start, moduleName, "the conformance testing script could not run");
         throw lacking;
       }
+      // A failure escalated to the code, still the same after the code's fix: neither agent could fix it, and the run stops
+      // with why the judge found it the code's. Anything else it fails on is a new failure, judged as any other.
+      if (escalated !== undefined && recheck.exitCode !== 0 && failureSignature(recheck) === escalated.signature) {
+        escalation = { reason: escalated.reason, evidence: escalated.evidence, error: failureLine(recheck), failure: truncateOutput(recheck.output, undefined).slice(-4000) };
+        stage("the failure escalated to the code is still there after the coding agent's fix - stopping");
+        recordNote(conformanceDir, "pitfalls", `stopped after ${rounds} attempts: failed with ${failureLine(recheck)}, escalated to the code - ${escalated.reason.replace(/\s+/g, " ").slice(0, 240)} - and the code's fix did not change it`, `${label} conformance`);
+        break;
+      }
+      escalated = undefined;
       if (recheck.exitCode !== 0) {
         // Nothing changing: the same failure, taken the same way, round after round. Once, the explorer
         // is asked what the tests lack - most often how they reach the software; after that, it stops.
@@ -679,6 +701,11 @@ export async function renderConformanceTests(
           recordNote(conformanceDir, "pitfalls", `stuck after ${rounds} attempts: failed with ${failureLine(recheck)}, and ${IDLE_FIXES} fixes in a row changed nothing`, `${label} conformance`);
           return true;
         };
+        // The tests were fixed for this very failure, and it is still here: the judge weighs whether it is the code's.
+        const signature = failureSignature(recheck);
+        const escalating = testsFix !== undefined && testsFix.signature === signature ? { reason: testsFix.reason, changed: testsFix.files } : undefined;
+        testsFix = undefined;
+        if (escalating !== undefined) stage("the tests' fix did not make the failure go away - the judge weighs whether it is the code's");
         const verdict = await judgeFailure({
           buildDir,
           conformanceDir,
@@ -688,6 +715,9 @@ export async function renderConformanceTests(
           scope,
           // The tests' notes - every attempt so far - and the code's: it weighs the one against the other.
           notes: [notesToRead(conformanceDir), notesToRead(buildDir)].filter((part) => part !== "").join("\n\n"),
+          // The script itself, so the judge checks the explorer's account against it rather than repeating it.
+          testingScripts,
+          ...(escalating !== undefined ? { escalation: escalating } : {}),
           label,
           model: judgeModel,
           onDelta: options.onDelta,
@@ -763,14 +793,32 @@ export async function renderConformanceTests(
           response = fixed.result;
           recordAttempt(rounds, recheck, `a spec conflict between functionalities ${key}: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
         } else if (verdict.culprit === "code") {
-          reportActivity(`  the code: ${reason}`);
-          stage("the code is wrong - the coding agent fixes it");
-          // One fixer for the run, starting each fix from what the ones before it tried: its work is compacted as
-          // it gets longer, so a session carried through the run does not re-read every earlier fix and suite output
-          // whole.
-          const fixed = await changing(() => askFixer(codeFixPrompt({ run: recheck, reason: verdict.reason })));
-          recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
-          if (idle(fixed.files)) break;
+          if (escalating !== undefined) {
+            // Escalated: the coding agent is handed the script's error, the tests as they stand and the judge's evidence.
+            // Its fix is the last attempt at this failure - should the run fail the same way after it, the run stops.
+            const evidence = verdict.evidence ?? [];
+            reportActivity(`  escalated to the code: ${reason}`);
+            stage("the judge finds the failure the code's - escalated to the coding agent");
+            const tests = listFiles(conformanceDir).map((path) => ({ path, content: readFileSync(join(conformanceDir, path), "utf8") }));
+            const fixed = await changing(() => askFixer(escalatedFixPrompt({ run: recheck, reason: verdict.reason, evidence, tests })));
+            recordAttempt(rounds, recheck, `escalated to the code: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
+            if (fixed.files.length === 0) {
+              escalation = { reason: verdict.reason, evidence, error: failureLine(recheck), failure: truncateOutput(recheck.output, undefined).slice(-4000), changedNothing: true };
+              stage("the coding agent changed nothing for the failure escalated to it - stopping");
+              break;
+            }
+            idleFixes = 0;
+            escalated = { signature, reason: verdict.reason, evidence };
+          } else {
+            reportActivity(`  the code: ${reason}`);
+            stage("the code is wrong - the coding agent fixes it");
+            // One fixer for the run, starting each fix from what the ones before it tried: its work is compacted as
+            // it gets longer, so a session carried through the run does not re-read every earlier fix and suite output
+            // whole.
+            const fixed = await changing(() => askFixer(codeFixPrompt({ run: recheck, reason: verdict.reason })));
+            recordAttempt(rounds, recheck, `the code wrong: ${verdict.reason}`, { who: "coding agent", files: fixed.files });
+            if (idle(fixed.files)) break;
+          }
           // The fix has to build and pass its own unit tests before the suite runs again: a build
           // error is the coding agent's to fix, not a judge's to work out from the suite's output.
           for (let again = 0; again < FIX_UNIT_CHECKS; again += 1) {
@@ -789,7 +837,10 @@ export async function renderConformanceTests(
           const fixed = await changing(() => askConformance(testsFixPrompt({ run: recheck, reason: verdict.reason }), options.onDelta));
           response = fixed.result;
           recordAttempt(rounds, recheck, `the tests wrong: ${verdict.reason}`, { who: "conformance agent", files: fixed.files });
-          if (idle(fixed.files)) break;
+          testsFix = { signature, reason: verdict.reason, files: fixed.files };
+          // A fix that changed nothing does not stop the run before the judge has weighed escalating the failure.
+          if (escalating === undefined) idleFixes = fixed.files.length === 0 ? idleFixes + 1 : 0;
+          else if (idle(fixed.files)) break;
         }
         continue;
       }
@@ -957,6 +1008,7 @@ export async function renderConformanceTests(
       ...(specConflict !== undefined ? { specConflict } : {}),
       ...(stuck !== undefined ? { stuck } : {}),
       ...(environment !== undefined ? { environment } : {}),
+      ...(escalation !== undefined ? { escalation } : {}),
       ...(unlabelled !== undefined ? { unlabelled } : {}),
       ...(reviewWaived !== undefined ? { reviewWaived } : {}),
       ...(verified && green !== undefined ? { green } : {}),

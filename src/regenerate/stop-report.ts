@@ -28,7 +28,7 @@ export interface StopFacts {
   at: StopPoint;
   /** The unit test runs, the last of which is the failing one. */
   runs?: TestRun[];
-  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck" | "environment" | "review" | "unlabelled">;
+  conformance?: Pick<RenderConformanceTestsResult, "runs" | "rounds" | "specConflict" | "stuck" | "environment" | "escalation" | "review" | "unlabelled">;
   /** Repairs made to earlier functionalities' code before it gave up. */
   repairs?: number;
   /** How many times the harness judged it before it stopped - the unit tests' attempts. */
@@ -122,6 +122,18 @@ export function describeStop(facts: StopFacts): string {
       "its conformance tests were never written and labelled as the two kinds - conformance tests and each acceptance test - " +
       `though they were sent back for it again and again. Still missing:\n${facts.conformance.unlabelled.map((line) => `    - ${line}`).join("\n")}`;
     todo = ["If the test reqs leave open where the tests go or how they are built, say so exactly - the folder, the files, the build."];
+  } else if (facts.at === "conformance" && facts.conformance?.escalation !== undefined) {
+    const { error, reason, evidence, changedNothing } = facts.conformance.escalation;
+    why =
+      `its conformance tests kept failing with ${error}. The conformance agent's fix of the tests did not make it go away, so ` +
+      `a judge looked again and found it the code's; the coding agent ${changedNothing === true ? "changed nothing for it" : "fixed the code, and the run still failed the same way"}. ` +
+      `Why the judge found it the code's:\n${reason.trim().split("\n").map((line) => `    ${line}`).join("\n")}` +
+      (evidence.length > 0 ? `\n  On the evidence:\n${evidence.map((item) => `    - ${item.source.trim()}: ${item.shows.trim().replace(/\s+/g, " ")}`).join("\n")}` : "");
+    todo = [
+      "If the code has to produce something the spec leaves open - a build output, an entry point, a module the conformance testing " +
+        "script runs or checks for - say exactly what in the implementation reqs: its path and how it is built.",
+      "If the conformance testing script expects something the spec does not ask for, change the script or the test reqs so the two agree.",
+    ];
   } else if (facts.at === "conformance" && facts.conformance?.stuck !== undefined) {
     const { error, times, rounds, changedNothing } = facts.conformance.stuck;
     why =

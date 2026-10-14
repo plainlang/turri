@@ -906,10 +906,16 @@ agent is told that a failure of the software itself - it does not build or start
 spec says it must not - is not the tests' to work around. When it fails, a judge - an agent that reads
 the code and the tests, changes neither, and holds both to the spec - decides which is wrong. It has the
 file tools and the web (`web_search`, `web_fetch`), to look up what a service the code calls answers - no shell: it
-judges from the code, the tests, the spec and the failing run's output, and its file tools write nothing:
+judges from the code, the tests, the spec, the conformance testing script word for word and the failing run's output,
+and its file tools write nothing. The explorer's account of how the code is invoked is in its prompt too, marked as
+written before the run and possibly wrong: the judge checks what it uses of it against the script and the files, and
+gives in `evidence` what it found itself. The script is fixed - neither agent can change it - so it is never the
+culprit: what it does with the tests, the tests fit; what it needs of the build, the code provides.
 
 - **the code:** the coding agent - in the code's folder, reading the tests but never changing them - fixes it,
-  and keeps its unit tests passing;
+  and keeps its unit tests passing. The judge quotes the spec's own words the code does not meet, or the testing
+  script's for what it needs of the build (`script_needs`: a build output, an entry point, a module) - each checked
+  by the harness against the text it quotes;
 - **the tests:** the conformance agent corrects them to what the spec says;
 - **the spec:** two functional specs cannot both hold, whatever the code does;
 - **the environment:** neither the code nor the tests can fix it - only the person can, in what the run is given:
@@ -952,6 +958,20 @@ taken out of their lines - numbers, times, paths, colour codes, and the ids a se
 response, a UUID or a correlation id. Nothing changes either when the agent sent to fix the code or the tests
 changes no file: two such fixes in a row, and the run stops. The conformance agent has the testing script in its prompt,
 and is told to fit the tests' own build to it.
+
+**Escalation.** A failure judged the tests' goes to the conformance agent first: it owns the tests. When the run then
+fails the same way - the fix changed nothing, or nothing that mattered - the judge is asked again, now whether the
+failure belongs to the code rather than the tests: the run failing on something the code is meant to produce (a build
+output, an entry point, a module the testing script needs), or the tests running and the behaviour itself being
+wrong. Its verdict, either way, has to rest on evidence it gathered: each piece from a file it opened (the harness
+keeps track of what it read, listed and searched), the testing script or the failing run - and not the run alone.
+A verdict without it is sent back; a verdict of code still without it is taken as the tests'. Judged the tests'
+again, the failure stays with the conformance agent, and a fix that changes nothing counts towards stopping as
+before. Judged the code's, it is escalated to the coding agent, handed the script's error, the conformance tests as
+they stand and the judge's reason and evidence (`the script runs dist/cli.js; the build emits dist/src/cli.js`). Its
+fix has to build and pass the unit tests, then the suite runs again. Should the run still fail the same way - or the
+fix change nothing - the run stops there, with the judge's reasoning and evidence in what the person is told. Each of
+these runs is one of the run's 20 attempts, so a failure neither agent can fix stops in three of them.
 
 Every attempt is written into the working notes' pitfalls by the harness as cause and effect - what
 the run failed with, how it was judged, and which files the agent sent to fix it changed; the next

@@ -14,7 +14,7 @@ type StubSession = { tools: Array<{ name: string; execute: (...args: unknown[]) 
 const asked: Array<{ role: string; prompt: string }> = [];
 let codeDir = "";
 /** What the stubbed judge says, and which functionality the stubbed conformance agent labels its tests for. */
-let judgeSays: () => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye.", spec_says: "The app prints hello." });
+let judgeSays: (prompt: string) => Record<string, unknown> = () => ({ culprit: "code", reason: "The spec says the app prints hello; the code prints goodbye.", spec_says: "The app prints hello." });
 let testedFrid = "1";
 /** What the stubbed test reviewer says. */
 let reviewSays: () => Record<string, unknown> = () => ({ pass: true, problems: [] });
@@ -31,6 +31,10 @@ let touchesTests = false;
 let touches = 0;
 /** When set, the stubbed conformance agent's tests carry a `BAD` the checking script finds - until it is sent back with exit 80. */
 let staticBad = false;
+/** When set, the stubbed conformance agent's first test asserts "Hello!" - a test bug, fixed once it is sent back. */
+let firstTestWrong = false;
+/** What the stubbed coding agent does with a failure escalated to it: builds the dist/app.py the script needs, or misses. */
+let escalatedFix: "builds" | "misses" = "builds";
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -73,7 +77,17 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         return "Ruled.";
       }
       if (session.role === "judge") {
-        await tool("submit_verdict").execute("id", judgeSays());
+        const verdict = judgeSays(prompt);
+        // It opens what it cites as evidence: a file or a folder - the testing script and the run it is given.
+        for (const item of (verdict.evidence as Array<{ source: string }> | undefined) ?? []) {
+          if (item.source.startsWith("/")) await tool(existsSync(item.source) && !item.source.endsWith(".py") ? "ls" : "read").execute("id", { path: item.source });
+        }
+        await tool("submit_verdict").execute("id", verdict);
+        return "Done.";
+      }
+      if (session.role === "coding agent" && prompt.includes("<evidence>")) {
+        await tool("write").execute("id", escalatedFix === "builds" ? { path: join(codeDir, "dist", "app.py"), content: "print('hello')\n" } : { path: join(codeDir, "app.py"), content: "print('hello')  # fixed\n" });
+        await tool("run_unit_tests").execute("id", {});
         return "Done.";
       }
       if (session.role === "coding agent") {
@@ -115,7 +129,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
             `# conformance tests of functionality ${testedFrid}\n${touchesTests ? `# fix ${(touches += 1)}\n` : ""}${staticBad && !prompt.includes("Exit 80") ? "# BAD\n" : ""}import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
             "    def test_prints_hello(self):\n" +
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
-            "        self.assertEqual(out.strip(), 'hello')\n",
+            `        self.assertEqual(out.strip(), '${firstTestWrong && !prompt.includes("a test is what is wrong") ? "Hello!" : "hello"}')\n`,
         });
       }
       await tool("run_conformance_tests").execute("id", {});
@@ -151,6 +165,8 @@ beforeEach(() => {
   touchesTests = false;
   touches = 0;
   staticBad = false;
+  firstTestWrong = false;
+  escalatedFix = "builds";
   reviewSays = () => ({ pass: true, problems: [] });
   arbiterRules = undefined;
 });
@@ -512,5 +528,127 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(result.review).toEqual([{ file: "test_acceptance_hello.py", kind: "missing", what: "The acceptance test's exit code check is missing." }]);
     const { describeStop } = await import("../../src/regenerate/stop-report.ts");
     expect(describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result })).toContain("never passed review");
+  });
+
+  describe("a failure the tests' fix does not make go away", () => {
+    // The conformance testing script needs the build to have dist/app.py, and stops before any test runs without it.
+    const NEEDS_DIST = [
+      "#!/bin/bash",
+      'WORKING_FOLDER="$(mktemp -d)" && trap \'rm -rf "$WORKING_FOLDER"\' EXIT',
+      'cp -R "$1"/. "$WORKING_FOLDER" && cd "$WORKING_FOLDER" || exit 2',
+      "[ -f dist/app.py ] || { echo \"Error: 'dist/app.py' missing (build not done).\"; exit 1; }",
+      'python3 -m unittest discover -s "$2" -t "$2"',
+      "",
+    ].join("\n");
+    const codeVerdict = () => ({
+      culprit: "code",
+      reason: "The script runs the build's dist/app.py, and the build has no dist folder: the code does not provide it.",
+      script_needs: "[ -f dist/app.py ]",
+      evidence: [
+        { source: "testing script", shows: "it stops unless the build has dist/app.py" },
+        { source: codeDir, shows: "the code has app.py at its root and no dist folder" },
+      ],
+    });
+    beforeEach(() => {
+      writeTestScripts(root, { conformance: NEEDS_DIST });
+      writeFileSync(join(codeDir, "app.py"), "print('hello')\n");
+      // Judged the tests' first; asked again once their fix changed nothing, the judge finds it the code's.
+      judgeSays = (prompt) =>
+        prompt.includes("<escalation>")
+          ? codeVerdict()
+          : { culprit: "tests", reason: "The tests reach the build the wrong way: the build is prepared elsewhere." };
+    });
+
+    it("is escalated by the judge to the coding agent, with the script's error, the tests and the evidence - and lands once the code's fix passes", async () => {
+      const stages: string[] = [];
+      const sink = { stage: (label: string) => stages.push(label), activity() {}, now() {}, usage() {}, transcript() {}, spec() {} };
+      const result = await withActivity(sink, () =>
+        renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") }),
+      );
+
+      expect(result.passed).toBe(true);
+      expect(result.codeChanged).toBe(true);
+      expect(result.escalation).toBeUndefined();
+      expect(readFileSync(join(codeDir, "dist", "app.py"), "utf8")).toBe("print('hello')\n");
+      // The tests first, then the judge again - escalating - and the coding agent; the third run passes.
+      expect(result.rounds).toBe(3);
+      const judges = asked.filter((turn) => turn.role === "judge");
+      expect(judges).toHaveLength(2);
+      expect(judges[0]!.prompt).not.toContain("<escalation>");
+      // Every judge reads the testing script itself, and is told the explorer's account may be wrong.
+      expect(judges[0]!.prompt).toContain("<conformance testing script path=\"test_scripts/run_conformance_tests_python.sh\"");
+      expect(judges[0]!.prompt).toContain("[ -f dist/app.py ]");
+      expect(judges[0]!.prompt).toContain("<how to invoke it> is the explorer's account, written before the run, and it can be wrong");
+      expect(judges[1]!.prompt).toContain("<escalation>");
+      expect(judges[1]!.prompt).toContain("The tests reach the build the wrong way");
+      expect(stages).toContain("module app, functionality 1: the judge finds the failure the code's - escalated to the coding agent");
+      const coder = asked.find((turn) => turn.role === "coding agent")!.prompt;
+      expect(coder).toContain("Error: 'dist/app.py' missing (build not done).");
+      expect(coder).toContain("The script runs the build's dist/app.py, and the build has no dist folder");
+      expect(coder).toContain('The conformance testing script needs: "[ -f dist/app.py ]"');
+      expect(coder).toContain(`- ${codeDir}: the code has app.py at its root and no dist folder`);
+      expect(coder).toContain('<conformance test path="test_conformance_hello.py">');
+      expect(coder).toContain("self.assertEqual(out.strip(), 'hello')");
+    });
+
+    it("stops with the judge's reasoning when the coding agent's fix fails too", async () => {
+      escalatedFix = "misses";
+      const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+
+      expect(result.passed).toBe(false);
+      // Bounded: the tests' fix, the escalation, and the run after the code's fix - not every one of the 20 attempts.
+      expect(result.rounds).toBe(3);
+      expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(1);
+      expect(result.escalation).toMatchObject({
+        reason: expect.stringContaining("the build has no dist folder"),
+        error: expect.stringContaining("dist/app.py' missing"),
+        evidence: codeVerdict().evidence,
+      });
+      expect(result.stuck).toBeUndefined();
+      // Undone whole: the code's fix with the tests.
+      expect(readFileSync(join(codeDir, "app.py"), "utf8")).toBe("print('hello')\n");
+      const { describeStop } = await import("../../src/regenerate/stop-report.ts");
+      const stop = describeStop({ moduleName: "app", frid: "1", at: "conformance", conformance: result });
+      expect(stop).toContain("a judge looked again and found it the code's; the coding agent fixed the code, and the run still failed the same way");
+      expect(stop).toContain("The script runs the build's dist/app.py, and the build has no dist folder");
+      expect(stop).toContain("- testing script: it stops unless the build has dist/app.py");
+    });
+
+    it("stays with the conformance agent when the judge, asked again, still finds it the tests'", async () => {
+      judgeSays = (prompt) =>
+        prompt.includes("<escalation>")
+          ? { culprit: "tests", reason: "The test asserts what the spec does not say.", evidence: [{ source: join(root, "plain_modules", "app", "tests", "test_conformance_hello.py"), shows: "it asserts Hello!" }] }
+          : { culprit: "tests", reason: "The tests are wrong." };
+      const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+      expect(result.passed).toBe(false);
+      expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+      expect(result.escalation).toBeUndefined();
+      expect(result.stuck).toMatchObject({ changedNothing: true });
+    });
+
+    it("escalates nothing on a verdict of code that cites no evidence the judge found itself", async () => {
+      judgeSays = (prompt) =>
+        prompt.includes("<escalation>")
+          ? { ...codeVerdict(), evidence: [{ source: "the explorer's account", shows: "the build is prepared in .tmp/node_app" }] }
+          : { culprit: "tests", reason: "The tests are wrong." };
+      const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+      expect(result.passed).toBe(false);
+      expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+      expect(asked.some((turn) => turn.role === "judge" && turn.prompt.includes("which you did not open"))).toBe(true);
+    });
+  });
+
+  it("leaves a test bug to the conformance agent: fixed, with no escalation to the code", async () => {
+    writeFileSync(join(codeDir, "app.py"), "print('hello')\n");
+    firstTestWrong = true;
+    judgeSays = () => ({ culprit: "tests", reason: "The test expects Hello!; the spec says the app prints hello." });
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(true);
+    expect(result.codeChanged).toBe(false);
+    expect(result.rounds).toBe(2);
+    expect(asked.filter((turn) => turn.role === "judge")).toHaveLength(1);
+    expect(asked.some((turn) => turn.prompt.includes("<escalation>"))).toBe(false);
+    expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+    expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_conformance_hello.py"), "utf8")).toContain("'hello'");
   });
 });

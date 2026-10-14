@@ -783,6 +783,28 @@ export function reviewFeedbackPrompt(problems: ReviewProblem[]): string {
 
 export type Culprit = "code" | "tests" | "spec" | "environment";
 
+/** One thing the judge found, and where: a file it opened, `testing script`, or `failing run`. */
+export interface Evidence {
+  source: string;
+  shows: string;
+}
+
+/** A conformance testing script as the explorer and the judge are shown it: its path, how it is run, its text. */
+export interface ShownScript {
+  path: string;
+  runs: string;
+  content: string;
+}
+
+/**
+ * The tests' fix for a failure did not make it go away: the verdict that sent it to them, and what they changed. The judge
+ * is asked again, now whether the failure is the code's rather than the tests'.
+ */
+export interface Escalation {
+  reason: string;
+  changed: string[];
+}
+
 /** A functionality, by the module it is in and its id there: a conflict can cross modules. */
 export interface FunctionalityRef {
   module: string;
@@ -801,6 +823,10 @@ export interface Verdict {
   specSays?: string;
   /** For code: it is wrong because it hides why the software failed. */
   causeHidden?: boolean;
+  /** For code: the conformance testing script's own words for what it needs of the build, as the judge quoted them. */
+  scriptNeeds?: string;
+  /** What the judge found itself, each with where: a file it opened, the testing script, or the failing run. */
+  evidence?: Evidence[];
   /** For a spec conflict: the two functionalities that cannot both hold - in this module, or in one it requires. */
   functionalities?: FunctionalityRef[];
 }
@@ -880,15 +906,29 @@ function words(text: string): string {
  * in the specification - or when it hides why the software failed. A test asserting what the
  * specification leaves open is the test's mistake, however plausible the assertion.
  */
-export function unfoundedCodeVerdict(verdict: Verdict, specText: string): string | undefined {
+export function unfoundedCodeVerdict(verdict: Verdict, specText: string, scriptText?: string): string | undefined {
   if (verdict.causeHidden === true) return undefined;
+  // What the conformance testing script needs of the build - a file, an entry point, a module - binds the code as the
+  // specification does: neither agent can change the script. Its own words, as they are in it.
+  const needs = verdict.scriptNeeds?.trim() ?? "";
+  if (needs !== "" && scriptText !== undefined) {
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    if (flat(needs).length >= 4 && flat(scriptText).includes(flat(needs))) return undefined;
+    if (verdict.specSays === undefined) {
+      return (
+        `Your verdict blames the code for what the conformance testing script needs, but "${needs}" is not in the script. ` +
+        "Call submit_verdict again: copy into script_needs the script's own words for what it needs of the build, exactly as they are in it."
+      );
+    }
+  }
   const quote = verdict.specSays?.trim() ?? "";
   if (quote === "") {
     return (
       "Your verdict blames the code, but quotes no words of the specification it does not meet. Call submit_verdict " +
       "again: for code, put the specification's own words the code does not meet in spec_says, copied exactly from " +
-      "<specification>; or set cause_hidden when the output does not show why the software failed. If the specification " +
-      "does not say what the failing test asserts, the test is what is wrong: culprit tests."
+      "<specification>; or, when the run fails on something the conformance testing script needs the build to have, " +
+      "its own words in script_needs; or set cause_hidden when the output does not show why the software failed. If " +
+      "the specification does not say what the failing test asserts, the test is what is wrong: culprit tests."
     );
   }
   const quoted = words(quote);
@@ -897,6 +937,38 @@ export function unfoundedCodeVerdict(verdict: Verdict, specText: string): string
       `Your verdict blames the code, but "${quote}" is not in the specification. Call submit_verdict again: for code, ` +
       "copy into spec_says the specification's own words the code does not meet, exactly as they are in <specification>. " +
       "If no words of it say what the failing test asserts, the test is what is wrong: culprit tests."
+    );
+  }
+  return undefined;
+}
+
+/**
+ * Why a verdict's evidence cannot be taken as it is, or nothing when it can. Asked to weigh an escalation, the judge has
+ * to rest its verdict on what it found itself: each piece of evidence from a file it opened, the testing script or the
+ * failing run - and at least one not the run alone, which every judge before it read too. What the explorer's account
+ * says is not evidence: it was written before the run, and may be wrong.
+ */
+export function unfoundedEvidence(evidence: Evidence[] | undefined, opened: (path: string) => boolean): string | undefined {
+  const given = (evidence ?? []).filter((item) => item.source.trim() !== "" && item.shows.trim() !== "");
+  if (given.length === 0) {
+    return (
+      "Your verdict gives no evidence. Call submit_verdict again with `evidence`: what you found yourself - in a file you " +
+      "opened, the testing script, or the failing run - each with where. What <how to invoke it> says is not evidence: it " +
+      "may be wrong, so check it against the testing script and the files."
+    );
+  }
+  const inPrompt = (source: string) => /^(the )?(conformance )?testing script$|^(the )?failing run$/i.test(source.trim());
+  const unread = given.filter((item) => !inPrompt(item.source) && !opened(item.source.trim()));
+  if (unread.length > 0) {
+    return (
+      `Your evidence cites ${unread.map((item) => item.source.trim()).join(", ")}, which you did not open. Open each file you cite ` +
+      "and call submit_verdict again - evidence is what you found yourself, never what <how to invoke it> says."
+    );
+  }
+  if (given.every((item) => /failing run$/i.test(item.source.trim()))) {
+    return (
+      "Your evidence is only the failing run, which the judges before you read too. Check what it points at - the testing " +
+      "script, the code, the tests - and call submit_verdict again with what you found there."
     );
   }
   return undefined;
@@ -911,6 +983,10 @@ export async function judgeFailure(options: {
   scope: ConflictScope;
   /** The working notes, whose pitfalls hold the attempts made at this failure so far. */
   notes: string;
+  /** The conformance testing script, word for word: what the run does, and what it needs of the build. */
+  testingScripts?: ShownScript[];
+  /** The tests' fix did not make this failure go away: is it the code's? */
+  escalation?: Escalation;
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
@@ -935,6 +1011,21 @@ export async function judgeFailure(options: {
       cause_hidden: Type.Optional(
         Type.Boolean({ description: "For code: true when it is wrong because the output does not show why the software failed - it hides the cause" }),
       ),
+      script_needs: Type.Optional(
+        Type.String({
+          description:
+            "For code: the conformance testing script's own words for what it needs the build to have - the file, entry point or module the run failed on - copied exactly from the script",
+        }),
+      ),
+      evidence: Type.Optional(
+        Type.Array(
+          Type.Object({
+            source: Type.String({ description: "Where: the path of a file you opened, `testing script`, or `failing run`" }),
+            shows: Type.String({ description: "What it shows, e.g. `the script runs node dist/cli.js` or `tsconfig.json emits src/cli.ts as dist/src/cli.js`" }),
+          }),
+          { description: "What you found yourself, each with where - never what <how to invoke it> claims unchecked" },
+        ),
+      ),
       functionalities: Type.Optional(
         Type.Array(
           Type.Object({
@@ -946,12 +1037,22 @@ export async function judgeFailure(options: {
       ),
     }),
     async execute(_id, params) {
-      const given = params as { culprit: Culprit; reason: string; spec_says?: string; cause_hidden?: boolean; functionalities?: Array<{ module: string; id: string }> };
+      const given = params as {
+        culprit: Culprit;
+        reason: string;
+        spec_says?: string;
+        cause_hidden?: boolean;
+        script_needs?: string;
+        evidence?: Evidence[];
+        functionalities?: Array<{ module: string; id: string }>;
+      };
       verdict = {
         culprit: given.culprit,
         reason: given.reason,
         ...(given.spec_says?.trim() ? { specSays: given.spec_says.trim() } : {}),
         ...(given.cause_hidden === true ? { causeHidden: true } : {}),
+        ...(given.script_needs?.trim() ? { scriptNeeds: given.script_needs.trim() } : {}),
+        ...(given.evidence !== undefined && given.evidence.length > 0 ? { evidence: given.evidence } : {}),
         ...(given.functionalities ? { functionalities: conflictRefs(given.functionalities) } : {}),
       };
       return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
@@ -960,10 +1061,26 @@ export async function judgeFailure(options: {
   // It reads both, and changes neither: the file tools and the web - to look up what a service it calls answers -
   // and no shell. It judges from the code, the tests, the spec and the failing run's output, which it is given.
   const fence = confinedTools({ workdir: options.conformanceDir, read: [options.buildDir, options.conformanceDir], write: [], noBash: true });
+  // What it opens - read, listed, searched - is what its evidence can cite.
+  const openedPaths = new Set<string>();
+  const tools = fence.tools.map((tool) => ({
+    ...tool,
+    execute: (async (...args: Parameters<typeof tool.execute>) => {
+      const path = (args[1] as { path?: unknown } | undefined)?.path;
+      if (typeof path === "string" && path !== "") openedPaths.add(resolve(options.conformanceDir, path));
+      return tool.execute(...args);
+    }) as typeof tool.execute,
+  }));
+  const opened = (cited: string) => {
+    // A file it opened, or one in a folder it listed or searched; cited as it was opened, or relative to the code or the tests.
+    const candidates = [resolve(options.conformanceDir, cited), resolve(options.buildDir, cited)];
+    return candidates.some((path) => [...openedPaths].some((seen) => path === seen || path.startsWith(`${seen}/`)));
+  };
+  const scriptText = options.testingScripts?.map((script) => script.content).join("\n");
   const before = { code: digestFiles(options.buildDir), tests: digestFiles(options.conformanceDir) };
   const session = await createExecutor({
     cwd: options.conformanceDir,
-    customTools: [submit, ...createWebTools(), ...fence.tools],
+    customTools: [submit, ...createWebTools(), ...tools],
     tools: [...fence.names, ...WEB_TOOLS, "submit_verdict"],
     model: options.model,
     label: `${options.label} judge`, role: "judge",
@@ -978,8 +1095,15 @@ export async function judgeFailure(options: {
         await ask(session, "You have not called submit_verdict. Call it now: code, tests, spec or environment, and why.", options.onDelta);
         continue;
       }
+      // Asked to weigh an escalation, a verdict of code or tests rests on what it found itself.
+      const unproven = options.escalation !== undefined && (verdict.culprit === "code" || verdict.culprit === "tests") ? unfoundedEvidence(verdict.evidence, opened) : undefined;
+      if (unproven !== undefined) {
+        verdict = undefined;
+        await ask(session, unproven, options.onDelta);
+        continue;
+      }
       if (verdict.culprit === "code") {
-        const unfounded = unfoundedCodeVerdict(verdict, options.spec.text);
+        const unfounded = unfoundedCodeVerdict(verdict, options.spec.text, scriptText);
         if (unfounded === undefined) break;
         verdict = undefined;
         await ask(session, unfounded, options.onDelta);
@@ -1001,12 +1125,19 @@ export async function judgeFailure(options: {
     if (files.length > 0) reportActivity(`  the judge changed the ${what}, which it must not: ${files.slice(0, 5).join(", ")}`);
   }
   if (verdict?.culprit === "spec" && specConflictProblem(verdict.functionalities, options.scope) !== undefined) verdict = undefined;
-  if (verdict?.culprit === "code" && unfoundedCodeVerdict(verdict, options.spec.text) !== undefined) {
+  // An escalation weighed without evidence escalates nothing: the tests stay the conformance agent's, as before it.
+  if (options.escalation !== undefined && verdict?.culprit === "code" && unfoundedEvidence(verdict.evidence, opened) !== undefined) {
+    return { culprit: "tests", reason: `${verdict.reason}\n\nBut the judge gave no evidence it found itself that the code is what is wrong, so the tests are looked at again.` };
+  }
+  if (verdict?.culprit === "code" && unfoundedCodeVerdict(verdict, options.spec.text, scriptText) !== undefined) {
     // Blaming the code takes the specification's own words; without them, the test asserts what the spec does not say.
     return { culprit: "tests", reason: `${verdict.reason}\n\nBut no words of the specification say so: a test that asserts what the specification does not say is what is wrong. Check each failing assertion against the specification, and assert only what it says.` };
   }
   if (verdict?.culprit === "code" && verdict.specSays !== undefined) {
     verdict = { ...verdict, reason: `${verdict.reason}\n\nThe specification says: "${verdict.specSays}"` };
+  }
+  if (verdict?.culprit === "code" && verdict.scriptNeeds !== undefined) {
+    verdict = { ...verdict, reason: `${verdict.reason}\n\nThe conformance testing script needs: "${verdict.scriptNeeds}"` };
   }
   // No verdict is no evidence the code is wrong: the tests are the newer work, and looked at first.
   return verdict ?? { culprit: "tests", reason: "The judge gave no verdict that could be used; check the failing tests against the specification first." };
@@ -1020,8 +1151,11 @@ export function judgePrompt(options: {
   invocation: string;
   scope: ConflictScope;
   notes: string;
+  testingScripts?: ShownScript[];
+  escalation?: Escalation;
 }): string {
   const tested = options.scope.tested;
+  const scripts = options.testingScripts ?? [];
   return [
     specPrimer({ testReqs: true }),
     `The conformance tests of the \`${options.spec.moduleName}\` specification failed. Decide what is wrong: the code, the tests, the specification itself, or the run's environment.`,
@@ -1031,7 +1165,9 @@ export function judgePrompt(options: {
     "The specification is the judge, never either of them:",
     "- tests: a test asserts something the specification does not say, misreads it, or reaches the software the",
     "  wrong way - a wrong command, route or setup (see <how to invoke it>).",
-    "- code: the code does not do what the specification says, and the test checks exactly that.",
+    "- code: the code does not do what the specification says, and the test checks exactly that. Or the run fails",
+    "  on something the conformance testing script needs the code to provide - a build output, an entry point, a",
+    "  module - and the code does not provide it: quote the script's own words for it in script_needs.",
     "  Only what the specification says counts: anything it leaves open - a name, coordinates, a version, a path,",
     "  a package, a port, a file layout - is what the code already has. The tests follow it, and it is never",
     "  code - changing the code to fit a test's guess moves what every other test points at.",
@@ -1061,6 +1197,19 @@ export function judgePrompt(options: {
     "verdict of code without them is not taken. What the specification leaves open is never the code's fault: a test",
     "that asserts it - a status code, a message, a format the specification does not name - is what is wrong.",
     "",
+    ...(scripts.length > 0
+      ? [
+          "The conformance testing script below is how every run is made, and neither agent can change it: it is never",
+          "what is wrong. What it does with the tests, the tests have to fit; what it needs of the code - a file it runs or",
+          "checks for, a command it builds with - the code has to provide. A verdict that the script is wrong is neither",
+          "code nor tests: say which of the two has to change to get past it.",
+          "",
+        ]
+      : []),
+    "<how to invoke it> is the explorer's account, written before the run, and it can be wrong - a folder, a path, a",
+    "command. Never rest a verdict on it: check each claim you use against the testing script and the files, and give",
+    "in `evidence` what you found yourself, each with where.",
+    "",
     `You have ${JUDGE_CALLS} tool calls to decide in: read what the failure points at, not the whole codebase.`,
     "",
     "When the code and the tests could both be what is wrong, choose tests. When both are wrong, say which to fix",
@@ -1083,10 +1232,35 @@ export function judgePrompt(options: {
     "",
     `<how to invoke it>\n${options.invocation.trim()}\n</how to invoke it>`,
     "",
+    ...scripts.flatMap((script) => [`<conformance testing script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</conformance testing script>", ""]),
     `<failing run exit="${options.run.exitCode}" command="${options.run.command}">`,
     options.run.output.trimEnd(),
     "</failing run>",
+    ...(options.escalation !== undefined ? ["", ...escalationBlock(options.escalation)] : []),
   ].join("\n");
+}
+
+/** For the judge: the tests were fixed for this failure, and it did not go away - is it the code's? */
+function escalationBlock(escalation: Escalation): string[] {
+  const changed = escalation.changed.length === 0 ? "changed no file" : `changed ${escalation.changed.slice(0, 8).join(", ")}${escalation.changed.length > 8 ? ` and ${escalation.changed.length - 8} more` : ""}`;
+  return [
+    "<escalation>",
+    "This failure was judged the tests' before, and the conformance agent - who can change only the tests - was sent to",
+    `fix it. It ${changed}, and the run fails the same way. What it was told:`,
+    "",
+    escalation.reason.trim(),
+    "",
+    "Decide again, now whether the failure belongs to the code rather than the tests. It is the code's when the run",
+    "fails on something the code is meant to produce - a build output, an entry point, a module the testing script needs",
+    "- or when the tests ran and what the software does is not what the specification says. It stays the tests' when a",
+    "test is still wrong and the code is right: say exactly what in the tests, so the next fix is not the last one again.",
+    "",
+    "Gather the evidence yourself: open the files the failure points at - the code's build configuration and what it",
+    "emits, the tests - and read the testing script. Give it in `evidence`: a verdict of code or tests without evidence",
+    "you found is not taken. The coding agent is handed your reason and evidence: say what the code has to provide, and",
+    "where it now falls short (e.g. `the script runs dist/cli.js; the build emits dist/src/cli.js`).",
+    "</escalation>",
+  ];
 }
 
 /**
@@ -1182,6 +1356,44 @@ export function codeFixPrompt(options: { run: ScriptRun; reason: string }): stri
     "</failing run>",
     "",
     "Fix the code, run the conformance tests and the unit tests, and finish.",
+  ].join("\n");
+}
+
+/** How much of the conformance tests an escalation hands the coding agent, whole: the rest it reads itself. */
+const ESCALATED_TESTS_CHARS = 24_000;
+
+/**
+ * An escalated failure for the code fixer: the tests were fixed for it and it did not go away, and the judge found it
+ * the code's. It is handed the conformance testing script's error, the tests as they stand and the judge's evidence.
+ */
+export function escalatedFixPrompt(options: { run: ScriptRun; reason: string; evidence: Evidence[]; tests: Array<{ path: string; content: string }> }): string {
+  let room = ESCALATED_TESTS_CHARS;
+  const shown = options.tests.flatMap((test) => {
+    if (room <= 0) return [`<conformance test path="${test.path}" shown="no - read it yourself" />`];
+    const content = test.content.length > room ? `${test.content.slice(0, room)}\n... (cut short - read the rest yourself)` : test.content;
+    room -= content.length;
+    return [`<conformance test path="${test.path}">`, content.trimEnd(), "</conformance test>"];
+  });
+  return [
+    `The conformance tests failed (exit ${options.run.exitCode}). The conformance agent was sent to fix the tests for it, and`,
+    "the run failed the same way. A judge then looked again, gathered the evidence below itself, and found that the",
+    "failure belongs to the code:",
+    "",
+    `<why the code>\n${options.reason.trim()}\n</why the code>`,
+    "",
+    "<evidence>",
+    ...options.evidence.map((item) => `- ${item.source.trim()}: ${item.shows.trim()}`),
+    "</evidence>",
+    "",
+    `<failing run command="${options.run.command}">`,
+    options.run.output.trimEnd(),
+    "</failing run>",
+    "",
+    "The conformance tests as they stand - not yours to change:",
+    ...shown,
+    "",
+    "Fix the code, run the conformance tests and the unit tests, and finish. This is the last attempt at this failure:",
+    "if the run still fails the same way after your fix, the work stops.",
   ].join("\n");
 }
 

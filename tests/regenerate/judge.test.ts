@@ -22,7 +22,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
   };
 });
 
-const { conflictKey, judgeFailure, specConflictProblem } = await import("../../src/regenerate/conformance-agents.ts");
+const { conflictKey, judgeFailure, specConflictProblem, unfoundedCodeVerdict, unfoundedEvidence } = await import("../../src/regenerate/conformance-agents.ts");
 
 describe("a spec conflict", () => {
   // Module app requires base: its codebase, and its conformance suite, hold base's functionalities too.
@@ -102,5 +102,34 @@ describe("the judge", () => {
     expect(prompts[0]).toContain("anything it leaves open - a name, coordinates, a version, a path");
     expect(prompts[0]).toContain("The tests follow it, and it is never\n  code");
     expect(prompts[0]).toContain("raised 3 times, for the same two functionalities");
+  });
+});
+
+describe("an escalated verdict", () => {
+  const opened = (path: string) => path === "code/tsconfig.json";
+
+  it("rests on evidence the judge found itself - a file it opened, the testing script, not the run alone", () => {
+    expect(unfoundedEvidence(undefined, opened)).toMatch(/gives no evidence/);
+    expect(unfoundedEvidence([{ source: "code/package.json", shows: "main is dist/cli.js" }], opened)).toMatch(/which you did not open/);
+    expect(unfoundedEvidence([{ source: "the explorer's account", shows: "the build is in .tmp/node_log_parser" }], opened)).toMatch(/which you did not open/);
+    expect(unfoundedEvidence([{ source: "failing run", shows: "dist/cli.js missing" }], opened)).toMatch(/only the failing run/);
+    expect(
+      unfoundedEvidence(
+        [
+          { source: "testing script", shows: "it runs .tmp/node_$(basename $1)/dist/cli.js" },
+          { source: "code/tsconfig.json", shows: "rootDir . with src/**/*.ts emits dist/src/cli.js" },
+        ],
+        opened,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("may blame the code for what the testing script needs, in the script's own words", () => {
+    const script = '[ -f "$WORK/dist/cli.js" ] || { echo "Error: dist/cli.js missing"; exit 1; }';
+    const spec = "- The tool prints a report.";
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r", scriptNeeds: '[ -f "$WORK/dist/cli.js" ]' }, spec, script)).toBeUndefined();
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r", scriptNeeds: "dist/main.js" }, spec, script)).toMatch(/is not in the script/);
+    // Without the script to check against, script_needs alone is no ground.
+    expect(unfoundedCodeVerdict({ culprit: "code", reason: "r", scriptNeeds: "dist/cli.js" }, spec)).toMatch(/quotes no words of the specification/);
   });
 });
