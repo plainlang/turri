@@ -74,3 +74,21 @@ export function turriOnPath(): string | undefined {
   const found = which.status === 0 ? which.stdout.trim().split("\n")[0] : undefined;
   return found === "" ? undefined : found;
 }
+
+/** turri's version, and the commit when it runs from a clone. */
+export function turriIdentity(): { version: string | null; git_commit: string | null; git_dirty: boolean | null } {
+  let version: string | null = null;
+  try {
+    version = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as { version?: string }).version ?? null;
+  } catch {
+    /* no package.json: left out */
+  }
+  if (!existsSync(join(PACKAGE_ROOT, ".git"))) return { version, git_commit: null, git_dirty: null };
+  const commit = spawnSync("git", ["-C", PACKAGE_ROOT, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const status = spawnSync("git", ["-C", PACKAGE_ROOT, "status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" });
+  return {
+    version,
+    git_commit: commit.status === 0 ? commit.stdout.trim() : null,
+    git_dirty: status.status === 0 ? status.stdout.trim() !== "" : null,
+  };
+}

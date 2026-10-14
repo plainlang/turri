@@ -1,7 +1,6 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { PACKAGE_ROOT } from "./environment.ts";
+import { turriIdentity } from "./environment.ts";
 import { onModelEvent, type ModelEvent, type UsageReport } from "./regenerate/activity.ts";
 import type { Job } from "./regenerate/jobs.ts";
 
@@ -123,24 +122,6 @@ function sumTotals(a: UsageTotals, b: UsageTotals): UsageTotals {
 /** Tidied for reading: the cost to a millionth of a dollar, the time to a tenth of a second - float sums otherwise show their noise. */
 function rounded(totals: UsageTotals): UsageTotals {
   return { ...totals, cost_usd: Math.round(totals.cost_usd * 1e6) / 1e6, model_seconds: Math.round(totals.model_seconds * 10) / 10 };
-}
-
-/** turri's version, and the commit when it runs from a clone. */
-function turriIdentity(): { version: string | null; git_commit: string | null; git_dirty: boolean | null } {
-  let version: string | null = null;
-  try {
-    version = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as { version?: string }).version ?? null;
-  } catch {
-    /* no package.json: left out */
-  }
-  if (!existsSync(join(PACKAGE_ROOT, ".git"))) return { version, git_commit: null, git_dirty: null };
-  const commit = spawnSync("git", ["-C", PACKAGE_ROOT, "rev-parse", "HEAD"], { encoding: "utf8" });
-  const status = spawnSync("git", ["-C", PACKAGE_ROOT, "status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" });
-  return {
-    version,
-    git_commit: commit.status === 0 ? commit.stdout.trim() : null,
-    git_dirty: status.status === 0 ? status.stdout.trim() !== "" : null,
-  };
 }
 
 const pulseKind = (job: Job): string => (job.kind === "regenerate" ? "code" : job.kind);

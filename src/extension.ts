@@ -55,6 +55,7 @@ import { registerStacks } from "./stacks.ts";
 import { catalogueLine, discoverSkills, leftOutNote, type SkillCatalogue } from "./skills.ts";
 import { supersededByTurri } from "./chat-skills.ts";
 import { TURRI_IDENTITY } from "./identity.ts";
+import { turriIdentity } from "./environment.ts";
 import { conformanceChooser } from "./regenerate/choose-conformance.ts";
 import { answerSideQuestion, askWithAsides, BTW_HOW, runningSkill, skillRunStarted, skillSessionText, transcriptOf } from "./btw.ts";
 import {
@@ -2381,6 +2382,9 @@ function registerBranding(
     const data = entry.data as
       | {
           version: string;
+          /** The commit, when turri runs from a clone - and whether the clone has changes on it. */
+          commit?: string;
+          changed?: boolean;
           rules: number;
           skills: number;
           /** Of them, the project's own. */
@@ -2394,7 +2398,8 @@ function registerBranding(
     if (data === undefined) return undefined;
 
     const lines = [
-      `${theme.fg("accent", "turri")}  ${theme.fg("muted", `v${data.version}`)}`,
+      `${theme.fg("accent", "turri")}  ${theme.fg("muted", `v${data.version}`)}` +
+        (data.commit !== undefined ? theme.fg("dim", `  from a clone, ${data.commit}${data.changed ? " with changes" : ""}`) : ""),
       theme.fg("text", "regenerative software - the code is regenerated from the spec"),
       theme.fg(
         "muted",
@@ -2419,8 +2424,11 @@ function registerBranding(
   pi.on("session_start", (_event, ctx) => {
     if (ctx.hasUI) animateJellyfish(ctx);
     try {
+      const identity = turriIdentity();
       pi.appendEntry(BANNER_ENTRY, {
-        version: packageVersion(),
+        version: identity.version ?? "0.0.0",
+        commit: identity.git_commit?.slice(0, 7),
+        changed: identity.git_dirty === true,
         rules: ruleCount,
         skills: skills.skills.length,
         projectSkills: skills.skills.filter((skill) => skill.origin !== "turri").length,
@@ -2623,14 +2631,5 @@ function jellyfishArt(appearance: "dark" | "light", ink: (text: string) => strin
     return dimensions !== null ? { kind: "image", frames, dimensions } : undefined;
   } catch {
     return undefined;
-  }
-}
-
-function packageVersion(): string {
-  try {
-    const raw = readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8");
-    return (JSON.parse(raw) as { version?: string }).version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
   }
 }
