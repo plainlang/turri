@@ -1,5 +1,6 @@
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
-import { headlessOptions, parseArgs, runLoop } from "./loop-cli.ts";
+import { parseArgs } from "./cli-options.ts";
+import { headlessOptions, runLoop } from "./loop-cli.ts";
 
 const USAGE = `usage: turri regenerate [file.plain] [frid ...] [options]
 

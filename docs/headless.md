@@ -14,7 +14,8 @@ Everything marked `✗` stops the run, so fix those first. Two more things matte
   a module's implementation reqs name that this machine lacks.
 - **The models.** In a project, `turri doctor` sends each model `config.turri.yaml` names one short request, as turri's
   agents will - so a key the provider refuses, a model pi does not know or an account without access to it shows now,
-  not an hour into the run.
+  not an hour into the run. Models the run is given on the command line are given to doctor the same way -
+  `--harness-model`, `--coding-model`, `--judge-model`, read as the config's keys - and are checked with the config's.
 - **Credentials that do not expire mid-run.** An API key in the environment
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...) or pi's saved login - whatever
   `doctor` shows as the model provider.
@@ -260,9 +261,16 @@ turri regenerate app.plain --harness-model amazon-bedrock/eu.anthropic.claude-op
 - **What it needs:** Node 22.19 or newer, `bash`, `git` (each module's history, and the spec diffs
   the work is planned from), `/bin/sh` with `kill` and `sleep`, a writable `HOME` (pi keeps
   `~/.pi/agent/auth.json` there, even with no login - or set `PI_CODING_AGENT_DIR`) and `TMPDIR`, and
-  the toolchains the project's testing scripts and implementation reqs name. `turri doctor --no-models`
-  in the project checks them; `--no-models` because a `config.yaml` written for another tool names no models, and
-  doctor would count that against it.
+  the toolchains the project's testing scripts and implementation reqs name. `turri doctor` in the project, given
+  the run's models, checks them all and that each model answers - at the start of the task's log, not when a pulse
+  fails:
+
+  ```bash
+  turri doctor --harness-model amazon-bedrock/eu.anthropic.claude-opus-5-5 \
+    --coding-model amazon-bedrock/eu.anthropic.claude-sonnet-5-5 --judge-model amazon-bedrock/eu.anthropic.claude-opus-5-5
+  ```
+
+  It exits 1 on anything marked `✗`.
 - **Without bubblewrap:** a container that cannot make user namespaces - no
   `--security-opt seccomp=unconfined` - has no OS sandbox. turri runs anyway, the command check and the
   audit holding alone under the agents' commands; `turri doctor` shows it as `!`, not `✗`. Installing

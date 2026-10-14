@@ -2,7 +2,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readProjectConfig } from "../src/config.ts";
+import { configKeyOptions } from "../src/cli-options.ts";
+import { overrideConfig, readProjectConfig } from "../src/config.ts";
 import { checkModels, fixFor, modelsInUse, type ModelAccess } from "../src/model-check.ts";
 import { checkProjectModels } from "../src/setup.ts";
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "turri-model-check-")));
 });
 afterEach(() => {
+  overrideConfig({});
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -97,6 +99,19 @@ describe("turri doctor, in a project", () => {
     expect(checks).toEqual([
       expect.objectContaining({ level: "ok", name: "harness-model", detail: expect.stringMatching(/^openai\/gpt-6-astra answered/) }),
       expect.objectContaining({ level: "missing", name: "coding-model", detail: "openai/gpt-6-luna", more: ["401 Unauthorized"], fix: expect.stringContaining("OPENAI_API_KEY") }),
+    ]);
+  });
+
+  it("checks the models named on the command line as the config's keys - a config.yaml that names none, and a models: entry still winning", async () => {
+    writeFileSync(join(dir, "config.yaml"), "unittests-script: run_unittests.sh\nmodels:\n  judge: amazon-bedrock/eu.anthropic.claude-opus-5\n");
+    configKeyOptions({ "harness-model": "amazon-bedrock/eu.anthropic.claude-opus-5-5", model: "amazon-bedrock/eu.anthropic.claude-sonnet-5-5:low", "judge-model": "amazon-bedrock/eu.anthropic.claude-haiku-5-5" });
+    const access = provider({ "amazon-bedrock": ["eu.anthropic.claude-opus-5-5", "eu.anthropic.claude-sonnet-5-5", "eu.anthropic.claude-opus-5", "eu.anthropic.claude-haiku-5-5"] });
+    const checks = await checkProjectModels(dir, access);
+    expect(checks.map((check) => [check.level, check.name, check.detail.split(" ")[0]])).toEqual([
+      ["ok", "harness-model", "amazon-bedrock/eu.anthropic.claude-opus-5-5"],
+      ["ok", "coding-model", "amazon-bedrock/eu.anthropic.claude-sonnet-5-5"],
+      ["ok", "judge-model", "amazon-bedrock/eu.anthropic.claude-haiku-5-5"],
+      ["ok", "models.judge", "amazon-bedrock/eu.anthropic.claude-opus-5"],
     ]);
   });
 

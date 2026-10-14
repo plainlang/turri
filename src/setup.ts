@@ -6,6 +6,7 @@ import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { globalExtensionFile, MIN_NODE, nodeVersionOk, PACKAGE_ROOT, turriOnPath } from "./environment.ts";
 import { sandboxAvailable, type Wall } from "./regenerate/os-sandbox.ts";
 import { findTestScripts } from "./regenerate/test-scripts.ts";
+import { configKeyOptions, parseArgs } from "./cli-options.ts";
 import { hasProjectConfig, readProjectConfig, stackOf } from "./config.ts";
 import { checkModels, modelsInUse, piModelAccess, type ModelAccess } from "./model-check.ts";
 import { brand } from "./brand.ts";
@@ -176,7 +177,7 @@ function checkGlobal(): Check[] {
 export async function checkProjectModels(project: string, access?: ModelAccess): Promise<Check[]> {
   const used = modelsInUse(readProjectConfig(project, stackOf(project)));
   if (used.length === 0) {
-    return [{ level: "missing", name: "Models", detail: "config.turri.yaml names none", fix: "turri init-config writes the two models" }];
+    return [{ level: "missing", name: "Models", detail: "config.turri.yaml names none", fix: "turri init-config writes the two models - or name them here: --harness-model, --coding-model" }];
   }
   let verdicts;
   try {
@@ -192,16 +193,16 @@ export async function checkProjectModels(project: string, access?: ModelAccess):
   });
 }
 
-async function allChecks(options: { models?: boolean } = {}): Promise<Check[]> {
+/** `modelsGiven`: models named on the command line - checked wherever doctor runs, a project or not. */
+async function allChecks(options: { models?: boolean; modelsGiven?: boolean } = {}): Promise<Check[]> {
   const checks: Check[] = [checkNode(), checkShell(), checkGit(), checkSandbox(), await checkProvider(), checkPath(), ...checkGlobal()];
   // In a project: what it needs of this machine, and whether its models answer.
   const project = process.cwd();
-  if (hasProjectConfig(project) || existsSync(join(project, "plain_modules"))) {
-    checks.push(...checkProject(project));
-    if (options.models !== false && hasProjectConfig(project)) {
-      console.log(brand.muted("Asking each model the config names for a word..."));
-      checks.push(...(await checkProjectModels(project)));
-    }
+  const inProject = hasProjectConfig(project) || existsSync(join(project, "plain_modules"));
+  if (inProject) checks.push(...checkProject(project));
+  if (options.models !== false && (hasProjectConfig(project) || options.modelsGiven === true)) {
+    console.log(brand.muted("Asking each model the config names for a word..."));
+    checks.push(...(await checkProjectModels(project)));
   }
   return checks;
 }
@@ -259,22 +260,27 @@ function removeGlobalExtension(): void {
   console.log(`  removed ${file}`);
 }
 
+const USAGE = [
+  "usage: turri doctor [--harness-model <m>] [--coding-model <m>] [--judge-model <m>] [--no-models] [--yes]",
+  "",
+  "Check everything turri needs - in a project, what its modules need of this machine too, and that",
+  "each model its config names answers with this machine's credentials (one short request a model;",
+  "--no-models skips it). The model options are read as the config's keys, as turri regenerate reads them:",
+  "a headless run's models can be checked before it starts, with no config.turri.yaml.",
+  "It changes nothing but this, asked first: a plain pi that an older turri made load turri too is put back to",
+  "plain pi. --yes answers yes.",
+].join("\n");
+
 export async function main(args: string[]): Promise<number> {
-  if (args.includes("--help") || args.includes("-h")) {
-    console.log(
-      "usage: turri doctor [--no-models] [--yes]\n\nCheck everything turri needs - in a project, what its modules need of this machine too, and that\n" +
-        "each model its config names answers with this machine's credentials (one short request a model;\n--no-models skips it).\n" +
-        "It changes nothing but this, asked first: a plain pi that an older turri made load turri too is put back to\n" +
-        "plain pi. --yes answers yes.",
-    );
-    return 0;
-  }
+  const { options } = parseArgs(args, ["--no-models", "--yes", "-y"], USAGE, ["--harness-model", "--judge-model"]);
+  configKeyOptions(options);
   console.log(brand.bold(brand.accent("Checking what turri needs.")));
   if (!nodeVersionOk()) return report([checkNode()]);
-  const code = report(await allChecks({ models: !args.includes("--no-models") }));
+  const modelsGiven = ["harness-model", "model", "judge-model"].some((name) => options[name] !== undefined);
+  const code = report(await allChecks({ models: options["no-models"] === undefined, modelsGiven }));
   // turri and pi are kept apart: a plain pi does not start turri. An older turri's file that made it do so goes, asked.
   const global = globalExtensionFile();
-  if (global !== undefined && (await confirm(`\nA plain \`pi\` loads turri too, through ${global}. Remove it, so pi stays pi?`, true, args.includes("--yes") || args.includes("-y")))) {
+  if (global !== undefined && (await confirm(`\nA plain \`pi\` loads turri too, through ${global}. Remove it, so pi stays pi?`, true, options.yes !== undefined || args.includes("-y")))) {
     removeGlobalExtension();
   }
   return code;

@@ -1,4 +1,5 @@
-import { headlessOptions, parseArgs, runLoop } from "./loop-cli.ts";
+import { parseArgs } from "./cli-options.ts";
+import { headlessOptions, runLoop } from "./loop-cli.ts";
 
 const USAGE = `usage: turri conform <file.plain> [frid ...] [options]
 

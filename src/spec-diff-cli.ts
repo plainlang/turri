@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkPlainFile } from "./plain/check.ts";
 import { applySpecDiff, revertSpecDiff } from "./regenerate/regenerate.ts";
-import { headlessOptions, parseArgs, runLoop } from "./loop-cli.ts";
+import { parseArgs } from "./cli-options.ts";
+import { headlessOptions, runLoop } from "./loop-cli.ts";
 
 const USAGE = `usage: turri spec-diff <file.plain> <diff-file> [options]
 
