@@ -128,7 +128,8 @@ function watch(): void {
   const script = [
     `while kill -0 ${process.pid} 2>/dev/null; do sleep 2; done`,
     `[ -f '${file}' ] || exit 0`,
-    `while read -r group; do kill -KILL -- "-$group" 2>/dev/null; done < '${file}'`,
+    // No `--` after the signal: dash, /bin/sh on Debian and Ubuntu, reads it as a process id and kills nothing.
+    `while read -r group; do kill -KILL "-$group" 2>/dev/null; done < '${file}'`,
     `rm -f '${file}'`,
   ].join("\n");
   try {
