@@ -40,7 +40,7 @@ the launcher and extension beside itself, whichever they are. To try the package
   version on `main` is stale by design.
 
 The workflow signs in to npm with npm's trusted publishing (OIDC), not a token: the package's settings on npmjs.com
-trust `plainlang/turri`, the workflow `publish.yml` and the environment `npm`. Renaming the workflow file breaks it.
+trust `turri-oss/turri`, the workflow `publish.yml` and the environment `npm`. Renaming the workflow file breaks it.
 
 ## Layout
 

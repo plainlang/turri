@@ -5,10 +5,10 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/plainlang/turri.git"
+    "url": "git+https://github.com/turri-oss/turri.git"
   },
-  "homepage": "https://github.com/plainlang/turri#readme",
-  "bugs": "https://github.com/plainlang/turri/issues",
+  "homepage": "https://github.com/turri-oss/turri#readme",
+  "bugs": "https://github.com/turri-oss/turri/issues",
   "description": "An agent that builds code from ***plain specifications, with harness-enforced review and conformance gates.",
   "engines": {
     "node": ">=22.19"

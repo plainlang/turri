@@ -30,7 +30,7 @@ prerelease instead, built from the last commit on `main`.
 To work on turri itself, put the clone on your PATH instead:
 
 ```bash
-git clone git@github.com:plainlang/turri.git && cd turri
+git clone git@github.com:turri-oss/turri.git && cd turri
 npm install
 npm link              # puts `turri` on your PATH, pointing at this clone
 ```
