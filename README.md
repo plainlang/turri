@@ -3,9 +3,9 @@
 <h1 align="center">turri<br>the first coding agent with the power of<br>regenerative software<br>&nbsp;</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@turri-rs/cli"><img src="https://img.shields.io/npm/v/@turri-rs/cli?label=npm" alt="npm version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@turri-rs/cli" alt="MIT licence"></a>
-  <a href="https://nodejs.org/en/download"><img src="https://img.shields.io/node/v/@turri-rs/cli" alt="Node version"></a>
+  <a href="https://www.npmjs.com/package/@turri-dev/cli"><img src="https://img.shields.io/npm/v/@turri-dev/cli?label=npm" alt="npm version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@turri-dev/cli" alt="MIT licence"></a>
+  <a href="https://nodejs.org/en/download"><img src="https://img.shields.io/node/v/@turri-dev/cli" alt="Node version"></a>
 </p>
 
 You tell **turri** what the system should do, and **turri** writes it down as [\*\*\*plain](https://plainlang.org/).
@@ -23,7 +23,7 @@ Linux distribution's own `nodejs` package is often older. The agents use this ma
 OS has one - Seatbelt on macOS, bubblewrap on Linux (`apt install bubblewrap`) - see [installation](docs/installation.md#installation).
 
 ```bash
-npm install -g @turri-rs/cli # puts `turri` on your PATH
+npm install -g @turri-dev/cli # puts `turri` on your PATH
 turri doctor              # checks the machine
 ```
 
