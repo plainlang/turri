@@ -81,7 +81,7 @@ Useful options - `turri regenerate --help` lists all of them:
 
 | | |
 | --- | --- |
-| `--harness-model <provider/id>` | `harness-model`: the planner, the conformance chooser, the diagnosis of a failed pulse |
+| `--harness-model <provider/id>` | `harness-model`: the planner and the conformance chooser |
 | `--coding-model <provider/id>` | `coding-model` (`--model` too): the agents that build - with `:level` for how hard it thinks (`provider/id:high`); not given, the harness model's |
 | `--judge-model <provider/id>` | `judge-model`: the judge and the test review; not given, the coding model |
 | `--conformance-tests <all\|chosen\|module\|false>` | `conformance-tests`, with its values (`true` is `all`) |
@@ -151,7 +151,7 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
   "conformance_tests": "all",                                                       // all | chosen | module | false
   "review": false,
   "models": {
-    "harness": { "model": "…", "thinking": "medium" },  // the planner, the chooser, the diagnosis
+    "harness": { "model": "…", "thinking": "medium" },  // the planner, the chooser
     "coding":  { "model": "…", "thinking": "low" },
     "judge":   { "model": "…", "thinking": "medium" },
     "observed": { "coding": ["provider/id:low"], "planner": ["provider/id:medium"] }  // what each role really ran on

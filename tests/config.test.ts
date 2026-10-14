@@ -241,6 +241,9 @@ describe("models: and turn-limit:", () => {
     expect(roleModel(config, "chooser")).toBeUndefined();
     // The release is not of it: it follows steps, on the model it is given - the coding model - or the default.
     expect(roleModel(config, "release")).toEqual({ model: luna, thinking: "medium" });
+    // Nor the diagnosis of a failed job: unnamed, the default - else the coding model it is given, never the chat's.
+    expect(roleModel(config, "diagnosis")).toEqual({ model: luna, thinking: "medium" });
+    expect(roleModel({ harnessModel: { model: opus } }, "diagnosis")).toBeUndefined();
     // Turn limits: the role's own, else the default's, else turn-limit:.
     expect(roleTurnLimitMs(config, "coding")).toBe(180_000);
     expect(roleTurnLimitMs(config, "explorer")).toBe(150_000);

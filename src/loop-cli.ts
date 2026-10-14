@@ -103,7 +103,7 @@ async function runLoopReporting(
   const registry = createJobRegistry({
     retries: 1,
     diagnose: async (job, failures, jobLog) => {
-      const diagnosis = await diagnoseFailure({ job, failures, projectDir, harnessDir: PACKAGE_ROOT, jobLog, model: modelSpec(projectModels(project).harness) ?? model });
+      const diagnosis = await diagnoseFailure({ job, failures, projectDir, harnessDir: PACKAGE_ROOT, jobLog, model: modelSpec(modelOnly(job.model ?? model)) });
       return diagnosis !== undefined ? describeDiagnosis(diagnosis) : undefined;
     },
     onChange: (job: Job) => {

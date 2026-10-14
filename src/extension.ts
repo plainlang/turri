@@ -11,7 +11,7 @@ import { allocateImageId, Box, type Component, getCapabilities, getPngDimensions
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
-import { AGENT_ROLES, chosenStack, CONFIG_FILE, configForSpec, hasProjectConfig, LEGACY_CONFIG_FILE, projectConfigFile, stackConfigFileIn, stackOf, stacksOf, withStack, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
+import { AGENT_ROLES, chosenStack, CONFIG_FILE, configForSpec, hasProjectConfig, LEGACY_CONFIG_FILE, projectConfigFile, stackConfigFileIn, stackOf, stacksOf, withStack, modelOnly, modelSpec, projectModels, readProjectConfig, roleModel, splitModelSpec } from "./config.ts";
 import { modulesRoot, skillRunDir } from "./regenerate/paths.ts";
 import { sweepOrphanedGroups } from "./regenerate/shell.ts";
 import { readScript, scriptAgainstMachine, stackOnMachine, toolchainsBlock } from "./stack.ts";
@@ -231,7 +231,8 @@ export default function (pi: ExtensionAPI) {
         projectDir: cwd,
         harnessDir: PACKAGE_ROOT,
         jobLog,
-        model: modelSpec(projectModels(readProjectConfig(cwd)).harness),
+        // The coding model the job ran on - its model alone: the diagnosis thinks as its role has it.
+        model: modelSpec(modelOnly(job.model ?? modelSpec(projectModels(readProjectConfig(cwd)).coding))),
       });
       return diagnosis !== undefined ? describeDiagnosis(diagnosis) : undefined;
     },

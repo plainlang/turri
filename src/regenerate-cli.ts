@@ -20,7 +20,7 @@ its conformance tests too when they are on.
   --start-over             start over, without asking, a codebase regenerated without a module it now requires -
                            with no terminal to ask and without it, the run stops there
   --from-scratch           delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it
-  --harness-model <p/id>   config.turri.yaml's harness-model for this run: the planner, the conformance chooser, a diagnosis
+  --harness-model <p/id>   config.turri.yaml's harness-model for this run: the planner and the conformance chooser
   --coding-model <p/id>    its coding-model, --model too: the agents that build; p/id:level for how hard a model thinks
   --judge-model <p/id>     its judge-model: the judge and the test review
   --review <true|false>    its review: whether the code and its tests are reviewed once they pass

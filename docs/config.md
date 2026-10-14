@@ -122,7 +122,7 @@ models:                              # each agent role's model, thinking and tur
 | key | what it sets | left out |
 | --- | --- | --- |
 | `module` | the `.plain` file `turri regenerate` and the chat's `regenerate` build when none is named, from the project root | a file has to be named |
-| `harness-model` | the model `turri` starts on - the one you talk to - the one that diagnoses a job that failed for good, and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regenerate`, the planner too | pi's configured model |
+| `harness-model` | the model `turri` starts on - the one you talk to - and, in the conversation, the planner that cuts the work into jobs (on whatever model the chat is on when it plans); under `turri regenerate`, the planner too | pi's configured model |
 | `coding-model` | every render: functionalities, spec diffs, conformance tests, repairs, planning spec diffs, the explorer | `harness-model` |
 | `judge-model` | the judge and the test review of a conformance run | `coding-model` |
 | `conformance-tests` | `all` (or `true`): conformance tests for every functional spec of every module with test reqs, written once each module's code is built, before anything is built on it. `chosen`: for the functional specs chosen - every one with acceptance tests, and those the chooser picks as each code pulse ends, from what that pulse regenerated. `module`: the same, but the chooser is asked once, when the whole module is regenerated, and plans the conformance pulses too. Under both, the choice is made inside the pulse, before anything is built on the module, and the pulse's report says what was chosen and why; those the person asks for with `conform` are written too; once chosen, a functional spec keeps them, and they are rewritten when it changes - see [who chooses, and when](regenerating.md#conformance-tests-in-the-work-loop). `false`: none written, and none of the existing ones run - until the conversation asks with `conform` | `false` |
@@ -158,7 +158,8 @@ wrong type, as if it were not there. `model:`, from before there were separate m
 | --- | --- |
 | `default` | every role not named below - but the conversation's side |
 | `chat` | `turri`'s model - the same as `harness-model`, which it wins over |
-| `chooser`, `planner`, `diagnosis` | the conversation's side: the conformance chooser of `turri regenerate`, the planner's agents, the diagnosis of a failed job. Unnamed, the chat's model |
+| `chooser`, `planner` | the conversation's side: the conformance chooser of `turri regenerate`, the planner's agents. Unnamed, the chat's model |
+| `diagnosis` | the diagnosis of a job that failed for good: why it did not land, and what to do. Unnamed, the coding model the job ran on, thinking medium |
 | `release` | `turri release`'s agent and release-after-pulse's: it follows steps - a script, a start command - so it runs on the coding model, thinking low |
 | `coding` | the coding agent, the code fixer of a conformance run and the repair agent - the same as `coding-model`, which it wins over. `--model` on the command line, or a model chosen in the conversation (`engine`), wins over both |
 | `conformance` | the conformance agent |
