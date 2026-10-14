@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type Component, compositeTuiLine, visibleWidth } from "@earendil-works/pi-tui";
-import { clickToFocus, dockedWidth, narrowChat } from "../../src/regenerate/panel-dock.ts";
+import { clickToFocus, dockedWidth, narrowChat, shade, shadeChat } from "../../src/regenerate/panel-dock.ts";
 import { overPictureRow, PICTURE_AT } from "../../src/picture-row.ts";
 import { createSidePanel } from "../../src/regenerate/side-panel.ts";
 import type { TranscriptStyle } from "../../src/regenerate/transcript-view.ts";
@@ -19,9 +19,10 @@ const chat = () => {
 };
 
 describe("the side panel beside the chat", () => {
-  it("takes 45% of a wide terminal, and none of one too narrow to share", () => {
-    expect(dockedWidth(200)).toBe(90);
-    expect(dockedWidth(100)).toBe(48);
+  it("takes half a wide terminal, the chat the odd column, and none of one too narrow to share", () => {
+    expect(dockedWidth(200)).toBe(100);
+    expect(dockedWidth(201)).toBe(100);
+    expect(dockedWidth(100)).toBe(50);
     expect(dockedWidth(99)).toBe(0);
   });
 
@@ -89,6 +90,33 @@ describe("a click beside the docked panel", () => {
   });
 });
 
+describe("the side without the keys, in the shade", () => {
+  it("draws a line faint, and faint again after each reset in it - not after a colour", () => {
+    expect(shade("plain")).toBe("\x1b[2mplain\x1b[22m");
+    expect(shade("\x1b[31mred\x1b[0m after")).toBe("\x1b[2m\x1b[31mred\x1b[0m\x1b[2m after\x1b[22m");
+    expect(shade("\x1b[1mbold\x1b[22m after")).toBe("\x1b[2m\x1b[1mbold\x1b[22m\x1b[2m after\x1b[22m");
+  });
+
+  it("leaves a line holding a picture as it is", () => {
+    const picture = "text\x1b[2G\x1b_Ga=T,f=100;QUJD\x1b\\";
+    expect(shade(picture)).toBe(picture);
+  });
+
+  it("shades the chat's rows as the panel is laid over them, only while it is to be shaded", () => {
+    const bases: string[] = [];
+    const screen = { compositeLineAt: (base: string) => (bases.push(base), base) };
+    let shaded = true;
+    const unshade = shadeChat(screen, () => shaded);
+    screen.compositeLineAt("chat", "", 0, 0, 0);
+    shaded = false;
+    screen.compositeLineAt("chat", "", 0, 0, 0);
+    unshade();
+    shaded = true;
+    screen.compositeLineAt("chat", "", 0, 0, 0);
+    expect(bases).toEqual(["\x1b[2mchat\x1b[22m", "chat", "chat"]);
+  });
+});
+
 describe("the banner's picture row under the docked panel", () => {
   const picture = "\x1b_Ga=T,f=100,i=7;QUJD\x1b\\";
 
@@ -119,7 +147,7 @@ describe("the side panel's s key", () => {
     expect(docked).toBe(true);
     const beside = panel.render(100).join("\n");
     expect(beside).toContain("s full screen");
-    expect(beside).toContain("esc to the chat");
+    expect(beside).toContain("esc or ⌥⌘← to the chat");
     expect(beside).toContain("ctrl+h close");
     panel.handleInput("s");
     expect(docked).toBe(false);

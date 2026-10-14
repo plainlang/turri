@@ -34,7 +34,7 @@ import { whyFailed } from "./regenerate/diagnose-job.ts";
 import { createWorkLoop, describeModules, isUpToDate, previewJobs, type WorkLoop } from "./regenerate/loop.ts";
 import { brandBlue, plainPaint } from "./regenerate/plain-palette.ts";
 import { createJobPanel, didNotPass, keyPressed, PANEL_KEY, spinner } from "./regenerate/job-panel.ts";
-import { clickToFocus, dockedWidth, narrowChat } from "./regenerate/panel-dock.ts";
+import { clickToFocus, dockedWidth, narrowChat, shade, shadeChat } from "./regenerate/panel-dock.ts";
 import { overPictureRow, PICTURE_AT } from "./picture-row.ts";
 import { skillAboutLine, skillProgressLine } from "./skill-progress.ts";
 import { createSidePanel } from "./regenerate/side-panel.ts";
@@ -1704,7 +1704,10 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
                 else toPanel();
               },
             );
+            // The side without the keys in the shade: the chat while the panel has them.
+            const unshade = shadeChat(tui, () => panelBeside() > 0 && entry.keys);
             undock = () => {
+              unshade();
               unwatch();
               widen();
             };
@@ -1795,6 +1798,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             return undefined;
           }
           if (!state) return undefined;
+          // Beside the chat, ⌥⌘← and ⌥⌘→ go to the side they point at, whichever has the keys - on a terminal that tells
+          // turri of ⌘ (the Kitty keyboard protocol). Its release goes nowhere.
+          if (panelBeside() > 0 && (matchesKey(data, SIDE_KEYS.chat) || matchesKey(data, SIDE_KEYS.panel))) {
+            if (!isKeyRelease(data)) {
+              if (matchesKey(data, SIDE_KEYS.chat)) toChat();
+              else toPanel();
+            }
+            return { consume: true };
+          }
           // Beside the chat, with the chat's keys: they are the chat's - PANEL_KEY among them, for the shortcut that gives
           // them to the panel. A click on the panel gives it the focus, and the keys with it.
           if (!entry.keys && entry.handle?.isFocused() !== true) return undefined;
@@ -1821,8 +1833,12 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         }, WATCH_REDRAW_MS);
         timer.unref?.();
         component = {
-          // Beside the chat, a rule down its left edge between them.
-          render: (width: number) => (panelBeside() > 0 ? view.render(width - 2).map((line) => `${theme.fg("borderMuted", "│")} ${line}`) : view.render(width)),
+          // Beside the chat, a rule down its left edge between them - and the panel in the shade while the chat has the keys.
+          render: (width: number) => {
+            if (panelBeside() === 0) return view.render(width);
+            const lines = view.render(width - 2).map((line) => `${theme.fg("borderMuted", "│")} ${line}`);
+            return entry.keys ? lines : lines.map(shade);
+          },
           // Reached only if the listener above is gone: the same, so the panel never passes a key on.
           handleInput: (data: string) => {
             if (isKeyRepeat(data) && matchesKey(data, PANEL_KEY)) return;
@@ -1960,6 +1976,9 @@ export const JOB_FINISHED_REACTION = [
   "  to do, and that \"resume\" picks it up once it is in.",
   "- a credential `agent-env:` names that is not there: never make one up - tell the person where it is read from.",
 ].join("\n");
+
+/** The keys that go to the chat and to the panel, side by side: ⌥⌘← and ⌥⌘→. */
+const SIDE_KEYS = { chat: "alt+super+left", panel: "alt+super+right" } as const;
 
 /** Opens the side panel, and goes back to it from the conversation. */
 

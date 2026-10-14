@@ -70,7 +70,7 @@ export function createSidePanel(options: SidePanelOptions) {
   /** The keys back to the chat - and `s`, from over the screen to beside the chat and back. */
   const backKeys = (): string[] => {
     if (options.dock === undefined) return [`esc or ${options.key} back to the chat`];
-    return options.dock.docked() ? ["s full screen", "esc to the chat", `${options.key} close`] : ["s beside the chat", `esc or ${options.key} back to the chat`];
+    return options.dock.docked() ? ["s full screen", "esc or ⌥⌘← to the chat", `${options.key} close`] : ["s beside the chat", `esc or ${options.key} back to the chat`];
   };
 
   const waitingNote = () =>

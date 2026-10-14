@@ -131,7 +131,7 @@ come waits for a free slot, and says so.
   keyboard protocol sends as a line feed, the same as `shift+enter`, and which a dialog takes for
   `enter`; both stay pi's new-line keys. `ctrl+h` is the byte old terminals sent for backspace; a
   terminal set to send `^H` for its Backspace key would open the panel on it) takes the whole screen - the panel or the chat, one at a time -
-  or, `s`, sits beside the chat: the chat on the left, the panel in the right 45% of the screen, and `s` again
+  or, `s`, sits beside the chat: the chat on the left, the panel in the right half of the screen, and `s` again
   over the whole screen. It opens as it was last left, for the conversation; a terminal under 100 columns has
   no room for both and shows the panel over the whole screen.
   It opens on **regen**: the spec itself, in full, with how much of it the code has been regenerated from drawn
@@ -218,7 +218,9 @@ come waits for a free slot, and says so.
   said and did is not shown - it is in each pulse's log (see [Agent logs](#agent-logs)).
 
   `ctrl+h` again, or `esc`, closes it and goes back to the chat. Beside the chat, a click decides which side has
-  the keys - the chat or the panel, the one clicked - and `esc` gives the chat the keys too, the panel staying and
+  the keys - the chat or the panel, the one clicked, or the one `⌥⌘←` / `⌥⌘→` points at (on a
+  terminal that passes ⌘ on, over the Kitty keyboard protocol - Ghostty, kitty, WezTerm, iTerm2; not Apple's Terminal);
+  the other is drawn faint - and `esc` gives the chat the keys too, the panel staying and
   following the pulses; `ctrl+h` gives the panel the keys again, and from the panel closes it. (pi's regular screen,
   `--tui-mode regular`, reads no mouse: there it is the keys alone.)
   While the panel has the keys, every key is the panel's,

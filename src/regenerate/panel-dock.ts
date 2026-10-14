@@ -12,9 +12,9 @@ import { type Component, HStack } from "@earendil-works/pi-tui";
 /** Narrower than this, the chat and the panel have no room side by side: the panel takes the whole screen. */
 const SHARED_FROM = 100;
 
-/** The columns the panel takes beside the chat - 0 when the terminal is too narrow to share. */
+/** The columns the panel takes beside the chat: half the screen, the rule between them in the middle - 0 when the terminal is too narrow to share. */
 export function dockedWidth(columns: number): number {
-  return columns < SHARED_FROM ? 0 : Math.max(48, Math.floor(columns * 0.45));
+  return columns < SHARED_FROM ? 0 : Math.floor(columns / 2);
 }
 
 /** What of pi's screen narrowing the chat reaches: not among what pi-tui declares. */
@@ -71,5 +71,35 @@ export function clickToFocus(tui: object, chatWidth: () => number, side: (side: 
   };
   return () => {
     screen.handleMouseEvent = handle;
+  };
+}
+
+/**
+ * A line drawn faint - the side that does not have the keys, in the shade. Faint (SGR 2) holds through a line's colours;
+ * only a reset - SGR 0, or 22 - ends it, so it is set again after each one. A line holding an image is left as it is.
+ */
+export function shade(line: string): string {
+  // Kitty's image escape, or iTerm2's.
+  if (line.includes("\x1b_G") || line.includes("\x1b]1337;File=")) return line;
+  const again = line.replace(/\x1b\[([\d;]*)m/g, (sgr, params: string) => (params.split(";").some((param) => param === "" || param === "0" || param === "22") ? `${sgr}${FAINT}` : sgr));
+  return `${FAINT}${again}${NOT_FAINT}`;
+}
+
+const FAINT = "\x1b[2m";
+const NOT_FAINT = "\x1b[22m";
+
+/**
+ * The chat in the shade while `shaded()`: each of its rows drawn faint as the screen lays the overlays over it - the
+ * docked panel the last of them, which covers its own columns. Returns what takes the shade off.
+ */
+export function shadeChat(tui: object, shaded: () => boolean): () => void {
+  const screen = tui as { compositeLineAt?: (base: string, overlay: string, col: number, width: number, total: number) => string };
+  const composite = screen.compositeLineAt;
+  if (typeof composite !== "function") return () => {};
+  screen.compositeLineAt = function (this: unknown, base, overlay, col, width, total) {
+    return composite.call(this, shaded() ? shade(base) : base, overlay, col, width, total);
+  };
+  return () => {
+    screen.compositeLineAt = composite;
   };
 }
