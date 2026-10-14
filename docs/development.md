@@ -75,6 +75,7 @@ trust `turri-oss/turri`, the workflow `publish.yml` and the environment `npm`. R
 | `src/regenerate/confine.ts`, `src/regenerate/agent-shell.ts`, `src/regenerate/command-check.ts`, `src/regenerate/os-sandbox.ts`, `src/regenerate/audit.ts`, `src/regenerate/agent-env.ts`, `src/regenerate/shell.ts` | the file-tool fence and the walls around every agent command: the check, the OS sandbox, the audit, the module's environment, the host runner - see [sandbox](sandbox.md) |
 | `src/regenerate/engine.ts` | choosing and resolving render models |
 | `src/regenerate/job-panel.ts`, `src/regenerate/transcript-view.ts`, `src/regenerate/diff-view.ts` | the job panel, the side panel's colours, and a spec diff as they show it - highlighted and banded |
+| `src/regenerate/side-panel.ts`, `src/regenerate/panel-dock.ts` | the side panel, and the chat narrowed beside it when it is docked |
 | `src/regenerate/spec-map.ts`, `src/regenerate/spec-map-view.ts` | regen: each item's mark, from the records, the `.plain` files and the work loop's plan (`mapPlan`), and the map drawn |
 | `src/regenerate/debug-log.ts` | each render agent's whole conversation, always streamed to `.turri/debug/` |
 | `genome/` | what turri knows and can do: `genome/skills/`, the skill library, and `genome/rules/`, the \*\*\*plain authoring rules |

@@ -7,7 +7,7 @@ import { conversationCommand, conversationSettled, conversationWriting } from ".
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, TUI } from "@earendil-works/pi-tui";
-import { allocateImageId, Box, type Component, compositeTuiLine, getCapabilities, getPngDimensions, type ImageDimensions, isKeyRelease, isKeyRepeat, matchesKey, renderImage, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { allocateImageId, Box, type Component, getCapabilities, getPngDimensions, type ImageDimensions, isKeyRelease, isKeyRepeat, matchesKey, renderImage, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CODING_MODEL_ENV } from "./chat-models.ts";
@@ -34,6 +34,8 @@ import { whyFailed } from "./regenerate/diagnose-job.ts";
 import { createWorkLoop, describeModules, isUpToDate, previewJobs, type WorkLoop } from "./regenerate/loop.ts";
 import { brandBlue, plainPaint } from "./regenerate/plain-palette.ts";
 import { createJobPanel, didNotPass, keyPressed, PANEL_KEY, spinner } from "./regenerate/job-panel.ts";
+import { clickToFocus, dockedWidth, narrowChat } from "./regenerate/panel-dock.ts";
+import { overPictureRow, PICTURE_AT } from "./picture-row.ts";
 import { skillAboutLine, skillProgressLine } from "./skill-progress.ts";
 import { createSidePanel } from "./regenerate/side-panel.ts";
 import { createSpecMapSource, defaultMapFiles } from "./regenerate/spec-map.ts";
@@ -1640,9 +1642,17 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     },
   });
 
-  // The side panel: the regeneration - and the pulses behind p - over the whole screen. Its key (PANEL_KEY) opens it; the
-  // key again, or esc, closes it and goes back to the chat. While it shows, every key is its own.
-  let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void } | undefined;
+  // The side panel: the regeneration - and the pulses behind p - over the whole screen, or beside the chat (s, from one to
+  // the other). Its key (PANEL_KEY) opens it; the key again closes it and goes back to the chat, as esc does over the
+  // screen - beside the chat, esc gives the chat its keys back and the panel stays, and the key gives them to the panel.
+  // While the panel has the keys, every key is its own.
+  let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void; keys: boolean } | undefined;
+  // Beside the chat or over it: as the person last left it, for the conversation.
+  let panelDocked = false;
+  // The terminal the panel is drawn on, for its width: set as it opens.
+  let panelTerminal: { columns: number } | undefined;
+  /** The columns the panel takes beside the chat - 0 over the whole screen, or when the terminal is too narrow to share. */
+  const panelBeside = (): number => (panelDocked && panelTerminal !== undefined ? dockedWidth(panelTerminal.columns) : 0);
   // What is open in the pulse list and the map, and where their cursors are: the conversation's, as left each time it opens.
   const jobsTree = createJobsTreeState();
   const mapState = createSpecMapState();
@@ -1669,6 +1679,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     needsLooking.delete(jobs);
     if (panel !== undefined) {
       panel.handle?.setHidden(false);
+      panel.keys = true;
       panel.handle?.focus();
       return;
     }
@@ -1676,7 +1687,44 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     void ctx.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
         const close = () => done(undefined);
+        panelTerminal = tui.terminal;
         let component: { render(width: number): string[]; dispose?(): void } | undefined;
+        // Beside the chat: the chat drawn narrower, on the left, and a click on either side giving it the keys - undone
+        // when the panel goes over the screen, or closes.
+        let undock: (() => void) | undefined;
+        const layOut = () => {
+          if (panelDocked && undock === undefined) {
+            const widen = narrowChat(tui, panelBeside);
+            const unwatch = clickToFocus(
+              tui,
+              () => tui.terminal.columns - panelBeside(),
+              (side) => {
+                if (panelBeside() === 0) return;
+                if (side === "chat") toChat();
+                else toPanel();
+              },
+            );
+            undock = () => {
+              unwatch();
+              widen();
+            };
+          } else if (!panelDocked && undock !== undefined) {
+            undock();
+            undock = undefined;
+          }
+        };
+        // Beside the chat, back to it: the chat has the keys, the panel stays.
+        const toChat = () => {
+          entry.keys = false;
+          entry.handle?.unfocus();
+          tui.requestRender();
+        };
+        const toPanel = () => {
+          entry.keys = true;
+          entry.handle?.focus();
+          tui.requestRender();
+        };
+        const back = () => (panelBeside() > 0 ? toChat() : close());
         // Opened, it reads the files again at once: they may have changed while it was closed.
         specMap.refresh();
         const view = createSidePanel({
@@ -1686,6 +1734,14 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           mapState,
           rows: () => tui.terminal.rows,
           key: PANEL_KEY,
+          dock: {
+            docked: () => panelBeside() > 0,
+            toggle: () => {
+              panelDocked = panelBeside() === 0;
+              layOut();
+              tui.requestRender();
+            },
+          },
           style: {
             heading: (text) => theme.bold(theme.fg("accent", text)),
             muted: (text) => theme.fg("muted", text),
@@ -1700,11 +1756,11 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             // What conformance tests show does what its spec says: brand blue.
             conforms: brandBlue(theme),
           },
-          back: close,
+          back,
           close,
           // A module that needs the person: the chat takes it up with them, in their words - what went wrong, and what now.
           discuss: (page) => {
-            close();
+            back();
             const why = page.codebase?.stuck?.why;
             pi.sendUserMessage(
               `regen says ${page.module} needs me: ${page.status}. What went wrong, and what do we do about it?${why !== undefined ? `\n\n(turri's reason: ${why})` : ""}`,
@@ -1713,12 +1769,14 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           },
           // Something took the keys' focus while the panel showed - a question in the chat - and waits there.
           waiting: () => {
+            if (!entry.keys) return false;
             const focused = (tui as unknown as { getFocusedComponent?(): unknown }).getFocusedComponent?.() ?? null;
             return focused !== null && focused !== component;
           },
         });
-        const entry: NonNullable<typeof panel> = { view, close };
+        const entry: NonNullable<typeof panel> = { view, close, keys: true };
         panel = entry;
+        layOut();
         // Every key goes to the panel while it shows, whatever has the focus: a question the chat model asks in the
         // background takes the focus, but no key reaches it - an enter never answers it unseen. It waits in the chat
         // until the panel closes, and has the keys then. Mouse events are the screen's, before this sees them.
@@ -1737,6 +1795,10 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             return undefined;
           }
           if (!state) return undefined;
+          // Beside the chat, with the chat's keys: they are the chat's - PANEL_KEY among them, for the shortcut that gives
+          // them to the panel. A click on the panel gives it the focus, and the keys with it.
+          if (!entry.keys && entry.handle?.isFocused() !== true) return undefined;
+          entry.keys = true;
           // A terminal on the Kitty keyboard protocol reports a key's release, and listeners are given it: the release of
           // the ctrl+h that opened the panel would close it again at once, and every arrow would move twice. Only
           // presses count - and ctrl+h held down, repeating, does not open and close it over and over.
@@ -1759,7 +1821,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         }, WATCH_REDRAW_MS);
         timer.unref?.();
         component = {
-          render: (width: number) => view.render(width),
+          // Beside the chat, a rule down its left edge between them.
+          render: (width: number) => (panelBeside() > 0 ? view.render(width - 2).map((line) => `${theme.fg("borderMuted", "│")} ${line}`) : view.render(width)),
           // Reached only if the listener above is gone: the same, so the panel never passes a key on.
           handleInput: (data: string) => {
             if (isKeyRepeat(data) && matchesKey(data, PANEL_KEY)) return;
@@ -1772,6 +1835,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           dispose: () => {
             unlisten();
             clearInterval(timer);
+            undock?.();
             if (panel === entry) panel = undefined;
           },
         } as { render(width: number): string[]; dispose?(): void };
@@ -1779,8 +1843,15 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
       },
       {
         overlay: true,
-        // The whole screen: the panel or the chat, one at a time.
-        overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+        // The whole screen, or the columns on the right beside the chat - read at each frame, so it follows the terminal.
+        overlayOptions: {
+          get width() {
+            return panelBeside() > 0 ? panelBeside() : "100%";
+          },
+          maxHeight: "100%",
+          anchor: "top-right",
+          margin: 0,
+        },
         onHandle: (handle) => {
           if (panel !== undefined) panel.handle = handle;
         },
@@ -1807,7 +1878,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   panelOpeners.set(jobs, (ctx) => openPanel(ctx));
   questionPeek = {
     open: (ctx) => openPanel(ctx),
-    shown: () => panel !== undefined,
+    shown: () => panel !== undefined && panel.keys,
   };
 
   pi.registerShortcut(PANEL_KEY, {
@@ -2489,9 +2560,6 @@ function animateJellyfish(ctx: ExtensionContext): void {
 
 const JELLYFISH_CLOCK_KEY = "turri-jellyfish";
 
-/** What the banner puts between a row's text and the picture after it: back to the jellyfish's column. */
-const PICTURE_AT = "\x1b[2G";
-
 /** The columns the banner's picture takes from the left edge, while it shows one; 0 when it does not. */
 let pictureRight = 0;
 
@@ -2506,13 +2574,7 @@ function drawOverlaysBesidePicture(tui: TUI): void {
   if (target.turriPicture === true || typeof target.compositeLineAt !== "function") return;
   target.turriPicture = true;
   const original = target.compositeLineAt.bind(tui);
-  target.compositeLineAt = (base, overlay, col, width, total) => {
-    const at = base.lastIndexOf(PICTURE_AT);
-    const picture = at === -1 ? "" : base.slice(at + PICTURE_AT.length);
-    if (!/^(\x1b\[\d+A)?(\x1b_G|\x1b\]1337;File=)/.test(picture)) return original(base, overlay, col, width, total);
-    const drawn = compositeTuiLine(base.slice(0, at), overlay, col, width, total);
-    return col >= pictureRight ? `${drawn}${PICTURE_AT}${picture}` : drawn;
-  };
+  target.compositeLineAt = (base, overlay, col, width, total) => overPictureRow(base, overlay, col, width, total, pictureRight) ?? original(base, overlay, col, width, total);
 }
 
 /** Columns between the jellyfish and the lines beside it. */
@@ -2551,7 +2613,8 @@ class Banner implements Component {
     const placed =
       art?.kind === "image" ? this.placeImage(art, Math.max(JELLYFISH_ROWS, this.lines.length), width - 2 - JELLYFISH_GAP - BANNER_TEXT_MIN) : art?.kind === "text" && art.columns <= width - 2 - JELLYFISH_GAP - BANNER_TEXT_MIN ? art : undefined;
     const left = placed !== undefined ? 1 + placed.columns + JELLYFISH_GAP : 1;
-    const text = this.lines.map((line) => truncateToWidth(line, Math.max(1, width - 1 - left)));
+    // Wrapped in the columns beside the picture, never cut short - the chat beside the docked panel is narrow.
+    const text = this.lines.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width - 1 - left)));
     const height = Math.max(text.length, placed?.rows ?? 0);
     const above = Math.floor((height - text.length) / 2);
     const drawn = placed?.kind === "text" ? placed.frames[jellyfishFrame % placed.frames.length]! : undefined;

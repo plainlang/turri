@@ -37,6 +37,11 @@ export interface SidePanelOptions {
   discuss?: (page: MarkedPage) => void;
   /** The key that opens and closes it, shown in the footer. */
   key: string;
+  /**
+   * The panel over the whole screen, or beside the chat - `s` goes from one to the other. Beside it, `esc` gives the
+   * keys back to the chat and the panel stays. Not given: the key is not offered.
+   */
+  dock?: { docked(): boolean; toggle(): void };
   /** The pulse list's tree - what is open, where the cursor is - kept across openings of the panel. */
   tree?: JobsTreeState;
   /** The regeneration's view - which page, what is open, where the cursor is, which view shows - kept the same way. */
@@ -61,6 +66,12 @@ export function createSidePanel(options: SidePanelOptions) {
   let drawnTree: Drawn<TreeRow> = { rows: [], rowStarts: [], lineCount: 0 };
   let drawnMap: Drawn<MapRow> = { rows: [], rowStarts: [], lineCount: 0 };
   let pages: MarkedPage[] = [];
+
+  /** The keys back to the chat - and `s`, from over the screen to beside the chat and back. */
+  const backKeys = (): string[] => {
+    if (options.dock === undefined) return [`esc or ${options.key} back to the chat`];
+    return options.dock.docked() ? ["s full screen", "esc to the chat", `${options.key} close`] : ["s beside the chat", `esc or ${options.key} back to the chat`];
+  };
 
   const waitingNote = () =>
     // A question asked while it showed waits in the chat, unanswered: the person is told it is there.
@@ -110,7 +121,7 @@ export function createSidePanel(options: SidePanelOptions) {
   const rule = (width: number) => style.muted("─".repeat(Math.max(1, width)));
 
   const renderPulses = (width: number, rows: number): string[] => {
-    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", ...(options.map !== undefined ? ["p regen"] : []), `esc or ${options.key} back to the chat`];
+    const keys = ["↑↓ move", "enter open/close", "←→", "o/c all", "pgup pgdn scroll", ...(options.map !== undefined ? ["p regen"] : []), ...backKeys()];
     const top = topBlock([`${style.heading("pulses")}${waitingNote()}`], keys, width);
     // Under the top: the rule, and a line of space - as the map has.
     const bodyHeight = Math.max(3, rows - top.length - 2);
@@ -128,7 +139,7 @@ export function createSidePanel(options: SidePanelOptions) {
     pages = options.map!();
     const now = Date.now();
     if (pages.length === 0) {
-      const top = topBlock([`${style.heading("regen")}${waitingNote()}`], ["p pulses", `esc or ${options.key} back to the chat`], width);
+      const top = topBlock([`${style.heading("regen")}${waitingNote()}`], ["p pulses", ...backKeys()], width);
       lastBodyHeight = Math.max(3, rows - top.length - 1);
       drawnMap = { rows: [], rowStarts: [], lineCount: 0 };
       const body = [style.muted("  No .plain file to map: name one to regenerate, or set module: in config.turri.yaml."), ...new Array<string>(Math.max(0, lastBodyHeight - 1)).fill("")];
@@ -138,7 +149,7 @@ export function createSidePanel(options: SidePanelOptions) {
     const tabbed = pages.length > 1;
     const page = shownPage(pages, map)!;
     const discuss = page.stuck && options.discuss !== undefined ? [`${DISCUSS_KEY} talk it through in the chat`] : [];
-    const keys = [...discuss, "↑↓ move", "enter open/close", ...(tabbed ? ["←→ module"] : []), "o/c all", "pgup pgdn", "p pulses", `esc or ${options.key} back to the chat`];
+    const keys = [...discuss, "↑↓ move", "enter open/close", ...(tabbed ? ["←→ module"] : []), "o/c all", "pgup pgdn", "p pulses", ...backKeys()];
     // The legend's box in the upper right corner, over what is under it; too narrow a panel has none.
     const box = width >= 60 ? legendBox(legendLines(page, style)) : [];
     const room = box.length > 0 ? width - visibleWidth(box[0]!) - 1 : width;
@@ -243,7 +254,7 @@ export function createSidePanel(options: SidePanelOptions) {
         return map.view === "map" && options.map !== undefined ? renderMap(width, rows) : renderPulses(width, rows);
       } catch (error) {
         // A frame that throws is never drawn - nor is anything after it: the screen would freeze. What failed is shown instead.
-        const top = topBlock([`${style.heading(map.view === "map" ? "regen" : "pulses")}${waitingNote()}`], [...(options.map !== undefined ? ["p the other view"] : []), `esc or ${options.key} back to the chat`], width);
+        const top = topBlock([`${style.heading(map.view === "map" ? "regen" : "pulses")}${waitingNote()}`], [...(options.map !== undefined ? ["p the other view"] : []), ...backKeys()], width);
         const lines = (error instanceof Error ? (error.stack ?? error.message) : String(error)).split("\n").slice(0, Math.max(1, rows - top.length - 1));
         return [
           ...top,
@@ -257,6 +268,10 @@ export function createSidePanel(options: SidePanelOptions) {
     handleInput(data: string): void {
       if (matchesKey(data, Key.escape)) {
         options.back();
+        return;
+      }
+      if (options.dock !== undefined && data === "s") {
+        options.dock.toggle();
         return;
       }
       if (options.map !== undefined && data === "p") {
