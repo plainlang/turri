@@ -27,7 +27,20 @@ over `tsconfig.build.json`) compiles `src/` into `dist/`, file for file - each f
 in `src/` beside them. `npm pack` and `npm publish` run it first (`prepack`), and the package holds `dist/`, not
 `src/`. `bin/turri.mjs` runs `src/cli.ts` where there is one and `dist/cli.js` otherwise; `cli.ts` starts pi with
 the launcher and extension beside itself, whichever they are. To try the package as users get it:
-`npm pack`, then `npm install -g ./turri-rs-cli-<version>.tgz`.
+`npm pack`, then `npm install -g ./turri-dev-cli-<version>.tgz`.
+
+## Publishing
+
+`.github/workflows/publish.yml` publishes `@turri-dev/cli`, after the typecheck and the suite pass:
+
+- every push or merge into `main` publishes a prerelease under the `next` dist-tag - the patch after the `latest` on
+  npm, with the commit's sha: `0.1.2-next.<sha>`. `latest` is not touched; `npm install -g @turri-dev/cli@next` gets it.
+- a GitHub Release tagged `vX.Y.Z`, published by hand, publishes `X.Y.Z` as `latest` (or under `next`, if the release
+  is marked a pre-release). The tag is the version: it is set in the runner and never committed, so `package.json`'s
+  version on `main` is stale by design.
+
+The workflow signs in to npm with npm's trusted publishing (OIDC), not a token: the package's settings on npmjs.com
+trust `plainlang/turri`, the workflow `publish.yml` and the environment `npm`. Renaming the workflow file breaks it.
 
 ## Layout
 
