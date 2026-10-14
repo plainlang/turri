@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkAgainstScript, describeEnvironmentError, EnvironmentError, environmentErrorTool } from "../../src/regenerate/environment-error.ts";
 import { createJobRegistry } from "../../src/regenerate/jobs.ts";
@@ -190,7 +190,7 @@ describe("a report of what turri's own sandbox hid", () => {
     const { sandboxGapOf } = await import("../../src/regenerate/environment-error.ts");
     const on = (path: string) => path === npm;
     const gap = sandboxGapOf([report.missing, report.neededBy, report.shownBy].join("\n"), { exists: on, platform: "darwin", project: "/Users/tstoyche/projects/lunch" });
-    expect(gap).toEqual({ paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0" });
+    expect(gap).toEqual({ paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0", access: "read" });
     // Not on this machine: missing indeed.
     expect(sandboxGapOf(report.shownBy, { exists: () => false, platform: "darwin" })).toBeUndefined();
     // In the project, or the system's folders the sandbox already reads: not the sandbox's either.
@@ -202,11 +202,56 @@ describe("a report of what turri's own sandbox hid", () => {
 
   it("tells the person - and the conversation - that nothing is missing, and the line of config that fixes it", async () => {
     const { describeEnvironmentError, EnvironmentError } = await import("../../src/regenerate/environment-error.ts");
-    const error = new EnvironmentError({ moduleName: "lunch", ...report, source: "agent", sandbox: { paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0" } });
+    const error = new EnvironmentError({ moduleName: "lunch", ...report, source: "agent", sandbox: { paths: [npm], folder: "/Users/tstoyche/.local/share/mise/installs/node/24.16.0", access: "read" } });
     const said = describeEnvironmentError(error, "turri regenerate razgrad-lunch/lunch.plain");
     expect(said).toContain(`**lunch stopped: turri's sandbox kept its agents from reading \`${npm}\` - it is on this machine; nothing is missing.**`);
-    expect(said).toContain("add its folder to `toolchains:` in config.yaml, keeping what is there: `toolchains: [/Users/tstoyche/.local/share/mise/installs/node/24.16.0]`");
+    expect(said).toContain("add its folder to `toolchains:` in config.turri.yaml, keeping what is there: `toolchains: [/Users/tstoyche/.local/share/mise/installs/node/24.16.0]`");
     expect(said).not.toContain("provide it on this machine");
-    expect(error.message).toBe(`lunch stopped: turri's sandbox kept its agents from ${npm}, which is on this machine.`);
+    expect(error.message).toBe(`lunch stopped: turri's sandbox kept its agents from reading ${npm}, which is on this machine.`);
+  });
+});
+
+describe("a report of a write turri's own sandbox refused", () => {
+  // As an agent might write it after a Gradle build: a plugin's lock under the person's real home, which the JVM found
+  // without $HOME.
+  const lock = `${homedir()}/.konan/dependencies/.extracted.lock`;
+  const report = {
+    missing: "write access to the Kotlin/Native dependencies folder",
+    neededBy: "./gradlew test",
+    shownBy: `Could not acquire lock on ${lock}: Operation not permitted`,
+  };
+
+  it("is a write the sandbox refused, the lock first - even when the lock file was never made", async () => {
+    const { sandboxGapOf } = await import("../../src/regenerate/environment-error.ts");
+    const gap = sandboxGapOf([report.missing, report.neededBy, report.shownBy].join("\n"), { exists: (path) => path === dirname(lock), platform: "darwin", project: "/Users/me/projects/app" });
+    expect(gap).toEqual({ paths: [lock], folder: dirname(lock), access: "write", lock: true });
+  });
+
+  it("takes a file read that names a lock file for a read", async () => {
+    const { sandboxGapOf } = await import("../../src/regenerate/environment-error.ts");
+    const npm = "/Users/t/.local/share/mise/installs/node/24.16.0/lib/node_modules/npm/bin/npm-cli.js";
+    const gap = sandboxGapOf(`npm install, for package-lock.json, fails EPERM opening ${npm}`, { exists: (path) => path === npm, platform: "darwin" });
+    expect(gap?.access).toBe("read");
+  });
+
+  it("tells the person no setting lets the agents write there - not toolchains: - and what does fix it", async () => {
+    const { describeEnvironmentError, EnvironmentError } = await import("../../src/regenerate/environment-error.ts");
+    const error = new EnvironmentError({ moduleName: "app", ...report, source: "agent", sandbox: { paths: [lock], folder: dirname(lock), access: "write", lock: true } });
+    const said = describeEnvironmentError(error);
+    expect(said).toContain(`**app stopped: turri's sandbox kept its agents from writing the lock file \`${lock}\`, which the build takes as it runs - it is on this machine; nothing is missing, and nothing needs installing.**`);
+    expect(said).toContain("`toolchains:` lets them read a folder, not write it");
+    expect(said).toContain("it is in your home, not the agents' own");
+    expect(said).toContain("-Duser.home=$HOME");
+    expect(said).not.toContain("toolchains: [");
+    expect(error.message).toBe(`app stopped: turri's sandbox kept its agents from writing ${lock}, which is on this machine.`);
+  });
+
+  it("says a write into a toolchain's own install is the toolchain's, not a setting", async () => {
+    const { describeEnvironmentError, EnvironmentError } = await import("../../src/regenerate/environment-error.ts");
+    const flutter = "/opt/flutter/bin/cache/lockfile";
+    const error = new EnvironmentError({ moduleName: "app", missing: "a lock", neededBy: "flutter test", source: "agent", sandbox: { paths: [flutter], folder: "/opt/flutter/bin/cache", access: "write", lock: true } });
+    const said = describeEnvironmentError(error);
+    expect(said).toContain("it is in a toolchain's own install, `/opt/flutter/bin/cache`");
+    expect(said).not.toContain("your home");
   });
 });

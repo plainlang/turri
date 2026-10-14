@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, sep } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -39,7 +40,7 @@ export class EnvironmentError extends Error {
   constructor(details: { moduleName: string; missing: string; neededBy: string; shownBy?: string; fix?: string; source: "agent" | "harness"; sandbox?: SandboxGap }) {
     super(
       details.sandbox !== undefined
-        ? `${details.moduleName} stopped: turri's sandbox kept its agents from ${details.sandbox.paths[0]}, which is on this machine.`
+        ? `${details.moduleName} stopped: turri's sandbox kept its agents from ${details.sandbox.access === "write" ? "writing" : "reading"} ${details.sandbox.paths[0]}, which is on this machine.`
         : `${details.moduleName} stopped: the environment lacks ${details.missing}.`,
     );
     this.name = "EnvironmentError";
@@ -57,7 +58,20 @@ export class EnvironmentError extends Error {
 export interface SandboxGap {
   paths: string[];
   folder: string;
+  /**
+   * What the sandbox refused: reading - a toolchain outside what it lets the agents read, which `toolchains:` fixes - or
+   * writing, which no line of config allows: a lock file a build tool takes as it runs, a cache it fills.
+   */
+  access: "read" | "write";
+  /** The first path is a lock file - `gradle.lock`, `bin/cache/lockfile`, `*.lck`. */
+  lock?: boolean;
 }
+
+/** A file's name that says it is a lock: `lockfile`, `x.lock`, `x.lck`, `.lock-x`, `x.lock.y`. */
+const LOCK_FILE = /(?:^|[._-])(?:lock|lck|lockfile)(?:$|[._-])/i;
+
+/** What says the sandbox refused a write, not a read: writing, creating, a lock not taken - not a name with "lock" in it. */
+const WRITE_REFUSED = /\b(?:writ(?:e|es|ing|able)|creat(?:e|es|ing)|acquir(?:e|ing)|(?:take|obtain|get) (?:a |the )?lock|locking|read-only file system)\b/i;
 
 /** A folder named for a version - `24.16.0`, `v22.3.0`, `3.12.4` - the root of a version manager's install. */
 const VERSION = /^v?\d+\.\d+/;
@@ -84,10 +98,20 @@ export function sandboxGapOf(text: string, options: { project?: string; exists?:
   const system = (options.platform ?? process.platform) === "darwin" ? MACOS_MACHINE : LINUX_MACHINE;
   const within = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
   const named = [...text.matchAll(/(?:^|[\s'"`(=:])(\/[^\s'"`()<>,;]+)/g)].map((match) => match[1]!.replace(/[.:]+$/, ""));
-  const paths = [...new Set(named)].filter(
-    (path) => path.split("/").length > 3 && exists(path) && !system.some((root) => within(path, root)) && (options.project === undefined || !within(path, options.project)),
+  const isLock = (path: string) => LOCK_FILE.test(basename(path));
+  // A lock file the tool could not create is not there: its folder is.
+  const found = [...new Set(named)].filter(
+    (path) =>
+      path.split("/").length > 3 &&
+      (exists(path) || (isLock(path) && exists(dirname(path)))) &&
+      !system.some((root) => within(path, root)) &&
+      (options.project === undefined || !within(path, options.project)),
   );
-  return paths.length > 0 ? { paths, folder: toolchainFolder(paths[0]!) } : undefined;
+  if (found.length === 0) return undefined;
+  // The lock first: it is what the build could not take.
+  const paths = [...found.filter(isLock), ...found.filter((path) => !isLock(path))];
+  const lock = isLock(paths[0]!);
+  return { paths, folder: toolchainFolder(paths[0]!), access: lock || WRITE_REFUSED.test(text) ? "write" : "read", ...(lock ? { lock } : {}) };
 }
 
 /**
@@ -95,19 +119,41 @@ export function sandboxGapOf(text: string, options: { project?: string; exists?:
  * the work again, as the pulse knows it - the spec the person ran; without it, the module's own spec by its name.
  */
 export function describeEnvironmentError(error: EnvironmentError, rerun?: string): string {
-  if (error.sandbox !== undefined) {
+  const again = `Then re-run: \`${rerun ?? `turri regenerate ${error.moduleName}.plain`}\`, or say "resume" in the chat.`;
+  const needed = `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`;
+  const gap = error.sandbox;
+  if (gap?.access === "write") {
+    const what = gap.lock === true ? `the lock file \`${gap.paths[0]}\`, which the build takes as it runs` : `\`${gap.paths[0]}\``;
+    const home = homedir();
+    const inHome = gap.paths[0] === home || gap.paths[0]!.startsWith(`${home}/`);
     return [
-      `**${error.moduleName} stopped: turri's sandbox kept its agents from reading \`${error.sandbox.paths[0]}\` - it is on this machine; nothing is missing.**`,
-      `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,
-      `To fix: let the agents read that toolchain - add its folder to \`toolchains:\` in config.yaml, keeping what is there: \`toolchains: [${error.sandbox.folder}]\`. Nothing needs installing.`,
-      `Then re-run: \`${rerun ?? `turri regenerate ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
+      `**${error.moduleName} stopped: turri's sandbox kept its agents from writing ${what} - it is on this machine; nothing is missing, and nothing needs installing.**`,
+      needed,
+      "An agent's commands write only their module's folders, their own home and temporary folder, and the package caches turri " +
+        "points the build tools at - no setting lets them write anywhere else, and `toolchains:` lets them read a folder, not write it.",
+      inHome
+        ? "To fix: it is in your home, not the agents' own - the tool found your home without `$HOME`, as a JVM does for `user.home`, " +
+          "or a setting of yours points it there. Have it use `$HOME` instead - for a JVM tool, `-Duser.home=$HOME` where the build " +
+          "starts its JVM - and the agents' own home takes it."
+        : `To fix: it is in a toolchain's own install, \`${gap.folder}\`, which the build writes into as it runs - and the agents may ` +
+          "not change a toolchain. Have the build keep it elsewhere if the tool has a setting for it, or install a copy of the " +
+          "toolchain that keeps its writes in its cache.",
+      again,
+    ].join("\n");
+  }
+  if (gap !== undefined) {
+    return [
+      `**${error.moduleName} stopped: turri's sandbox kept its agents from reading \`${gap.paths[0]}\` - it is on this machine; nothing is missing.**`,
+      needed,
+      `To fix: let the agents read that toolchain - add its folder to \`toolchains:\` in config.turri.yaml, keeping what is there: \`toolchains: [${gap.folder}]\`. Nothing needs installing.`,
+      again,
     ].join("\n");
   }
   return [
     `**${error.moduleName} stopped: the environment lacks ${error.missing}.**`,
     `Needed by: ${error.neededBy}${error.shownBy !== undefined ? ` (${error.shownBy})` : ""}.`,
     `To fix: ${error.fix ?? "provide it on this machine, then run it again."}`,
-    `Then re-run: \`${rerun ?? `turri regenerate ${error.moduleName}.plain`}\`, or say "resume" in the chat.`,
+    again,
   ].join("\n");
 }
 

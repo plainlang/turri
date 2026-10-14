@@ -577,10 +577,20 @@ not an install:
 > **lunch stopped: turri's sandbox kept its agents from reading `…/mise/installs/node/24.16.0/lib/node_modules/npm/bin/npm-cli.js` - it is on this machine; nothing is missing.**
 > To fix: let the agents read that toolchain - add its folder to `toolchains:` in config.turri.yaml, keeping what is there: `toolchains: [/Users/…/mise/installs/node/24.16.0]`. Nothing needs installing.
 
+A write the sandbox refused is told apart from a read - a report naming a lock file (`*.lock`, `*.lck`, `lockfile`, even
+one never made), or saying a write, a create or a lock not taken. No setting lets the agents write outside their
+module's folders, their own home and temporary folder and the package caches, and `toolchains:` only lets them read; so
+the stop names the lock and what fixes it instead. In your home - a tool that found it without `$HOME`, as a JVM does for
+`user.home` - it is having the tool use `$HOME` (`-Duser.home=$HOME` where the build starts its JVM); in a toolchain's own
+install, it is a setting of the tool's that keeps the write elsewhere, or a copy of the toolchain that keeps its writes in
+its cache. The agents are told such a refusal is the sandbox's, to report at once - not to work around it for half an
+hour.
+
 **The conversation heals it.** Told of the stop, it never regenerates the module again before the cause is fixed - a pulse
 stopped on its environment stops the same way again - and fixes what it can:
 
-- **hidden by the sandbox**: it adds the folder to `toolchains:` itself, says so in a line, and resumes;
+- **hidden by the sandbox**: it adds the folder to `toolchains:` itself, says so in a line, and resumes - a refused
+  write, which no setting fixes, it fixes in the project's own files when it can, and otherwise tells you what to do;
 - **a toolchain or a tool missing** - a JDK, Maven, Go, uv: it looks first for one installed off the PATH - Homebrew's opt
   folders, `/Library/Java/JavaVirtualMachines`, mise, asdf, sdkman, nvm - then asks you, with the exact command for this
   machine (`brew install openjdk@21`, `mise use -g java@21`), and on your yes runs it in its shell, checks the command is

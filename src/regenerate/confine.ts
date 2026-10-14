@@ -271,6 +271,11 @@ export function sandboxNote(fence: { read: string[]; write: string[]; shell: boo
         ? `report it as an environment error with ${fence.environmentTool}`
         : "say so plainly - what is missing and what needs it - and end your turn";
     lines.push(
+      "- A command refused a file outside your folder - `Operation not permitted`, `Permission denied`, a lock it could not",
+      `  take - is these walls, not the code, and nothing you change gets past them: ${report} at once, naming the file`,
+      "  and the command that wanted it.",
+    );
+    lines.push(
       fence.write.length > 0
         ? "- The project's dependencies are yours: declare them in the build manifest, and let the build tools fetch them."
         : "- You install nothing.",
