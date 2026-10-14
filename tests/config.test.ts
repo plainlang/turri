@@ -386,10 +386,10 @@ describe("config.yaml, before turri had a file of its own", () => {
     const { readFileSync } = await import("node:fs");
     const { readProjectConfig, stacksOf } = await import("../src/config.ts");
     const { writeSetting } = await import("../src/config-edit.ts");
-    writeFileSync(join(root, "config.yaml"), "# codeplain's\nunittests-script: run_unittests_python.sh\n");
+    writeFileSync(join(root, "config.yaml"), "# another tool's\nunittests-script: run_unittests_python.sh\n");
     writeFileSync(join(root, "config.backend.yaml"), "review: true\n");
     writeSetting(root, "review", false);
-    expect(readFileSync(join(root, "config.yaml"), "utf8")).toBe("# codeplain's\nunittests-script: run_unittests_python.sh\n");
+    expect(readFileSync(join(root, "config.yaml"), "utf8")).toBe("# another tool's\nunittests-script: run_unittests_python.sh\n");
     expect(readFileSync(join(root, "config.turri.yaml"), "utf8")).toContain("unittests-script: run_unittests_python.sh");
     expect(readFileSync(join(root, "config.turri.backend.yaml"), "utf8")).toBe("review: true\n");
     expect(readProjectConfig(root)).toEqual({ unittestsScript: "run_unittests_python.sh", review: false });

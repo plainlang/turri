@@ -36,7 +36,7 @@ function alreadyImplemented(moduleName: string, own: string[], required: Require
  * one another, the current module marked - and each tagged with its module and its id there. A codebase holds the
  * functionalities of every module it is built on, and each module numbers its own from 1, so
  * "functionality 1" alone is ambiguous: the first listed may be base's 1 and the next top's 3.
- * (plain2code's _get_implemented_functional_requirements_prompt_section, as tags.)
+ * (the reference implementation's implemented functional requirements prompt section, as tags.)
  */
 export function functionalitiesByModule(
   entries: Array<{ module: string; frid: string; spec: string }>,

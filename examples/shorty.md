@@ -94,7 +94,7 @@ and a link, with that address for `$SHORTY`:
 
 ```bash
 curl -s -X POST $SHORTY/links -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' -d '{"url": "https://codeplain.ai"}'
+  -H 'Content-Type: application/json' -d '{"url": "https://example.com"}'
 curl -si $SHORTY/<code>
 ```
 

@@ -115,9 +115,9 @@ describe("naming a section", () => {
 
     const tool = createNotesTool(code, () => {});
     const run = (section: string) =>
-      (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { changes: [{ section, action: "add", text: "Conformance tests live in src/test/java/com/codeplain/restore" }] });
+      (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { changes: [{ section, action: "add", text: "Conformance tests live in src/test/java/com/example/restore" }] });
     await run("where things are");
-    expect(readNotes(code).where).toEqual([expect.stringContaining("Conformance tests live in src/test/java/com/codeplain/restore")]);
+    expect(readNotes(code).where).toEqual([expect.stringContaining("Conformance tests live in src/test/java/com/example/restore")]);
     await expect(run("requirements")).rejects.toThrow(/"requirements" is not a section\. The sections are: where \(Where things are\), run/);
   });
 });

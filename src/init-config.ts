@@ -345,7 +345,7 @@ function whose(vendor: Vendor, bedrock?: BedrockChoice): string {
 }
 
 /**
- * What a config.yaml in `folder` says that turri reads too - codeplain's testing scripts, say - by turri's names
+ * What a config.yaml in `folder` says that turri reads too - another tool's testing scripts, say - by turri's names
  * (`template_dir` read as `template-dir`), in the file's order; and the keys it leaves, turri reading none of them. The
  * two models are the vendor's, so they are not taken.
  */
@@ -386,7 +386,7 @@ export function initConfig(dir: string, options: { force?: boolean; vendor?: Ven
   const existing = existsSync(path) && options.force !== true;
   const { harness, coding } = modelsOf(vendor, options.bedrock);
   const lines = modelLines(harness, coding);
-  // A new file takes what a config.yaml beside it - codeplain's - says that turri reads too: its testing scripts, say.
+  // A new file takes what a config.yaml beside it - another tool's, say - says that turri reads too: its testing scripts, say.
   const shared = existing ? { carried: [], left: [] } : sharedWithLegacy(folder);
   const config = existing
     ? withModels(readFileSync(path, "utf8"), lines)
@@ -435,7 +435,7 @@ const USAGE = [
   "a mix of Anthropic and Google, the starting point for any provider pi supports. On amazon-bedrock, --maker and",
   "--region say whose models and where (anthropic: global, us, eu, jp, au; openai: global, us) - asked when not given.",
   "A config.turri.yaml already there keeps everything but its two models; --force writes the whole of it again. A new",
-  "one takes from a config.yaml beside it - codeplain's - the keys turri reads too, its testing scripts say, and leaves",
+  "one takes from a config.yaml beside it - another tool's, say - the keys turri reads too, its testing scripts say, and leaves",
   "config.yaml as it is.",
 ].join("\n");
 

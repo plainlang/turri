@@ -45,7 +45,7 @@ export interface TestScripts {
   /** `run_conformance_tests_<lang>.sh <build> <conformance tests>` - the whole suite, at once. */
   conformance?: string;
   /**
-   * `prepare_environment_<lang>.sh <build>` - optional, as codeplain has it: run on the build before every run of the
+   * `prepare_environment_<lang>.sh <build>` - optional: run on the build before every run of the
    * conformance testing script, which runs only once it passes. turri never writes one.
    */
   prepare?: string;

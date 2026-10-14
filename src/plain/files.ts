@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createEnvironment } from "./liquid.ts";
 
-/** Ports of the file_utils.py and plain2code_utils.py helpers this parser needs. */
+/** Ports of the Python reference implementation's file helpers this parser needs. */
 
 export function openFrom(dirs: string[], fileName: string): string | null {
   for (const dir of dirs) {

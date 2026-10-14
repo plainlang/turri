@@ -18,7 +18,7 @@ describe("the pi skills the conversation is not offered", () => {
   });
 
   it("leaves out another tool's skills for ***plain specs and their testing scripts", () => {
-    expect(supersededByTurri({ name: "forge-plain", description: "Turn an idea into a codeplain project." }, turriRuns)).toBe(true);
+    expect(supersededByTurri({ name: "forge-plain", description: "Turn an idea into a ***plain project." }, turriRuns)).toBe(true);
     expect(supersededByTurri({ name: "implement-testing-scripts", description: "Create testing scripts (run_unittests, run_conformance_tests) for a language." }, turriRuns)).toBe(true);
     expect(supersededByTurri({ name: "add-feature", description: "Add a feature as functional specs to a module." }, turriRuns)).toBe(true);
   });

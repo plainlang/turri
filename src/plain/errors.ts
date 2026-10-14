@@ -1,4 +1,4 @@
-/** Ports of the exception classes in plain2code_exceptions.py that this parser raises. */
+/** Ports of the exception classes of the Python reference implementation that this parser raises. */
 
 export class PlainSyntaxError extends Error {
   constructor(message: string) {

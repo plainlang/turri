@@ -9,7 +9,7 @@
 | `src/plain/spec.ts` | `plain_spec.py` - functionality ids, the per-functionality context, linked resources, ranges |
 | `src/plain/concepts.ts` | `concept_utils.py` - concept extraction, validation, topological ordering |
 | `src/plain/markdown.ts` | mistletoe's AST + `PlainRenderer` (mdast + a matching serializer) |
-| `src/plain/liquid.ts` | `plain2code_nodes.py` + the two filters in `plain_spec.py` (liquidjs) |
+| `src/plain/liquid.ts` | the reference implementation's Liquid nodes + the two filters in `plain_spec.py` (liquidjs) |
 | `src/plain/files.ts` | `file_utils.open_from` / `get_loaded_templates`, base64 blob detection |
 | `src/plain/stdlib.ts` | nothing - turri's own: `stdlib/` is a reserved import prefix, read from turri's standard library only, and a project module at such a path is an error (see [the standard library](authoring-plain.md#the-standard-library)) |
 

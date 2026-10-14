@@ -71,7 +71,7 @@ describe("the harness's run of the conformance testing script", () => {
     expect((await runConformanceScript(buildDir, [conformanceDir], script('cd "$1" && cat state.txt\n'))).exitCode).not.toBe(0);
   });
 
-  it("runs the project's prepare script on the build first, as codeplain does - the conformance tests once it passes", async () => {
+  it("runs the project's prepare script on the build first - the conformance tests once it passes", async () => {
     writeFileSync(join(buildDir, "app.txt"), "hello");
     const prepare = join(project, "test_scripts", "prepare_environment_sh.sh");
     const scripts = script('cat "/tmp/turri_prepared_$(basename "$1")" && echo "tests=$2"\n');

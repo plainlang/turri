@@ -73,22 +73,22 @@ describe("turri init-config", () => {
     expect(readFileSync(join(dir, "config.turri.yaml"), "utf8")).toBe(QUICK_START_CONFIG);
   });
 
-  it("takes from a codeplain config.yaml the keys turri reads too - each in its place in the quick start - and leaves the rest, and config.yaml, as they were", () => {
-    const codeplain = [
+  it("takes from another tool's config.yaml the keys turri reads too - each in its place in the quick start - and leaves the rest, and config.yaml, as they were", () => {
+    const other = [
       "template_dir: template",
       "prepare-environment-script: test_scripts/prepare_environment_java.sh",
       "unittests-script: test_scripts/run_unittests.sh",
       "conformance-tests-script: test_scripts/run_conformance_tests.sh",
       "verbose: true",
-      "api: https://api.codeplain.ai",
+      "api: https://api.example.com",
       "coding-model: somebody/else",
       "",
     ].join("\n");
-    writeFileSync(join(dir, "config.yaml"), codeplain);
+    writeFileSync(join(dir, "config.yaml"), other);
     const result = initConfig(dir, { vendor: "openai" });
     expect(result.message).toContain("Took from config.yaml what turri reads too - prepare-environment-script, unittests-script, conformance-tests-script.");
     expect(result.message).toContain("Not taken, turri does not read them: template_dir, verbose, api.");
-    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(codeplain);
+    expect(readFileSync(join(dir, "config.yaml"), "utf8")).toBe(other);
     const text = readFileSync(join(dir, "config.turri.yaml"), "utf8");
     // In its place: under its commented-out example, not at the end.
     expect(text.indexOf("unittests-script: test_scripts/run_unittests.sh")).toBeGreaterThan(text.indexOf("# unittests-script:"));

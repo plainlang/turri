@@ -3,7 +3,7 @@ import { InvalidLiquidVariableName } from "./errors.ts";
 
 /**
  * The Liquid layer: liquid2's Environment plus the project's customisations
- * (plain2code_nodes.Plain2CodeIncludeTag and the two filters in plain_spec).
+ * (the reference implementation's include tag and the two filters in plain_spec).
  *
  * Two behaviours matter and neither is stock Liquid:
  *
@@ -31,7 +31,7 @@ export interface PlainLiquidOptions {
 
 /**
  * Leading indentation of the line the tag sits on, and whether that line is a
- * comment. Ported from Plain2CodeIncludeNode.render_to_output, which walks
+ * comment. Ported from the reference implementation's include node, which walks
  * backwards from the tag to the start of its line.
  */
 function scanLine(source: string, start: number): { whitespaces: number; isComment: boolean } {
@@ -110,7 +110,7 @@ export function createEnvironment(options: PlainLiquidOptions): Liquid {
           );
         }
 
-        // Plain2CodeLoaderMixin.load: rstrip, then re-indent every line to match the
+        // The reference implementation's loader: rstrip, then re-indent every line to match the
         // include site. The rstrip is what stops a block-level include from ending
         // the surrounding list.
         const indented = templateSource.replace(/\s+$/, "").split("\n").join("\n" + " ".repeat(whitespaces));

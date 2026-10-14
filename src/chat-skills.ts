@@ -12,7 +12,7 @@
  */
 
 /** What a skill says it is about, that turri covers: ***plain specs and their testing scripts. */
-const ABOUT_PLAIN = /\*\*\*plain|\\\*\\\*\\\*plain|\.plain\b|\bcodeplain\b|functional specs?\b|testing scripts?\b|run_unittests|run_conformance_tests/i;
+const ABOUT_PLAIN = /\*\*\*plain|\\\*\\\*\\\*plain|\.plain\b|functional specs?\b|testing scripts?\b|run_unittests|run_conformance_tests/i;
 
 /** Whether turri has what a pi skill offers: it runs a skill of that name itself, or the skill is about ***plain. */
 export function supersededByTurri(skill: { name: string; description: string }, turriRuns: ReadonlySet<string>): boolean {
