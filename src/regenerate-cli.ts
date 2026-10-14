@@ -1,6 +1,5 @@
 import { CONFIG_FILE, readProjectConfig } from "./config.ts";
-import { c } from "./module-report.ts";
-import { parseArgs, runLoop } from "./loop-cli.ts";
+import { headlessOptions, parseArgs, runLoop } from "./loop-cli.ts";
 
 const USAGE = `usage: turri regenerate [file.plain] [frid ...] [options]
 
@@ -13,34 +12,28 @@ does in the chat with functionalities named: their code rewritten or started ove
 
 The project's config.turri.yaml, in the current directory, gives the defaults: module (the file to
 build when none is given), coding-model (the agents that build), harness-model (the planner), and
-conformance-tests.
+conformance-tests. It exits 0 only when every module is complete: regenerated from the spec as it is,
+its conformance tests too when they are on.
 
   --dry-run                plan the work and print the prompt of the first job, and run nothing (turri glimpse)
-  --start-over             start over, without asking, a codebase regenerated without a module it now requires
+  --start-over             start over, without asking, a codebase regenerated without a module it now requires -
+                           with no terminal to ask and without it, the run stops there
   --from-scratch           delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it
-  --build-dir <dir>        default: plain_modules/<module>/code
-  --model <provider/id>    model for the agents
+  --harness-model <p/id>   config.turri.yaml's harness-model for this run: the planner, the conformance chooser, a diagnosis
+  --coding-model <p/id>    its coding-model, --model too: the agents that build; p/id:level for how hard a model thinks
+  --judge-model <p/id>     its judge-model: the judge and the test review
+  --review <true|false>    its review: whether the code and its tests are reviewed once they pass
+  --conformance-tests <all|chosen|module|false>
+                           its conformance-tests: which conformance tests are written and run
+  --build-dir <dir>        as the run ends, however it ends, export the code there: the furthest-built codebase's
+                           last commit, which holds every module it requires - the folder's contents are replaced
+  --report <file.json>     write a report of the run there - outcome, usage, pulses, functional specs completed -
+                           as it starts, as each pulse ends and as it exits (docs/headless.md)
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
-/** Options of the build this replaced, and what to do instead. */
-const GONE: Record<string, string> = {
-  force: "to regenerate a functionality again, name it: turri regenerate <file.plain> <frid>",
-  only: "every module the spec requires is built, bottom first",
-  to: "the whole spec is built: stop the jobs to stop partway",
-  from: "every functionality not built is queued; built ones are skipped",
-  "conformance-root": "conformance tests are in plain_modules/<module>/tests",
-  "max-regression-rounds": "each conformance job runs the whole suite",
-  "try-it": "run turri release to try what is regenerated",
-  conformance: `set conformance-tests: in ${CONFIG_FILE}, or turri conform`,
-  "no-conformance": `set conformance-tests: false in ${CONFIG_FILE}`,
-  "template-dir": "set PLAIN_TEMPLATE_DIRS",
-};
-
-const { positional, options } = parseArgs(process.argv.slice(2), ["--only", "--force", "--conformance", "--no-conformance", "--try-it", "--dry-run", "--start-over", "--from-scratch"], USAGE);
-for (const [name, instead] of Object.entries(GONE)) {
-  if (options[name] !== undefined) console.log(c.dim(`--${name} is no longer an option: ${instead}.`));
-}
+const { positional, options } = parseArgs(process.argv.slice(2), ["--dry-run", "--start-over", "--from-scratch"], USAGE, ["--build-dir", "--report", "--conformance-tests", "--harness-model", "--judge-model", "--review"]);
+const { report, buildDir } = headlessOptions(options, true);
 const named = positional[0] ?? readProjectConfig(process.cwd()).module;
 // Functional specs named after the file: regenerated again though their spec did not change.
 const again = positional.slice(1);
@@ -55,16 +48,17 @@ if (options["from-scratch"] !== undefined && options["dry-run"] !== undefined) {
 }
 runLoop({
   plainFile: named,
-  ...(options.model !== undefined ? { model: options.model } : {}),
-  ...(options["build-dir"] !== undefined ? { buildDir: options["build-dir"] } : {}),
+  ...(buildDir !== undefined ? { buildDir } : {}),
+  ...(report !== undefined ? { report } : {}),
+  command: ["regenerate", ...process.argv.slice(2)],
   dryRun: options["dry-run"] !== undefined,
   startOver: options["start-over"] !== undefined,
   ask: (loop) =>
     again.length > 0
-      ? loop.regenerateAgain(named, again, options.model !== undefined ? { model: options.model } : {})
+      ? loop.regenerateAgain(named, again)
       : options["from-scratch"] !== undefined
-        ? loop.fromScratch(named, options.model !== undefined ? { model: options.model } : {})
-        : loop.bringUp(named, options.model !== undefined ? { model: options.model } : {}),
+        ? loop.fromScratch(named)
+        : loop.bringUp(named),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);

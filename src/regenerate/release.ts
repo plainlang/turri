@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { basename, dirname, join, relative } from "node:path";
 import { HISTORY_DIR } from "./lineage.ts";
@@ -82,15 +82,16 @@ export function deployTarget(plainFile: string, inModule?: string): { entry: Cha
 }
 
 /**
- * Export the module's code at its last commit into `dist/<module>`, replacing whatever was there - the
- * harness's own files (what the code is built from, the agents' notes) left out.
+ * Export the module's code at its last commit into `dist/<module>` - or `into`, `turri regenerate --build-dir` -
+ * replacing whatever was there, the harness's own files (what the code is built from, the agents' notes) left out.
  */
-export function exportModule(plainFile: string, inModule?: string): Deployment {
+export function exportModule(plainFile: string, inModule?: string, into?: string): Deployment {
   const { entry, commit, instead } = deployTarget(plainFile, inModule);
   const moduleDir = dirname(entry.buildDir);
-  const dir = distDirFor(projectDirOf(entry.plainFile), entry.moduleName);
-  rmSync(dir, { recursive: true, force: true });
+  const dir = into ?? distDirFor(projectDirOf(entry.plainFile), entry.moduleName);
+  // Emptied, not removed: the folder may be a mount point - a container's volume - that cannot be removed.
   mkdirSync(dir, { recursive: true });
+  for (const entry of readdirSync(dir)) rmSync(join(dir, entry), { recursive: true, force: true });
   const exported = spawnSync(
     "bash",
     ["-o", "pipefail", "-c", 'git --git-dir "$1" archive --format=tar "$2" | tar -x -f - -C "$3"', "export", join(moduleDir, HISTORY_DIR), `${commit}:code`, dir],

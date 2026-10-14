@@ -495,7 +495,7 @@ scripts are not linked from the specs; a link to one is ignored.
 They are required: a build with no unit testing script, or with conformance on and no conformance
 testing script, stops before it starts and says which skill adds it.
 
-**The prepare script** is codeplain's, and optional: turri never writes one, and runs one the project has -
+**The prepare script** is optional: turri never writes one, and runs one the project has -
 `prepare-environment-script:` in the config, else the one `prepare_environment*.sh` at the root, else in
 `test_scripts/` - on the build, before every run of the conformance testing script: the harness's own, and the agents'
 `run_conformance_tests`. Both get the same build folder - the code in place, or the same fresh copy - so what it sets up
@@ -685,7 +685,7 @@ change to the code brings that module's code in, so the codebase stops: it has t
 and conformance tests taken out, committed so its history keeps them, and the chain built again from the
 bottom. That is never done unasked. In the chat the model asks the person, saying why, and calls
 `regenerate` with `from_scratch` once they agree; `turri regenerate` and `spec-diff` ask at the terminal, and
-`--start-over` agrees in advance - with no terminal and no flag, nothing more is built there.
+`--start-over` agrees in advance - with no terminal and no flag, the run stops there, exit 1, saying so.
 
 ## Conformance tests
 

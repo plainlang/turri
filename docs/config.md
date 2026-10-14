@@ -5,7 +5,7 @@ is optional: with no file at all, turri finds the testing scripts on its own, tu
 tests on wherever a module has test reqs, and runs on pi's configured model. A project whose
 parts are on different stacks - a backend and a frontend - adds a file per stack,
 `config.turri.<stack>.yaml`, beside it, and chooses the stack to build with (see
-[stacks](#stacks)). turri never writes a `config.yaml`: it may be another tool's - codeplain's - and
+[stacks](#stacks)). turri never writes a `config.yaml`: it may be another tool's, and
 is read only by a project that has no file of turri's yet (see [the old config.yaml](#the-old-configyaml)).
 
 `turri init-config` starts one: the two models, a strong one to talk to and a smaller one to write the code. It
@@ -42,7 +42,7 @@ change one by changing it. The optional ones, which have no value of their own -
 skill that writes them), `module`, `conformance-budget`, `judge-model`, `models` - are there commented out, each with an
 example: uncomment one to use it. A key taken out of the file is still read as the table below says.
 
-Beside a `config.yaml` - codeplain's - the new file takes from it the keys turri reads too, each in its place, its
+Beside a `config.yaml` - another tool's, say - the new file takes from it the keys turri reads too, each in its place, its
 testing scripts above all, and says which it left (see [the old config.yaml](#the-old-configyaml)); `config.yaml`
 is left as it is. A `config.turri.yaml` already there keeps everything but its two models, which it sets - `--force` writes the whole
 file again - and a `config.yaml` turri read until then is copied to it first. It takes a folder other than the current
@@ -133,7 +133,7 @@ models:                              # each agent role's model, thinking and tur
 | `release-after-pulse` | `true` or `false`: whether every pulse that lands code releases it, in the chat, as its last stage - before the module's next pulse starts, whatever the chat is doing: an agent on the coding model looks for the project's release guidance as the chat does (what was passed to `release` this conversation, AGENTS.md, the project's skills) and, when it says to release after a build, does what it says - see [deploy](deploy.md#after-every-pulse). One release a pulse that lands; a release that fails is said in the pulse's report, and what it landed stays | `false` |
 | `unittests-script` | the unit testing script, by path from the project root - it runs the code's static checks too, exiting 80 when only they fail (see [the static checks](regenerating.md#the-static-checks)) | looked for - see below |
 | `conformance-tests-script` | the conformance testing script, by path from the project root | looked for - see below |
-| `prepare-environment-script` | optional, as codeplain has it: run as `<script> <build>` before every run of the conformance testing script, which runs only once it passes - see [the testing scripts](regenerating.md#the-testing-scripts). turri never writes one | the one `prepare_environment*.sh` at the root or in `test_scripts/`, else none |
+| `prepare-environment-script` | optional: run as `<script> <build>` before every run of the conformance testing script, which runs only once it passes - see [the testing scripts](regenerating.md#the-testing-scripts). turri never writes one | the one `prepare_environment*.sh` at the root or in `test_scripts/`, else none |
 | `compact-at` | how many tokens of work - past its instructions - an agent kept through a job holds before the harness compacts it between turns; at least 1000; the project's alone | 100,000 - see [agent sessions](regenerating.md#agent-sessions) |
 | `max-specs-per-pulse` | the most functional specs the planner groups into one pulse - what builds one feature goes together, up to this many; a stack's file wins | 3 |
 | `max-lines-per-pulse` | the most lines of spec in one pulse - its functional specs with the definitions they bring; a group past it is split again, a functional spec a pulse; a stack's file wins | 120 |
@@ -145,7 +145,7 @@ models:                              # each agent role's model, thinking and tur
 | `testing-scripts-run-on` | what the testing scripts run on - always on this machine, in your environment. `in-place`: the real build and tests folders, the script at its own path, from the project - so a script that finds a host codebase from its own path finds it. `copy`: a fresh copy of the code, staged in `plain_modules/.turri/scripts/`, with the script copied beside it; it gives the coding agent `can_it_fail` (see [the testing scripts](regenerating.md#the-testing-scripts)) | `in-place` |
 
 Keys are written with dashes; underscores are read the same (`conformance_tests`). A key turri
-does not know is ignored - a codeplain `config.yaml`, read while it is the old file, carries several - and so is a value of the
+does not know is ignored - another tool's `config.yaml`, read while it is the old file, may carry several - and so is a value of the
 wrong type, as if it were not there. `model:`, from before there were separate models, is read as
 `coding-model`.
 
@@ -218,8 +218,13 @@ They are defaults. What is asked for wins over them:
 | model | wins over the config |
 | --- | --- |
 | harness | `turri --harness-model <m>` (or pi's own `--model`), and pi's `/model` in the conversation |
-| coding | `turri --coding-model <m>`, `engine` in the conversation, and `--model` / `--coding-model` on `turri regenerate`, `conform` and `spec-diff` |
-| judge | `--judge-model` on `turri conform` |
+| coding | `turri --coding-model <m>`, `engine` in the conversation |
+| judge | - |
+
+`turri regenerate`, `conform` and `spec-diff` read `--harness-model`, `--coding-model` (or `--model`),
+`--judge-model`, `--review` and `--conformance-tests` differently: as the keys themselves, as if the file had
+them. Each takes its key's value and its place in the order above - a `models:` entry still wins over it - so a
+headless run is the same as a chat with those keys in the file.
 
 A job keeps the model it was queued with: choosing another holds for what is queued after.
 
@@ -231,8 +236,8 @@ codebase are not run, and no agent is shown the conformance testing script. No k
 `false`: conformance tests are off by default. `all` (or `true`) means on wherever a module has
 `***test reqs***` - a module without them has nothing to write conformance tests from, so it writes
 none, but still keeps the codebase's existing ones passing. Asked in the
-conversation, or with `--conformance` / `--no-conformance` on the command line, a render does
-otherwise.
+conversation (`conform`), or with `--conformance-tests all|chosen|module|false` on `turri regenerate` and
+`spec-diff` - for that run, the file left as it is - a render does otherwise.
 
 `spawn` writes `conformance-tests: false` into a new project unless you ask for tests;
 `brood` asks, whatever the key says, offering what it says first.
@@ -346,8 +351,14 @@ The first time turri itself writes a setting there with `/turri-config`, it copi
 `config.turri.yaml` and each `config.<name>.yaml` to `config.turri.<name>.yaml` first, leaves the old
 files as they are, and from then on reads only the new ones. `turri init-config` copies the stacks'
 files the same way, but writes `config.turri.yaml` as its quick start, taking from `config.yaml` only
-the keys turri reads too - codeplain's `unittests-script`, `conformance-tests-script` and
+the keys turri reads too - `unittests-script`, `conformance-tests-script` and
 `prepare-environment-script`, say - each in its place in the file, and saying which keys it left:
-`template_dir`, `verbose`, `api`, codeplain's alone. The two models are the vendor's, never taken. To change a
+`template_dir`, `verbose`, `api`, the other tool's alone. The two models are the vendor's, never taken. To change a
 setting by hand in such a project, do the same: copy the files to their new names, and edit the
-copies - never `config.yaml`.
+copies - never `config.yaml`. Writing a `config.turri.yaml` of your own beside it is the same move: from then on
+`config.yaml` is not read, its testing scripts with it. For a headless run that only needs conformance tests or
+another judge, or review, those options leave the files alone: `--conformance-tests`, `--judge-model`, `--review true|false`, and the models' too.
+
+Keys turri does not read - another tool's `verbose`, `api-key`, `build-folder`, ... - are ignored without a word, and so
+is a value of the wrong type. A file that does not parse as YAML is read as empty, so its testing scripts are then
+looked for by name.

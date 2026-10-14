@@ -207,6 +207,44 @@ export function describeUsage(usage: UsageReport | undefined): string {
 
 const store = new AsyncLocalStorage<ActivitySink>();
 
+/**
+ * Something an agent did with its model, wherever it ran - in a pulse or not, the planner and the chooser too: what a
+ * headless run's report adds up (run-report.ts). A call is one model response; a turn, one request of the harness's
+ * to an agent, as many calls as it takes; a compaction, its work summed up - a call of its own.
+ */
+export interface ModelEvent {
+  kind: "call" | "turn" | "compaction";
+  /** "provider/model-id:thinking", when known. */
+  model?: string;
+  role?: string;
+  label?: string;
+  /** The job it was made for: none outside a pulse. */
+  job?: string;
+  usage?: UsageReport;
+  /** For a call: how long the model took to answer it, in milliseconds. */
+  ms?: number;
+}
+
+const modelListeners = new Set<(event: ModelEvent) => void>();
+
+/** Hear of every model call, turn and compaction from now on. Returns what stops it. */
+export function onModelEvent(listener: (event: ModelEvent) => void): () => void {
+  modelListeners.add(listener);
+  return () => modelListeners.delete(listener);
+}
+
+export function reportModelEvent(event: Omit<ModelEvent, "job">): void {
+  if (modelListeners.size === 0) return;
+  const job = store.getStore()?.job?.id;
+  for (const listener of modelListeners) {
+    try {
+      listener(job !== undefined ? { ...event, job } : event);
+    } catch {
+      /* a listener that fails does not take the agent down */
+    }
+  }
+}
+
 export function withActivity<T>(sink: ActivitySink, run: () => Promise<T>): Promise<T> {
   return store.run(sink, run);
 }

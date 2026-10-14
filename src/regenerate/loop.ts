@@ -371,6 +371,74 @@ function ownBuilt(entry: ChainEntry): number {
   return ((readRecord(entry.buildDir)?.[FUNCTIONAL_REQUIREMENTS] as unknown[] | undefined) ?? []).length;
 }
 
+/** How many of a module's functional specs are completed in the codebase a run delivers - see `functionalityCompletion`. */
+export interface ModuleCompletion {
+  module: string;
+  /** Its own functional specs, as its spec has them now. */
+  specified: number;
+  /** Of those, the ones the delivered codebase's code record has as the spec has them now. */
+  completed: number;
+  /** Of the completed ones, those its conformance tests are recorded as written for, as the spec has them now. */
+  conformanceTested: number;
+  /** Its functional specs not completed, by number. */
+  incomplete: string[];
+}
+
+/**
+ * The functional specs of a spec's whole requires chain, completed or not, in the codebase each chain delivers: its
+ * furthest-built module's code - which holds the code of every module below it. A functional spec is completed when that
+ * codebase's code record, as last committed, holds it as the spec has it now - the same text, the linked files it uses
+ * holding the same, no definition it uses changed, not marked to regenerate again. A record moves only when a pulse
+ * lands, its unit tests passing (and its conformance tests, when they are on), so completed is landed and passing.
+ * The modules above the delivered codebase have nothing completed. One entry per chain; planning nothing, calling no model.
+ */
+export function functionalityCompletion(plainFile: string): Array<{ codebase: string; modules: ModuleCompletion[] }> {
+  return withParseCache(() =>
+    chainsFor(resolve(plainFile)).map((chain) => {
+      let delivered = -1;
+      chain.forEach((entry, index) => {
+        if (readRecord(entry.buildDir) !== null) delivered = index;
+      });
+      const counts: ModuleCompletion[] = chain.map((entry) => ({ module: entry.moduleName, specified: entry.frids.length, completed: 0, conformanceTested: 0, incomplete: [...entry.frids] }));
+      if (delivered === -1) return { codebase: tipOf(chain).buildDir, modules: counts };
+      const codebase = chain.slice(0, delivered + 1);
+      const tip = tipOf(codebase);
+      const spec = chainSpec(codebase).tree;
+      const record = readRecord(tip.buildDir);
+      const changes = codeWork(record, spec);
+      // Its own: what the work loop would regenerate - new, changed, a concept it uses changed, or marked again.
+      const cases = casesOf(codeTree(record ?? {}), changes, { module: tip.moduleName });
+      const touched = new Set([...cases.add, ...cases.patch, ...cases.again].map((spec) => `${spec.module ?? tip.moduleName}:${spec.frid}`));
+      // The modules' below it: an item the record does not have as the spec has it.
+      for (const change of changes) {
+        if (change.section !== REQUIRED_FUNCTIONAL_SPECS || change.after === undefined) continue;
+        try {
+          const item = JSON.parse(change.after) as { module?: string; frid?: string };
+          if (item.module !== undefined && item.frid !== undefined) touched.add(`${item.module}:${item.frid}`);
+        } catch {
+          /* not an item */
+        }
+      }
+      const specText = (module: string, frid: string): string | undefined => {
+        const own = module === tip.moduleName;
+        const items = (spec[own ? FUNCTIONAL_REQUIREMENTS : REQUIRED_FUNCTIONAL_SPECS] as Array<{ markdown: string; module?: string; frid?: string }> | undefined) ?? [];
+        return (own ? items[Number(frid) - 1] : items.find((item) => item.module === module && item.frid === frid))?.markdown.trim();
+      };
+      codebase.forEach((entry, index) => {
+        const count = counts[index]!;
+        const completed = entry.frids.filter((frid) => !touched.has(`${entry.moduleName}:${frid}`));
+        const tested = ((readRecord(conformanceDirFor(entry.moduleName, modulesRoot(projectDirOf(entry.plainFile))))?.[FUNCTIONAL_REQUIREMENTS] as Array<{ markdown: string; frid?: string }> | undefined) ?? []).filter(
+          (item) => item.frid !== undefined && item.markdown.trim() === specText(entry.moduleName, item.frid),
+        );
+        count.completed = completed.length;
+        count.conformanceTested = completed.filter((frid) => tested.some((item) => item.frid === frid)).length;
+        count.incomplete = entry.frids.filter((frid) => !completed.includes(frid));
+      });
+      return { codebase: tip.buildDir, modules: counts };
+    }),
+  );
+}
+
 /** The modules of a chain to build: its furthest-built one, and those above it - or, none built, all of it. */
 function toBuild(chain: ChainEntry[]): ChainEntry[] {
   let from = 0;
@@ -383,7 +451,6 @@ function toBuild(chain: ChainEntry[]): ChainEntry[] {
 export function createWorkLoop(options: {
   registry: JobRegistry;
   cwd: string;
-  buildDir?: string;
   /** The model a job renders on, asked when a module is brought up. */
   modelFor?: (plainFile: string) => string | undefined;
   /** The planner's agents. false: none - a functional spec a job. Default: the LLM ones, on `plannerModel`. */
@@ -396,7 +463,7 @@ export function createWorkLoop(options: {
   run?: JobRunner;
   /** Writes and runs a conformance job's tests. Default: a spec diff's conformance run, the whole suite with it. */
   runConformance?: JobRunner;
-  /** Whether the config has a module's conformance tests on. Default: its `conformance-tests:`, on unless false. */
+  /** Whether the config has a module's conformance tests on. Default: its `conformance-tests:`, off unless it turns them on. */
   conformanceOn?: (plainFile: string) => boolean;
   /**
    * Whether a module's conformance tests are for the functional specs chosen, not every one: those with acceptance
@@ -762,7 +829,7 @@ export function createWorkLoop(options: {
       title: planned.title,
       diff: shown.diff,
       ...(state.model !== undefined ? { model: state.model } : {}),
-      lanes: [...moduleLanes(tip.plainFile, options.buildDir)],
+      lanes: [...moduleLanes(tip.plainFile)],
       rerun: `turri regenerate ${relative(options.cwd, tip.plainFile) || basename(tip.plainFile)}`,
       run: async (onDelta) => {
         // The guardrail: a conformance job tests only code that is built - the code record, read as the job starts, has every functional spec it tests as it tests it.
@@ -1647,7 +1714,6 @@ export interface JobPreview {
 export async function previewJobs(options: {
   plainFile: string;
   cwd: string;
-  buildDir?: string;
   model?: string;
   plannerModel?: string;
   steering?: (plainFile: string) => Steering[];
@@ -1658,7 +1724,6 @@ export async function previewJobs(options: {
     registry: createJobRegistry(),
     cwd: options.cwd,
     dryRun: true,
-    ...(options.buildDir !== undefined ? { buildDir: options.buildDir } : {}),
     ...(options.model !== undefined ? { modelFor: () => options.model } : {}),
     ...(options.plannerModel !== undefined ? { plannerModel: options.plannerModel } : {}),
     ...(options.steering !== undefined ? { steering: options.steering } : {}),

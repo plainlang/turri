@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,6 +51,27 @@ afterEach(async () => {
 });
 
 describe("deploying a module", () => {
+  it("exports into a folder of its own when given one - turri regenerate --build-dir - its code and that of every module below", () => {
+    built("base", { "base.py": "BASE = 1\n" });
+    built("app", { "base.py": "BASE = 1\n", "app.py": "import base\n", [RECORD_FILE]: "{}" });
+    const into = join(dir, "out", "build");
+    mkdirSync(into, { recursive: true });
+    writeFileSync(join(into, "stale.py"), "old\n");
+    mkdirSync(join(into, "stale", "deep"), { recursive: true });
+    // The folder itself stays - it may be a mount point, which cannot be removed: only what is in it is replaced.
+    const before = statSync(into).ino;
+    spec("base");
+    const deployment = exportModule(spec("app", "base"), undefined, into);
+    expect(deployment.dir).toBe(into);
+    expect(readFileSync(join(into, "app.py"), "utf8")).toBe("import base\n");
+    expect(existsSync(join(into, "base.py"))).toBe(true);
+    expect(existsSync(join(into, "stale.py"))).toBe(false);
+    expect(existsSync(join(into, "stale"))).toBe(false);
+    expect(statSync(into).ino).toBe(before);
+    expect(existsSync(join(into, RECORD_FILE))).toBe(false);
+    expect(existsSync(join(dir, "dist"))).toBe(false);
+  });
+
   it("puts its last commit in dist/<module> - leaving out what a job is writing now, and the harness's own files", () => {
     const code = built("app", { "app.py": "print('hello')\n", [RECORD_FILE]: "{}", [NOTES_FILE]: "- notes\n" });
     // A render at work: a file half-written, one not committed, dependencies installed.

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkProject, checkSandbox, checkShell } from "../src/setup.ts";
+import { checkGit, checkProject, checkSandbox, checkShell } from "../src/setup.ts";
 import { scriptAgainstMachine, stackOf } from "../src/stack.ts";
 
 /** What doctor and setup check, now that agents' commands run on this machine. */
@@ -12,6 +12,13 @@ describe("bash", () => {
     expect(checkShell(true).level).toBe("ok");
     expect(checkShell(false, "win32")).toMatchObject({ level: "missing", fix: expect.stringContaining("Git for Windows") });
     expect(checkShell(false, "linux")).toMatchObject({ level: "missing", fix: expect.stringContaining("package manager") });
+  });
+});
+
+describe("git", () => {
+  it("is what each module's history is kept in: missing, it stops the run", () => {
+    expect(checkGit(true).level).toBe("ok");
+    expect(checkGit(false)).toMatchObject({ level: "missing", fix: expect.stringContaining("package manager") });
   });
 });
 

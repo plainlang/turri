@@ -50,7 +50,7 @@ import { projectDirOf } from "./regenerate/paths.ts";
  * as `coding-model`, which it was before there were two.
  *
  * Keys are written with dashes; underscores are read the same (`conformance_tests`). Keys it
- * does not know - a codeplain `config.yaml`, read while it is the old file, carries several - are ignored, and so is a value of
+ * does not know - another tool's `config.yaml`, read while it is the old file, may carry several - are ignored, and so is a value of
  * the wrong type. Everything is optional, and what is given on the command line wins.
  *
  * A project whose parts do not share a stack - a Python backend and a React frontend beside each other - keeps a
@@ -371,7 +371,7 @@ export interface ProjectConfig {
    * from. "chosen": the ones with acceptance tests, and those the chooser picks from what each code pulse regenerated, as
    * the pulse ends. "module": the same, but the chooser is asked once, when the whole module is regenerated - what to test,
    * and in which pulses. Under both, those the person asks for with conform too, and a choice is kept once its tests land.
-   * false: none, unless the person asks. Unset: all, when the module has test reqs.
+   * false: none, unless the person asks. Unset: none, as with false.
    */
   conformanceTests?: boolean | "chosen" | "module";
   /**
@@ -382,7 +382,7 @@ export interface ProjectConfig {
   conformanceBudget?: { count: number } | { share: number };
   /**
    * Whether the code and its unit tests - and the conformance tests - are reviewed once they pass: two reviews at
-   * most, the second weighed by the arbiter. false: the work goes on once its tests pass. Unset: true.
+   * most, the second weighed by the arbiter. false: the work goes on once its tests pass. Unset: false.
    */
   review?: boolean;
   /**
@@ -401,7 +401,7 @@ export interface ProjectConfig {
   unittestsScript?: string;
   /** Path from the root to the conformance testing script. */
   conformanceTestsScript?: string;
-  /** Run on the build before every conformance testing script run, as codeplain does: `<script> <build folder>`. */
+  /** Run on the build before every conformance testing script run: `<script> <build folder>`. */
   prepareEnvironmentScript?: string;
   /**
    * What the testing scripts run on, on this machine: the code in place (the default) - as for an integration whose
@@ -510,6 +510,10 @@ function text(value: unknown): string | undefined {
  * not parse.
  */
 export function readProjectConfig(root: string, stack?: string): ProjectConfig {
+  return withRunOverrides(readStackedConfig(root, stack));
+}
+
+function readStackedConfig(root: string, stack?: string): ProjectConfig {
   const project = readConfigFile(join(root, projectConfigFile(root)));
   if (stack === undefined) return project;
   const own = readConfigFile(join(root, stackConfigFileIn(root, stack)));
@@ -525,6 +529,39 @@ export function readProjectConfig(root: string, stack?: string): ProjectConfig {
   merged.judgeModel = inheritModel(own.judgeModel, project.judgeModel);
   merged.models = joinModels(project.models, own.models);
   return withoutUndefined(merged);
+}
+
+/**
+ * What a command's own options say of the config's keys - `turri regenerate --harness-model`, `--coding-model`,
+ * `--judge-model`, `--conformance-tests`, `--review` - read as if the file had them: each takes its key's value, and
+ * every key keeps its place in the order, so a run is the same as one with them in config.turri.yaml - a `models:`
+ * entry still winning over `harness-model`, `coding-model` or `judge-model`. A headless run needs no config file
+ * edited. Never set in the conversation.
+ */
+type RunOverrides = Partial<Pick<ProjectConfig, "harnessModel" | "codingModel" | "judgeModel" | "conformanceTests" | "review">>;
+
+let runOverrides: RunOverrides = {};
+
+/** Read a command's options as the config's keys for the rest of this process. */
+export function overrideConfig(overrides: RunOverrides): void {
+  runOverrides = { ...overrides };
+}
+
+/** `--conformance-tests <value>`: the config's own values - all (or true), chosen, module, false. Undefined for anything else. */
+export function conformanceOption(value: string): ProjectConfig["conformanceTests"] | undefined {
+  return conformanceSetting(value);
+}
+
+/** `--review <value>`: the config's own, true or false. Undefined for anything else. */
+export function reviewOption(value: string): boolean | undefined {
+  const word = value.trim().toLowerCase();
+  return word === "true" ? true : word === "false" ? false : undefined;
+}
+
+/** The config with the command's options in place of the keys they name. */
+function withRunOverrides(config: ProjectConfig): ProjectConfig {
+  const given = Object.entries(runOverrides).filter(([, value]) => value !== undefined);
+  return given.length === 0 ? config : { ...config, ...Object.fromEntries(given) };
 }
 
 /** A module's `models:` over the project's, role by role - each entry taking what it leaves out from the project's; the chat's the project's alone. */

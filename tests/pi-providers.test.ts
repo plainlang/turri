@@ -43,6 +43,6 @@ describe("a sub-agent's models", () => {
   });
 
   it("are pi's configuration alone without a conversation - an unattended run - and say so for a model it lacks", async () => {
-    await expect(createExecutor({ cwd: join(root, "project", "plain_modules"), customTools: [], tools: [], model: "arcus/gpt-5.6-luna" })).rejects.toThrow(/'arcus\/gpt-5.6-luna' is not configured/);
+    await expect(createExecutor({ cwd: join(root, "project", "plain_modules"), customTools: [], tools: [], model: "arcus/gpt-5.6-luna" })).rejects.toThrow(/'arcus\/gpt-5.6-luna' is not a model pi knows/);
   });
 });

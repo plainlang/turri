@@ -58,6 +58,17 @@ export function checkShell(found: boolean = spawnSync("bash", ["--version"], { s
   };
 }
 
+/** git: each module's history, which every pulse starts from and lands in, and the spec diffs the work is planned from. */
+export function checkGit(found: boolean = spawnSync("git", ["--version"], { stdio: "ignore", windowsHide: true }).status === 0): Check {
+  if (found) return { level: "ok", name: "git", detail: "on the PATH - each module's history, and the spec diffs" };
+  return {
+    level: "missing",
+    name: "git",
+    detail: "not on the PATH - each module's history is a git repository, and the work is planned from git diffs",
+    fix: "install git with your system's package manager",
+  };
+}
+
 /** Which wall is up under the agents' commands, and - where none starts - why, and how to give it one. */
 export function checkSandbox(wall: Wall = sandboxAvailable(), platform: NodeJS.Platform = process.platform): Check {
   if (wall.kind === "seatbelt") return { level: "ok", name: "OS sandbox", detail: "Seatbelt - under the command check and the audit" };
@@ -182,7 +193,7 @@ export async function checkProjectModels(project: string, access?: ModelAccess):
 }
 
 async function allChecks(options: { models?: boolean } = {}): Promise<Check[]> {
-  const checks: Check[] = [checkNode(), checkShell(), checkSandbox(), await checkProvider(), checkPath(), ...checkGlobal()];
+  const checks: Check[] = [checkNode(), checkShell(), checkGit(), checkSandbox(), await checkProvider(), checkPath(), ...checkGlobal()];
   // In a project: what it needs of this machine, and whether its models answer.
   const project = process.cwd();
   if (hasProjectConfig(project) || existsSync(join(project, "plain_modules"))) {

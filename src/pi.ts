@@ -25,6 +25,7 @@ import {
   reportNow,
   reportAgent,
   reportTranscript,
+  reportModelEvent,
   reportUsage,
 } from "./regenerate/activity.ts";
 import { debugLogOf, startDebugLog } from "./regenerate/debug-log.ts";
@@ -301,6 +302,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   pendingTask.delete(session);
   transcript({ kind: "prompt", text: task !== undefined ? `${task}\n\n${text}` : text });
   if (agent !== undefined) reportAgent({ label: agent.label, ...(agent.model !== undefined ? { model: agent.model } : {}), turns: 1 });
+  reportModelEvent({ kind: "turn", ...modelEventOf(session) });
 
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "message_update") {
@@ -370,6 +372,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
         const spent = { input, output, cacheRead, cacheWrite, cost: cost?.total ?? 0 };
         reportUsage(spent);
         if (agent !== undefined) reportAgent({ label: agent.label, usage: spent });
+        reportModelEvent({ kind: "call", ...modelEventOf(session), usage: spent, ms: Date.now() - stepStarted });
       }
       // A provider error counts only if the turn ends on it: a later message that ends well - pi's own retry, the
       // stream picked up again - means it recovered, and the turn's work stands.
@@ -569,13 +572,16 @@ export async function compactIfDue(session: AgentSession): Promise<boolean> {
   const who = agent?.label ?? "the agent";
   reportActivity(`  compacting ${who}'s work: ${thousands(conversation)} tokens of it, past ${thousands(settings.atTokens)}`);
   try {
+    const compactStarted = Date.now();
     const result = await session.compact(settings.instructions);
     const usage = result.usage as { input: number; output: number; cacheRead: number; cacheWrite: number; cost?: { total: number } } | undefined;
     if (usage !== undefined) {
       const spent = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, cost: usage.cost?.total ?? 0 };
       reportUsage(spent);
       if (agent !== undefined) reportAgent({ label: agent.label, usage: spent });
+      reportModelEvent({ kind: "call", ...modelEventOf(session), usage: spent, ms: Date.now() - compactStarted });
     }
+    reportModelEvent({ kind: "compaction", ...modelEventOf(session) });
     if (agent !== undefined) reportAgent({ label: agent.label, compactions: 1 });
     reportActivity(`  compacted ${who}'s work${result.estimatedTokensAfter !== undefined ? ` to about ${thousands(result.estimatedTokensAfter)} tokens` : ""}`);
     debugLogOf(session)?.note(`compacted: ${result.tokensBefore} tokens before${result.estimatedTokensAfter !== undefined ? `, about ${result.estimatedTokensAfter} after` : ""}`);
@@ -596,6 +602,14 @@ const agentRoles = new WeakMap<object, AgentRole>();
 
 function agentOf(session: object): { label: string; model?: string } | undefined {
   return agentLabels.get(session);
+}
+
+/** Who a model event is from: the agent's model as it runs now, its role and its label - an agent with no label too. */
+function modelEventOf(session: AgentSession): { model?: string; role?: string; label?: string } {
+  const agent = agentOf(session);
+  const role = agentRoles.get(session);
+  const model = session.model !== undefined ? `${session.model.provider}/${session.model.id}${session.thinkingLevel ? `:${session.thinkingLevel}` : ""}` : agent?.model;
+  return { ...(model !== undefined ? { model } : {}), ...(role !== undefined ? { role } : {}), ...(agent !== undefined ? { label: agent.label } : {}) };
 }
 
 /**
@@ -818,7 +832,7 @@ export async function createExecutor(opts: {
   if (chosen.model !== undefined) {
     const model = findModel(session, chosen.model);
     if (model === undefined) {
-      throw new Error(`Model '${chosen.model}' is not configured. Check the provider's API key.`);
+      throw new Error(`Model '${chosen.model}' is not a model pi knows: no such id for that provider. \`turri --list-models <search>\` lists the ones it does; one of your own goes in ~/.pi/agent/models.json.`);
     }
     await session.setModel(model);
   }
