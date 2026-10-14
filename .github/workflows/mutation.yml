@@ -1,0 +1,96 @@
+name: mutation
+
+# Mutation testing (docs/development.md), started by hand from the Actions tab - it takes hours, so it is run once in a
+# while, not on every push. Each part in stryker.config.mjs PARTS runs as a job of its own, side by side; its report is
+# uploaded as an artifact and summed up on the run's page. Stryker's incremental file is cached from one run to the
+# next, so a run tests again only the mutants whose code or tests changed since.
+on:
+  workflow_dispatch:
+    inputs:
+      parts:
+        description: "Parts to run, space-separated (stryker.config.mjs PARTS) - empty for every part"
+        required: false
+        default: ""
+      fresh:
+        description: "Test every mutant again, ignoring what earlier runs found"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: mutation
+  cancel-in-progress: false
+
+jobs:
+  parts:
+    name: Parts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      parts: ${{ steps.parts.outputs.parts }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # scripts/mutation.mjs and stryker.config.mjs import nothing installed, so this runs before any npm install.
+      - id: parts
+        env:
+          NAMED: ${{ inputs.parts }}
+        run: |
+          read -ra named <<< "$NAMED"
+          parts=$(node scripts/mutation.mjs --list "${named[@]}")
+          echo "parts=$parts" >> "$GITHUB_OUTPUT"
+
+  mutation:
+    name: ${{ matrix.part }}
+    needs: parts
+    runs-on: ubuntu-latest
+    # A part can take hours; this is as long as a hosted runner allows.
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.parts.outputs.parts) }}
+    env:
+      PART: ${{ matrix.part }}
+      # A hosted runner has 4 cores.
+      TURRI_MUTATION_CONCURRENCY: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Only the incremental file is kept between runs: a part with a report is skipped by scripts/mutation.mjs.
+      - if: ${{ !inputs.fresh }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reports/mutation/${{ matrix.part }}/incremental.json
+          key: mutation-${{ matrix.part }}-${{ github.run_id }}
+          restore-keys: mutation-${{ matrix.part }}-
+      - run: npm run mutation -- "$PART"
+      # Under a key of its own each run, as a cache is never overwritten; the restore above takes the newest.
+      - if: ${{ always() && hashFiles(format('reports/mutation/{0}/incremental.json', matrix.part)) != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reports/mutation/${{ matrix.part }}/incremental.json
+          key: mutation-${{ matrix.part }}-${{ github.run_id }}
+      - if: ${{ always() }}
+        run: |
+          {
+            echo "### $PART"
+            echo '```'
+            npm run --silent mutation -- --summary | grep -v "not run yet" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-${{ matrix.part }}
+          path: |
+            reports/mutation/${{ matrix.part }}/mutation.html
+            reports/mutation/${{ matrix.part }}/mutation.json
+          if-no-files-found: ignore

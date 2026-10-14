@@ -28,7 +28,8 @@ export default {
   // A part run again reuses what an earlier run found for code and tests that did not change.
   incremental: true,
   incrementalFile: `${out}/incremental.json`,
-  concurrency: 6,
+  // TURRI_MUTATION_CONCURRENCY for a machine with fewer cores - the workflow's runner.
+  concurrency: Number(process.env.TURRI_MUTATION_CONCURRENCY ?? 6),
   timeoutMS: 60_000,
   // The first run, which finds what each test reaches, is the whole suite in one worker.
   dryRunTimeoutMinutes: 20,

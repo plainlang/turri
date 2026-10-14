@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Mutation testing a part at a time (stryker.config.mjs PARTS): a part with a report is done and skipped, so a run that
 // is stopped goes on from the part it was in. `npm run mutation` runs every part left; `npm run mutation -- <part> ...`
-// those named, again; `npm run mutation -- --summary` only sums up the reports there are.
+// those named, again; `npm run mutation -- --summary` only sums up the reports there are; `--list` prints the parts named,
+// or every part, as JSON - the mutation workflow's jobs, read before any npm install.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { PARTS } from "../stryker.config.mjs";
@@ -56,6 +57,10 @@ if (args.includes("--summary")) {
 }
 const named = args.filter((arg) => !arg.startsWith("--"));
 for (const part of named) if (!(part in PARTS)) throw new Error(`No mutation part ${part}: ${Object.keys(PARTS).join(", ")}`);
+if (args.includes("--list")) {
+  console.log(JSON.stringify(named.length > 0 ? named : Object.keys(PARTS)));
+  process.exit(0);
+}
 const parts = named.length > 0 ? named : Object.keys(PARTS).filter((part) => !existsSync(reportOf(part)));
 if (parts.length === 0) console.log("Every part has a report - name one to run it again.");
 fixRunner();

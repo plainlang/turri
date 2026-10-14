@@ -18,6 +18,12 @@ which tests reach which mutant (`vitest.stryker.config.ts`, the suite without th
 mutant against those tests. `scripts/mutation.mjs` sets two things in Stryker's vitest runner the suite needs - forked
 workers, and a test-name filter that matches vitest 5's names - again after every `npm install`.
 
+The `mutation` workflow (`.github/workflows/mutation.yml`) runs it on GitHub, started by hand: Actions, mutation, Run
+workflow. It takes the parts to run, space-separated (empty for every part), each a job of its own side by side, on
+four cores (`TURRI_MUTATION_CONCURRENCY`; six here). Each part's `mutation.html` and `mutation.json` are uploaded as an
+artifact, `mutation-<part>`, and summed up on the run's page. Stryker's incremental file is cached from run to run, so
+a run tests again only the mutants whose code or tests changed; tick `fresh` to test every one again.
+
 Working on turri itself, `npm link` points the global `turri` at this clone, so edits
 take effect immediately. `npm run chat` starts pi with the extension loaded from `src/`.
 
