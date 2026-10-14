@@ -308,6 +308,8 @@ export interface ScriptRun {
   timedOut?: boolean;
   /** The time limit it ran under. */
   timeoutMs: number;
+  /** How long it ran, from start to end - or to the limit that stopped it. */
+  elapsedMs?: number;
   /** Where the whole output is, when it was too long to be shown whole. */
   log?: string;
   /** What an agent that read the whole of it said failed and why - for the judge and whoever fixes it. */
@@ -418,7 +420,15 @@ async function runScript(cwd: string, script: string, args: string[], logDir: st
   const noted = withScriptLineNote(text, script);
   // Its failures, counts and end are what the agent is shown; the whole is kept, a read_output away.
   const log = keepTestOutput(logDir, basename(script), noted);
-  return { command: shown(script), exitCode: timedOut === true ? 124 : exitCode, output: shownTestOutput(noted, log), timedOut: timedOut === true, timeoutMs, ...(log !== undefined ? { log } : {}) };
+  return {
+    command: shown(script),
+    exitCode: timedOut === true ? 124 : exitCode,
+    output: shownTestOutput(noted, log),
+    timedOut: timedOut === true,
+    timeoutMs,
+    elapsedMs: Date.now() - started,
+    ...(log !== undefined ? { log } : {}),
+  };
 }
 
 /** What bash says when a line of the script itself cannot run: a command or file that is not there, or not runnable. */
@@ -711,6 +721,20 @@ function loopNotice(loop: "warn" | "stop"): string {
     "You are still going round in circles, so your turn ends here. Change nothing more now: a debugger will look at",
     "the failure with fresh eyes, and you will be given what it finds.",
   ].join("\n");
+}
+
+/**
+ * How long a run took against its time limit, in a line: for whoever judges it or works out its cause - so a run that
+ * ended on its own is never taken for one the limit stopped, nor the other way.
+ */
+export function runTiming(run: Pick<ScriptRun, "exitCode" | "timedOut" | "timeoutMs" | "elapsedMs">): string {
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+  const limit = seconds(run.timeoutMs);
+  if (run.timedOut === true) {
+    return `The time limit stopped this run: it had run ${seconds(run.elapsedMs ?? run.timeoutMs)} of the ${limit} a test run may take, and had not finished.`;
+  }
+  const took = run.elapsedMs !== undefined ? `after ${seconds(run.elapsedMs)} of the ${limit} a test run may take` : `well within the ${limit} a test run may take`;
+  return `This run ended on its own - exit ${run.exitCode}, ${took}. The time limit did not stop it and played no part in how it ended.`;
 }
 
 /** A run the time limit stopped: failed, and what most often keeps a test run from ending. */

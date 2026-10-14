@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { writeTestScripts } from "../test-scripts.ts";
 
 /**
@@ -35,6 +35,8 @@ let staticBad = false;
 let firstTestWrong = false;
 /** What the stubbed coding agent does with a failure escalated to it: builds the dist/app.py the script needs, or misses. */
 let escalatedFix: "builds" | "misses" = "builds";
+/** When set, the stubbed conformance agent's tests carry a marker the script waits on - until a tests' fix. */
+let hangsFirst = false;
 
 vi.mock("../../src/pi.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/pi.ts")>();
@@ -126,7 +128,7 @@ vi.mock("../../src/pi.ts", async (importOriginal) => {
         await tool("write").execute("id", {
           path: "test_conformance_hello.py",
           content:
-            `# conformance tests of functionality ${testedFrid}\n${touchesTests ? `# fix ${(touches += 1)}\n` : ""}${staticBad && !prompt.includes("Exit 80") ? "# BAD\n" : ""}import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
+            `# conformance tests of functionality ${testedFrid}\n${touchesTests ? `# fix ${(touches += 1)}\n` : ""}${staticBad && !prompt.includes("Exit 80") ? "# BAD\n" : ""}${hangsFirst && !prompt.includes("a test is what is wrong") ? "# WAIT_FOREVER\n" : ""}import subprocess, sys, unittest\n\nclass Hello(unittest.TestCase):\n` +
             "    def test_prints_hello(self):\n" +
             "        out = subprocess.run([sys.executable, 'app.py'], capture_output=True, text=True).stdout\n" +
             `        self.assertEqual(out.strip(), '${firstTestWrong && !prompt.includes("a test is what is wrong") ? "Hello!" : "hello"}')\n`,
@@ -167,6 +169,7 @@ beforeEach(() => {
   staticBad = false;
   firstTestWrong = false;
   escalatedFix = "builds";
+  hangsFirst = false;
   reviewSays = () => ({ pass: true, problems: [] });
   arbiterRules = undefined;
 });
@@ -214,6 +217,9 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(judge!.prompt).toContain("Decide what is wrong: the code, the tests, the specification itself, or the run's environment");
     expect(judge!.prompt).toContain("<how to read the specification>");
     expect(judge!.prompt).toMatch(/<failing run exit="1"/);
+    // How long the run took against its limit: it ended on its own, and the limit had no part in it.
+    expect(judge!.prompt).toMatch(/This run ended on its own - exit 1, after \d+\.\ds of the 120\.0s a test run may take\. The time limit did not stop it/);
+    expect(judge!.prompt).not.toContain("<timed out>");
     expect(coder!.prompt).toContain("The spec says the app prints hello; the code prints goodbye.");
     expect(coder!.prompt).toContain(`You have read access to the conformance tests, in ${join(root, "plain_modules", "app", "tests")}, with your file tools`);
     expect(coder!.prompt).toContain("but not write access: read them to see what a failing test does and expects; never change them.");
@@ -650,5 +656,56 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(asked.some((turn) => turn.prompt.includes("<escalation>"))).toBe(false);
     expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
     expect(readFileSync(join(root, "plain_modules", "app", "tests", "test_conformance_hello.py"), "utf8")).toContain("'hello'");
+  });
+
+  it("sends a run the time limit stopped to the judge, told how long it ran against its limit - and stops the pulse when it finds the suite only slow", async () => {
+    // The suite gets on - it installs, it builds - and is still going when the limit stops it.
+    writeTestScripts(root, { conformance: "#!/bin/bash\necho 'installing packages ... done'\necho 'building ... done'\nsleep 30\n" });
+    const { setScriptTimeoutForTests } = await import("../../src/regenerate/test-scripts.ts");
+    setScriptTimeoutForTests(2000);
+    onTestFinished(() => setScriptTimeoutForTests(undefined));
+    judgeSays = (prompt) =>
+      prompt.includes("<timed out>")
+        ? { culprit: "environment", reason: "It installed and built, and was still going: the suite needs more than 2s." }
+        : { culprit: "tests", reason: "The tests are wrong." };
+    const { EnvironmentError, describeEnvironmentError } = await import("../../src/regenerate/environment-error.ts");
+    const stopped = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(stopped).toBeInstanceOf(EnvironmentError);
+    // Judged at the first timeout - not sent to the conformance agent to guess at, round after round.
+    const judges = asked.filter((turn) => turn.role === "judge");
+    expect(judges).toHaveLength(1);
+    expect(judges[0]!.prompt).toMatch(/The time limit stopped this run: it had run \d+\.\ds of the 2\.0s a test run may take, and had not finished\./);
+    expect(judges[0]!.prompt).toContain("building ... done");
+    expect(asked.filter((turn) => turn.role === "coding agent")).toHaveLength(0);
+    const said = describeEnvironmentError(stopped as InstanceType<typeof EnvironmentError>);
+    expect(said).toContain("the environment lacks more time for a test run than its 2s limit");
+    expect(said).toContain("the suite needs more than 2s");
+    expect(said).toContain("TURRI_COMMAND_TIMEOUT");
+    // Rolled back: the tests it wrote are gone.
+    expect(existsSync(join(root, "plain_modules", "app", "tests", "test_conformance_hello.py"))).toBe(false);
+  });
+
+  it("sends a run the time limit stopped wherever the judge says when something hangs - the tests, here - and goes on", async () => {
+    // A test that waits forever until it is fixed: the stub's first tests are the hanging kind.
+    writeFileSync(join(codeDir, "app.py"), "print('hello')\n");
+    writeTestScripts(root, {
+      conformance: "#!/bin/bash\nWORK=\"$(mktemp -d)\" && cp -R \"$1\"/. \"$WORK\" && cd \"$WORK\" || exit 2\ngrep -rq WAIT_FOREVER --include=*.py \"$2\" && { echo 'test_prints_hello ...'; sleep 30; }\npython3 -m unittest discover -s \"$2\" -t \"$2\"\n",
+    });
+    const { setScriptTimeoutForTests } = await import("../../src/regenerate/test-scripts.ts");
+    setScriptTimeoutForTests(2000);
+    onTestFinished(() => setScriptTimeoutForTests(undefined));
+    staticBad = false;
+    firstTestWrong = false;
+    hangsFirst = true;
+    judgeSays = (prompt) =>
+      prompt.includes("<timed out>") ? { culprit: "tests", reason: "test_prints_hello waits on a marker nothing clears." } : { culprit: "tests", reason: "The tests are wrong." };
+    const result = await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    expect(result.passed).toBe(true);
+    expect(asked.filter((turn) => turn.role === "judge")).toHaveLength(1);
+    expect(asked.some((turn) => turn.role === "conformance agent" && turn.prompt.includes("The time limit stopped this run"))).toBe(true);
   });
 });

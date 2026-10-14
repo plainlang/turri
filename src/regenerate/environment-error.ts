@@ -264,6 +264,28 @@ export function toolchainError(missing: { command?: string }, details: { moduleN
   });
 }
 
+/**
+ * A testing script the time limit stopped while it was still making progress - judged so by the judge or the debugger,
+ * from where its output stops: nothing hangs, the suite needs more time than a test run may take. No agent can give it
+ * that, so the pulse stops and the person is told how to.
+ */
+export function timeLimitError(
+  run: { timeoutMs: number; elapsedMs?: number },
+  details: { moduleName: string; script: string; kind: "unit" | "conformance"; reason: string },
+): EnvironmentError {
+  const limit = Math.round(run.timeoutMs / 1000);
+  return new EnvironmentError({
+    moduleName: details.moduleName,
+    missing: `more time for a test run than its ${limit}s limit`,
+    neededBy: `the ${details.kind} testing script, \`${basename(details.script)}\``,
+    shownBy: `it ran ${Math.round((run.elapsedMs ?? run.timeoutMs) / 1000)}s and was stopped at the limit, still making progress - ${details.reason.replace(/\s+/g, " ").trim().slice(0, 400)}`,
+    fix:
+      `give a test run more time - set TURRI_COMMAND_TIMEOUT, in seconds, above ${limit} (e.g. TURRI_COMMAND_TIMEOUT=${limit * 3}) in the ` +
+      "environment turri runs in - or make the suite faster: what it installs or builds on every run, and the tests that take longest.",
+    source: "agent",
+  });
+}
+
 /** The harness's run of a testing script, when it could not find its toolchain: the error that stops the pulse. */
 export function missingToolchainError(
   run: { exitCode: number; output: string },

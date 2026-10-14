@@ -39,7 +39,7 @@ import {
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createMyDiffTool } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
-import { missingToolchainError, toolchainError } from "./environment-error.ts";
+import { missingToolchainError, timeLimitError, toolchainError } from "./environment-error.ts";
 import { workspaceBlock } from "./workspace.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
@@ -680,17 +680,6 @@ export async function renderConformanceTests(
           if (fixed.files.length > 0) idleFixes = 0;
           continue;
         }
-        // A run out of time is not a question of test or code: the tests' environment is the conformance agent's.
-        if (recheck.timedOut === true) {
-          const moved = await unmoved();
-          if (moved === "stuck") break;
-          if (moved === "asked") continue;
-          stage("the conformance run did not get to the tests - back to the conformance agent");
-          const fixed = await changing(() => askConformance(scriptFailure(recheck, "conformance testing"), options.onDelta));
-          response = fixed.result;
-          recordAttempt(rounds, recheck, `not a question of code or tests (${recheck.timedOut === true ? "the time limit" : `exit ${recheck.exitCode}`})`, { who: "conformance agent", files: fixed.files });
-          continue;
-        }
         stage(`conformance tests failing - working out whether the code, the tests or the spec are wrong${judgeModel ? ` (${judgeModel})` : ""}`);
         // A fix that changed no file leaves the next run as this one: IDLE_FIXES of them in a row, and nothing will change.
         const idle = (files: string[]): boolean => {
@@ -723,6 +712,13 @@ export async function renderConformanceTests(
           onDelta: options.onDelta,
         });
         const reason = verdict.reason.split("\n")[0]!.slice(0, 160);
+        // Stopped by the time limit while it was still getting on: no agent can give it more time. The pulse stops now -
+        // rolled back, no retry - and the person is told how to raise the limit.
+        if (verdict.culprit === "environment" && recheck.timedOut === true) {
+          stage(`the conformance run needs more than the ${Math.round(recheck.timeoutMs / 1000)}s a test run may take - stopping`);
+          if (start !== undefined) abandonWork(start, moduleName, "the conformance testing script needs more time than a test run may take");
+          throw timeLimitError(recheck, { moduleName, script: scripts.conformance!, kind: "conformance", reason: verdict.reason });
+        }
         // The environment - what the run is given - is the person's to fix: once judged so twice in a row, the run stops.
         if (verdict.culprit === "environment") {
           environmentRaises += 1;

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { writeTestScripts } from "../test-scripts.ts";
 import { NOTES_FILE, readNotes } from "../../src/regenerate/notes.ts";
 import { BEGIN } from "../../src/pi.ts";
@@ -177,6 +177,9 @@ describe("rendering a spec diff", () => {
     expect(debuggerSaw[0]).toContain("have failed the same way 3 times in a row");
     expect(debuggerSaw[0]).toContain("no such table: users");
     expect(debuggerSaw[0]).toContain("<testing script path=");
+    // How long the run took against its limit: it ended on its own, and the limit had no part in it.
+    expect(debuggerSaw[0]).toMatch(/This run ended on its own - exit 1, after \d+\.\ds of the 120\.0s a test run may take\. The time limit did not stop it/);
+    expect(debuggerSaw[0]).not.toContain("<timed out>");
     expect(imagesGiven.some((agent) => agent.label === "app spec change debugger")).toBe(true);
     const told = prompts.find((prompt) => prompt.includes("a debugger looked at it with fresh eyes"));
     expect(told).toContain("<root cause>\nevery connection opens its own in-memory database\n</root cause>");
@@ -185,6 +188,64 @@ describe("rendering a spec diff", () => {
     // What it found is kept for every agent after, whatever the coding agent writes down - and said in the pulse's story.
     expect(readNotes(result.buildDir).pitfalls).toContainEqual(expect.stringContaining("the debugger, after 3 failing runs: every connection opens its own in-memory database - the fix: use StaticPool in the test engine"));
     expect(result.diagnosed).toEqual(["every connection opens its own in-memory database"]);
+  });
+
+  describe("a unit run the time limit stopped", () => {
+    /** The suite, slow or hanging: it gets on - two tests pass - then sleeps past the limit while the code says HANG. */
+    const SLOW_SCRIPT = "#!/bin/bash\ncd \"$1\" || exit 2\necho 'test_one ... ok'\necho 'test_two ... ok'\nif grep -q HANG test_app.py; then sleep 30; fi\npython3 -m unittest discover\n";
+    const hanging = "import unittest\n\nclass AppTest(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)  # HANG\n";
+    const setUp = async (diagnosis: Record<string, unknown>) => {
+      writeFileSync(join(dir, "config.yaml"), "review: false\n");
+      writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+      await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One."])), cwd: dir, applied: "already applied" });
+      writeTestScripts(dir, { unit: SLOW_SCRIPT });
+      const { setScriptTimeoutForTests } = await import("../../src/regenerate/test-scripts.ts");
+      setScriptTimeoutForTests(2000);
+      onTestFinished(() => setScriptTimeoutForTests(undefined));
+      const debuggerSaw: string[] = [];
+      const { ask } = await import("../../src/pi.ts");
+      vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+        const own = (name: string) => session.tools.find((tool) => tool.name === name);
+        if (own("submit_diagnosis")) {
+          debuggerSaw.push(session.task ?? "");
+          await own("submit_diagnosis")!.execute("id", diagnosis);
+          return "Done.";
+        }
+        if (prompt.includes("Before you finish: call update_notes")) return agentRunning("", session, prompt);
+        // It hangs until it is told what hangs.
+        const told = prompt.includes("drop the HANG marker");
+        await own("write")!.execute("id", { path: "test_app.py", content: told ? hanging.replace("# HANG", "# no longer hangs") : hanging });
+        return agentRunning("python3 -m unittest discover", session, prompt);
+      }) as never);
+      return debuggerSaw;
+    };
+
+    it("is looked at by the debugger at once, told how long it ran against its limit, and fixed when something hangs", async () => {
+      const debuggerSaw = await setUp({ root_cause: "the test waits on a marker that never clears", fix: "drop the HANG marker" });
+      const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+      expect(result.passed).toBe(true);
+      // At the first timeout, not the third.
+      expect(debuggerSaw).toHaveLength(1);
+      expect(debuggerSaw[0]).toMatch(/The time limit stopped this run: it had run \d+\.\ds of the 2\.0s a test run may take, and had not finished\./);
+      expect(debuggerSaw[0]).toContain("<timed out>");
+    });
+
+    it("stops the pulse, rolled back, when the debugger finds nothing hangs and the suite only needs more time", async () => {
+      const debuggerSaw = await setUp({ root_cause: "two tests passed and it was still going: the suite needs longer than 2s", fix: "none", too_slow: true });
+      const { EnvironmentError, describeEnvironmentError } = await import("../../src/regenerate/environment-error.ts");
+      const stopped = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(stopped).toBeInstanceOf(EnvironmentError);
+      expect(debuggerSaw).toHaveLength(1);
+      const said = describeEnvironmentError(stopped as InstanceType<typeof EnvironmentError>);
+      expect(said).toContain("the environment lacks more time for a test run than its 2s limit");
+      expect(said).toContain("two tests passed and it was still going");
+      expect(said).toContain("TURRI_COMMAND_TIMEOUT");
+      // Rolled back: the change's test is gone.
+      expect(readFileSync(join(dir, "plain_modules", "app", "code", "test_app.py"), "utf8")).not.toContain("HANG");
+    });
   });
 
   it("ends the coding agent's turn when it goes round in circles in its own runs, and has a debugger on the harness model look at it", async () => {

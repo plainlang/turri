@@ -40,7 +40,7 @@ import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { createCanItFailTool, createMyDiffTool, selfCheckNote } from "./self-check.ts";
 import { createServiceTools } from "./services.ts";
 import { createUnitGate } from "./unit-gate.ts";
-import { toolchainError } from "./environment-error.ts";
+import { timeLimitError, toolchainError, type EnvironmentError } from "./environment-error.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { ATTEMPTS, describeStop } from "./stop-report.ts";
 import { summarizeDiff } from "./job-panel.ts";
@@ -449,6 +449,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   let draftAsks = 0;
   /** What the unit testing script needs and does not find, last run. */
   let missing: MissingToolchain | undefined;
+  /** The unit testing script needs more time than a test run may take - the debugger's finding: the pulse stops on it. */
+  let slow: EnvironmentError | undefined;
   /** The last round failed on the script's static checks alone: the unit tests passed. */
   let staticOnly = false;
   const testRemovals: TestRemoval[] = [];
@@ -535,14 +537,18 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
           if (key !== undefined) seenFailures.set(key, seen);
           let prompt = verdict.prompt;
           const circling = loop.stuck;
-          if (circling || (key !== undefined && seen >= STUCK_ROUNDS)) {
+          // A run the time limit stopped is looked at at once: whether something hangs, or the suite only needs more time.
+          const timedOut = verdict.run.timedOut === true;
+          if (circling || timedOut || (key !== undefined && seen >= STUCK_ROUNDS)) {
             if (key !== undefined) seenFailures.delete(key);
             const times = circling ? Math.max(seen, loop.failing) : seen;
             loop.reset();
             stage(
               circling
                 ? `the coding agent is going round in circles - ${times} failing runs - a debugger looks at it with fresh eyes`
-                : `the same failure ${seen} times - a debugger looks at it with fresh eyes`,
+                : timedOut && seen < STUCK_ROUNDS
+                  ? `the unit testing script did not finish in ${Math.round(verdict.run.timeoutMs / 1000)}s - a debugger works out whether something hangs`
+                  : `the same failure ${seen} times - a debugger looks at it with fresh eyes`,
             );
             const found = await debugFailure({
               buildDir,
@@ -550,10 +556,17 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
               times,
               task: steeredChange() ?? codingText ?? changeText ?? options.diff ?? "",
               script: verdict.script,
+              run: verdict.run,
               label: `${moduleName} spec change`,
               ...(debuggerModel !== undefined ? { model: debuggerModel } : {}),
               onDelta: options.onDelta,
             }).catch(() => undefined);
+            // Nothing hangs: the suite needs more time than a test run may take, and no agent can give it that.
+            if (found?.tooSlow === true) {
+              stage(`the unit testing script needs more than the ${Math.round(verdict.run.timeoutMs / 1000)}s a test run may take - stopping`);
+              slow = timeLimitError(verdict.run, { moduleName, script: verdict.script, kind: "unit", reason: found.rootCause });
+              return false;
+            }
             if (found !== undefined) {
               const cause = found.rootCause.split("\n")[0]!.slice(0, 240);
               reportActivity(`  the debugger: ${cause.slice(0, 160)}`);
@@ -659,7 +672,9 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       moduleName,
       missing !== undefined
         ? "the unit testing script could not run"
-        : staticOnly
+        : slow !== undefined
+          ? "the unit testing script needs more time than a test run may take"
+          : staticOnly
           ? "the spec change did not pass its static checks"
           : "the spec change did not pass its unit tests",
     );
@@ -667,6 +682,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     if (missing !== undefined) {
       throw toolchainError(missing, { moduleName, script: scripts.unit, kind: "unit" });
     }
+    if (slow !== undefined) throw slow;
     return { ...base, passed: false, stoppedAt: "unit tests", ...(staticOnly && !unitReviewStopped ? { staticChecks: true } : {}) };
   }
 

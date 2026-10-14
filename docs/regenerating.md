@@ -160,6 +160,10 @@ runs the unit testing script itself**, and only that run counts (see
   tried. An agent circles a cause it has not thought of - an in-memory database every connection opens
   empty, a test runner that leaves the code off its path - and this is the way out. The rounds go on as
   before, up to 20; should the same failure come round three times again, the debugger looks again.
+  **A run the time limit stopped** is looked at by the debugger at once, told how long the run had and that the limit
+  stopped it: it finds what hangs - the root cause and the fix, as above - or that nothing does, the run getting on up
+  to the limit and needing more time than a test run may take. Then the pulse stops, rolled back and not retried, and
+  the person is told to raise `TURRI_COMMAND_TIMEOUT` or make the suite faster.
 - **It goes round in circles in its own runs.** An agent stuck on a failure can try the same few changes in
   turn - three signatures of a stand-in function, say - and run the tests after each, dozens of times in one
   turn. Its own `run_unit_tests` runs are watched (`createLoopWatch` in `test-scripts.ts`): the code folder back
@@ -978,9 +982,18 @@ the run failed with, how it was judged, and which files the agent sent to fix it
 attempt's line says what came of it - and each judge reads them first, so it does not send a
 failure the way that already failed. A run that does not pass is undone whole, its notes with it.
 
-Then the suite runs again. A run stopped by its time limit goes back to the conformance agent without a judge: the
-tests' environment is its. So does a run that exits 80 - the tests pass and only their static checks do not (see
-[the static checks](#the-static-checks)): the findings are the tests'. A run whose script cannot find its
+Then the suite runs again. A run that exits 80 goes back to the conformance agent without a judge - the tests pass and
+only their static checks do not (see [the static checks](#the-static-checks)): the findings are the tests'.
+
+**Timing.** Every run is shown to the judge, the debugger and whoever fixes it with how long it ran against its time
+limit (`runTiming` in `test-scripts.ts`): `This run ended on its own - exit 1, after 37.2s of the 120.0s a test run
+may take`, or `The time limit stopped this run: it had run 120.0s of the 120.0s ...` - so none takes a run that
+ended on its own for one the limit stopped, or the other way. A run the time limit stopped is judged like any other,
+and the judge is told what keeps a run from finishing: the code hangs (it waits on input, keeps a server in the
+foreground, never exits) - the code's; a test waits for what never comes - the tests'; or nothing hangs, the output
+showing the run getting on up to the limit, and it needs more time than a test run may take - the environment. That
+verdict stops the pulse at once, rolled back and not retried, and the person is told to raise `TURRI_COMMAND_TIMEOUT`
+or make the suite faster - no agent can give a run more time. A run whose script cannot find its
 toolchain stops the pulse instead - see [when the environment lacks something](#when-the-environment-lacks-something).
 Unit tests failing after the suite passes go to the coding agent. It goes round up to 20 times; still failing, the work is undone.
 

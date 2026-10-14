@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { ask, BEGIN, createExecutor } from "../pi.ts";
 import { confinedTools } from "./confine.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
+import { runTiming, type ScriptRun } from "./test-scripts.ts";
 
 /**
  * A fresh look at a failure the coding agent keeps hitting.
@@ -32,6 +33,8 @@ export interface DebugInput {
   task: string;
   /** The testing script that decides pass or fail, with its path: how the tests are run, and where. */
   script?: string;
+  /** How the failing run ended against its time limit: how long it took, and whether the limit stopped it. */
+  run?: Pick<ScriptRun, "exitCode" | "timedOut" | "timeoutMs" | "elapsedMs">;
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
@@ -40,6 +43,11 @@ export interface DebugInput {
 export interface Diagnosis {
   rootCause: string;
   fix: string;
+  /**
+   * The run the time limit stopped hangs on nothing: it was making progress up to the limit and needs more time than a
+   * test run may take - which no agent can give it. Taken only of a run the limit stopped.
+   */
+  tooSlow?: boolean;
 }
 
 /** The debugger's account, as the coding agent is given it. */
@@ -49,9 +57,12 @@ export function diagnosisText(diagnosis: Diagnosis): string {
 
 function debugPrompt(input: DebugInput): string {
   const script = input.script !== undefined && existsSync(input.script) ? readFileSync(input.script, "utf8") : undefined;
+  const timedOut = input.run?.timedOut === true;
   return [
-    `The unit tests of the codebase in ${input.buildDir} have failed the same way ${input.times} times in a row. The coding agent`,
-    "keeps changing things and the failure does not move: it has not seen the cause. You look at it with fresh eyes.",
+    timedOut
+      ? `The unit testing script of the codebase in ${input.buildDir} did not finish: the time limit stopped it. You look at it with fresh eyes.`
+      : `The unit tests of the codebase in ${input.buildDir} have failed the same way ${input.times} times in a row. The coding agent`,
+    ...(timedOut ? [] : ["keeps changing things and the failure does not move: it has not seen the cause. You look at it with fresh eyes."]),
     "",
     "Find the root cause - the one thing that makes this failure happen - and the change that fixes it. Read the failing",
     "run below, the tests it names, the code they exercise, the build files (pyproject.toml, package.json, go.mod, pom.xml,",
@@ -62,6 +73,21 @@ function debugPrompt(input: DebugInput): string {
     "",
     "You change nothing - you only read. When you know, call submit_diagnosis: the root cause, with the evidence for it,",
     "and the fix - which files, and exactly what to change in them.",
+    ...(timedOut
+      ? [
+          "",
+          "<timed out>",
+          "The run's output ends where the time limit stopped it: the test running then, or the step after the last one it",
+          "printed, is what did not finish. Find what kept it:",
+          "- something hangs - a test or the code waits on input, keeps a server in the foreground, never exits, loops, blocks",
+          "  on a lock or a network call that never answers: the root cause and the fix, as for any failure;",
+          "- nothing hangs - the output shows the run making steady progress right up to the limit (installing, building, test",
+          "  after test passing) and it needs more time than a test run may take: set too_slow, and say in root_cause from the",
+          "  output how far it got and what took the time. No agent can give it more time: the work stops, and the person is",
+          "  told to raise the limit. Judge from the output and the files, never from the time alone.",
+          "</timed out>",
+        ]
+      : []),
     "",
     "<what the change is meant to do>",
     input.task.trim(),
@@ -69,6 +95,7 @@ function debugPrompt(input: DebugInput): string {
     ...(script !== undefined ? ["", `<testing script path="${input.script}">`, script.trimEnd(), "</testing script>"] : []),
     "",
     "<failing run>",
+    ...(input.run !== undefined ? [runTiming(input.run), ""] : []),
     input.failure.trimEnd().slice(-8000),
     "</failing run>",
   ].join("\n");
@@ -84,10 +111,17 @@ export async function debugFailure(input: DebugInput): Promise<Diagnosis | undef
     parameters: Type.Object({
       root_cause: Type.String({ description: "The one thing that makes the failure happen, and the evidence for it: the lines of the run, the code, the docs" }),
       fix: Type.String({ description: "The change that fixes it: which files, and exactly what to change in them" }),
+      too_slow: Type.Optional(
+        Type.Boolean({
+          description:
+            "Only for a run the time limit stopped: true when nothing hangs - it was making progress up to the limit and needs more time than a test run may take",
+        }),
+      ),
     }),
     async execute(_id, params) {
-      const given = params as { root_cause: string; fix: string };
-      found = { rootCause: given.root_cause, fix: given.fix };
+      const given = params as { root_cause: string; fix: string; too_slow?: boolean };
+      // Too slow is a verdict on a run the limit stopped, and on no other.
+      found = { rootCause: given.root_cause, fix: given.fix, ...(given.too_slow === true && input.run?.timedOut === true ? { tooSlow: true } : {}) };
       return { content: [{ type: "text" as const, text: "Recorded." }], details: {}, terminate: true };
     },
   }) as ToolDefinition;

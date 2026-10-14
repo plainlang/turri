@@ -8,7 +8,7 @@ import { confinedTools } from "./confine.ts";
 import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { reportActivity } from "./activity.ts";
-import type { ScriptRun } from "./test-scripts.ts";
+import { runTiming, type ScriptRun } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { ERROR_CAUSE_RULES, fixMethod, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
@@ -1188,6 +1188,8 @@ export function judgePrompt(options: {
     "  the tests set up themselves - a credential, a variable or a fixture a test sets, overrides or names wrong: that is",
     "  tests; nor for a toolchain or package missing where the tests run: the agents install those. The run stops on it",
     `  once it has been judged so ${ENVIRONMENT_RAISES} times in a row; until then the tests are checked for whether they cause it.`,
+    "  A run the time limit stopped is environment only when nothing hangs and it needs more time than a test run may",
+    "  take - and then it stops at once.",
     "",
     "When the output does not show why the software failed - it answered with an error that names no cause, and",
     "logged nothing about it - the code is what is wrong first: it hides the cause, and nobody can fix what they",
@@ -1233,11 +1235,37 @@ export function judgePrompt(options: {
     `<how to invoke it>\n${options.invocation.trim()}\n</how to invoke it>`,
     "",
     ...scripts.flatMap((script) => [`<conformance testing script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</conformance testing script>", ""]),
+    ...(options.run.timedOut === true ? [...timedOutBlock(options.run), ""] : []),
     `<failing run exit="${options.run.exitCode}" command="${options.run.command}">`,
+    runTiming(options.run),
+    "",
     options.run.output.trimEnd(),
     "</failing run>",
     ...(options.escalation !== undefined ? ["", ...escalationBlock(options.escalation)] : []),
   ].join("\n");
+}
+
+/**
+ * For the judge, of a run the time limit stopped: what kept it from finishing - something that hangs, the code's or a
+ * test's, or a suite that is only slow, which no agent can give more time.
+ */
+export function timedOutBlock(run: Pick<ScriptRun, "timeoutMs" | "elapsedMs">): string[] {
+  const limit = Math.round(run.timeoutMs / 1000);
+  return [
+    "<timed out>",
+    `This run did not end on its own: the time limit stopped it at ${limit}s, and it counts as failed. Its output ends where it`,
+    "was stopped - the step running then, or the one after the last it printed, is what did not finish. Decide what kept it:",
+    "- code: the software hangs - it waits on input, keeps a server in the foreground, never exits, loops, or blocks on a",
+    "  lock or a call that never answers - when the tests reach it as the specification says.",
+    "- tests: a test waits for something that never comes - a process it started and never stops, output it waits for that",
+    "  the software never prints, a port or a file nobody makes, a sleep or a retry with no end.",
+    "- environment: nothing hangs - the output shows the run making steady progress right up to the limit (installing,",
+    "  building, test after test passing) and it needs more time than a test run may take. No agent can give it that: the",
+    "  run stops at once, and the person is told to raise the limit. Say from the output how far it got, and what took",
+    "  the time.",
+    "Judge from the output and the files, never from the time alone.",
+    "</timed out>",
+  ];
 }
 
 /** For the judge: the tests were fixed for this failure, and it did not go away - is it the code's? */
@@ -1352,6 +1380,8 @@ export function codeFixPrompt(options: { run: ScriptRun; reason: string }): stri
     `<why the code>\n${options.reason.trim()}\n</why the code>`,
     "",
     `<failing run command="${options.run.command}">`,
+    runTiming(options.run),
+    "",
     options.run.output.trimEnd(),
     "</failing run>",
     "",
@@ -1386,6 +1416,8 @@ export function escalatedFixPrompt(options: { run: ScriptRun; reason: string; ev
     "</evidence>",
     "",
     `<failing run command="${options.run.command}">`,
+    runTiming(options.run),
+    "",
     options.run.output.trimEnd(),
     "</failing run>",
     "",
@@ -1425,6 +1457,8 @@ export function testsFixPrompt(options: { run: ScriptRun; reason: string }): str
     `<why the tests>\n${options.reason.trim()}\n</why the tests>`,
     "",
     "<failing run>",
+    runTiming(options.run),
+    "",
     options.run.output.trimEnd(),
     "</failing run>",
     "",
