@@ -25,7 +25,7 @@ export const TURRI_IDENTITY = [
   "- A pulse is one unit of work regenerating the code - a spec diff regenerated in a codebase, or its conformance",
   "  tests. It was called a job, and still is in places: the job_id a tool takes is a pulse's id, and parallel-jobs and",
   "  allow-to-stop-jobs in config.turri.yaml are about pulses. \"Job\" in what you read is a pulse; say pulse.",
-  "- regen is the side panel (/regen, or ctrl+h): the spec with each functionality and item marked built, regenerating,",
+  "- regen is the side panel (ctrl+h): the spec with each functionality and item marked built, regenerating,",
   "  planned or waiting - and behind it the pulses (/pulses), every pulse regenerating, planned and finished. Say regen,",
   "  lowercase. It was the regeneration, the job queue, or the job panel.",
   "- mutate, in a skill's activity, is write_spec_diff: a spec change written and regenerated in one step.",

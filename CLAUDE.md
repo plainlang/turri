@@ -53,7 +53,7 @@ and `bin/turri.mjs` runs `dist/cli.js` when there is no `src/`. So:
 which drives the work loop as the chat does. `doctor` goes to `setup.ts`, `init-config` to `init-config.ts`. `turri` alone - or with options - spawns pi through
 `pi-launch.ts` with `src/extension.ts`, which registers every conversation tool and slash command (`regenerate`,
 `drift`, `glimpse`, `conform`, `steer`, `engine`, `pulses`, `halt`, `diagnose`, `lineage`, `validate`,
-`cultivate`, `release`, `activate`, `/watch`, `/regenerate`, `/regen`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
+`cultivate`, `release`, `activate`, `/watch`, `/regenerate`, `/halt`, `/btw`, `/lineage`, `/engine`, `/turri-config`, `/stack`, ...).
 `/turri-config` (`config-command.ts`, over `config-edit.ts`'s table of every key) writes config.turri.yaml line by line and
 applies what turri fixed at its start - the chat's model, the coding model chosen this session, `parallel-jobs` - live.
 

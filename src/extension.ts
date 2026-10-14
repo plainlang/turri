@@ -1859,21 +1859,16 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     );
   };
 
-  // The side panel's two views: /regen opens it on regen - the spec, with how far the code has been regenerated into it
-  // - and /pulses on every pulse, regenerating, planned and finished, and what each regenerates. What the agents did is
-  // in each pulse's log.
-  for (const [name, description, view] of [
-    ["regen", `regen, in the side panel: every item of the spec, built, regenerating, planned or waiting. ${PANEL_KEY} opens the panel too.`, "map"],
-    ["pulses", `The pulses, in the side panel: every pulse, regenerating, planned and finished, and what each regenerates. ${PANEL_KEY} opens the panel too.`, "pulses"],
-  ] as const) {
-    pi.registerCommand(name, {
-      description,
-      handler: async (_args, ctx) => {
-        if (!ctx.hasUI) return;
-        openPanel(ctx, view);
-      },
-    });
-  }
+  // /pulses opens the side panel on every pulse, regenerating, planned and finished, and what each regenerates; regen -
+  // the spec, with how far the code has been regenerated into it - is PANEL_KEY's, no command of its own beside
+  // /regenerate. What the agents did is in each pulse's log.
+  pi.registerCommand("pulses", {
+    description: `The pulses, in the side panel: every pulse, regenerating, planned and finished, and what each regenerates. ${PANEL_KEY} opens the panel too.`,
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) return;
+      openPanel(ctx, "pulses");
+    },
+  });
 
   panelOpeners.set(jobs, (ctx) => openPanel(ctx));
   questionPeek = {

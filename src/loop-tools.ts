@@ -103,7 +103,7 @@ export async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: 
 /** Halt a pulse by its id, or the start of it: what it was, and what moves up behind it. `reason`: why, kept with it. */
 export function stopJob(jobs: JobRegistry, named: string, reason?: string): string {
   const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
-  if (matches.length === 0) return `No pulse ${named}. /regen shows them.`;
+  if (matches.length === 0) return `No pulse ${named}. /pulses shows them.`;
   if (matches.length > 1) return `'${named}' matches ${matches.map((job) => job.id).join(", ")}. Give more of the id.`;
   const target = matches[0]!;
   const behind = jobs.list().filter((job) => job.status === "queued" && job.waitingOn.includes(target.id));
