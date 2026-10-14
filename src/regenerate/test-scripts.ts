@@ -734,18 +734,33 @@ function timedOutFailure(run: ScriptRun, what: string): string {
   ].join("\n");
 }
 
+/** A command `timeout` could not start, or a shell could not find - on a line of its own. */
+const COULD_NOT_RUN = /^(?:[^:]*: )?failed to run command [‘'`"]?([\w.+-]+)[’'`"]?: No such file or directory$/;
+const NOT_FOUND = /^(?:[^:]*: )?(?:line \d+: )?([\w.+-]+): command not found$/;
+
 /**
  * What a failed run says is not installed where it ran - the command, when its output names it - or undefined when
- * the run failed for another reason. Exit 69 is the testing scripts' own way to say a toolchain is missing; exit 127,
- * or a shell or `timeout` that could not find the command, says it as well.
+ * the run failed for another reason. A missing command is the cause only on evidence that it ended the run: exit 69,
+ * the testing scripts' own way to say a toolchain is missing, or 127, what a shell or `timeout` gives for a command it
+ * could not find - else a command not found on the last line the run printed, nothing having run after it. Earlier in
+ * the output it is a warning, not the failure: a shell profile's, an optional tool probed for, a fallback taken - and a
+ * run that failed for its own reasons is the agent's to fix, not a stop for the person.
  */
 export function missingToolchain(run: Pick<ScriptRun, "exitCode" | "output">): { command?: string } | undefined {
-  const named =
-    /failed to run command [‘'`"]?([\w.+-]+)[’'`"]?: No such file or directory/.exec(run.output) ??
-    /(?:^|\n)(?:[^\n:]*: )?(?:line \d+: )?([\w.+-]+): command not found/.exec(run.output);
-  if (named !== null) return { command: named[1] };
-  if (run.exitCode === 69 || run.exitCode === 127) return {};
-  return undefined;
+  if (run.exitCode === 0) return undefined;
+  const lines = run.output.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+  const named = (line: string): string | undefined => COULD_NOT_RUN.exec(line)?.[1] ?? NOT_FOUND.exec(line)?.[1];
+  if (run.exitCode === 69 || run.exitCode === 127) {
+    // The command is the last one named: the one the run stopped on.
+    for (let at = lines.length - 1; at >= 0; at -= 1) {
+      const command = named(lines[at]!);
+      if (command !== undefined) return { command };
+    }
+    return {};
+  }
+  const last = lines.at(-1);
+  const command = last !== undefined ? named(last) : undefined;
+  return command !== undefined ? { command } : undefined;
 }
 
 /** Where `command` is on this machine's PATH, or undefined when it is not there. */

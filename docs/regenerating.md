@@ -218,7 +218,7 @@ and the `implement-unit-testing-script` and `implement-conformance-testing-scrip
 - **The formatting is the agents'.** The harness formats nothing: the scripts check, and leave their inputs as they
   found them. Every agent that writes code or tests is told to run, in its shell, the formatter its script checks with,
   on the files it changes, before the final run.
-- **A toolchain missing** where the checks run - exit 69, 127, `command not found` - stops the pulse as it does for the
+- **A toolchain missing** where the checks run - exit 69, 127, a `command not found` the run ended on - stops the pulse as it does for the
   tests: the person installs it, the agents install nothing.
 
 ### Checking its own work
@@ -507,8 +507,10 @@ your own environment with this machine's toolchains, turri's model providers' AP
 and whatever they do is your doing. That is the only way the two scripts are ever run: the harness's own runs, and the
 agents' `run_unit_tests` and `run_conformance_tests`, which run them exactly as the harness does - through the host
 runner, in a process group of their own, so the time limit and a stopped job end the script and all it started. A
-toolchain the script needs and this machine lacks - exit 69, exit 127, or a `command not found` / `failed to run
-command` in its output (`missingToolchain`) - is yours to install, never the agent's: the agent is told to report it
+toolchain the script needs and this machine lacks - exit 69, exit 127, or a run that ended on a `command not found` /
+`failed to run command`, the last line it printed (`missingToolchain`) - is yours to install. Only on that evidence: a
+`command not found` earlier in the output, the run going on after it and failing for its own reasons, is a warning -
+a shell profile's, an optional tool probed for - and the failure is the agent's to fix. A missing toolchain is yours to install, never the agent's: the agent is told to report it
 with `report_environment_error` rather than work around it, and the pulse stops at the harness's first run of either
 script - unit or conformance - that cannot find it, rolled back, saying what to install (see
 [when the environment lacks something](#when-the-environment-lacks-something)). The code and the tests an agent wrote run unfenced inside the script too: what an agent runs with its own
@@ -562,7 +564,7 @@ It is raised two ways:
   is shown its output once, and a report made again after that stands. A report that stands ends its turn, the pulse
   stops, and what it said goes to you as it is;
 - **by the harness itself**: a testing script - the unit or the conformance one, in a code pulse, a conformance pulse or
-  the whole-suite run - that cannot find its toolchain (exit 69 or 127, `command not found`), or
+  the whole-suite run - that cannot find its toolchain (exit 69 or 127, a `command not found` the run ended on), or
   a credential `agent-env:` names that is not there when the pulse starts - before any agent does. What the harness
   found it works out at once - the diagnosis, not after a second failure - to say how to fix it on this machine.
 

@@ -21,6 +21,24 @@ describe("a testing script that cannot find its toolchain", () => {
     expect(missingToolchain({ exitCode: 1, output: "FAILED (failures=1)\nAssertionError: 2 != 3" })).toBeUndefined();
   });
 
+  it("takes a command not found for a warning when the run went on after it and failed for its own reasons", () => {
+    const output = ["/home/me/.bashrc: line 12: pyenv: command not found", "collected 12 items", "FAILED tests/test_app.py::test_total - AssertionError: 2 != 3", "1 failed, 11 passed"].join("\n");
+    expect(missingToolchain({ exitCode: 1, output })).toBeUndefined();
+  });
+
+  it("takes a command not found for the failure when the run ended on it", () => {
+    expect(missingToolchain({ exitCode: 1, output: "Running the unit tests\nrun_unittests.sh: line 8: pytest: command not found\n\n" })).toEqual({ command: "pytest" });
+  });
+
+  it("names the command the run stopped on, not one a warning named before it", () => {
+    const output = "/home/me/.bashrc: line 12: pyenv: command not found\nrun_unittests.sh: line 30: flutter: command not found\n";
+    expect(missingToolchain({ exitCode: 127, output })).toEqual({ command: "flutter" });
+  });
+
+  it("takes nothing that passed for a missing toolchain", () => {
+    expect(missingToolchain({ exitCode: 0, output: "bash: cargo: command not found\n" })).toBeUndefined();
+  });
+
   it("tells the person what is missing - on this machine, where the testing scripts run - not to split the spec", () => {
     const told = describeStop({ moduleName: "game2048", at: "unit tests", attempts: 1, missingToolchain: { command: "flutter" } });
     expect(told).toContain("`flutter` is not installed on this machine");
