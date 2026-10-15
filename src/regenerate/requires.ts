@@ -1,6 +1,6 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, withParseCache, type ParseOptions } from "../plain/parser.ts";
+import { IMPORT_DIRECTIVE, PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, readPlainSourceMetadata, withParseCache, type ParseOptions } from "../plain/parser.ts";
 import { getFrids, getInheritedFunctionalSpecs } from "../plain/spec.ts";
 import { buildDirUnder, modulesRoot, projectDirOf } from "./paths.ts";
 import { notesPath } from "./notes.ts";
@@ -83,6 +83,56 @@ export function resolveRequiresChain(
 
   visit(resolve(plainFile), []);
   return chain;
+}
+
+/** The .plain files that import `plainFile` - read from beside it, and, kept in a `template/` folder, from the folder it is in. */
+function importersOf(plainFile: string): string[] {
+  const file = resolve(plainFile);
+  const dir = dirname(file);
+  const name = basename(file, PLAIN_SOURCE_FILE_EXTENSION);
+  const dirs = [dir, ...(basename(dir) === "template" ? [dirname(dir)] : [])];
+  return dirs.flatMap((at) => {
+    let names: string[];
+    try {
+      names = readdirSync(at).filter((entry) => entry.endsWith(PLAIN_SOURCE_FILE_EXTENSION));
+    } catch {
+      return [];
+    }
+    return names
+      .map((entry) => join(at, entry))
+      .filter((path) => {
+        if (path === file || !resolveTemplateDirs(path).includes(dir)) return false;
+        try {
+          return ((readPlainSourceMetadata(readFileSync(path, "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined) ?? []).includes(name);
+        } catch {
+          return false;
+        }
+      });
+  });
+}
+
+/**
+ * Whether a .plain file is an import module - one a .plain file imports, or one kept in a `template/` folder - rather than
+ * a module of its own. It is no codebase: its reqs and definitions are built in the modules that import it.
+ */
+export function isImportModule(plainFile: string): boolean {
+  return basename(dirname(resolve(plainFile))) === "template" || importersOf(plainFile).length > 0;
+}
+
+/** The modules of their own that import an import module, through any import modules between. */
+export function importingModules(plainFile: string): string[] {
+  const found = new Set<string>();
+  const seen = new Set<string>();
+  const walk = (file: string): void => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const importer of importersOf(file)) {
+      if (isImportModule(importer)) walk(importer);
+      else found.add(importer);
+    }
+  };
+  walk(resolve(plainFile));
+  return [...found];
 }
 
 /**

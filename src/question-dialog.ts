@@ -94,7 +94,13 @@ export class QuestionDialog implements Component, Focusable {
     const body =
       this.input !== undefined
         ? this.input.render(inner)
-        : choices.map((choice, index) => (index === this.selected ? style.accent(`› ${choice}`) : `  ${choice}`));
+        : // A long option wraps, its lines under its first, rather than cut off where the person cannot read it.
+          choices.flatMap((choice, index) =>
+            wrapTextWithAnsi(choice, Math.max(1, inner - 2)).map((line, at) => {
+              const shown = `${at === 0 && index === this.selected ? "›" : " "} ${line}`;
+              return index === this.selected ? style.accent(shown) : shown;
+            }),
+          );
     const hint =
       this.input !== undefined
         ? "enter answers · esc dismisses"

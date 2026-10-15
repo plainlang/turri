@@ -31,7 +31,7 @@ import { modulesRoot } from "./paths.ts";
 import { budgetFor, choosingWhen, configForSpec, conformanceSwitchedOn } from "../config.ts";
 import { describeSpecChange } from "./prompt.ts";
 import { resolveTemplateDirs } from "./paths.ts";
-import { builtTips, copyRequiredCode, newlyRequired, resolveRequiresChain, startFromScratch, type ChainEntry } from "./requires.ts";
+import { builtTips, copyRequiredCode, importingModules, isImportModule, newlyRequired, resolveRequiresChain, startFromScratch, type ChainEntry } from "./requires.ts";
 import { withTryItLine } from "./delivery.ts";
 import { describeSpecDiff, renderSpecDiff, specFilesOf, type SpecSnapshot } from "./regenerate.ts";
 import { locateDiffLines, type DiffWhere } from "./diff-view.ts";
@@ -364,6 +364,22 @@ export function chainSpec(chain: ChainEntry[]): SpecSnapshot {
 function chainsFor(plainFile: string): ChainEntry[][] {
   const tips = builtTips(plainFile);
   return tips.length > 0 ? tips : [resolveRequiresChain(plainFile, [], undefined, { allowNoFunctionalities: true })];
+}
+
+/**
+ * The modules a .plain file is built as: itself - or, an import module, the modules importing it whose code is started.
+ * An import module is no codebase; one no started module imports has nothing to build yet - its reqs are built with the
+ * first module that imports it.
+ */
+function codebasesOf(plainFile: string): string[] {
+  if (!isImportModule(plainFile)) return [plainFile];
+  return importingModules(plainFile).filter((file) => {
+    try {
+      return builtTips(file).length > 0 || started(resolveRequiresChain(file, [], undefined, { allowNoFunctionalities: true }).at(-1)!);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** How many functional specs of its own a codebase has built - none when it was only started from the code below it. */
@@ -1326,10 +1342,10 @@ export function createWorkLoop(options: {
 
   const loop: WorkLoop = {
     async bringUp(plainFile, request = {}) {
-      const file = resolve(options.cwd, plainFile);
-      asked.set(file, { ...asked.get(file), ...request });
+      const files = codebasesOf(resolve(options.cwd, plainFile));
+      for (const file of files) asked.set(file, { ...asked.get(file), ...request });
       const states = withParseCache(() =>
-        chainsFor(file).flatMap((chain) => toBuild(chain).map((entry) => track(chain.slice(0, chain.indexOf(entry) + 1), file, request))),
+        files.flatMap((file) => chainsFor(file).flatMap((chain) => toBuild(chain).map((entry) => track(chain.slice(0, chain.indexOf(entry) + 1), file, request)))),
       );
       // Asked again, a halted codebase is tried again.
       for (const state of states) state.halted = undefined;

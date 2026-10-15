@@ -180,6 +180,31 @@ describe("write_spec_diff", () => {
     expect(rendered[1]).toContain("+- :User: is a student.");
     expect(rendered[1]).not.toContain("+- Log in JSON.");
   });
+
+  it("builds a change to an import module in the built modules that import it, never as a codebase of its own", async () => {
+    mkdirSync(join(dir, "template"), { recursive: true });
+    const base = "***implementation reqs***\n\n- Log in JSON.\n";
+    writeFileSync(join(dir, "template", "base.plain"), base);
+    writeFileSync(join(dir, "app.plain"), `---\nimport:\n  - base\n---\n\n${plain(["- A :User: can register."])}`);
+    writeFileSync(join(dir, "later.plain"), `---\nimport:\n  - base\n---\n\n${plain([])}`);
+    const { call, loop, pace } = setup();
+
+    // Nothing that imports it is built yet: there is nothing to build.
+    const first = base.replace("- Log in JSON.", "- Log in JSON, one object a line.");
+    await call({ plain_file: "template/base.plain", diff: fileDiff("template/base.plain", base, first) });
+    await loop.drain();
+    expect(renderedIn).toEqual([]);
+
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    pace.answered();
+    renderedIn.length = 0;
+    const second = first.replace("one object a line", "with a timestamp");
+    await call({ plain_file: "template/base.plain", diff: fileDiff("template/base.plain", first, second) });
+    await loop.drain();
+    expect(renderedIn).toEqual(["app"]);
+    expect(rendered.at(-1)).toContain("with a timestamp");
+  });
 });
 
 describe("a spec diff across two modules of a chain", () => {

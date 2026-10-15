@@ -3,6 +3,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { main, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { ProcessTerminal } from "@earendil-works/pi-tui";
 import "./terminal-images.ts";
+import { resumeLine } from "./resume-line.ts";
 
 /**
  * pi, started the way its own CLI starts it, for `turri`.
@@ -27,6 +28,12 @@ const setTitle = ProcessTerminal.prototype.setTitle;
 ProcessTerminal.prototype.setTitle = function (title: string) {
   setTitle.call(this, title.replace(/^π(?= |$)/, "🪼 turri"));
 };
+
+// What pi prints on the way out to resume the session names pi - its APP_NAME, a constant - which may not be on the
+// PATH at all: turri takes the same flags, so it is turri the line names.
+const write = process.stdout.write.bind(process.stdout) as (chunk: unknown, ...rest: unknown[]) => boolean;
+process.stdout.write = ((chunk: unknown, ...rest: unknown[]) =>
+  write(typeof chunk === "string" ? resumeLine(chunk) : chunk, ...rest)) as typeof process.stdout.write;
 
 // pi's own keys stand: a new line is shift+enter or ctrl+j. turri's side panel is on ctrl+h (job-panel.ts PANEL_KEY).
 

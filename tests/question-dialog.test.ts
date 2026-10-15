@@ -52,6 +52,18 @@ describe("the question dialog", () => {
     expect(lines()[0]).toContain("Feature 1:");
   });
 
+  it("wraps a long option under its first line instead of cutting it off", () => {
+    const long = "Depth 1: 5 fragments, 60 pulses; each depth adds one fragment and has 5 fewer pulses, at least 20; plankton gives 15 pulses back";
+    const { lines } = dialog({ options: [long, "Fixed 8 fragments a level"] });
+    const shown = lines();
+    const first = shown.findIndex((line) => line.startsWith("  › Depth 1:"));
+    expect(first).not.toBe(-1);
+    expect(shown[first + 1]).toMatch(/^ {4}\S/);
+    expect(shown.join(" ").replace(/\s+/g, " ")).toContain("plankton gives 15 pulses back");
+    expect(shown.every((line) => line.length <= 80)).toBe(true);
+    expect(shown).toContain("    Fixed 8 fragments a level");
+  });
+
   it("scrolls the brief with the mouse wheel", () => {
     const { shown, lines } = dialog({ context: LONG, options: ["Build it"], rows: 30 });
     lines();

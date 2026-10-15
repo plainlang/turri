@@ -1,8 +1,8 @@
-import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { IMPORT_DIRECTIVE, PLAIN_SOURCE_FILE_EXTENSION, plainFileParser, readPlainSourceMetadata } from "./plain/parser.ts";
+import { plainFileParser } from "./plain/parser.ts";
+import { importingModules, isImportModule } from "./regenerate/requires.ts";
 import { resolveTemplateDirs } from "./regenerate/paths.ts";
 import { applySpecDiff, plainFilesOf, revertSpecDiff } from "./regenerate/regenerate.ts";
 import { MissingFunctionalitiesError } from "./plain/errors.ts";
@@ -94,26 +94,13 @@ export function createSpecDiffTools(options: {
       // file that cannot be parsed. A module with no functional specs yet is not broken. An import
       // module - definitions only, say - is not a module of its own: it is parsed as the modules
       // that import it read it, the one the change is built for among them.
-      const importers = (file: string) => {
-        const name = basename(file, ".plain");
-        const dir = dirname(resolve(cwd, file));
-        return readdirSync(dir)
-          .filter((entry) => entry.endsWith(".plain"))
-          .map((entry) => join(dir, entry))
-          .filter((path) => {
-            try {
-              return ((readPlainSourceMetadata(readFileSync(path, "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined) ?? []).includes(name);
-            } catch {
-              return false;
-            }
-          });
-      };
-      const imported = importedNames(resolveTemplateDirs(resolve(cwd, params.plain_file)));
       const toParse = [
         ...new Set(
-          [params.plain_file, ...touched].flatMap((file) =>
-            imported.has(basename(file, ".plain")) ? importers(file).filter((path) => !imported.has(basename(path, ".plain"))) : [resolve(cwd, file)],
-          ),
+          [params.plain_file, ...touched].flatMap((file) => {
+            const path = resolve(cwd, file);
+            const importing = isImportModule(path) ? importingModules(path) : [];
+            return importing.length > 0 ? importing : [path];
+          }),
         ),
       ];
       for (const path of toParse) {
@@ -160,26 +147,4 @@ export function createSpecDiffTools(options: {
       owed: () => owed,
     },
   };
-}
-
-/** The module names some .plain file in these folders imports: import modules, not codebases. */
-export function importedNames(dirs: string[]): Set<string> {
-  const names = new Set<string>();
-  for (const dir of dirs) {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir).filter((name) => name.endsWith(PLAIN_SOURCE_FILE_EXTENSION));
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      try {
-        const imports = readPlainSourceMetadata(readFileSync(join(dir, entry), "utf8")).metadata[IMPORT_DIRECTIVE] as string[] | undefined;
-        for (const name of imports ?? []) names.add(name);
-      } catch {
-        // A file that does not read imports nothing.
-      }
-    }
-  }
-  return names;
 }

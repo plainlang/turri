@@ -112,6 +112,10 @@ the planner's, the spec-steps agent's, the conformance agents' - is laid out in 
 A module that `requires` another inherits its functional specs; one that `import`s another
 inherits its definitions, implementation reqs and test reqs.
 
+An import module - one a `.plain` file imports, or one kept in a `template/` folder - is no codebase of its own. A
+change to it is built in the modules that import it, through any import modules between, whose code is started; when
+none is, nothing is built, and the change goes in with the first of them built.
+
 Template search order: the plain file's own directory, then a sibling `template/`, then
 `--template-dir`, then `PLAIN_TEMPLATE_DIRS`.
 

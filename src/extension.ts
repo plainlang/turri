@@ -111,17 +111,22 @@ export function askUserVia(
       // before asking is kept in its record, never put in the dialog.
       // A dialog of turri's own: a long brief scrolls above the question, and the options always show (question-dialog.ts).
       const dialog = (question: string, context: string | undefined, options?: string[]) =>
-        ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) =>
-          new QuestionDialog({
+        ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
+          const shown: QuestionDialog = new QuestionDialog({
             question,
             ...(context !== undefined ? { context } : {}),
             ...(options !== undefined ? { options } : {}),
             rows: () => tui.terminal.rows,
             style: { accent: (text) => theme.fg("accent", text), muted: (text) => theme.fg("muted", text), bold: (text) => theme.bold(text) },
-            done,
+            done: (answer) => {
+              if (questionShown === shown) questionShown = undefined;
+              done(answer);
+            },
             requestRender: () => tui.requestRender(),
-          }),
-        );
+          });
+          questionShown = shown;
+          return shown;
+        });
       const asking: AskUser = (asked) =>
         runAsk(asked, {
           select: (title, options, context) => dialog(title, context, options),
@@ -147,6 +152,13 @@ let questionPeek:
       shown(): boolean;
     }
   | undefined;
+
+/**
+ * The question open in the chat now, if any. The side panel gives the keys back to it: pi would give them to what had the
+ * focus when the panel first opened, and a panel kept beside the chat outlives that question - the keys would go to a
+ * dialog already answered, and nothing would take them.
+ */
+let questionShown: Component | undefined;
 
 /** A widget with nothing to draw: below the editor, it takes no line. */
 const PEEK_KEY_WIDGET = "turri-peek-key";
@@ -1647,7 +1659,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // the other). Its key (PANEL_KEY) opens it; the key again closes it and goes back to the chat, as esc does over the
   // screen - beside the chat, esc gives the chat its keys back and the panel stays, and the key gives them to the panel.
   // While the panel has the keys, every key is its own.
-  let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void; keys: boolean } | undefined;
+  let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void; keepChatFocus: () => void; keys: boolean } | undefined;
   // Beside the chat or over it: as the person last left it, for the conversation.
   let panelDocked = false;
   // The terminal the panel is drawn on, for its width: set as it opens.
@@ -1679,6 +1691,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     }
     needsLooking.delete(jobs);
     if (panel !== undefined) {
+      panel.keepChatFocus();
       panel.handle?.setHidden(false);
       panel.keys = true;
       panel.handle?.focus();
@@ -1687,7 +1700,20 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
     // Not awaited: the panel lives on while the jobs it shows run.
     void ctx.ui.custom<void>(
       (tui, theme, _keybindings, done) => {
-        const close = () => done(undefined);
+        // What the chat shows when the panel takes the keys - its editor, or a pi dialog - for when it gives them back.
+        const focusedNow = () => (tui as unknown as { getFocusedComponent?(): Component | null }).getFocusedComponent?.() ?? null;
+        let chatFocus = focusedNow();
+        const keepChatFocus = () => {
+          const focused = focusedNow();
+          if (focused !== null && focused !== component && !(focused instanceof QuestionDialog)) chatFocus = focused;
+        };
+        // The keys back to the chat: to the question open there now, else to what it showed - never to a question answered
+        // while the panel was open.
+        const giveBack = () => entry.handle?.unfocus({ target: questionShown ?? chatFocus });
+        const close = () => {
+          giveBack();
+          done(undefined);
+        };
         panelTerminal = tui.terminal;
         let component: { render(width: number): string[]; dispose?(): void } | undefined;
         // Beside the chat: the chat drawn narrower, on the left, and a click on either side giving it the keys - undone
@@ -1720,10 +1746,11 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         // Beside the chat, back to it: the chat has the keys, the panel stays.
         const toChat = () => {
           entry.keys = false;
-          entry.handle?.unfocus();
+          giveBack();
           tui.requestRender();
         };
         const toPanel = () => {
+          keepChatFocus();
           entry.keys = true;
           entry.handle?.focus();
           tui.requestRender();
@@ -1778,7 +1805,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             return focused !== null && focused !== component;
           },
         });
-        const entry: NonNullable<typeof panel> = { view, close, keys: true };
+        const entry: NonNullable<typeof panel> = { view, close, keepChatFocus, keys: true };
         panel = entry;
         layOut();
         // Every key goes to the panel while it shows, whatever has the focus: a question the chat model asks in the
