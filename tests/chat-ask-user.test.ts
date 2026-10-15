@@ -53,7 +53,7 @@ describe("ask_user in the conversation", () => {
       said,
     });
     expect(answer).toBe("Private app token");
-    expect(shown[0]![0]).toBe("  Which authentication setup should HubSpot contact sync use?");
+    expect(shown[0]![1]).toBe("  Which authentication setup should HubSpot contact sync use?");
     expect(shown[0]!.join("\n")).not.toContain("returned");
     expect(kept).toEqual([said]);
   });
@@ -68,7 +68,7 @@ describe("ask_user in the conversation", () => {
       context: brief,
       said: "Here is what I have.",
     });
-    expect(shown[0]!.slice(0, 4)).toEqual(["  - Problem: invoices get lost.", "  - Primary user: a freelancer.", "", "  Is this the right brief?"]);
+    expect(shown[0]!.slice(1, 5)).toEqual(["  - Problem: invoices get lost.", "  - Primary user: a freelancer.", "", "  Is this the right brief?"]);
     expect(kept).toEqual([`${brief}\n\nHere is what I have.`]);
   });
 });

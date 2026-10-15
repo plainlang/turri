@@ -42,14 +42,20 @@ describe("the question dialog", () => {
     const { shown, lines } = dialog({ context: LONG, options: ["Build it"], rows: 30 });
     lines();
     shown.handleInput(KEY.shiftDown);
-    expect(lines()[0]).toContain("Feature 2:");
+    expect(lines()[1]).toContain("Feature 2:");
     for (let page = 0; page < 10; page += 1) shown.handleInput(KEY.pageDown);
     const end = lines();
     expect(end.join("\n")).toContain("Feature 60:");
     expect(end.some((line) => line.includes("of 60 - the end"))).toBe(true);
     expect(end).toContain("  › Build it");
     for (let page = 0; page < 10; page += 1) shown.handleInput(KEY.pageUp);
-    expect(lines()[0]).toContain("Feature 1:");
+    expect(lines()[1]).toContain("Feature 1:");
+  });
+
+  it("starts with a blank line, apart from the job panel's hints above it", () => {
+    const { lines } = dialog({ options: ["Build it"] });
+    expect(lines()[0]).toBe("");
+    expect(lines()[1]).toBe("  Is this the right brief?");
   });
 
   it("wraps a long option under its first line instead of cutting it off", () => {
@@ -68,13 +74,13 @@ describe("the question dialog", () => {
     const { shown, lines } = dialog({ context: LONG, options: ["Build it"], rows: 30 });
     lines();
     expect(shown.handleMouse({ type: "wheel", button: "none", x: 0, y: 0, screenX: 0, screenY: 0, width: 80, height: 30, shift: false, alt: false, ctrl: false, wheelDelta: 3 })).toEqual({ handled: true });
-    expect(lines()[0]).toContain("Feature 4:");
+    expect(lines()[1]).toContain("Feature 4:");
   });
 
   it("shows a short brief whole, with nothing to scroll", () => {
     const { lines } = dialog({ context: "- The problem: invoices get lost.", options: ["Build it"] });
     expect(lines().join("\n")).not.toContain("lines ");
-    expect(lines()[0]).toBe("  - The problem: invoices get lost.");
+    expect(lines()[1]).toBe("  - The problem: invoices get lost.");
   });
 
   it("picks an option with the arrows and enter, and is dismissed with esc", () => {

@@ -107,14 +107,15 @@ export class QuestionDialog implements Component, Focusable {
         : "↑↓ choose · enter picks · esc dismisses";
 
     // The brief gets what the question, the options and the hints leave of the screen.
-    const fixed = question.length + body.length + 4;
+    const fixed = question.length + body.length + 5;
     const room = Math.max(3, this.options.rows() - KEPT_ABOVE - fixed);
     const scrolls = brief.length > room;
     this.window = scrolls ? room - 1 : brief.length;
     this.maxScroll = scrolls ? brief.length - this.window : 0;
     this.scroll = Math.min(this.scroll, this.maxScroll);
 
-    const lines: string[] = [];
+    // Set apart from what is drawn above it - the job panel's hints.
+    const lines: string[] = [""];
     if (brief.length > 0) {
       lines.push(...brief.slice(this.scroll, this.scroll + this.window).map(pad));
       if (scrolls) {
