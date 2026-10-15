@@ -52,7 +52,7 @@ last one - one answer, one change, as an interview writes them. `spawn` is unpac
 each change to write the next at once, not to carry on with an interview it does not have.
 
 `questioning:` under `metadata:` names the steps the questioning level caps (`src/questioning.ts`) - `brood`'s
-`[stack, product]`. When there are any and someone to ask, the harness itself asks the first question of the first
+`[stack, product]`, `bud`'s `[product]`. When there are any and someone to ask, the harness itself asks the first question of the first
 step: how many questions those steps may ask - light (3), medium (5), thorough (10) or best judgement - and tells the
 agent the answer beside each step's instructions, with how broad each question is to be: broad at light, a whole area
 at once, narrow at thorough, an edge case at a time. Every level covers the same ground, in less or more depth. In a
@@ -63,7 +63,7 @@ questions each step has asked, are kept in the run's `run.json`, so a resumed ru
 or a run with nobody to ask, is not capped.
 
 `spec-diff-per-answer:` under `metadata:` names the steps where every answer is a spec change - `brood`'s
-`[product]`, at every questioning level. There `ask_user` refuses the next question until the last answer is written
+and `bud`'s `[product]`, at every questioning level. There `ask_user` refuses the next question until the last answer is written
 with `write_spec_diff` (a confirmation, or a question dismissed, owes nothing), and `write_spec_diff` no longer waits
 for an answer before a change: the agent writes as many as the step needs, those it decides itself included. The
 level limits the questions, never the spec changes.

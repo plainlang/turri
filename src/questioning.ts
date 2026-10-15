@@ -62,7 +62,7 @@ export function questioningQuestion(phases: string[]): { question: string; optio
     question: `How many questions should I ask you in ${named}?`,
     options: QUESTIONING_LEVELS.map((level) => level.option),
     context:
-      `Light, medium and thorough cap each of ${named} at 3, 5 and 10 questions - broader with fewer, so every level ` +
+      `Light, medium and thorough cap ${phases.length === 1 ? named : `each of ${named}`} at 3, 5 and 10 questions - broader with fewer, so every level ` +
       "covers the same ground, only in less or more depth. What the questions leave open, turri decides itself and " +
       "says what it chose. With best judgement, turri asks as much as it judges each phase needs. Each phase still " +
       "ends with your confirmation of its summary.",

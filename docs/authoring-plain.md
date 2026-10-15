@@ -196,18 +196,21 @@ the reading that fits the rest of the spec, and marks each such decision in its 
 code, environment and turri problems to the builds, and stops when a functionality keeps
 struggling after the spec was clarified, when two cycles change nothing, or after twenty.
 
-For an existing project, `bud` works the same way, scoped to one feature: intent → scope →
-product → review. After a short feature-intent interview it asks product questions one at a time -
-a trigger and its outcome, an edge case, a rule - and every answer is one spec change, a git diff
-written with `write_spec_diff` and built the moment it is written. A change to something already
+For an existing project, `bud` works the same way, scoped to one feature: intent → scope → product.
+It first asks how many questions the product phase may ask - light, medium, thorough or best
+judgement, as `brood` does - then a short feature-intent interview, then product questions - a
+trigger and its outcome, an edge case, a rule - and every answer is a spec change, a git diff
+written with `write_spec_diff` and built the moment it is written, before the next question. What
+the questions leave open it decides itself, a spec change each. A change to something already
 specified, built or still to build, is put to the user first and is a spec diff too: what is left to
-build is worked out again from the spec.
+build is worked out again from the spec. It ends on the person's confirmation of a short summary of
+the feature's changes.
 
 What keeps the interview honest is the harness, not the interviewer:
 
 - **Every question offers choices** (`ask_user` refuses a question without them), and each
   answer maps to one spec change.
-- **Every answer is written before the next question.** In `brood`'s product phase `ask_user` refuses
+- **Every answer is written before the next question.** In the product phase of `brood` and `bud`, `ask_user` refuses
   a new question until the last answer is a spec change - see [skills and gates](skills-and-gates.md).
 - **Each phase ends on the person's confirmation** of a short summary, not on the interviewer's word.
 

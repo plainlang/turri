@@ -201,9 +201,11 @@ describe("mature", () => {
 });
 
 describe("bud", () => {
-  it("builds a feature as brood builds a product: product questions, one spec diff per answer, paced", () => {
+  it("builds a feature as brood builds a product: the questioning level first, product questions, a spec diff per answer, paced, no review", () => {
     const skill = loadSkill("genome/skills/bud");
-    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "scope", "product", "review"]);
+    expect(skill.steps.map((step) => step.name)).toEqual(["intent", "scope", "product"]);
+    expect(skill.questioning).toEqual(["product"]);
+    expect(skill.diffPerAnswer).toEqual(["product"]);
     expect(skill.allowedTools).toContain("write_spec_diff");
     expect(skill.paced).toBe(true);
   });

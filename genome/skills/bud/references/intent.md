@@ -3,6 +3,10 @@
 Extract the intent of this feature before choosing files or authoring specifications. Ask exactly
 five core questions, one at a time, and do not write to disk.
 
+The harness has already asked the first question of this phase: how many questions the product
+phase may ask - light (3), medium (5), thorough (10) or best judgement. Do not ask it again; this
+phase's own questions are not capped by it.
+
 ## Questions
 
 1. **Motivation** — What problem or limitation should this feature address?
