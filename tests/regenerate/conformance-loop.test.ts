@@ -344,6 +344,32 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(coders[1]!.prompt).not.toContain("<specification>");
   });
 
+  it("gives the code fixer the testing scripts its fixes are run by, word for word - not only the judge's quote of them", async () => {
+    const { createExecutor } = await import("../../src/pi.ts");
+    const made = (createExecutor as unknown as { mock: { calls: Array<[{ label?: string; task?: string }]> } }).mock.calls;
+    const before = made.length;
+    await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    const fixer = made.slice(before).find(([opts]) => opts.label?.endsWith("coding agent"))![0].task!;
+    expect(fixer).toContain('<script kind="conformance tests" path="test_scripts/run_conformance_tests_python.sh">');
+    expect(fixer).toContain('<script kind="unit tests" path="test_scripts/run_unittests_python.sh">');
+    expect(fixer).toContain(readFileSync(join(root, "test_scripts", "run_conformance_tests_python.sh"), "utf8").trimEnd());
+  });
+
+  it("shows the explorer, the judge and the code fixer the prepare script, before the conformance testing script it runs ahead of", async () => {
+    const prepare = "#!/bin/bash\n# prepares the build\nexit 0\n";
+    writeFileSync(join(root, "test_scripts", "prepare_environment_python.sh"), prepare);
+    await renderConformanceTests({ plainFile: join(root, "app.plain"), frid: "1", buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests") });
+    const explorer = asked.find((turn) => turn.role === "explorer")!.prompt;
+    expect(explorer).toContain(`<script kind="prepare environment" path="test_scripts/prepare_environment_python.sh" run-as="<script> <copy of the build>, before every run of the conformance testing script">\n${prepare.trimEnd()}\n</script>`);
+    expect(explorer.indexOf('kind="prepare environment"')).toBeLessThan(explorer.indexOf('path="test_scripts/run_conformance_tests_python.sh"'));
+    const judge = asked.find((turn) => turn.role === "judge")!.prompt;
+    expect(judge).toContain("The prepare script below it runs on the build before every run");
+    expect(judge).toContain(`<prepare script path="test_scripts/prepare_environment_python.sh"`);
+    expect(judge.indexOf("<prepare script ")).toBeLessThan(judge.indexOf("<conformance testing script "));
+    const coder = asked.find((turn) => turn.role === "coding agent")!.prompt;
+    expect(coder).toContain('<script kind="prepare environment" path="test_scripts/prepare_environment_python.sh">');
+  });
+
   it("stops when nothing changes: the same failure judged the same way asks the explorer again, and then ends the run", async () => {
     // The judge always blames the tests, and the stub's fixes never touch what fails - so the failure never changes.
     judgeSays = () => ({ culprit: "tests", reason: "The tests are wrong." });

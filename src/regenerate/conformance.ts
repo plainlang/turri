@@ -63,6 +63,7 @@ import {
   testsFixPrompt,
   sortedRefs,
   type ConflictScope,
+  type ShownScript,
   type SpecContext,
 } from "./conformance-agents.ts";
 import { resolveRequiresChain } from "./requires.ts";
@@ -321,10 +322,10 @@ export async function renderConformanceTests(
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
   // For a spec change: the functionalities it touches, whose acceptance tests are labelled, checked and reviewed.
   const touched = forChange ? touchedFunctionalities(tree, frids, options.diff!) : [];
-  // Any functionality of the codebase - this module's, and those of the modules it requires. A
   // The acceptance tests the run's tests carry out: every functionality the change touches, or the one under test.
   const carriedOut = forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }];
   const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, carriedOut, options.change ?? options.diff, sectionModules(tree, moduleName)) };
+  // Any functionality of the codebase - this module's, and those of the modules it requires. A
   // functionality's run may raise a spec conflict only with that functionality; a spec diff's, between any two.
   const own = (forChange ? frids : frids.slice(0, frids.indexOf(frid!) + 1)).map((id) => ({ module: moduleName, frid: id }));
   const scope: ConflictScope = {
@@ -392,7 +393,11 @@ export async function renderConformanceTests(
   };
   stage(`exploring the code for how it is invoked${options.model ? ` (${options.model})` : ""}`);
   // The explorer reads the conformance testing script too: it is how the tests are built and run, and so how they reach the software.
-  const testingScripts = [
+  // The prepare script, where there is one, runs on the build before it - and only once it passes does the suite run.
+  const testingScripts: ShownScript[] = [
+    ...(scripts.prepare !== undefined
+      ? [{ path: relative(root, scripts.prepare), runs: "<script> <copy of the build>, before every run of the conformance testing script", content: readFileSync(scripts.prepare, "utf8"), prepare: true }]
+      : []),
     { path: relative(root, scripts.conformance!), runs: "<script> <copy of the build> <copy of the whole conformance suite>", content: readFileSync(scripts.conformance!, "utf8") },
   ];
   // The acceptance tests the explorer's plan has to carry out, step by step.
@@ -502,6 +507,7 @@ export async function renderConformanceTests(
       ],
       toolNames: ["run_unit_tests", "run_conformance_tests", ...fixerServices.names, "update_notes"],
       checkEnvironment: { run: () => runUnitScript(buildDir, scripts.unit!), script: scripts.unit! },
+      testingScripts: { scripts, root },
     });
     fixerConformanceRuns.newTurn();
     return ask(fixer, withNotes(text, buildDir), options.onDelta);

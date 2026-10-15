@@ -612,6 +612,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
         ...(scripts.runOn === "copy" ? { unitScript: scripts.unit! } : {}),
+        testingScript: { path: relative(root, scripts.unit!), content: readFileSync(scripts.unit!, "utf8") },
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, modelOnly(options.model))),
         send: async (next) => {
           response = await ask(executor, next, options.onDelta);

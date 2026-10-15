@@ -8,7 +8,7 @@ import { confinedTools } from "./confine.ts";
 import { ensureInModulesScratch, modulesScratchDir } from "./paths.ts";
 import { workspaceBlock } from "./workspace.ts";
 import { reportActivity } from "./activity.ts";
-import { runTiming, type ScriptRun } from "./test-scripts.ts";
+import { runTiming, withTestingScripts, type ScriptRun, type TestScripts } from "./test-scripts.ts";
 import { createWebTools, WEB_TOOLS } from "./web.ts";
 import { diffFiles, digestFiles } from "./codebase.ts";
 import { ERROR_CAUSE_RULES, fixMethod, INTEGRITY_RULES, specPrimer } from "./prompt.ts";
@@ -172,7 +172,7 @@ export async function exploreInvocation(options: {
   /** The functionalities of the codebase, and the one under test - none for a spec change. */
   scope: ConflictScope;
   /** The project's conformance testing script: how the tests are built and run, and so how they reach the software. */
-  testingScripts?: Array<{ path: string; runs: string; content: string }>;
+  testingScripts?: ShownScript[];
   /**
    * Asked again: the tests written from the last account keep failing the same way, most likely for
    * something they need of the software that it left out. The failing run, as the harness saw it.
@@ -430,7 +430,7 @@ export function explorePrompt(
   buildDir: string,
   spec: SpecContext,
   scope: ConflictScope,
-  testingScripts?: Array<{ path: string; runs: string; content: string }>,
+  testingScripts?: ShownScript[],
   question?: { failure: string; account: string },
   previous?: { account: string; changed: string[] },
 ): string {
@@ -482,9 +482,17 @@ export function explorePrompt(
     ...(testingScripts !== undefined && testingScripts.length > 0
       ? [
           "",
-          "This is the project's conformance testing script, which the harness runs to decide whether the",
-          "tests pass - read it for what it builds or installs before the tests run, and so what the tests can depend on:",
-          ...testingScripts.flatMap((script) => ["", `<script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</script>"]),
+          ...(testingScripts.some((script) => script.prepare === true)
+            ? [
+                "These are the project's prepare script, which the harness runs on the build first, and its conformance testing",
+                "script, which runs only once the prepare script passes and decides whether the tests pass - read both for what",
+                "they build or install before the tests run, and so what the tests can depend on:",
+              ]
+            : [
+                "This is the project's conformance testing script, which the harness runs to decide whether the",
+                "tests pass - read it for what it builds or installs before the tests run, and so what the tests can depend on:",
+              ]),
+          ...testingScripts.flatMap((script) => ["", `<script${script.prepare === true ? ' kind="prepare environment"' : ""} path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</script>"]),
         ]
       : []),
     ...(previous !== undefined && question === undefined
@@ -789,11 +797,16 @@ export interface Evidence {
   shows: string;
 }
 
-/** A conformance testing script as the explorer and the judge are shown it: its path, how it is run, its text. */
+/**
+ * A script of a conformance run as the explorer and the judge are shown it: its path, how it is run, its text. The
+ * conformance testing script, and the prepare script before it where the project has one.
+ */
 export interface ShownScript {
   path: string;
   runs: string;
   content: string;
+  /** The prepare script: run on the build before every run of the conformance testing script. */
+  prepare?: boolean;
 }
 
 /**
@@ -957,7 +970,7 @@ export function unfoundedEvidence(evidence: Evidence[] | undefined, opened: (pat
       "may be wrong, so check it against the testing script and the files."
     );
   }
-  const inPrompt = (source: string) => /^(the )?(conformance )?testing script$|^(the )?failing run$/i.test(source.trim());
+  const inPrompt = (source: string) => /^(the )?(conformance )?testing script$|^(the )?prepare script$|^(the )?failing run$/i.test(source.trim());
   const unread = given.filter((item) => !inPrompt(item.source) && !opened(item.source.trim()));
   if (unread.length > 0) {
     return (
@@ -1020,7 +1033,7 @@ export async function judgeFailure(options: {
       evidence: Type.Optional(
         Type.Array(
           Type.Object({
-            source: Type.String({ description: "Where: the path of a file you opened, `testing script`, or `failing run`" }),
+            source: Type.String({ description: "Where: the path of a file you opened, `testing script`, `prepare script` where there is one, or `failing run`" }),
             shows: Type.String({ description: "What it shows, e.g. `the script runs node dist/cli.js` or `tsconfig.json emits src/cli.ts as dist/src/cli.js`" }),
           }),
           { description: "What you found yourself, each with where - never what <how to invoke it> claims unchecked" },
@@ -1205,6 +1218,12 @@ export function judgePrompt(options: {
           "what is wrong. What it does with the tests, the tests have to fit; what it needs of the code - a file it runs or",
           "checks for, a command it builds with - the code has to provide. A verdict that the script is wrong is neither",
           "code nor tests: say which of the two has to change to get past it.",
+          ...(scripts.some((script) => script.prepare === true)
+            ? [
+                "The prepare script below it runs on the build before every run, and the conformance testing script only once it",
+                "passes: it binds the same way - neither agent can change it, and what it needs of the code the code provides.",
+              ]
+            : []),
           "",
         ]
       : []),
@@ -1234,7 +1253,10 @@ export function judgePrompt(options: {
     "",
     `<how to invoke it>\n${options.invocation.trim()}\n</how to invoke it>`,
     "",
-    ...scripts.flatMap((script) => [`<conformance testing script path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), "</conformance testing script>", ""]),
+    ...scripts.flatMap((script) => {
+      const tag = script.prepare === true ? "prepare script" : "conformance testing script";
+      return [`<${tag} path="${script.path}" run-as="${script.runs}">`, script.content.trimEnd(), `</${tag}>`, ""];
+    }),
     ...(options.run.timedOut === true ? [...timedOutBlock(options.run), ""] : []),
     `<failing run exit="${options.run.exitCode}" command="${options.run.command}">`,
     runTiming(options.run),
@@ -1311,6 +1333,8 @@ export async function createCodeFixer(options: {
   toolNames: string[];
   /** The harness's own run its environment reports are checked against. */
   checkEnvironment?: { run: () => Promise<{ exitCode: number; output: string }>; script: string };
+  /** The testing scripts its fixes are run by - the prepare, conformance and unit ones - word for word, in its task. */
+  testingScripts?: { scripts: TestScripts; root: string };
 }): Promise<AgentSession> {
   const fence = confinedTools({
     workdir: options.buildDir,
@@ -1325,7 +1349,10 @@ export async function createCodeFixer(options: {
     model: options.model,
     label: `${options.label} coding agent`, role: "coding",
     system: `${fence.note}\n\n${workspaceBlock({ dir: options.buildDir, hasMyDiff: options.toolNames.includes("my_diff") })}`,
-    task: codeFixerTask(options),
+    // What the conformance testing script needs of the build, the code provides: the fixer reads it, not only a judge's quote of it.
+    task: options.testingScripts !== undefined
+      ? withTestingScripts(codeFixerTask(options), options.testingScripts.scripts, ["conformance", "unit"], options.testingScripts.root)
+      : codeFixerTask(options),
     compaction: { instructions: CODER_COMPACTION },
     ...(options.checkEnvironment !== undefined ? { checkEnvironment: options.checkEnvironment } : {}),
   });

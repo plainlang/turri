@@ -414,11 +414,12 @@ describe("rendering a spec diff", () => {
     expect(Object.keys(JSON.parse(readFileSync(join(result.buildDir, ".turri.json"), "utf8"))).sort()).toEqual(["functional specs", "implementation reqs"]);
   });
 
-  it("lands on its unit tests without a review when the config turns the review off - and is reviewed when it does not", async () => {
+  it("lands on its unit tests without a review when the config turns the review off - and is reviewed when it does not, shown the unit testing script", async () => {
     const { ask } = await import("../../src/pi.ts");
     let reviews = 0;
+    let reviewerTask = "";
     vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
-      if (session.tools.some((tool) => tool.name === "submit_review")) reviews += 1;
+      if (session.tools.some((tool) => tool.name === "submit_review")) (reviews += 1), (reviewerTask = session.task ?? "");
       return passingAgent(session, prompt);
     }) as never);
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
@@ -431,6 +432,8 @@ describe("rendering a spec diff", () => {
     const on = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One.", "- Two."]), plain(["- One.", "- Two.", "- Three."])), cwd: dir });
     expect(on.passed).toBe(true);
     expect(reviews).toBeGreaterThan(0);
+    // Which tests the script runs, and how, is part of whether they test anything: the reviewer reads it word for word.
+    expect(reviewerTask).toMatch(/<unit testing script path="[^"]*run_unittests_python\.sh">\n[\s\S]+\n<\/unit testing script>/);
   });
 
   it("is judged by its unit tests alone - the conformance testing script is not in its prompt, and the conformance tests are not run", async () => {

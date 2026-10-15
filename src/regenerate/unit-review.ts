@@ -81,6 +81,8 @@ export function unitReviewTask(options: {
   cases?: JobCases;
   /** It has can_it_fail, to check that a test it doubts can fail. */
   canItFail?: boolean;
+  /** The unit testing script, word for word: how the unit tests are run, and so which of them run at all. */
+  testingScript?: { path: string; content: string };
 }): string {
   const mechanical = options.cases?.mechanical === true;
   return [
@@ -108,6 +110,17 @@ export function unitReviewTask(options: {
     options.spec.trim(),
     "</specification>",
     "",
+    ...(options.testingScript !== undefined
+      ? [
+          "The harness runs the unit tests with this script, and it decides whether they pass. Read it for which tests it",
+          "runs and how: a test it never reaches - a file it does not pick up, a folder it does not look in - is not run, and",
+          "checks nothing.",
+          `<unit testing script path="${options.testingScript.path}">`,
+          options.testingScript.content.trimEnd(),
+          "</unit testing script>",
+          "",
+        ]
+      : []),
     ...(options.cases !== undefined ? [...codeReviewCasesBlock(options.cases), ""] : []),
     // A job that touches no functional spec is held only to that: the checks of behaviour are not its.
     ...(mechanical ? [] : ["Check that the code does what the specification states for this work:"]),
@@ -235,6 +248,8 @@ export async function createUnitReviewer(options: {
   onDelta?: (delta: string) => void;
   /** The unit testing script, where it runs on a copy: the reviewer checks with can_it_fail that a test it doubts can fail. */
   unitScript?: string;
+  /** The unit testing script, word for word, in its task. */
+  testingScript?: { path: string; content: string };
 }): Promise<UnitReviewer> {
   let verdict: { pass: boolean; problems: UnitReviewProblem[] } | undefined;
   const submit = defineTool({
@@ -354,6 +369,8 @@ export async function untilUnitTestsReviewed(options: {
   askForAnswers?: boolean;
   /** The unit testing script, where it runs on a copy: the reviewer checks with can_it_fail that a test it doubts can fail. */
   unitScript?: string;
+  /** The unit testing script, word for word, for the reviewer to read. */
+  testingScript?: { path: string; content: string };
 }): Promise<{ passed: boolean; waived?: UnitReviewProblem[]; problems?: UnitReviewProblem[]; reviews: number }> {
   const reviewer = await createUnitReviewer(options);
   try {

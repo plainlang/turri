@@ -266,7 +266,8 @@ Passing unit tests prove only what they check, and a coding agent is quick to wr
 next to nothing - that a function exists, that a result is not empty, that a status is 200 - or code
 that no test reaches. So, with `review: true` in the [config](config.md), once the unit testing script
 passes a reviewer on the judge model reads what the work wrote, beside the spec, and changes nothing. It
-reviews both halves. The review is off by default - `review: false`, or the key left out - and so is the
+reviews both halves, with the unit testing script word for word in its prompt: a test the script never reaches is
+not run, and checks nothing. The review is off by default - `review: false`, or the key left out - and so is the
 conformance tests' review: the work goes on once its tests pass.
 
 - **The code.** Every behaviour, edge case, validation rule and error the spec states for this work
@@ -503,8 +504,9 @@ testing script, stops before it starts and says which skill adds it.
 `prepare-environment-script:` in the config, else the one `prepare_environment*.sh` at the root, else in
 `test_scripts/` - on the build, before every run of the conformance testing script: the harness's own, and the agents'
 `run_conformance_tests`. Both get the same build folder - the code in place, or the same fresh copy - so what it sets up
-for that build, the conformance testing script finds. With conformance off it is not run. The conformance agents are
-shown it, before the conformance testing script.
+for that build, the conformance testing script finds. With conformance off it is not run. Every agent shown the
+conformance testing script - the explorer, the conformance agent, the judge, the code fixer and the repair agent - is
+shown it too, before the conformance testing script.
 
 **Where they run.** On this machine, as you would run them: unfenced - no sandbox, no command check, no audit - in
 your own environment with this machine's toolchains, turri's model providers' API keys alone left out. They are yours,
@@ -836,7 +838,8 @@ coding agent that fixes the code is told the same of the tests: it can read them
 Before the test author starts, an explorer - an agent in
 the code's folder with the file tools alone: it reads the code, runs nothing and changes nothing - hands over everything
 the author needs, in parts: how to build and run it; how the conformance tests reach it as the project's
-conformance testing script runs them - the explorer is given the script, and says what it builds or
+conformance testing script runs them - the explorer is given the script, and the prepare script before it where there
+is one, and says what they build or
 installs and what the tests depend on or start (a package, a module, an entry point, by its exact name);
 how each functionality is reached from outside
 (the command, or the route, method and the request and response fields); what it needs around it; and
@@ -962,7 +965,9 @@ spending the rest of its 20 attempts on it. Two failures are the same once what 
 taken out of their lines - numbers, times, paths, colour codes, and the ids a service makes up for each
 response, a UUID or a correlation id. Nothing changes either when the agent sent to fix the code or the tests
 changes no file: two such fixes in a row, and the run stops. The conformance agent has the testing script in its prompt,
-and is told to fit the tests' own build to it.
+and is told to fit the tests' own build to it. The code fixer has the testing scripts its fixes are run by - the
+conformance testing script, the prepare script before it, and the unit testing script - word for word in its task:
+what the conformance testing script needs of the build, it reads there, not only in the judge's quote of it.
 
 **Escalation.** A failure judged the tests' goes to the conformance agent first: it owns the tests. When the run then
 fails the same way - the fix changed nothing, or nothing that mattered - the judge is asked again, now whether the
