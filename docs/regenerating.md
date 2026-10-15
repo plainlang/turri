@@ -380,6 +380,14 @@ halts its codebase: nothing more runs there until the spec changes or the module
 the command line, `turri regenerate` runs until nothing more can start, one line as each job starts and
 ends, and exits 1 when any failed.
 
+The person halts a module's planned work too: `halt` (and `/halt`) given a planned row - `planned-<module>-2`,
+`planned-<module>-waiting` - or the module's name. A module's pulses are planned again from its spec at every look, so
+one planned pulse cannot be taken out alone: the module is halted - its running pulse stopped and rolled back, none of
+its planned pulses started, the modules built on it waiting for it - and what landed stays. A halt the person asked for
+holds through spec changes - `write_spec_diff` brings the spec in without starting the module - until the module is
+asked for again (`regenerate`, `conform`). To build some of it later, or cut it differently, there is `steer`; to drop
+work, the spec.
+
 A module the loop looked after whose `.plain` file is gone is forgotten - no rows, nothing waited for - and a codebase
 left behind, or whose spec no longer parses, shows nothing planned: its plan, and what it waited for, were the spec's
 before.

@@ -620,7 +620,7 @@ export default function (pi: ExtensionAPI) {
         loopTools: [
           regenerateTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named, work) => jobModel(ctx, work ?? "spec_changes", named, plainFile), wait: () => false }),
           driftTool({ cwd, jobs, loop: () => workLoopFor(jobs, cwd, ctx) }),
-          haltTool({ jobs }),
+          haltTool({ jobs, workLoop: () => workLoops.get(jobs)?.loop }),
           conformTool({ cwd, loop: () => workLoopFor(jobs, cwd, ctx), model: (_skill, plainFile, named) => jobModel(ctx, "spec_changes", named, plainFile), wait: () => false }),
         ],
         // The escalation becomes a real dialog in the TUI. Without dialog-capable
@@ -1593,21 +1593,32 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
   // list, finished jobs included, put in the transcript where it stays.
 
   pi.registerCommand("halt", {
-    description: "Halt a queued or running pulse, or what activate started: /halt [pulse id | activated <name>]",
+    description: "Halt a queued or running pulse, a module's planned pulses, or what activate started: /halt [pulse id | module | activated <name>]",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const live = jobs.list().filter((job) => job.status === "running" || job.status === "queued");
       const deployed = runningDeployed();
+      const loop = workLoops.get(jobs)?.loop;
+      // A module's planned pulses, one line a module: halting one halts the module.
+      const plannedRows = loop?.planned() ?? [];
+      const planned = [...new Set(plannedRows.map((row) => row.module ?? ""))].filter((module) => module !== "");
       let id = args.trim();
       if (id === "") {
-        if (live.length === 0 && deployed.length === 0) return ctx.ui.notify("Nothing is regenerating or queued.", "info");
+        if (live.length === 0 && deployed.length === 0 && planned.length === 0) return ctx.ui.notify("Nothing is regenerating, queued or planned.", "info");
         const label = (job: Job) => `${job.id}  ${job.status.padEnd(8)} ${pulseName(job)}`;
-        const labels = [...live.map(label), ...deployed.map((item) => deployedLabel(item.name, item.url ?? item.command))];
+        const plannedLabel = (module: string) => {
+          const rows = plannedRows.filter((row) => row.module === module);
+          const waiting = rows.find((row) => row.id.endsWith("-waiting"));
+          return `${module}  ${waiting !== undefined ? waiting.summary : `${rows.length} planned`} - halts the module`;
+        };
+        const labels = [...live.map(label), ...planned.map(plannedLabel), ...deployed.map((item) => deployedLabel(item.name, item.url ?? item.command))];
         const picked = await ctx.ui.select("Halt which?", labels);
         const job = live.find((candidate) => picked !== undefined && label(candidate) === picked);
+        const module = planned.find((name) => picked !== undefined && plannedLabel(name) === picked);
         const server = deployed.find((item) => picked !== undefined && deployedLabel(item.name, item.url ?? item.command) === picked);
         if (server !== undefined) id = `activated ${server.name}`;
         else if (job !== undefined) id = job.id;
+        else if (module !== undefined) id = module;
         else return;
       }
       const name = /^(?:activated|deploy)\s+(.+)$/.exec(id)?.[1]?.trim();
@@ -1615,7 +1626,7 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
         const stopped = await stopDeployed({ name });
         return shownAfterCommand(pi, ctx, `/halt ${id}`, stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running as ${name}.`, "info");
       }
-      ctx.ui.notify(stopJob(jobs, id), "info");
+      ctx.ui.notify(stopJob(jobs, id, undefined, loop), "info");
     },
   });
 
@@ -2205,6 +2216,7 @@ function registerDeploy(pi: ExtensionAPI, cwd: string, jobs: JobRegistry, state:
     cwd,
     state,
     jobs,
+    workLoop: () => workLoops.get(jobs)?.loop,
     defaultPlainFile: () => readProjectConfig(cwd).module,
   });
   for (const tool of tools) pi.registerTool(tool);

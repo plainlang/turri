@@ -101,7 +101,10 @@ export async function loopReply(loop: WorkLoop, statuses: ModuleStatus[], wait: 
 }
 
 /** Halt a pulse by its id, or the start of it: what it was, and what moves up behind it. `reason`: why, kept with it. */
-export function stopJob(jobs: JobRegistry, named: string, reason?: string): string {
+export function stopJob(jobs: JobRegistry, named: string, reason?: string, loop?: WorkLoop): string {
+  // A planned row, or a module by its name: the module is halted - its rows are planned again from the spec each look.
+  const module = /^planned-/.test(named.trim()) || !jobs.list().some((job) => job.id.startsWith(named.trim())) ? loop?.halt(named, reason) : undefined;
+  if (module !== undefined) return module;
   const matches = jobs.list().filter((job) => job.id.startsWith(named.trim()));
   if (matches.length === 0) return `No pulse ${named}. /pulses shows them.`;
   if (matches.length > 1) return `'${named}' matches ${matches.map((job) => job.id).join(", ")}. Give more of the id.`;
@@ -241,7 +244,7 @@ export function driftTool(options: LoopToolsOptions & { loop: (ctx: ExtensionCon
 
 const ACTIVATED_PARAM = Type.Optional(Type.String({ description: 'What activate started, by name - or "all" for every one' }));
 const HALT_PULSE_PARAMS = Type.Object({
-  job_id: Type.Optional(Type.String({ description: "The pulse's id, or the start of it" })),
+  job_id: Type.Optional(Type.String({ description: "The pulse's id, or the start of it; a planned row's id (planned-<module>-...), or a module's name, halts the module" })),
   reason: Type.Optional(Type.String({ description: "Why it is halted, kept with it - what the spec now says that it did not, say" })),
   activated: ACTIVATED_PARAM,
 });
@@ -249,27 +252,36 @@ const HALT_PULSE_PARAMS = Type.Object({
 const HALT_ACTIVATED_PARAMS = Type.Object({ activated: ACTIVATED_PARAM });
 
 /** halt: stop a pulse, or what activate started. */
-export function haltTool(options: Pick<LoopToolsOptions, "jobs">): AnyTool {
+export function haltTool(options: Pick<LoopToolsOptions, "jobs"> & { workLoop?: () => WorkLoop | undefined }): AnyTool {
   const { jobs } = options;
   return defineTool({
     name: "halt",
     label: "Halt",
     description:
       jobs !== undefined
-        ? "Halt a pulse, or what activate started. A pulse: a queued one never starts, a running one has its agent stopped at once, " +
-          "and the pulses queued behind it move up - what a running pulse already changed is rolled back, and what it was regenerating " +
-          "counts as not regenerated. What activate started: the one named, or every one."
+        ? "Halt a pulse, a module's planned pulses, or what activate started. A pulse: a queued one never starts, a running one has its " +
+          "agent stopped at once, and the pulses queued behind it move up - what a running pulse already changed is rolled back, and what " +
+          "it was regenerating counts as not regenerated. A planned row (planned-<module>-...) or a module's name halts the module: its " +
+          "running pulse stopped, none of its planned pulses started, and the modules built on it waiting - until it is asked for again " +
+          "with regenerate; a spec change does not start it. A module whose .plain file is gone is dropped. What activate started: the " +
+          "one named, or every one."
         : "Stop what activate started: the one named, or every one.",
     promptSnippet: jobs !== undefined ? "halt a pulse, or what activate started" : "stop a deployed server, or all of them",
     promptGuidelines:
-      jobs !== undefined ? ["Halt a pulse only when the user asks, or your instructions say to. Name which one, and say which pulses were queued behind it - they will now run."] : [],
+      jobs !== undefined
+        ? [
+            "Halt a pulse only when the user asks, or your instructions say to. Name which one, and say which pulses were queued behind it - they will now run.",
+            "Halting a planned row halts its whole module - one planned pulse cannot be taken out alone, as the plan is made again from the spec. To build some of it later, or cut it differently, use steer; to drop work, change the spec.",
+            "A planned row for a module that is no longer in the project is halted the same way, and dropped.",
+          ]
+        : [],
     parameters: (jobs !== undefined ? HALT_PULSE_PARAMS : HALT_ACTIVATED_PARAMS) as typeof HALT_PULSE_PARAMS,
     async execute(_id, params) {
       if (params.job_id === undefined && params.activated === undefined) {
         throw new Error(jobs !== undefined ? "Say what to halt: a job_id, or what activate started (activated)." : 'Say what to stop: its name, or "all" (activated).');
       }
       const lines: string[] = [];
-      if (params.job_id !== undefined && jobs !== undefined) lines.push(stopJob(jobs, params.job_id, params.reason));
+      if (params.job_id !== undefined && jobs !== undefined) lines.push(stopJob(jobs, params.job_id, params.reason, options.workLoop?.()));
       if (params.activated !== undefined) {
         const stopped = await stopDeployed(params.activated === "all" ? {} : { name: params.activated });
         lines.push(stopped.length > 0 ? `Halted ${stopped.join(", ")}.` : `Nothing activate started is running${params.activated === "all" ? "" : ` as ${params.activated}`}.`);

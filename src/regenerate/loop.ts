@@ -178,6 +178,8 @@ interface ModuleState {
    * land - its number, and the trees it went between - for the regeneration to say which items it was regenerating.
    */
   halted?: { why: string; specKey: string; pulse?: { number: number; before: string; after: string }; cause?: string };
+  /** Halted by the person (`WorkLoop.halt`): nothing runs here until it is asked for again - a spec change does not start it. */
+  held?: { why: string };
   /** How many pulses have started here this session: the next is numbered one more. */
   pulses?: number;
   /** The spec as the last look read it. */
@@ -239,9 +241,10 @@ export interface WorkLoop {
    * Bring a spec's module up to the spec as the .plain files have it now - in the codebases where its
    * code lives, and every module it is built on that has to be built first - planning and starting the
    * first jobs. Asked again, it clears a halt. Also what a spec change is: the loop works out the work
-   * again. Says what it planned.
+   * again. `specChange`: brought up because its spec was changed, not asked for - a module the person halted stays
+   * halted. Says what it planned.
    */
-  bringUp(plainFile: string, options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
+  bringUp(plainFile: string, options?: { model?: string; guidance?: string; specChange?: boolean }): Promise<ModuleStatus[]>;
   /**
    * Regenerate functional specs of a module again, their spec changed or not: each is marked to regenerate again in
    * the record of every codebase it is built in - committed - and they are brought up to their spec, the marked ones
@@ -273,6 +276,14 @@ export interface WorkLoop {
    * into pulses as any work is. Destructive: asked for only when the person asked for it. Says what it planned.
    */
   fromScratch(plainFile: string, options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
+  /**
+   * Halt a module's planned work, as the person asked: `target` is a planned row's id (`planned-<module>-...`) or the
+   * module's name. A module's pulses are planned again from its spec each look, so it is the module that is halted, not
+   * one row: its pulse running is stopped and rolled back, nothing is planned or started there - nor in the modules built
+   * on it, which wait for it - until it is asked for again; a spec change does not start it. A module whose .plain file is
+   * gone is forgotten. Says what it did - undefined when the target names no module the loop looks after.
+   */
+  halt(target: string, reason?: string): string | undefined;
   /** Every codebase the loop looks after, bottom of each chain first. */
   status(): ModuleStatus[];
   /**
@@ -715,6 +726,7 @@ export function createWorkLoop(options: {
       if (below === undefined || (!looking.has(below) && below.running === undefined)) continue;
       const waiting = (why: string) => ({ module: entry.moduleName, why: `waiting for ${entry.moduleName}: ${why}` });
       if (below.running !== undefined) return waiting(below.running.planned.track === "conformance" ? "its conformance tests are being written" : "the code it is built on is not built yet");
+      if (below.held !== undefined) return waiting("you halted it - nothing is built on it until it is asked for again");
       const spec = chainSpec(below.chain);
       if (codeWork(builtOf(below), spec.tree).length > 0) return waiting("the code it is built on is not built yet");
       if (below.conformanceHalted !== undefined) return waiting(`its conformance tests did not pass - ${below.conformanceHalted.why}`);
@@ -821,6 +833,11 @@ export function createWorkLoop(options: {
   const firsts = new Map<string, { spec: SpecSnapshot; planned: PlannedJob }>();
 
   const startJob = (state: ModuleState, spec: SpecSnapshot, from: MarshalledPlainSource, planned: PlannedJob) => {
+    // Halted while it was being planned: the plan is made, nothing starts.
+    if (state.held !== undefined) {
+      state.why = state.held.why;
+      return;
+    }
     const tip = tipEntry(state);
     if (options.dryRun === true) {
       firsts.set(tip.buildDir, { spec: planned.track === "conformance" ? spec : { ...spec, tree: planned.step.tree }, planned });
@@ -1204,6 +1221,11 @@ export function createWorkLoop(options: {
       return;
     }
     hashResources(state, spec);
+    if (state.held !== undefined) {
+      state.why = state.held.why;
+      state.waitsFor = undefined;
+      return;
+    }
     if (state.halted !== undefined) {
       if (state.halted.specKey === specKey) {
         state.why = state.halted.why;
@@ -1367,14 +1389,18 @@ export function createWorkLoop(options: {
   };
 
   const loop: WorkLoop = {
-    async bringUp(plainFile, request = {}) {
+    async bringUp(plainFile, given = {}) {
+      const { specChange, ...request } = given;
       const files = codebasesOf(resolve(options.cwd, plainFile));
       for (const file of files) asked.set(file, { ...asked.get(file), ...request });
       const states = withParseCache(() =>
         files.flatMap((file) => chainsFor(file).flatMap((chain) => toBuild(chain).map((entry) => track(chain.slice(0, chain.indexOf(entry) + 1), file, request)))),
       );
-      // Asked again, a halted codebase is tried again.
-      for (const state of states) state.halted = undefined;
+      // Asked again, a halted codebase is tried again - one the person halted too, unless only its spec changed.
+      for (const state of states) {
+        state.halted = undefined;
+        if (specChange !== true) state.held = undefined;
+      }
       await tick();
       return [...new Set(states)].map(statusOf);
     },
@@ -1437,7 +1463,7 @@ export function createWorkLoop(options: {
             }
             report.scheduled = (state.scheduled ?? []).map((group) => ({ frids: group.specs.map((touched) => touched.frid), unbuilt: group.unbuilt }));
             if (state.running !== undefined) report.running = { jobId: state.running.jobId, title: state.running.planned.title };
-            const halted = state.halted?.why ?? state.conformanceHalted?.why;
+            const halted = state.held?.why ?? state.halted?.why ?? state.conformanceHalted?.why;
             if (halted !== undefined) report.why = halted;
             if (state.startOver !== undefined) report.startOver = state.startOver;
             return report;
@@ -1525,6 +1551,7 @@ export function createWorkLoop(options: {
         }
         state.conformanceHalted = undefined;
         state.halted = undefined;
+        state.held = undefined;
       }
       await tick();
       return [...new Set(states)].map((state) => {
@@ -1558,6 +1585,49 @@ export function createWorkLoop(options: {
       }
       for (const entry of codebases) if (started(entry)) startAgain(entry, "asked to be regenerated from scratch");
       return loop.bringUp(plainFile, request);
+    },
+    halt(target, reason) {
+      const named = target.trim();
+      // A planned row's module - the longest name its id starts with, as a name may hold a hyphen - or a module by its name.
+      const state = order
+        .map((key) => modules.get(key)!)
+        .filter((candidate) => {
+          const name = tipEntry(candidate).moduleName;
+          return named === name || named.startsWith(`planned-${name}-`);
+        })
+        .sort((a, b) => tipEntry(b).moduleName.length - tipEntry(a).moduleName.length)[0];
+      if (state === undefined) return undefined;
+      const tip = tipEntry(state);
+      if (state.running === undefined && !existsSync(tip.plainFile)) {
+        forget(state);
+        asked.delete(tip.plainFile);
+        return `${tip.moduleName} is no longer in the project - ${basename(tip.plainFile)} is gone - so nothing was to be built there: it is dropped from the regeneration.`;
+      }
+      const planned = statusOf(state).planned.length;
+      const said = reason !== undefined && reason.trim() !== "" ? ` (${reason.trim()})` : "";
+      state.held = { why: `you halted it${said} - nothing runs here until it is asked for again` };
+      state.why = state.held.why;
+      state.waitsFor = undefined;
+      state.plan = undefined;
+      state.conformancePlan = undefined;
+      const running = state.running;
+      if (running !== undefined && running.stopping !== true) {
+        running.stopping = true;
+        options.registry.stop(running.jobId, `Halted by you${said}: what it had done is rolled back, and nothing more runs in ${tip.moduleName} until it is asked for again.`);
+      }
+      const above = order
+        .map((key) => modules.get(key)!)
+        .filter((other) => other !== state && looking.has(other) && other.chain.some((entry) => entry.buildDir === tip.buildDir))
+        .map((other) => tipEntry(other).moduleName);
+      void tick();
+      return [
+        `Halted ${tip.moduleName}${said}:`,
+        running !== undefined ? ` its running pulse ${running.jobId} is being stopped, and what it had done rolled back;` : "",
+        planned > 0 ? ` its ${planned} planned pulse${planned === 1 ? "" : "s"} will not start.` : " nothing more is planned there.",
+        " Pulses that landed stay.",
+        above.length > 0 ? ` ${above.join(", ")} ${above.length === 1 ? "waits" : "wait"} for it.` : "",
+        ` It runs again only when asked for - regenerate ${basename(tip.plainFile)} - a spec change does not start it.`,
+      ].join("");
     },
     status() {
       return order.map((key) => statusOf(modules.get(key)!));

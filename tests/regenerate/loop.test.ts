@@ -1355,10 +1355,10 @@ describe("drift", () => {
   });
 });
 
-describe("modules no longer brought up", () => {
-  const base = "***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- Users register.\n";
-  const top = "---\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- The home page says hello.\n";
+const base = "***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- Users register.\n";
+const top = "---\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- The home page says hello.\n";
 
+describe("modules no longer brought up", () => {
   it("forgets a module whose .plain file is gone while it waits, rather than showing it waiting for good", async () => {
     writeFileSync(join(dir, "base.plain"), base);
     writeFileSync(join(dir, "top.plain"), top);
@@ -1409,5 +1409,78 @@ describe("modules no longer brought up", () => {
     gate.release!();
     await loop.drain();
     expect(loop.planned()).toEqual([]);
+  });
+});
+
+describe("halting a module's planned work", () => {
+  it("halts the whole module by a planned row: its running pulse is stopped, none of its planned pulses start", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye.", "Count to ten."]));
+    const { ran, holdNext, gate, run } = runner();
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("app.plain");
+    const running = loop.status()[0]!.running!.jobId;
+    expect(loop.planned().map((job) => job.id)).toEqual(["planned-app-1", "planned-app-2"]);
+    const said = loop.halt("planned-app-2", "the goodbye is being rethought");
+    expect(said).toContain("Halted app (the goodbye is being rethought)");
+    expect(said).toContain(`its running pulse ${running} is being stopped`);
+    expect(said).toContain("its 2 planned pulses will not start");
+    // Its agent stops once it is told to.
+    gate.release!();
+    await loop.drain();
+    expect(ran).toHaveLength(1);
+    expect(registry.get(running)!.status).toBe("stopped");
+    expect(loop.planned()).toEqual([]);
+    expect(loop.status()[0]!.why).toBe("you halted it (the goodbye is being rethought) - nothing runs here until it is asked for again");
+  });
+
+  it("keeps a module the person halted halted through a spec change, and runs it again once it is asked for", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { ran, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    expect(loop.halt("app")).toBeUndefined();
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    writeFileSync(join(dir, "app.plain"), app(["Say hello.", "Say goodbye."]));
+    loop.halt("app");
+    await loop.bringUp("app.plain", { specChange: true });
+    await loop.drain();
+    expect(ran).toHaveLength(1);
+    expect(loop.status()[0]!.why).toMatch(/^you halted it/);
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(ran.map((job) => job.add)).toEqual([["1"], ["2"]]);
+  });
+
+  it("has the modules built on a halted module wait for it, and says which", async () => {
+    writeFileSync(join(dir, "base.plain"), base);
+    writeFileSync(join(dir, "top.plain"), top);
+    const { ran, holdNext, gate, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("top.plain");
+    expect(loop.halt("base")).toContain("top waits for it");
+    gate.release!();
+    await loop.drain();
+    expect(ran.map((job) => job.module)).toEqual(["base"]);
+    expect(loop.status().map((module) => [module.module, module.why])).toEqual([
+      ["base", "you halted it - nothing runs here until it is asked for again"],
+      ["top", "waiting for base: you halted it - nothing is built on it until it is asked for again"],
+    ]);
+  });
+
+  it("drops a module whose .plain file is gone when its waiting row is halted", async () => {
+    writeFileSync(join(dir, "base.plain"), base);
+    writeFileSync(join(dir, "top.plain"), top);
+    const { holdNext, gate, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("top.plain");
+    rmSync(join(dir, "top.plain"));
+    expect(loop.halt("planned-top-waiting")).toBe("top is no longer in the project - top.plain is gone - so nothing was to be built there: it is dropped from the regeneration.");
+    expect(loop.planned()).toEqual([]);
+    gate.release!();
+    await loop.drain();
   });
 });

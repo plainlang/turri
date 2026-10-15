@@ -58,7 +58,7 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 | `validate` | validate a spec, regenerating nothing |
 | `engine` | show or choose the model the code is regenerated on - see [below](#choosing-a-model) |
 | `pulses` | the pulses - running, planned and finished - or one of them |
-| `halt` | halt a pulse, or what `activate` started |
+| `halt` | halt a pulse, a module's planned pulses, or what `activate` started |
 | `diagnose` | why a pulse did not land, from its transcript: how it ended, the stages that went wrong, the last failing test run, the last review, the tool calls that failed |
 | `lineage` | a module's lineage: what each regeneration and conformance run changed in it, and what it was regenerated from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
@@ -251,8 +251,9 @@ come waits for a free slot, and says so.
   Functionalities named after the module - `/regenerate shorty 3 5` - are regenerated though their spec did not
   change, on the model chosen for functionalities: as `turri regenerate shorty.plain 3 5` does, and the chat's
   `regenerate` with `functionalities`.
-- **`/halt <id>`** halts a pulse - a queued one never starts - and **`/halt activated <name>`** halts a
-  server `activate` started; it lists both when no id is given.
+- **`/halt <id>`** halts a pulse - a queued one never starts - **`/halt <module>`** (or a planned row's id) halts a
+  module's planned pulses until you ask for it again, a spec change not starting it, and **`/halt activated <name>`**
+  halts a server `activate` started; it lists all three when no id is given.
 - **What these commands show you, the chat knows.** What `/regenerate` and `/halt activated` tell you - a spec that
   does not parse, the pulses planned, a server halted - stays in the chat under the command, and since a slash command
   runs outside the conversation, it is put in the conversation as well: say "fix it" next and turri knows what you are

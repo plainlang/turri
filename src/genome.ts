@@ -245,7 +245,7 @@ export async function runSkill(opts: {
 
   // Built renders were lost with the process; queue what the specs hold that is not built.
   if (resumed !== undefined && opts.renderQueue !== undefined) {
-    for (const file of plainFilesIn(opts.cwd)) void opts.renderQueue.bringUp(file).catch(() => undefined);
+    for (const file of plainFilesIn(opts.cwd)) void opts.renderQueue.bringUp(file, { specChange: true }).catch(() => undefined);
   }
 
   if (liveStep !== undefined && liveProxy !== undefined) {

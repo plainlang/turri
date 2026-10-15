@@ -14,6 +14,7 @@ import {
 } from "./regenerate/release.ts";
 import { projectDirOf } from "./regenerate/paths.ts";
 import type { JobRegistry } from "./regenerate/jobs.ts";
+import type { WorkLoop } from "./regenerate/loop.ts";
 import { haltTool } from "./loop-tools.ts";
 
 /**
@@ -96,6 +97,8 @@ export function createDeployTools(options: {
   defaultPlainFile: () => string | undefined;
   /** The pulses halt stops as well - the conversation's. */
   jobs?: JobRegistry;
+  /** The work loop whose modules halt halts by a planned row or a name - the conversation's, once it has one. */
+  workLoop?: () => WorkLoop | undefined;
 }) {
   const { state } = options;
   const needsDeploy = () => {
@@ -192,7 +195,7 @@ export function createDeployTools(options: {
   });
 
   // The one halt: with the pulses in the conversation, and without them for the release agent.
-  const stopTool = haltTool(options.jobs !== undefined ? { jobs: options.jobs } : {});
+  const stopTool = haltTool(options.jobs !== undefined ? { jobs: options.jobs, ...(options.workLoop !== undefined ? { workLoop: options.workLoop } : {}) } : {});
 
   return [deploy, startTool, stopTool];
 }

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WorkLoop } from "../src/regenerate/loop.ts";
 
 /** What each spec diff rendered: a spec diff that lands records the spec it was given, as the real one does. */
 const diffs: string[] = [];
@@ -190,6 +191,20 @@ describe("watching the builds, for a run that goes on until the spec is built", 
     await registry.wait(started.id).catch(() => undefined);
     expect(registry.get(started.id)!.status).toBe("stopped");
     expect(registry.get(started.id)!.note).toContain("a duplicate email is refused with 409");
+  });
+
+  it("halts a module by its planned row, and a pulse by its id as before", async () => {
+    const registry = createJobRegistry();
+    const halted: string[] = [];
+    const loop = { halt: (target: string) => (halted.push(target), target.startsWith("planned-app-") || target === "app" ? "Halted app." : undefined) } as unknown as WorkLoop;
+    const halt = haltTool({ jobs: registry, workLoop: () => loop });
+    expect(await call(halt, { job_id: "planned-app-2" })).toBe("Halted app.");
+    expect(await call(halt, { job_id: "app" })).toBe("Halted app.");
+    expect(await call(halt, { job_id: "planned-gone-1" })).toBe("No pulse planned-gone-1. /pulses shows them.");
+    const started = registry.start({ kind: "regenerate", summary: "app.plain fs 2", run: async () => (await new Promise((resolve) => setTimeout(resolve, 30)), { report: "" }) });
+    expect(await call(halt, { job_id: started.id })).toContain(`app.plain fs 2 (${started.id})`);
+    expect(halted).toEqual(["planned-app-2", "app", "planned-gone-1"]);
+    await registry.wait(started.id).catch(() => undefined);
   });
 
   it("knows the goal from drift: fully regenerated - the code regenerated from the spec as it stands, and nothing regenerating", async () => {

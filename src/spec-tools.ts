@@ -119,7 +119,8 @@ export function createSpecDiffTools(options: {
       liveReview?.notice(`${params.plain_file}, after the change to ${touched.join(", ")}`);
 
       // In the files, the change is work: the loop works out what is left to build and plans it.
-      const statuses = await loop.bringUp(params.plain_file, params.guidance !== undefined ? { guidance: params.guidance } : {});
+      // A spec change, not a request: a module the person halted stays halted.
+      const statuses = await loop.bringUp(params.plain_file, { specChange: true, ...(params.guidance !== undefined ? { guidance: params.guidance } : {}) });
       const lines = [
         result === "applied" ? `Applied the change to ${touched.join(", ")}.` : `The change to ${touched.join(", ")} was already applied.`,
         `Building in the background:\n${describeModules(statuses)}\n`,
