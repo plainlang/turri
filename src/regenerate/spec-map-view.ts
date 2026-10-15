@@ -364,7 +364,8 @@ function detailLines(item: MarkedItem, width: number, style: TranscriptStyle): s
   // The rest of its text - its first line is the row - against the record's, for a change.
   const rest = item.state === "changed" ? lineDiff(item.was ?? "", item.text).slice(1) : item.text.split("\n").slice(1).map((line) => ({ was: line, now: line }));
   for (const line of rest) {
-    const drawn = item.state === "removed" ? style.removed(strike(line.now ?? "")) : item.state === "changed" ? diffLine(line, style) : highlighted(line.now ?? "", style);
+    const drawn =
+      item.state === "removed" ? style.removed(strike(line.now ?? "")) : item.state === "changed" ? diffLine(line, style) : item.state === "new" ? style.added(line.now ?? "") : highlighted(line.now ?? "", style);
     lines.push(...wrapped(drawn, width));
   }
   if (item.acceptance.length > 0) {
@@ -509,7 +510,9 @@ export function specMapLines(
         ? style.removed(strike(first))
         : item.state === "changed" && wasFirst !== first
           ? wordDiff(wasFirst, first, style)
-          : highlighted(first, style);
+          : item.state === "new"
+            ? style.added(first)
+            : highlighted(first, style);
     // Wrapped, never cut short: what follows a `…` is what a person came to read. The lines after the first hang
     // under the item's text, past its bullet.
     const [head = "", ...rest] = hanging(drawn, first, room);
