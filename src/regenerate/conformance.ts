@@ -458,6 +458,7 @@ export async function renderConformanceTests(
     cwd: conformanceDir,
     customTools: [
       notes.tool,
+      notes.gapTool,
       work.tool,
       ...createWebTools(),
       ...fence.tools,
@@ -471,7 +472,7 @@ export async function renderConformanceTests(
       }),
       createCopyResourceTool({ resources: linkedResources, dir: conformanceDir }),
     ],
-    tools: [...fence.names, "run_conformance_tests", "my_diff", "ask_explorer", "update_notes", "submit_work", "copy_resource", ...WEB_TOOLS],
+    tools: [...fence.names, "run_conformance_tests", "my_diff", "ask_explorer", "update_notes", "report_spec_gap", "submit_work", "copy_resource", ...WEB_TOOLS],
     model: options.model,
     label: `${label} conformance agent`,
     role: "conformance",
@@ -501,11 +502,12 @@ export async function renderConformanceTests(
       // The unit tests, and the conformance suite - to reproduce the failure and check the fix, seeing only its output.
       tools: [
         fixerNotes.tool,
+        fixerNotes.gapTool,
         createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs: unitRuns }),
         fixerConformanceRuns.tool,
         ...fixerServices.tools,
       ],
-      toolNames: ["run_unit_tests", "run_conformance_tests", ...fixerServices.names, "update_notes"],
+      toolNames: ["run_unit_tests", "run_conformance_tests", ...fixerServices.names, "update_notes", "report_spec_gap"],
       checkEnvironment: { run: () => runUnitScript(buildDir, scripts.unit!), script: scripts.unit! },
       testingScripts: { scripts, root },
     });

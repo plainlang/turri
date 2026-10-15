@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { reportActivity } from "./activity.ts";
@@ -43,7 +43,6 @@ export const SECTIONS = {
   where: "Where things are",
   run: "How to build, run and test",
   assumptions: "Assumptions",
-  gaps: "Spec gaps",
   pitfalls: "Pitfalls",
   pulses: "Pulses",
 } as const;
@@ -65,22 +64,29 @@ export function notesPath(buildDir: string): string {
 }
 
 function empty(): Notes {
-  return { where: [], run: [], assumptions: [], gaps: [], pitfalls: [], pulses: [] };
+  return { where: [], run: [], assumptions: [], pitfalls: [], pulses: [] };
 }
+
+/**
+ * Sections the notes no longer have, their lines dropped as they are read: the spec gaps are the person's, reported
+ * with report_spec_gap - the choice made meanwhile is an assumption, which stays.
+ */
+const DROPPED = new Set(["spec gaps"]);
 
 /** The notes, as lines per section. Lines under no known heading go to pitfalls, not lost. */
 export function parseNotes(text: string): Notes {
   const notes = empty();
-  let section: Section = "pitfalls";
+  let section: Section | undefined = "pitfalls";
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     const heading = /^##\s+(.+)$/.exec(line);
     if (heading) {
-      section = ORDER.find((key) => SECTIONS[key].toLowerCase() === heading[1]!.trim().toLowerCase()) ?? section;
+      const named = heading[1]!.trim().toLowerCase();
+      section = DROPPED.has(named) ? undefined : (ORDER.find((key) => SECTIONS[key].toLowerCase() === named) ?? section ?? "pitfalls");
       continue;
     }
     const item = /^[-*]\s+(.+)$/.exec(line);
-    if (item) notes[section].push(item[1]!.trim());
+    if (item && section !== undefined) notes[section].push(item[1]!.trim());
   }
   return notes;
 }
@@ -109,14 +115,14 @@ const GUIDANCE = [
   `- ${SECTIONS.where}: entry points, layout, where each functionality and its tests live.`,
   `- ${SECTIONS.run}: the commands that build, run and test it, and what had to be installed for them.`,
   `- ${SECTIONS.assumptions}: what you assumed where the specification is silent - a format, a default, a`,
-  "  choice it leaves open. Build on the assumptions already there; change or remove one the moment the code",
-  "  or the specification shows it wrong.",
-  `- ${SECTIONS.gaps}: what the specification should say and does not - a behaviour you had to decide that the`,
-  "  person would want to decide, not a detail of how. Each is put to the person, to be written into the",
-  "  specification. One a line, as the question it leaves: \"What happens to a contact archived in HubSpot after it",
-  "  was synced?\"",
+  "  choice it leaves open - and the tests that assert it, when any do: \"A Dash drains Pulses at 1/s - asserted in",
+  "  predators.test.ts, The Dash\". One no test asserts is written down all the same. Build on the assumptions",
+  "  already there; change or remove one the moment the code or the specification shows it wrong - and the tests",
+  "  it names with it.",
   `- ${SECTIONS.pitfalls}: what went wrong and what fixed it, approaches that did not work.`,
   `- ${SECTIONS.pulses}: written by turri as each pulse ends - read them, never write them.`,
+  "A behaviour you had to decide that the person would want to decide - not a detail of how - is not a note: report",
+  "it with report_spec_gap, with the assumption you made meanwhile.",
   "Each line stands on its own, for someone who never saw your work. When and where it came from is added",
   "to it for you - do not write it. Where two lines disagree, the later one is right: change the older one",
   'rather than add a contradicting line. Leave a section with nothing new alone: "none" is not a note.',
@@ -279,7 +285,7 @@ export function createNotesTool(
     description:
       "Update the working notes on this codebase for the next agent - add a line, change one that is no longer " +
       "true, remove one that is wrong - in its sections: where things are, how to build, run and test, " +
-      "assumptions made where the specification is silent, spec gaps the person should decide, and pitfalls. Never " +
+      "assumptions made where the specification is silent, and pitfalls. Never " +
       "requirements: the specification is never an assumption.",
     promptSnippet: "leave the next agent what you learned and assumed about this codebase",
     parameters: Type.Object({
@@ -344,7 +350,7 @@ export function sectionNamed(name: string): Section | undefined {
 export const NOTES_ASKS = 3;
 
 /** The turn that asks for the notes: update_notes is the only tool it may use - the work it follows is done. */
-export const NOTES_TURN = { onlyTools: ["update_notes"] };
+export const NOTES_TURN = { onlyTools: ["update_notes", "report_spec_gap"] };
 
 /** What the notes turn says first, once the harness's own run of `script` has passed on the work. */
 export function passedOutcome(script: string): string {
@@ -392,10 +398,62 @@ export function recordPulse(buildDir: string, text: string, source: string): voi
   }
 }
 
-/** The lines of a section added since `before` - a pulse's new spec gaps, say - without when and where they came from. */
-export function linesAddedSince(before: Notes, buildDir: string, section: Section): string[] {
-  const known = new Set(before[section]);
-  return readNotes(buildDir)[section].filter((line) => !known.has(line)).map((line) => line.replace(/^\[[^\]]*\]\s*/, ""));
+/** A spec gap an agent met: the question it leaves the person, and what the agent decided meanwhile. */
+export interface SpecGap {
+  question: string;
+  assumption: string;
+}
+
+/** Every spec gap reported in this process, with the codebase it was met in: a pulse reads those since it started. */
+const reportedGaps: Array<{ dir: string; gap: SpecGap }> = [];
+
+/** Where the spec gaps stand now: what `gapsSince` reads from. */
+export function gapMark(): number {
+  return reportedGaps.length;
+}
+
+/** The spec gaps reported in these codebases since `mark`. */
+export function gapsSince(mark: number, dirs: string[]): SpecGap[] {
+  const wanted = new Set(dirs.map((dir) => resolve(dir)));
+  return reportedGaps.slice(mark).filter((entry) => wanted.has(entry.dir)).map((entry) => entry.gap);
+}
+
+/**
+ * `report_spec_gap`: a behaviour the specification leaves open that the person would want to decide, put to them as
+ * the pulse ends - never into the notes, which are the next agent's. What the agent decided meanwhile goes into the
+ * notes' assumptions, so the code built on it is known for what it is until the specification settles it.
+ */
+export function createSpecGapTool(buildDir: string, source?: string) {
+  return defineTool({
+    name: "report_spec_gap",
+    label: "Report a spec gap",
+    description:
+      "Report a spec gap: a behaviour the specification leaves open that the person would want to decide - not a detail " +
+      "of how. Decide it meanwhile and carry on: the person is asked once the work ends, and what they decide is " +
+      "written into the specification. The assumption you made is added to the notes' assumptions for you.",
+    promptSnippet: "tell the person about a behaviour the specification leaves open, and what you decided meanwhile",
+    parameters: Type.Object({
+      question: Type.String({ description: 'The question it leaves the person, one line: "What happens to a contact archived in HubSpot after it was synced?"' }),
+      assumption: Type.String({
+        description:
+          "What you decided meanwhile, as its line in the notes' assumptions - with the tests that assert it, when any do: " +
+          '"An archived contact is left as synced - asserted in sync.test.ts, archived contacts".',
+      }),
+    }),
+    async execute(_id, params) {
+      const question = params.question.replace(/\s+/g, " ").trim();
+      const assumption = params.assumption.replace(/\s+/g, " ").trim();
+      if (question === "" || assumption === "") throw new Error("Nothing reported - a spec gap needs both the question it leaves and the assumption you made meanwhile.");
+      // However many there are, spec gaps are put to the person - never a reason to stop the pulse.
+      reportedGaps.push({ dir: resolve(buildDir), gap: { question, assumption } });
+      const known = readNotes(buildDir).assumptions.some((line) => body(line) === assumption);
+      if (!known) recordNote(buildDir, "assumptions", assumption, source ?? "spec gap");
+      return {
+        content: [{ type: "text" as const, text: `Reported. The assumption is in the notes' assumptions${known ? " already" : " now"} - do not add it again.` }],
+        details: { question, assumption },
+      };
+    },
+  });
 }
 
 /** The notes, for an agent that reads them but leaves none - a judge. Empty when there are none. */
@@ -434,6 +492,7 @@ export function notesForSession(buildDir: string, source?: string) {
   };
 
   return {
+    gapTool: createSpecGapTool(buildDir, source),
     tool: createNotesTool(
       buildDir,
       (text) => {

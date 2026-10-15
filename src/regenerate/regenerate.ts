@@ -23,7 +23,7 @@ import { abandonWork, recordHistory, startWork } from "./lineage.ts";
 import { createWorkLedger, SUBMIT_WORK_NOTE } from "./submit-work.ts";
 import type { JobCases } from "./drift.ts";
 import { CODER_COMPACTION } from "./compaction.ts";
-import { linesAddedSince, NOTES_TURN, notesForSession, passedOutcome, readNotes, recordNote, withNotes } from "./notes.ts";
+import { gapMark, gapsSince, NOTES_TURN, notesForSession, passedOutcome, recordNote, withNotes, type SpecGap } from "./notes.ts";
 import {
   createLoopWatch,
   createScriptTool,
@@ -266,8 +266,8 @@ export interface RenderSpecDiffResult {
   restructured?: boolean;
   /** A dry run: the task the coding agent would be given. */
   task?: string;
-  /** Spec gaps its agents added to the notes: what the spec should say and does not, for the person to decide. */
-  specGaps?: string[];
+  /** Spec gaps its agents reported: what the spec should say and does not, for the person to decide. */
+  specGaps?: SpecGap[];
   /** What the debugger found, each time it was asked - its root cause. */
   diagnosed?: string[];
 }
@@ -383,8 +383,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   });
 
   const digestsBefore = digestFiles(buildDir);
-  // The notes as the agent finds them: what it adds - a spec gap above all - is told with the result.
-  const notesBefore = readNotes(buildDir);
+  // The spec gaps its agents report from here on are told with the result.
+  const gapsFrom = gapMark();
   /** What the debugger found, each time it was asked: the pulse's line in the notes says it. */
   const diagnosed: string[] = [];
   const runs: TestRun[] = [];
@@ -420,6 +420,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     cwd: buildDir,
     customTools: [
       notes.tool,
+      notes.gapTool,
       work.tool,
       ...createWebTools(),
       createScriptTool({ kind: "unit", script: scripts.unit, run: () => runUnitScript(buildDir, scripts.unit!), runs, watch: loop }),
@@ -428,7 +429,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
       ...fence.tools,
       createCopyResourceTool({ resources: linkedResources, dir: buildDir }),
     ],
-    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), ...services.names, "update_notes", "submit_work", "copy_resource", ...WEB_TOOLS],
+    tools: [...fence.names, "run_unit_tests", ...selfChecks.map((tool) => tool.name), ...services.names, "update_notes", "report_spec_gap", "submit_work", "copy_resource", ...WEB_TOOLS],
     model: options.model,
     label: `${moduleName} spec change coding agent`,
     role: "coding",
@@ -653,8 +654,8 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
     testRemovals,
     files,
     ...(steering !== undefined && steering.steers > 0 ? { steered: [...steering.notes] } : {}),
-    // Read before a rollback takes the notes back: a gap the agent met is the person's to decide, whether it landed or not.
-    specGaps: linesAddedSince(notesBefore, buildDir, "gaps"),
+    // A gap the agent met is the person's to decide, whether it landed or not.
+    specGaps: gapsSince(gapsFrom, [buildDir]),
     diagnosed,
   };
 
@@ -693,12 +694,14 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
 }
 
 /** Spec gaps a pulse's agents met, as its report says them: for the conversation to put to the person. */
-export function specGapsText(gaps: string[] | undefined): string[] {
+export function specGapsText(gaps: SpecGap[] | undefined): string[] {
   if (gaps === undefined || gaps.length === 0) return [];
   return [
     "",
-    "Spec gaps its agents met - the spec does not say, so they decided. Put each to the user, and write the ones they decide into the spec:",
-    ...gaps.map((gap) => `- ${gap}`),
+    "Spec gaps its agents met - the spec does not say, so they decided, each as an assumption in the codebase's notes. Put " +
+      "each to the user, and write the ones they decide into the spec - the pulse that builds it is told the assumption " +
+      "it replaces:",
+    ...gaps.map((gap) => `- ${gap.question} Meanwhile: ${gap.assumption}`),
   ];
 }
 

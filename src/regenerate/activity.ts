@@ -337,6 +337,8 @@ export function describeToolCall(name: string, args: Record<string, unknown> | u
       return `± my_diff`;
     case "update_notes":
       return `✐ update_notes`;
+    case "report_spec_gap":
+      return `? spec gap: ${text("question") ?? ""}`.trimEnd();
     case "copy_resource":
       return `⎘ copy_resource ${path ?? text("to") ?? ""}`.trimEnd();
     case "can_it_fail":

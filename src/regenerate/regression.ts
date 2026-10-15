@@ -24,7 +24,7 @@ import { keepingTestsUnchanged, listFiles, type TestRun } from "./testing.ts";
  */
 
 /** On top of the file tools, which are fenced to the build directory by `confine.ts`. */
-const FIX_TOOLS = ["run_unit_tests", "run_conformance_tests", "update_notes"];
+const FIX_TOOLS = ["run_unit_tests", "run_conformance_tests", "update_notes", "report_spec_gap"];
 const DEFAULT_MAX_REGRESSION_ROUNDS = ATTEMPTS.regression;
 
 /** What a regression run reports as it goes: a run of the suite, a repair. */
@@ -79,6 +79,7 @@ async function repairRegression(input: {
     cwd: input.buildDir,
     customTools: [
       notes.tool,
+      notes.gapTool,
       ...createWebTools(),
       ...fence.tools,
       createScriptTool({ kind: "unit", script: input.scripts.unit, run: () => runUnitScript(input.buildDir, input.scripts.unit!), runs }),

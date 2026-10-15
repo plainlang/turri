@@ -1077,8 +1077,7 @@ both. Each set goes where its folder goes - copied up the chain, committed, roll
 | --- | --- |
 | Where things are | entry points, layout, where each functionality lives |
 | How to build, run and test | the commands that work, what had to be installed |
-| Assumptions | what an agent assumed where the spec is silent - a format, a default, a choice it leaves open |
-| Spec gaps | what the spec should say and does not - a behaviour the person would want to decide, as the question it leaves |
+| Assumptions | what an agent assumed where the spec is silent - a format, a default, a choice it leaves open - and the tests that assert it, when any do; one no test asserts is written down all the same |
 | Pitfalls | what went wrong and what fixed it - and what the debugger found, filed by turri itself |
 | Pulses | written by turri alone, as each pulse ends: the last ten, a line each |
 
@@ -1095,9 +1094,14 @@ it landed, a commit of its own (`pulse 3 rolled back: …`) when it did not - so
 commit, keeps it. `update_notes` refuses the section. What the debugger finds is filed in the pitfalls the moment it
 finds it, not left to the coding agent to write down.
 
-The spec gaps a pulse's agents add are said in its report - "Spec gaps its agents met ... Put each to the user" - so
-the conversation asks you, and writes the ones you decide into the spec; the gaps stay in the notes, for the agents
-after, until then.
+A spec gap - what the spec should say and does not, a behaviour you would want to decide - is not a note: the notes
+are the next agent's, and a gap is yours. An agent reports one with `report_spec_gap`, giving the question it leaves
+and the assumption it made meanwhile; turri writes that assumption into the notes' assumptions, so the code built on
+it is known for what it is. The gaps a pulse's agents report are said in its report - "Spec gaps its agents met ... Put
+each to the user", each with its assumption - so the conversation asks you, and writes the ones you decide into the
+spec; the pulse that builds the answer finds the assumption it replaces in the notes, and the tests it names. However many gaps a pulse's agents report, they
+are put to you - never a reason to stop the pulse; the tool is guarded like any other. A notes
+file from before keeps no spec gaps section: its lines are dropped as it is read.
 
 Stubborn on the specs, flexible on the assumptions: the spec is never an assumption and never
 copied into the notes, and where the two disagree the spec wins. An agent builds on the assumptions
@@ -1120,8 +1124,8 @@ Leaving notes is required, and only through the `update_notes` tool. The file to
 notes file, and a change made to it any other way - from the shell, by a script - is undone. An agent
 that finishes without calling `update_notes` is asked again, up to three times; if it still has not,
 the activity log says so. The turn that asks is for the notes alone: the work is done - its testing script's run
-passed, and the agent is told so first, so its notes speak of work that succeeded - so every tool but `update_notes` is
-refused, and an agent that keeps calling them has its turn stopped. What
+passed, and the agent is told so first, so its notes speak of work that succeeded - so every tool but `update_notes` and
+`report_spec_gap` is refused, and an agent that keeps calling the refused ones has its turn stopped. What
 landed is what the harness checked; nothing changes after it. Only work that lands is asked: a job whose code or tests do not pass - or whose
 testing script cannot run - is rolled back, notes and all, so its agent is not asked to leave any.
 

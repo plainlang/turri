@@ -6,7 +6,9 @@ import {
   applyNotesChanges,
   createNotesTool,
   formatNotes,
-  linesAddedSince,
+  createSpecGapTool,
+  gapMark,
+  gapsSince,
   NOTES_FILE,
   notesForSession,
   parseNotes,
@@ -33,7 +35,6 @@ const start = {
   where: ["Entry point: app/main.py"],
   run: ["Unit tests: .venv/bin/pytest"],
   assumptions: ["Dates are stored as UTC ISO strings"],
-  gaps: [],
   pitfalls: [],
   pulses: [],
 };
@@ -51,8 +52,7 @@ describe("updating the notes", () => {
       where: ["Entry point: app/main.py", "Routes: app/routes/*.py"],
       run: [],
       assumptions: ["Dates are stored as Unix seconds"],
-      gaps: [],
-      pitfalls: ["pytest needs PYTHONPATH=."],
+          pitfalls: ["pytest needs PYTHONPATH=."],
       pulses: [],
     });
   });
@@ -197,7 +197,7 @@ describe("the update_notes tool", () => {
     await call(session.tool, [{ section: "where", action: "add", text: "Entry: main.py" }]);
     writeFileSync(join(code, NOTES_FILE), "- rewritten\n");
     await call(session.tool, [{ section: "run", action: "add", text: "pytest" }]);
-    expect(readNotes(code)).toEqual({ where: ["Entry: main.py"], run: ["pytest"], assumptions: [], gaps: [], pitfalls: [], pulses: [] });
+    expect(readNotes(code)).toEqual({ where: ["Entry: main.py"], run: ["pytest"], assumptions: [], pitfalls: [], pulses: [] });
   });
 
   it("cannot be bypassed with the file tools", async () => {
@@ -258,13 +258,24 @@ describe("what turri itself keeps in the notes", () => {
     expect(readNotes(code).pulses).toHaveLength(PULSES_KEPT);
   });
 
-  it("tells the spec gaps a pulse's agents added - without when and where they came from - from those already there", async () => {
-    const tool = createNotesTool(code, () => {}, () => {}, "app 1");
-    const add = (text: string) => (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { changes: [{ section: "gaps", action: "add", text }] });
-    await add("What happens to a contact archived in HubSpot after it was synced?");
-    const before = readNotes(code);
-    await add("Is a contact with no email synced at all?");
-    expect(linesAddedSince(before, code, "gaps")).toEqual(["Is a contact with no email synced at all?"]);
-    expect(withNotes("the task", code)).toContain("- Spec gaps: what the specification should say and does not");
+  it("tells the spec gaps reported in a codebase since a mark, and writes the assumption made meanwhile into the notes, once", async () => {
+    const tool = createSpecGapTool(code, "app 1");
+    const report = (question: string, assumption: string) => (tool.execute as unknown as (id: string, params: unknown) => Promise<unknown>)("id", { question, assumption });
+    await report("What happens to a contact archived in HubSpot after it was synced?", "An archived contact is left as synced");
+    const mark = gapMark();
+    await report("Is a contact with no email synced at all?", "A contact with no email is skipped - asserted in sync.test.ts, no email");
+    await report("Is a contact with no email synced at all?", "A contact with no email is skipped - asserted in sync.test.ts, no email");
+    expect(gapsSince(mark, [code])[0]).toEqual({ question: "Is a contact with no email synced at all?", assumption: "A contact with no email is skipped - asserted in sync.test.ts, no email" });
+    expect(gapsSince(mark, [join(root, "elsewhere")])).toEqual([]);
+    expect(readNotes(code).assumptions).toHaveLength(2);
+    expect(readNotes(code).assumptions[1]).toMatch(/^\[[^\]]* · app 1\] A contact with no email is skipped/);
+    expect(withNotes("the task", code)).not.toContain("Spec gaps");
+  });
+
+  it("drops the spec gaps an older notes file has, keeping the sections after them", () => {
+    const notes = parseNotes("## Assumptions\n\n- UTC dates\n\n## Spec gaps\n\n- Should dates be local?\n\n## Pitfalls\n\n- pytest needs PYTHONPATH=.\n");
+    expect(notes.assumptions).toEqual(["UTC dates"]);
+    expect(notes.pitfalls).toEqual(["pytest needs PYTHONPATH=."]);
+    expect(JSON.stringify(notes)).not.toContain("Should dates be local?");
   });
 });

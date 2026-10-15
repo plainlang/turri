@@ -303,12 +303,13 @@ describe("rendering a spec diff", () => {
     const { ask } = await import("../../src/pi.ts");
     vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
       const own = (name: string) => session.tools.find((tool) => tool.name === name);
-      if (prompt === BEGIN) await own("update_notes")!.execute("id", { changes: [{ section: "gaps", action: "add", text: "Should Two be case-sensitive?" }] });
+      if (prompt === BEGIN) await own("report_spec_gap")!.execute("id", { question: "Should Two be case-sensitive?", assumption: "Two is case-sensitive" });
       return passingAgent(session, prompt);
     }) as never);
     const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
-    expect(result.specGaps).toEqual(["Should Two be case-sensitive?"]);
-    expect(describeSpecDiff(result)).toContain("Spec gaps its agents met - the spec does not say, so they decided. Put each to the user, and write the ones they decide into the spec:\n- Should Two be case-sensitive?");
+    expect(result.specGaps).toEqual([{ question: "Should Two be case-sensitive?", assumption: "Two is case-sensitive" }]);
+    expect(describeSpecDiff(result)).toContain("Put each to the user");
+    expect(describeSpecDiff(result)).toContain("- Should Two be case-sensitive? Meanwhile: Two is case-sensitive");
   });
 
   it("gives the agent the spec the code is built from - the state before the change - and the change, never the spec after it", async () => {
