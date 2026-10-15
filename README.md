@@ -27,7 +27,7 @@ npm install -g @turri-dev/cli # puts `turri` on your PATH
 turri doctor              # checks the machine
 ```
 
-To work on turri itself, run it from a clone instead - see [installation](docs/installation.md#from-a-clone).
+To follow `main` as it moves, or work on turri itself, run it [from a clone](#from-a-clone) instead.
 
 `doctor` checks for Node 22.19+, bash, the OS sandbox and a model provider for pi; in a project, the toolchains its
 modules need, what its testing scripts run against this machine, and that each model `config.turri.yaml` names
@@ -72,6 +72,27 @@ No project of your own yet? Build one of [**the examples**](examples/README.md) 
 Rather not install Node and the rest? **turri** also runs in Docker, from one image: [turri in Docker](docker/README.md).
 
 Choosing models: [models](#models); what to do next: [use](#use).
+
+### From a clone
+
+In place of the npm package - for the latest of `main`, or to change turri itself:
+
+```bash
+git clone git@github.com:turri-oss/turri.git && cd turri
+npm install
+npm link        # puts `turri` on your PATH, pointing at this clone
+turri doctor
+```
+
+The clone runs its TypeScript sources directly, so there is nothing to build. When new commits land:
+
+```bash
+git pull
+npm install     # picks up any dependency that changed
+```
+
+A **turri** already running keeps the code it started with - start it again to run what you pulled. More in
+[installation](docs/installation.md#from-a-clone).
 
 ## Why
 

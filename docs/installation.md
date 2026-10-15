@@ -40,6 +40,9 @@ on npm runs JavaScript compiled from them instead (`npm run build`, into `dist/`
 before they pack), as Node runs no `.ts` file inside a `node_modules`. `bin/turri.mjs` runs `src/` where there is one,
 and `dist/` otherwise.
 
+To update, `git pull` and `npm install` - the second picks up a dependency that changed, pi's say. `npm link` needs
+running only once. A **turri** already running keeps the code it started with: start it again to run what you pulled.
+
 ## In Docker
 
 `docker/Dockerfile` builds an image with Node, git, bash, bubblewrap and **turri** linked; the agents' commands and the
