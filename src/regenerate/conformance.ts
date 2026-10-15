@@ -21,7 +21,7 @@ import { createWorkLedger, describeAccounts, SUBMIT_WORK_NOTE, unanswered, unans
 import type { JobCases } from "./drift.ts";
 import { CONFORMANCE_COMPACTION } from "./compaction.ts";
 import { NOTES_TURN, notesForSession, passedOutcome, readNotes, reflectOnReview, withNotes } from "./notes.ts";
-import { labelsPrompt, labelsPromptFor, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
+import { acceptanceLabel, acceptanceText, labelsPrompt, labelsPromptFor, misplacedConformanceTests, misplacedTestsPrompt, missingTestLabels } from "./test-kinds.ts";
 import {
   createScriptTool,
   findTestScripts,
@@ -319,10 +319,12 @@ export async function renderConformanceTests(
   // may read the code but writes only tests. An explorer reads the code first and writes down how the
   // software is invoked, which is what the tests are written against.
   const label = `${moduleName} ${options.diff !== undefined ? "spec change" : frid}`;
-  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, options.change ?? options.diff, sectionModules(tree, moduleName)) };
   // For a spec change: the functionalities it touches, whose acceptance tests are labelled, checked and reviewed.
   const touched = forChange ? touchedFunctionalities(tree, frids, options.diff!) : [];
   // Any functionality of the codebase - this module's, and those of the modules it requires. A
+  // The acceptance tests the run's tests carry out: every functionality the change touches, or the one under test.
+  const carriedOut = forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }];
+  const specContext: SpecContext = { moduleName, text: specText(specifications, moduleName, frids, required, carriedOut, options.change ?? options.diff, sectionModules(tree, moduleName)) };
   // functionality's run may raise a spec conflict only with that functionality; a spec diff's, between any two.
   const own = (forChange ? frids : frids.slice(0, frids.indexOf(frid!) + 1)).map((id) => ({ module: moduleName, frid: id }));
   const scope: ConflictScope = {
@@ -394,7 +396,7 @@ export async function renderConformanceTests(
     { path: relative(root, scripts.conformance!), runs: "<script> <copy of the build> <copy of the whole conformance suite>", content: readFileSync(scripts.conformance!, "utf8") },
   ];
   // The acceptance tests the explorer's plan has to carry out, step by step.
-  const toCarryOut = (forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }])
+  const toCarryOut = carriedOut
     .map((item) => ({ module: moduleName, frid: item.frid, count: item.acceptanceTests.length }))
     .filter((item) => item.count > 0);
   let invocation = await exploreInvocation({ buildDir, spec: specContext, scope, testingScripts, acceptance: toCarryOut, label, model: options.model, onDelta: options.onDelta });
@@ -867,7 +869,7 @@ export async function renderConformanceTests(
           buildDir,
           conformanceDir,
           spec: specContext,
-          functionalities: forChange ? touched : [{ frid: frid!, acceptanceTests: specifications[ACCEPTANCE_TESTS] ?? [] }],
+          functionalities: carriedOut,
           forChange,
           invocation,
           label,
@@ -1149,9 +1151,18 @@ export function failureLine(run: ScriptRun): string {
 
 /**
  * The spec as the explorer, the judge and the coding agent are shown it - its functional specs
- * numbered with their ids, so a spec conflict can name them.
+ * numbered with their ids, so a spec conflict can name them, and the acceptance tests the run carries
+ * out labelled as their tests are, so a verdict can quote them.
  */
-function specText(specifications: Specifications, moduleName: string, frids: string[], required: RequiredSpec[], diff?: string, modules?: SectionModules): string {
+function specText(
+  specifications: Specifications,
+  moduleName: string,
+  frids: string[],
+  required: RequiredSpec[],
+  acceptance: Array<{ frid: string; acceptanceTests: string[] }>,
+  diff?: string,
+  modules?: SectionModules,
+): string {
   // Every functionality in the codebase, each with its module: the required modules' first, then this one's.
   const numbered = (key: string, items: string[]) =>
     key === FUNCTIONAL_REQUIREMENTS
@@ -1163,10 +1174,13 @@ function specText(specifications: Specifications, moduleName: string, frids: str
         ]
       : items;
   // Each section in its tag, as every agent is shown it (see specPrimer).
-  const sections = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, FUNCTIONAL_REQUIREMENTS, ACCEPTANCE_TESTS]
+  const sections = [DEFINITIONS, NON_FUNCTIONAL_REQUIREMENTS, TEST_REQUIREMENTS, FUNCTIONAL_REQUIREMENTS]
     .map((key) => [key, (specifications as unknown as Record<string, string[] | undefined>)[key] ?? []] as const)
     .filter(([, items]) => items.length > 0)
-    .map(([key, items]) => (key === FUNCTIONAL_REQUIREMENTS || key === ACCEPTANCE_TESTS ? section(key, numbered(key, items)) : moduleSection(key, items, moduleName, modules))!);
+    .map(([key, items]) => (key === FUNCTIONAL_REQUIREMENTS ? section(key, numbered(key, items)) : moduleSection(key, items, moduleName, modules))!);
+  // Not only the last functionality's: a spec change's run carries out the acceptance tests of every one it touches.
+  const tests = acceptance.flatMap((item) => item.acceptanceTests.map((test, index) => `${acceptanceLabel(item.frid, index + 1)}: ${acceptanceText(test)}`));
+  if (tests.length > 0) sections.push(section(ACCEPTANCE_TESTS, tests)!);
   if (diff !== undefined) sections.push(specChangeBlock(diff));
   return sections.join("\n\n");
 }

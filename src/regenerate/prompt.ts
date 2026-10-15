@@ -351,7 +351,9 @@ function itemText(serialized: string | undefined): string {
   if (typeof item === "string") return item;
   const { markdown, [ACCEPTANCE_TESTS]: tests } = (item ?? {}) as { markdown?: string; [key: string]: unknown };
   const lines = [markdown ?? JSON.stringify(item)];
-  if (Array.isArray(tests) && tests.length > 0) lines.push("  <acceptance tests>", ...tests.map((test) => `  ${String(test)}`), "  </acceptance tests>");
+  // Each test is an item of the tree, its text in its markdown - as spec-steps.ts `itemText` reads it.
+  const testText = (test: unknown) => (typeof test === "string" ? test : ((test as { markdown?: string } | null)?.markdown ?? JSON.stringify(test)));
+  if (Array.isArray(tests) && tests.length > 0) lines.push("  <acceptance tests>", ...tests.map((test) => `  ${testText(test).replace(/\n/g, "\n  ")}`), "  </acceptance tests>");
   return lines.join("\n");
 }
 

@@ -466,6 +466,23 @@ describe("the conformance step", { timeout: 180_000 }, () => {
     expect(review).toContain("<acceptance test 1 of functionality 1>\n- Running the app prints hello and exits 0.");
   });
 
+  it("for a spec change, gives the judge and the explorer the acceptance tests of every functionality it touches, labelled - not only the last one's", async () => {
+    writeFileSync(
+      join(root, "app.plain"),
+      "***implementation reqs***\n\n- Python.\n\n***test reqs***\n\n- :ConformanceTests: use unittest and run the app as a subprocess.\n\n" +
+        "***functional specs***\n\n- The app prints hello.\n\n  ***acceptance tests***\n\n  - Running the app prints hello and exits 0.\n\n" +
+        "- The app takes no arguments.\n\n  ***acceptance tests***\n\n  - Running the app with no arguments exits 0.\n",
+    );
+    const diff =
+      "--- a/app.plain\n+++ b/app.plain\n@@ -1 +1 @@\n-- The app prints hi.\n+- The app prints hello.\n+- The app takes no arguments.\n";
+    await renderConformanceTests({ plainFile: join(root, "app.plain"), buildDir: codeDir, conformanceDir: join(root, "plain_modules", "app", "tests"), diff });
+    // The judge is given the very spec the explorer is (`specContext`); the stubbed explorer plans one functionality, so no judge is reached.
+    const explorer = asked.find((turn) => turn.role === "explorer")!.prompt;
+    expect(explorer).toContain(
+      "<acceptance tests>\nacceptance test 1 of functionality 1: Running the app prints hello and exits 0.\n\nacceptance test 1 of functionality 2: Running the app with no arguments exits 0.\n</acceptance tests>",
+    );
+  });
+
   it("takes a verdict against the code only with the spec's own words - a judge that quotes none, or words the spec lacks, sends the tests back", async () => {
     const { unfoundedCodeVerdict } = await import("../../src/regenerate/conformance-agents.ts");
     const spec = "- :App: should return 404 status code for unknown endpoints. The response body should be empty.";

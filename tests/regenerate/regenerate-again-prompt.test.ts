@@ -75,3 +75,25 @@ describe("a spec change, as the coding agent reads it", () => {
     expect(prompt).toContain("a page, a component or a record that only <definitions> name");
   });
 });
+
+describe("a functional spec with acceptance tests, in a spec change", () => {
+  // As the parser gives them: each acceptance test an item of its own, its text in its markdown.
+  const withTests = (specs: Array<{ markdown: string; tests: string[] }>) => ({
+    "functional specs": specs.map(({ markdown, tests }) => ({ markdown, acceptance_tests: tests.map((test) => ({ markdown: test })) })),
+  });
+  const before = withTests([{ markdown: "- A :Cube: is intersected by a :Ray:.", tests: ["- ray(point(5,0.5,0), vector(-1,0,0)) should give T 4 and 6."] }]);
+  const after = withTests([
+    { markdown: "- A :Cube: is intersected by a :Ray:.", tests: ["- ray(point(5,0.5,0), vector(-1,0,0)) should give T 4 and 6.", "- ray(point(2,2,0), vector(0,0,-1)) should give no intersections."] },
+    { markdown: "- A :Cube: has a normal on each face.", tests: ["- The normal at (1,0.5,-0.8) should be (1,0,0)\n  and at (-1,-0.2,0.9) should be (-1,0,0)."] },
+  ]);
+  const text = describeSpecChange(changesBetween(serializeTree(before as never), serializeTree(after as never)));
+
+  it("shows each acceptance test's text, never the object it is parsed into", () => {
+    expect(text).not.toContain("[object Object]");
+    expect(text).toContain("      <acceptance tests>\n        - ray(point(5,0.5,0), vector(-1,0,0)) should give T 4 and 6.\n        - ray(point(2,2,0), vector(0,0,-1)) should give no intersections.");
+  });
+
+  it("keeps an acceptance test of several lines under its tag, each line indented", () => {
+    expect(text).toContain("  <acceptance tests>\n    - The normal at (1,0.5,-0.8) should be (1,0,0)\n      and at (-1,-0.2,0.9) should be (-1,0,0).\n    </acceptance tests>");
+  });
+});

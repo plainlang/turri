@@ -919,7 +919,8 @@ culprit: what it does with the tests, the tests fit; what it needs of the build,
 - **the code:** the coding agent - in the code's folder, reading the tests but never changing them - fixes it,
   and keeps its unit tests passing. The judge quotes the spec's own words the code does not meet, or the testing
   script's for what it needs of the build (`script_needs`: a build output, an entry point, a module) - each checked
-  by the harness against the text it quotes;
+  by the harness against the text it quotes. The acceptance tests are in that text, labelled as their tests are:
+  for a spec change, those of every functional spec it touches, not only the last one's;
 - **the tests:** the conformance agent corrects them to what the spec says;
 - **the spec:** two functional specs cannot both hold, whatever the code does;
 - **the environment:** neither the code nor the tests can fix it - only the person can, in what the run is given:
