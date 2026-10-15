@@ -1109,14 +1109,34 @@ export function createWorkLoop(options: {
     return states;
   };
 
+  /** A codebase the loop no longer looks after: nothing of it is shown, planned or waited for. */
+  const forget = (state: ModuleState) => {
+    const key = tipEntry(state).buildDir;
+    modules.delete(key);
+    order.splice(order.indexOf(key), 1);
+  };
+
   const lookAll = async () => {
+    // A .plain file taken out of the project is asked for no more, and a codebase whose module's file is gone is
+    // forgotten - nothing running there - rather than shown waiting for a plan it will never have.
+    for (const file of [...asked.keys()]) if (!existsSync(file)) asked.delete(file);
+    for (const key of [...order]) {
+      const state = modules.get(key)!;
+      if (state.running === undefined && !existsSync(tipEntry(state).plainFile)) forget(state);
+    }
     const now = active();
     looking = now;
     for (const key of order) {
       const state = modules.get(key)!;
-      // A codebase left behind - built on since - is not looked at, unless a job of it is still running.
+      // A codebase left behind - built on since - is not looked at, unless a job of it is still running; what it had
+      // planned, or waited for, is no longer shown.
       if (now.has(state) || state.running !== undefined) await look(state);
-      else state.why = "left behind: the code is built on further up the chain, where changes to it are made";
+      else {
+        state.why = "left behind: the code is built on further up the chain, where changes to it are made";
+        state.waitsFor = undefined;
+        state.plan = undefined;
+        state.conformancePlan = undefined;
+      }
     }
   };
 
@@ -1127,6 +1147,12 @@ export function createWorkLoop(options: {
       spec = chainSpec(state.chain);
     } catch (error) {
       state.why = `its spec does not parse: ${error instanceof Error ? error.message : String(error)}`;
+      // Not planned from a spec that does not parse: what it waited for, and the plan, were the spec's before.
+      state.waitsFor = undefined;
+      if (state.running === undefined) {
+        state.plan = undefined;
+        state.conformancePlan = undefined;
+      }
       return;
     }
     const specKey = keyOf(spec);

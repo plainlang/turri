@@ -380,6 +380,10 @@ halts its codebase: nothing more runs there until the spec changes or the module
 the command line, `turri regenerate` runs until nothing more can start, one line as each job starts and
 ends, and exits 1 when any failed.
 
+A module the loop looked after whose `.plain` file is gone is forgotten - no rows, nothing waited for - and a codebase
+left behind, or whose spec no longer parses, shows nothing planned: its plan, and what it waited for, were the spec's
+before.
+
 ### How the work is cut into jobs
 
 A job that renders the whole of a new spec is too big to build well, and a render per functional spec,

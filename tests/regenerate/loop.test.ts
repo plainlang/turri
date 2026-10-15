@@ -1354,3 +1354,60 @@ describe("drift", () => {
     expect(code.ran).toHaveLength(ran);
   });
 });
+
+describe("modules no longer brought up", () => {
+  const base = "***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- Users register.\n";
+  const top = "---\nrequires:\n  - base\n---\n\n***implementation reqs***\n\n- :Implementation: is Python.\n\n***functional specs***\n\n- The home page says hello.\n";
+
+  it("forgets a module whose .plain file is gone while it waits, rather than showing it waiting for good", async () => {
+    writeFileSync(join(dir, "base.plain"), base);
+    writeFileSync(join(dir, "top.plain"), top);
+    const { ran, holdNext, gate, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("top.plain");
+    expect(loop.planned().map((job) => job.summary)).toEqual(["top.plain - waits for base"]);
+    rmSync(join(dir, "top.plain"));
+    gate.release!();
+    await loop.drain();
+    expect(loop.planned()).toEqual([]);
+    expect(loop.status().map((module) => module.module)).toEqual(["base"]);
+    expect(loop.mapPlan().codebases.map((codebase) => codebase.module)).toEqual(["base"]);
+    expect(ran.map((job) => job.module)).toEqual(["base"]);
+  });
+
+  it("drops the plan of a codebase left behind once a module is built on it, rather than listing its pulses for good", async () => {
+    writeFileSync(join(dir, "base.plain"), base.replace("- Users register.", "- Users register.\n\n- Users log in."));
+    const { ran, holdNext, gate, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("base.plain");
+    expect(loop.planned().map((job) => job.id)).toEqual(["planned-base-1"]);
+    // Meanwhile a module is built on it: base's code is regenerated there from now on.
+    writeFileSync(join(dir, "top.plain"), top);
+    mkdirSync(codeDir("top"), { recursive: true });
+    writeFileSync(join(codeDir("top"), "top.py"), "# started\n");
+    gate.release!();
+    await loop.drain();
+    // base's second functional spec is built in top, where base's code is regenerated now - not in base.
+    expect(ran.map((job) => [job.module, job.add])).toEqual([
+      ["base", ["1"]],
+      ["top", ["1"]],
+    ]);
+    expect(loop.planned()).toEqual([]);
+    expect(loop.status().find((module) => module.module === "base")!.why).toMatch(/^left behind/);
+  });
+
+  it("shows nothing planned for a module whose spec stopped parsing, nor what it waited for", async () => {
+    writeFileSync(join(dir, "base.plain"), base);
+    writeFileSync(join(dir, "top.plain"), top);
+    const { holdNext, gate, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    holdNext();
+    await loop.bringUp("top.plain");
+    writeFileSync(join(dir, "top.plain"), top.replace("  - base", "  - missing"));
+    gate.release!();
+    await loop.drain();
+    expect(loop.planned()).toEqual([]);
+  });
+});
