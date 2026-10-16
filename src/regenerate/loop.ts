@@ -273,9 +273,12 @@ export interface WorkLoop {
   /**
    * Regenerate a spec's module from scratch: every codebase where its code lives taken back to nothing - its code and
    * conformance tests taken out, committed so its history keeps them - and the module brought up from its spec, planned
-   * into pulses as any work is. Destructive: asked for only when the person asked for it. Says what it planned.
+   * into pulses as any work is. With `chain`, every codebase of its requires chains too, the base's included: nothing
+   * below is copied up, and the whole chain is built again from the bottom - after modules were split or moved, when
+   * the code below was laid out for modules that are no more. Destructive: asked for only when the person asked for
+   * it. Says what it planned.
    */
-  fromScratch(plainFile: string, options?: { model?: string; guidance?: string }): Promise<ModuleStatus[]>;
+  fromScratch(plainFile: string, options?: { model?: string; guidance?: string; chain?: boolean }): Promise<ModuleStatus[]>;
   /**
    * Halt a module's planned work, as the person asked: `target` is a planned row's id (`planned-<module>-...`) or the
    * module's name. A module's pulses are planned again from its spec each look, so it is the module that is halted, not
@@ -1583,14 +1586,18 @@ export function createWorkLoop(options: {
       for (const { entry, requires } of rebuild.values()) startAgain(entry, `it now requires ${requires.join(", ")}, which its code was not built on`);
       return loop.bringUp(plainFile, request);
     },
-    async fromScratch(plainFile, request = {}) {
+    async fromScratch(plainFile, { chain, ...request } = {}) {
       const file = resolve(options.cwd, plainFile);
-      // Where its code lives: the tips its module is built in, or - none built yet - its own codebase.
-      const codebases = chainsFor(file).map(tipOf);
+      // Where its code lives: the tips its module is built in, or - none built yet - its own codebase. The whole chain:
+      // every codebase in those chains, bottom first - a tip taken back to nothing is otherwise started from a copy of
+      // the code below it.
+      const chains = chainsFor(file);
+      const codebases = [...new Map((chain === true ? chains.flat() : chains.map(tipOf)).map((entry) => [entry.buildDir, entry])).values()];
       for (const entry of codebases) {
         if (modules.get(entry.buildDir)?.running !== undefined) throw new Error(`${entry.moduleName} has a pulse running: halt it, or ask again once it is done.`);
       }
-      for (const entry of codebases) if (started(entry)) startAgain(entry, "asked to be regenerated from scratch");
+      const why = chain === true ? "asked to be regenerated from scratch, with its whole chain" : "asked to be regenerated from scratch";
+      for (const entry of codebases) if (started(entry)) startAgain(entry, why);
       return loop.bringUp(plainFile, request);
     },
     halt(target, reason) {
@@ -1879,7 +1886,7 @@ export function describeModules(statuses: ModuleStatus[], options: { for?: "chat
           `  Ask the user whether to start ${codebases.join(", ")} over, and say why: ${codebases.join(", ")} was built without ` +
             `${requires.join(", ")}, so no change to its code can bring ${requires.join(", ")} in - its code and conformance ` +
             "tests are taken out, kept in its history, and built again from the bottom of the chain. Only if they agree, " +
-            `call regenerate with ${basename(status.plainFile)} and from_scratch.`,
+            `call regenerate with ${basename(status.plainFile)} and from_scratch: "module".`,
         ];
   };
   return statuses

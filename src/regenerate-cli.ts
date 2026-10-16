@@ -20,6 +20,8 @@ its conformance tests too when they are on.
   --start-over             start over, without asking, a codebase regenerated without a module it now requires -
                            with no terminal to ask and without it, the run stops there
   --from-scratch           delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it
+  --from-scratch-chain     the same for every module of its requires chain, built again from the bottom - after
+                           modules were split or moved
   --harness-model <p/id>   config.turri.yaml's harness-model for this run: the planner and the conformance chooser
   --coding-model <p/id>    its coding-model, --model too: the agents that build; p/id:level for how hard a model thinks
   --judge-model <p/id>     its judge-model: the judge and the test review
@@ -33,7 +35,7 @@ its conformance tests too when they are on.
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
-const { positional, options } = parseArgs(process.argv.slice(2), ["--dry-run", "--start-over", "--from-scratch"], USAGE, ["--build-dir", "--report", "--conformance-tests", "--harness-model", "--judge-model", "--review"]);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--dry-run", "--start-over", "--from-scratch", "--from-scratch-chain"], USAGE, ["--build-dir", "--report", "--conformance-tests", "--harness-model", "--judge-model", "--review"]);
 const { report, buildDir } = headlessOptions(options, true);
 const named = positional[0] ?? readProjectConfig(process.cwd()).module;
 // Functional specs named after the file: regenerated again though their spec did not change.
@@ -42,9 +44,10 @@ if (!named) {
   console.error(`${USAGE}\n\nNo file given, and ${CONFIG_FILE} names no module.`);
   process.exit(1);
 }
+const scratch = options["from-scratch-chain"] !== undefined ? "chain" : options["from-scratch"] !== undefined ? "module" : undefined;
 // A dry run starts nothing, and from scratch deletes before it plans: the two do not go together.
-if (options["from-scratch"] !== undefined && options["dry-run"] !== undefined) {
-  console.error("--from-scratch deletes the module's code before anything is planned: it cannot be a dry run.");
+if (scratch !== undefined && options["dry-run"] !== undefined) {
+  console.error(`--from-scratch${scratch === "chain" ? "-chain" : ""} deletes the code before anything is planned: it cannot be a dry run.`);
   process.exit(1);
 }
 runLoop({
@@ -57,8 +60,8 @@ runLoop({
   ask: (loop) =>
     again.length > 0
       ? loop.regenerateAgain(named, again)
-      : options["from-scratch"] !== undefined
-        ? loop.fromScratch(named)
+      : scratch !== undefined
+        ? loop.fromScratch(named, { chain: scratch === "chain" })
         : loop.bringUp(named),
 }).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

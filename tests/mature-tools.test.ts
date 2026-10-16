@@ -137,7 +137,7 @@ describe("regenerating and waiting, from a skill - with the conversation's own r
     expect(await call(regenerate, { plain_file: "app.plain", functionalities: ["1"] })).toContain("running: pulse");
     expect(asked).toEqual(["spec_changes", "functionalities"]);
     registry.stop(registry.list()[0]!.id);
-    await expect(call(regenerate, { plain_file: "app.plain", functionalities: ["1"], from_scratch: true })).rejects.toThrow("not both");
+    await expect(call(regenerate, { plain_file: "app.plain", functionalities: ["1"], from_scratch: "module" })).rejects.toThrow("not both");
   });
 });
 

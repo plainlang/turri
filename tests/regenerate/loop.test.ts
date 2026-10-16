@@ -1243,6 +1243,36 @@ describe("a module regenerated from scratch", () => {
     expect(loop.status().find((entry) => entry.module === "app")).toMatchObject({ planned: [], why: "built from the spec as it is" });
   });
 
+  it("leaves the modules below it as they are - the module starts again from a copy of the code below it", async () => {
+    writeFileSync(join(dir, "greeting.plain"), app(["Say hello."]));
+    writeFileSync(join(dir, "app.plain"), `---\nrequires:\n  - greeting\n---\n\n${app(["Say goodbye."])}`);
+    const { ran, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(ran.map((job) => job.module)).toEqual(["greeting", "app"]);
+
+    await loop.fromScratch("app.plain");
+    await loop.drain();
+    expect(ran.slice(2).map((job) => job.module)).toEqual(["app"]);
+  });
+
+  it("with its whole chain, takes every codebase of the chain back to nothing and builds all of it again from the bottom", async () => {
+    const { historyLog } = await import("../../src/regenerate/lineage.ts");
+    writeFileSync(join(dir, "greeting.plain"), app(["Say hello."]));
+    writeFileSync(join(dir, "app.plain"), `---\nrequires:\n  - greeting\n---\n\n${app(["Say goodbye."])}`);
+    const { ran, run } = runner();
+    const loop = createWorkLoop({ registry: createJobRegistry(), cwd: dir, planner: false, run });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+
+    await loop.fromScratch("app.plain", { chain: true });
+    await loop.drain();
+    expect(ran.slice(2).map((job) => job.module)).toEqual(["greeting", "app"]);
+    for (const module of ["greeting", "app"]) expect(historyLog(codeDir(module))).toContain("start from scratch: asked to be regenerated from scratch, with its whole chain");
+    expect(loop.status().find((entry) => entry.module === "app")).toMatchObject({ planned: [], why: "built from the spec as it is" });
+  });
+
   it("builds a module never built, as regenerate does", async () => {
     writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
     const { ran, run } = runner();

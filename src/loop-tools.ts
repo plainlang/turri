@@ -152,6 +152,11 @@ export function asksFromScratch(words: string): boolean {
   return FROM_SCRATCH.test(words);
 }
 
+/** Whether a /regenerate asking for its module from scratch asks for its whole requires chain with it. */
+export function asksWholeChain(words: string): boolean {
+  return /\bchain\b|\bevery module\b|\ball (the )?modules\b/i.test(words);
+}
+
 const FROM_SCRATCH =
   /\b(from (scratch|nothing|zero|the (start|beginning|ground up))|start(ing)? (it )?(over|afresh)|afresh|anew|clean slate|(delete|wipe|remove|drop|throw away)\b.{0,30}\b(module|code|codebase|everything|all of it))/i;
 
@@ -176,6 +181,7 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
       "A change to a file the spec links - an API surface, a mapping document - is a change to the spec: regenerate sees it by itself, and regenerates every functional spec that uses what links it.",
       "Never stop pulses and start them again yourself to follow a spec change: regenerate does it.",
       "Set from_scratch only when the user asks for the module to be regenerated from scratch - started over, its code deleted - in this conversation, or agrees to it when a module's status says it has to start over: never to fix a pulse that did not land.",
+      'from_scratch "module" takes out the code where the module is built; the modules below keep theirs, and the module starts from a copy of the code below it. "chain" takes out every codebase of its requires chain, the base\'s too, and builds all of it again from the bottom: use it after modules were split, merged or moved (refactor-module), or when the user asks for the whole chain.',
     ],
     parameters: Type.Object({
       plain_file: Type.Optional(Type.String({ description: "Path to the .plain file. Omitted: the module the project's config.turri.yaml names" })),
@@ -187,9 +193,10 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
         }),
       ),
       from_scratch: Type.Optional(
-        Type.Boolean({
+        Type.Union([Type.Literal("module"), Type.Literal("chain")], {
           description:
-            "Only when the user asks for it: the module's code and conformance tests deleted - committed first, so its lineage keeps them - and the whole module regenerated from its spec",
+            "Only when the user asks for it: the module's code and conformance tests deleted - committed first, so its lineage keeps them - and the whole module regenerated from its spec. " +
+            '"chain": every module of its requires chain too, built again from the bottom',
         }),
       ),
       model: MODEL_PARAM,
@@ -200,15 +207,15 @@ export function regenerateTool(options: LoopToolsOptions & { loop: (ctx: Extensi
       const check = checkPlainFile(plainFile);
       if (!check.ok) throw new Error(`${relative(options.cwd, plainFile) || plainFile} does not parse, so nothing can be regenerated from it yet: ${check.error}`);
       const again = given.functionalities ?? [];
-      if (again.length > 0 && given.from_scratch === true) throw new Error("Name functionalities or set from_scratch, not both: from scratch regenerates every one of them.");
+      if (again.length > 0 && given.from_scratch !== undefined) throw new Error("Name functionalities or set from_scratch, not both: from scratch regenerates every one of them.");
       // Named functionalities are work on functionalities, as engine chooses a model for it; the rest, spec changes.
       const work: RenderWork = again.length > 0 ? "functionalities" : "spec_changes";
       const model = options.model !== undefined ? options.model(ctx, plainFile, given.model, work) : given.model;
       const loop = options.loop(ctx);
       const request = { ...(model !== undefined ? { model } : {}), ...(given.guidance !== undefined ? { guidance: given.guidance } : {}) };
       const statuses =
-        given.from_scratch === true
-          ? await loop.fromScratch(plainFile, request)
+        given.from_scratch !== undefined
+          ? await loop.fromScratch(plainFile, { ...request, chain: given.from_scratch === "chain" })
           : again.length > 0
             ? await loop.regenerateAgain(plainFile, again, request)
             : await loop.bringUp(plainFile, request);

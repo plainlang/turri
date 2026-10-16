@@ -718,7 +718,7 @@ with no agent and no testing script. Moving specs into a module the code was not
 change to the code brings that module's code in, so the codebase stops: it has to be started over - its code
 and conformance tests taken out, committed so its history keeps them, and the chain built again from the
 bottom. That is never done unasked. In the chat the model asks the person, saying why, and calls
-`regenerate` with `from_scratch` once they agree; `turri regenerate` and `spec-diff` ask at the terminal, and
+`regenerate` with `from_scratch: "module"` once they agree; `turri regenerate` and `spec-diff` ask at the terminal, and
 `--start-over` agrees in advance - with no terminal and no flag, the run stops there, exit 1, saying so.
 
 ## Conformance tests

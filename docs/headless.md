@@ -87,6 +87,8 @@ Useful options - `turri regenerate --help` lists all of them:
 | `--conformance-tests <all\|chosen\|module\|false>` | `conformance-tests`, with its values (`true` is `all`) |
 | `--review <true\|false>` | `review`: whether the code and its tests are reviewed once they pass |
 | `--stack <name>` | build with the stack's `config.turri.<name>.yaml` over `config.turri.yaml`; default, `TURRI_STACK`, else none |
+| `--from-scratch` | delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it |
+| `--from-scratch-chain` | the same for every module of its requires chain, the base's included, built again from the bottom |
 | `--start-over` | start over, unasked, a codebase built without a module it now requires - without a terminal, a run that needs it and lacks it stops |
 | `--build-dir <dir>` | as the run ends, export the code there - see below |
 | `--report <file.json>` | write [the run report](#the-run-report) there |
@@ -240,7 +242,7 @@ and modules that are complete are skipped, so it picks up where it stopped - aft
 provider outage, or a machine that went to sleep anyway. Whatever the stopped run left
 half-written is undone first: each step starts from the module's last commit. A functionality whose spec has changed
 since counts as not built, so editing the spec and re-running rebuilds what changed. `--from-scratch`
-rebuilds everything.
+rebuilds the module; `--from-scratch-chain` rebuilds every module of its chain.
 
 ## Rebuilding one functionality
 

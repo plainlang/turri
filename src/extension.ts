@@ -18,7 +18,7 @@ import { readScript, scriptAgainstMachine, stackOnMachine, toolchainsBlock } fro
 import { sandboxAvailable, sandboxSummary } from "./regenerate/os-sandbox.ts";
 import { findTestScripts } from "./regenerate/test-scripts.ts";
 import { createAskUserTool } from "./tools.ts";
-import { asksFromScratch, driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regenerateTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
+import { asksFromScratch, asksWholeChain, driftTool, fromWorkingDir, haltTool, loopReply, MODEL_PARAM, regenerateTool, stopJob, WAIT_PARAM, WORKING_DIR_PARAM } from "./loop-tools.ts";
 import { createWebTools } from "./regenerate/web.ts";
 import { describeGates, interruptedRun, runSkill } from "./genome.ts";
 import type { Reporter } from "./graph.ts";
@@ -690,7 +690,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
   // by the planner: one functional spec at a time, a few together or the whole module in one, as it judges. What
   // follows the module is guidance for that plan, in the person's words.
   pi.registerCommand("regenerate", {
-    description: "Regenerate a module from its spec as it is now, in pulses the planner cuts - named functionalities though they did not change, or all of it from scratch: /regenerate [module | file.plain] [functionality ...] [from scratch] [how to cut the work]",
+    description: "Regenerate a module from its spec as it is now, in pulses the planner cuts - named functionalities though they did not change, or all of it from scratch, its whole chain too when asked: /regenerate [module | file.plain] [functionality ...] [from scratch [whole chain]] [how to cut the work]",
     handler: async (args, ctx) => {
       const command = `/regenerate ${args.trim()}`.trim();
       await echoCommand(pi, command);
@@ -729,6 +729,8 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       }
       // From scratch - started over, its code deleted - asked in the person's words: confirmed first, as it deletes.
       const scratch = asksFromScratch(guidance);
+      // The whole chain with it - "from scratch, the whole chain" - every module it requires built again from the bottom.
+      const chain = scratch && asksWholeChain(guidance);
       const module = basename(plainFile).replace(/\.plain$/, "");
       if (scratch && again.length > 0) {
         say("Name functionalities or ask for it from scratch, not both: from scratch regenerates every one of them.", "warning");
@@ -736,8 +738,10 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       }
       if (scratch && ctx.hasUI) {
         const agreed = await ctx.ui.confirm(
-          `Regenerate ${module} from scratch?`,
-          `Its code and conformance tests are deleted - committed first, so /lineage ${module} keeps them - and the whole module is regenerated from its spec.`,
+          chain ? `Regenerate ${module} and its whole chain from scratch?` : `Regenerate ${module} from scratch?`,
+          chain
+            ? `The code and conformance tests of ${module} and of every module it requires are deleted - committed first, so /lineage keeps them - and the whole chain is regenerated from its spec, from the bottom.`
+            : `Its code and conformance tests are deleted - committed first, so /lineage ${module} keeps them - and the whole module is regenerated from its spec.`,
         );
         if (!agreed) return;
       }
@@ -748,7 +752,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       // began, not a chat that stays empty until the first pulse starts. The plan is said under it once it is made.
       say(
         scratch
-          ? `Deleting ${module}'s code, then planning all of it again…`
+          ? `Deleting ${module}'s code${chain ? " and its whole chain's" : ""}, then planning all of it again…`
           : again.length > 0
             ? `Planning ${module}'s functionalit${again.length === 1 ? "y" : "ies"} ${again.join(", ")} again…`
             : `Planning ${module}'s pulses…`,
@@ -757,7 +761,7 @@ function registerRegenerate(pi: ExtensionAPI, cwd: string, jobs: JobRegistry) {
       await nextFrame();
       try {
         const statuses = scratch
-          ? await loop.fromScratch(plainFile, request)
+          ? await loop.fromScratch(plainFile, { ...request, chain })
           : again.length > 0
             ? await loop.regenerateAgain(plainFile, again, request)
             : await loop.bringUp(plainFile, request);

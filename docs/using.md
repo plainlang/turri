@@ -50,7 +50,7 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 
 | tool | |
 | --- | --- |
-| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to regenerate is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse regenerating what the spec no longer wants is stopped. With functionalities named, those are regenerated though their spec did not change - rewritten or started over, planned into pulses as any change is; with `from_scratch`, the whole module, its code deleted first - only when you ask, or agree |
+| `regenerate` | regenerate a module and its chain from the spec as it is now - after any change to it, by any means: what is left to regenerate is planned into pulses of one to three functional specs, each with the definitions and reqs it uses, and a pulse regenerating what the spec no longer wants is stopped. With functionalities named, those are regenerated though their spec did not change - rewritten or started over, planned into pulses as any change is; with `from_scratch`, the whole module, its code deleted first - `"chain"` for every module of its requires chain too, built again from the bottom - only when you ask, or agree |
 | `drift` | what is left to regenerate: how far the code and its conformance tests have drifted from the spec, starting nothing |
 | `glimpse` | the pulse a module's codebases would start next, and the whole prompt its coding agent would get - starting nothing |
 | `steer` | say how the work is planned - which functional specs go together, what first - for the project or one module, for the session; the next plan follows it, beside what AGENTS.md says under a heading naming the queue |
@@ -238,7 +238,7 @@ come waits for a free slot, and says so.
   is laid over `config.turri.yaml` - its testing scripts, toolchains, models - for the session; a pulse already
   running keeps the stack it started with. The chat model switches it too when you ask. See
   [stacks](config.md#stacks).
-- **`/regenerate [module | file.plain] [functionality ...] [from scratch] [how to cut the work]`** regenerates a module from its spec as it is now, as
+- **`/regenerate [module | file.plain] [functionality ...] [from scratch [whole chain]] [how to cut the work]`** regenerates a module from its spec as it is now, as
   the `regenerate` tool does: what is left to regenerate is planned into pulses - one functional spec at a time, a few
   together or the whole module in one, as the planner judges - and the first starts. Words after the module are
   guidance for that plan (`/regenerate app models first`). A module's name typed with spaces for its underscores is
@@ -246,8 +246,13 @@ come waits for a free slot, and says so.
   `config.turri.yaml` names, else the folder's top modules, to pick from. Asked for from scratch - `from scratch`,
   `start over`, `delete the module` - it asks first, then deletes the module's code and conformance tests in every
   codebase where they live, committed so `/lineage` keeps them, and regenerates the whole module from its spec,
-  built though nothing in it changed: `/regenerate shorty from scratch`. The chat's `regenerate` does the same with
-  `from_scratch`, when you ask for it; `turri regenerate --from-scratch` on the command line, not with `--dry-run`.
+  built though nothing in it changed: `/regenerate shorty from scratch`. The modules below it keep their code, and
+  the module starts again from a copy of the code below it. Asked for its chain too - `/regenerate shorty from scratch,
+  the whole chain` - the code of every module of its requires chain is deleted, the base's included, and the whole
+  chain is regenerated from the bottom: what to do after modules were split, merged or moved, when the code below was
+  laid out for modules that are no more. The chat's `regenerate` does the same with `from_scratch: "module"` or
+  `"chain"`, when you ask for it; `turri regenerate --from-scratch` or `--from-scratch-chain` on the command line, not
+  with `--dry-run`.
   Functionalities named after the module - `/regenerate shorty 3 5` - are regenerated though their spec did not
   change, on the model chosen for functionalities: as `turri regenerate shorty.plain 3 5` does, and the chat's
   `regenerate` with `functionalities`.
@@ -453,6 +458,7 @@ turri regenerate <file.plain>              # regenerate what the code is not bui
 turri glimpse <file.plain>             # plan it, and print the first job's prompt - starts nothing
 turri regenerate <file.plain> 2            # regenerate functionality 2 again, changed or not
 turri regenerate <file.plain> --from-scratch   # delete the module's code and tests (its lineage keeps them), regenerate all of it
+turri regenerate <file.plain> --from-scratch-chain   # the same for every module of its requires chain, from the bottom
 turri spec-diff <file.plain> <diff>    # apply a spec diff, and regenerate it
 turri conform <file.plain> 1           # black-box tests for functionality 1
 turri lineage <module>                 # what each regeneration changed in a module, and when
