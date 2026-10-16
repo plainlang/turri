@@ -158,7 +158,7 @@ an agent has to decide to go and read.
 | `import-modules.md`, `requires-modules.md` | the two ways modules build on each other |
 | `exported-concepts.md`, `required-concepts.md` | which concepts cross module boundaries |
 | `integrations.md` (+ standalone, embedded, embedded testing) | specs for REST API integrations, deployed standalone or embedded in an existing codebase |
-| `turri-regeneration.md` | how turri regenerates a spec change - as a spec diff, wherever it sits, in the chain's tip - so a spec is placed by what it means, never to spare regeneration |
+| `turri-regeneration.md` | turri's model of itself: a spec change regenerated as a spec diff, wherever it sits, in the chain's tip; what each kind of change sets off; what a coding agent sees; how bad code is fixed; where the cost is - so a spec is placed by what it means, never to spare regeneration |
 | `stdlib.md` | the standard library: when to import which template, and every template with what it is and where it is, read from `stdlib/` |
 
 The ones that shape a spec most:

@@ -192,6 +192,9 @@ the stack `<name>`) until turri first writes a setting, which copies them to the
   a spaced hyphen ` - ` rather than an em dash. Test names are sentences about behaviour
   (`it("renames a clashing file instead of overwriting it")`).
 - When behaviour changes, update the `docs/` page that describes it in the same change.
+- `genome/rules/turri-regeneration.md` is turri's model of itself for every agent that writes specs: what a spec
+  change regenerates and where, what a coding agent sees, how bad code is fixed. When any of that changes, update
+  the rule in the same change too - a stale one is worse than none, the agents reasoning from it with confidence.
 - Commit messages follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
   `<type>[optional scope]: <description>`, then an optional body and optional footers, each after a
   blank line.
