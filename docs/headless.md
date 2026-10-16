@@ -170,7 +170,7 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
   "usage": {
     "total": {
       "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_usd": 0,
-      "llm_calls": 0, "agent_turns": 0, "compactions": 0, "provider_retries": 0, "turns_stopped": 0, "model_seconds": 0
+      "llm_calls": 0, "agent_turns": 0, "compactions": 0, "provider_retries": 0, "provider_stalls": 0, "turns_stopped": 0, "model_seconds": 0
     },
     "in_pulses": { },       // the pulses' usage added up - the same fields
     "outside_pulses": { },  // the planner, the conformance chooser, a failed pulse's diagnosis
@@ -203,6 +203,7 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
   }],
   "turn_incidents": [                                   // [] when none
     { "kind": "provider_retry", "pulse_id": "2a058729", "role": "coding", "model": "…", "error": "…: 529 overloaded", "attempt": 1, "of": 6, "wait_seconds": 15.3 },
+    { "kind": "provider_stall", "pulse_id": "2a058729", "role": "coding", "model": "…", "silent_seconds": 120 },
     { "kind": "stopped", "pulse_id": "5c1e0b2f", "role": "conformance explorer", "model": "…", "reason": "10 submit_exploration calls failed in a row" }
   ],
   "build_dir_export": { "exported": true, "dir": "/work/out", "module": "app", "commit": "8036b3b", "files": 23 },
@@ -230,11 +231,13 @@ pulse that met them. `assumption` is what the agent decided meanwhile, also in t
 assumptions while its pulse is `landed`; a pulse rolled back takes it out of the notes, but the question still
 stands. Settle the ones you care about in the spec and run again.
 
-**Turn incidents.** Each time the model provider failed for a moment and turri waited it out before trying the
-turn again, and each turn turri stopped itself - an agent going round in a circle, its calls failing again and again,
-its time up - after which the run carried on. Both are printed as they happen, in yellow, under the pulse, and
-counted in the usage as `provider_retries` and `turns_stopped`. Many of either point at the model, not the spec: a
-provider at its limits, or a model too small for the role it was given.
+**Turn incidents.** Each time the model provider failed for a moment and pi or turri waited it out before trying
+the request again, each time the provider sent nothing back on a request for two minutes, and each turn turri
+stopped itself - an agent going round in a circle, its calls failing again and again, its time up - after which the
+run carried on. The provider failing or stalling is printed as it happens, in yellow, under the pulse; a stop is
+the work's normal course and is only listed. They are counted in the usage as `provider_retries`,
+`provider_stalls` and `turns_stopped`. Many of any point at the model, not the spec: a provider at its limits, or a
+model too small for the role it was given.
 
 **Completed functional specs** - the pass rate, the figure to compare runs by.
 A functional spec is completed when the code record of the codebase the run delivers - the

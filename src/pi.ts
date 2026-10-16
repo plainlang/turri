@@ -291,6 +291,9 @@ export function providerRetryDelay(attempt: number, random = Math.random): numbe
   return Math.round(base * (0.9 + 0.2 * random()));
 }
 
+/** How long a request to the model may go without anything coming back before the provider is said to be stalling; 0 never. */
+export const PROVIDER_STALL_MS = Number(process.env.TURRI_PROVIDER_STALL ?? 120) * 1000;
+
 /** A provider error that passes: overloaded, rate limited, unreachable, timed out. */
 const TRANSIENT_PROVIDER_ERROR =
   /\b(429|500|502|503|504|529)\b|overloaded|high demand|rate.?limit|too many requests|unavailable|fetch failed|network|connection|timed? ?out|ECONNRESET|socket|terminated/i;
@@ -333,7 +336,26 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   if (agent !== undefined) reportAgent({ label: agent.label, ...(agent.model !== undefined ? { model: agent.model } : {}), turns: 1 });
   reportModelEvent({ kind: "turn", ...modelEventOf(session) });
 
+  // The provider stalling: a request to the model that nothing has come back on - not a token, not an error - for
+  // long. Said once for each silence; the turn goes on waiting, its own time limit ending it if it must.
+  let toolsRunning = 0;
+  let stall: ReturnType<typeof setTimeout> | undefined;
+  const watchForStall = (afterMs = PROVIDER_STALL_MS) => {
+    if (stall !== undefined) clearTimeout(stall);
+    stall = toolsRunning > 0 || PROVIDER_STALL_MS <= 0 ? undefined : setTimeout(() => {
+      reportModelEvent({ kind: "provider_stall", ...modelEventOf(session), waitMs: PROVIDER_STALL_MS });
+      debugLogOf(session)?.note(`the provider has sent nothing back for ${seconds(PROVIDER_STALL_MS)}`);
+    }, afterMs);
+  };
+
   const unsubscribe = session.subscribe((event) => {
+    if (event.type === "tool_execution_start") toolsRunning += 1;
+    if (event.type === "tool_execution_end") toolsRunning = Math.max(0, toolsRunning - 1);
+    // pi tries a failed request again itself first: the provider failing is said then, not only once pi gives up.
+    if (event.type === "auto_retry_start") {
+      reportModelEvent({ kind: "provider_retry", ...modelEventOf(session), error: event.errorMessage, attempt: event.attempt, of: event.maxAttempts, waitMs: event.delayMs });
+      watchForStall(event.delayMs + PROVIDER_STALL_MS);
+    } else watchForStall();
     if (event.type === "message_update") {
       const update = event.assistantMessageEvent;
       if (update.type === "text_delta") {
@@ -457,6 +479,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   }
   // What the model is sent, and only that: its task is its system prompt, which the log already holds whole.
   debug?.prompt(text);
+  watchForStall();
 
   try {
     // Its images, when its conversation does not hold them: the first turn, and the first after a compaction.
@@ -472,6 +495,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     if (backstop !== undefined) clearTimeout(backstop);
+    if (stall !== undefined) clearTimeout(stall);
     atNextRequest?.();
     unsubscribe();
     stop?.removeEventListener("abort", onStop);

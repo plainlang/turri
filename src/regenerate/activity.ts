@@ -211,12 +211,13 @@ const store = new AsyncLocalStorage<ActivitySink>();
  * Something an agent did with its model, wherever it ran - in a pulse or not, the planner and the chooser too: what a
  * headless run's report adds up (run-report.ts). A call is one model response; a turn, one request of the harness's
  * to an agent, as many calls as it takes; a compaction, its work summed up - a call of its own. A provider retry is a
- * turn the provider failed for a moment, waited out and tried again; a stop, a turn turri itself ended - the agent going
- * round in a circle, or its time up - after which the harness carries on as after any turn.
+ * request the provider failed for a moment, waited out and tried again - by pi, or by turri after pi gave up; a provider
+ * stall, a request the provider has sent nothing back on for a long while; a stop, a turn turri itself ended - the
+ * agent going round in a circle, or its time up - after which the harness carries on as after any turn.
  */
 export interface ModelEvent {
-  kind: "call" | "turn" | "compaction" | "provider_retry" | "stopped";
-  /** For a provider retry: what the provider said, the try this is and how many there may be, and the wait before it. */
+  kind: "call" | "turn" | "compaction" | "provider_retry" | "provider_stall" | "stopped";
+  /** For a provider retry: what the provider said, the try this is and how many there may be, and the wait before it. For a stall, waitMs is how long it has been silent. */
   error?: string;
   attempt?: number;
   of?: number;
@@ -242,16 +243,27 @@ export function onModelEvent(listener: (event: ModelEvent) => void): () => void 
   return () => modelListeners.delete(listener);
 }
 
-/** A provider retry or a stop, in a line for the person: the chat's notification, a headless run's console. */
+/**
+ * The model provider failing or stalling, in a line for the person: the chat's notification, a headless run's console.
+ * A turn turri stopped itself is the work going its normal course - kept in the activity, the pulse's log and the run
+ * report, not said.
+ */
 export function describeTurnIncident(event: ModelEvent): string | undefined {
   const who = event.role ?? event.label ?? "an agent";
   const model = event.model !== undefined ? ` (${event.model})` : "";
   if (event.kind === "provider_retry") {
     const wait = Math.round((event.waitMs ?? 0) / 1000);
-    return `The model provider failed${model}: ${(event.error ?? "").slice(0, 160)} - trying ${who}'s turn again in ${wait}s (${event.attempt} of ${event.of}).`;
+    return `The model provider failed${model}: ${(event.error ?? "").slice(0, 160)} - trying ${who}'s request again in ${wait}s (${event.attempt} of ${event.of}).`;
   }
-  if (event.kind === "stopped") return `turri stopped ${who}'s turn${model}: ${event.reason ?? "it was stopped"} - carrying on from there.`;
+  if (event.kind === "provider_stall") {
+    return `The model provider has sent nothing back to ${who}${model} for ${formatSilence(event.waitMs ?? 0)} - still waiting.`;
+  }
   return undefined;
+}
+
+function formatSilence(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  return seconds >= 60 && seconds % 60 === 0 ? `${seconds / 60}m` : seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
 }
 
 export function reportModelEvent(event: Omit<ModelEvent, "job">): void {

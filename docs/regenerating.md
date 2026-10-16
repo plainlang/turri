@@ -130,8 +130,9 @@ any guard on the tools.
 A turn turri stops itself - for any of these, or for its time, below - ends as any turn ends: what the agent said
 stands, `[the turn was stopped: ...]` after it, and the caller does what it does when the agent handed nothing over
 (the explorer's fallback, a nudge, a failed round). The abort that ended it is never taken for the provider
-failing; an abort turri did not make still is. Each stop is said as it happens - a notification in the chat, a
-line in a headless run - and listed in the run report's `turn_incidents`.
+failing; an abort turri did not make still is. A stop is the work's normal course: it is in the pulse's activity
+and log and the run report's `turn_incidents`, but not said in the chat or a headless run's console - those say
+only the model provider failing or stalling.
 
 A tool argument that is a list of objects - the explorer's `interfaces` and `plan`, a reviewer's `problems` - is
 what small models get wrong most. Before a call's arguments are checked, a list sent as JSON text, entries sent as

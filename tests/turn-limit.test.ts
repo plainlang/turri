@@ -3,6 +3,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 process.env.TURRI_TURN_GRACE = "1";
 process.env.TURRI_PROVIDER_RETRY_DELAY = "0.01";
+process.env.TURRI_PROVIDER_STALL = "0.05";
 const { ask, timeTurns } = await import("../src/pi.ts");
 
 /** A session whose turn goes on until it is aborted, and says what it was asked. */
@@ -269,5 +270,79 @@ describe("the wait before a provider is tried again", () => {
     expect(await ask(session, "Go.")).toBe("Done.");
     stop();
     expect(events.filter((event) => event.kind === "provider_retry")).toEqual([expect.objectContaining({ attempt: 1, of: 6, error: "flaky: 529 overloaded" })]);
+  });
+});
+
+describe("the model provider failing or stalling", () => {
+  /** A session that runs `steps` in order: an event to send, or a wait in milliseconds. */
+  function scriptedSession(steps: Array<unknown>) {
+    const listeners: Array<(event: unknown) => void> = [];
+    return {
+      model: { id: "bedrock" },
+      subscribe(listener: (event: unknown) => void) {
+        listeners.push(listener);
+        return () => void listeners.splice(listeners.indexOf(listener), 1);
+      },
+      async prompt() {
+        for (const step of steps) {
+          if (typeof step === "number") await new Promise((resolve) => setTimeout(resolve, step));
+          else for (const listener of [...listeners]) listener(step);
+        }
+      },
+      async abort() {},
+    } as unknown as AgentSession;
+  }
+
+  async function eventsOf(session: AgentSession) {
+    const { onModelEvent } = await import("../src/regenerate/activity.ts");
+    const events: Array<{ kind: string; attempt?: number; of?: number; error?: string; waitMs?: number }> = [];
+    const stop = onModelEvent((event) => events.push(event));
+    try {
+      await ask(session, "Go.");
+    } finally {
+      stop();
+    }
+    return events.filter((event) => event.kind === "provider_retry" || event.kind === "provider_stall");
+  }
+
+  it("is said when pi tries a request again itself, not only once pi gives up", async () => {
+    const events = await eventsOf(
+      scriptedSession([
+        { type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "503 Service Unavailable" },
+        { type: "auto_retry_end", success: true, attempt: 1 },
+        { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Done." } },
+      ]),
+    );
+    expect(events).toEqual([expect.objectContaining({ kind: "provider_retry", attempt: 1, of: 3, error: "503 Service Unavailable", waitMs: 10 })]);
+  });
+
+  it("is said once when a request has nothing come back for long, however long the silence goes on", async () => {
+    const events = await eventsOf(scriptedSession([300, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Done." } }]));
+    expect(events).toEqual([expect.objectContaining({ kind: "provider_stall" })]);
+  });
+
+  it("is not a tool taking its time, nor the wait before pi tries again", async () => {
+    const events = await eventsOf(
+      scriptedSession([
+        { type: "tool_execution_start", toolName: "bash", args: { command: "sleep 1" } },
+        200,
+        { type: "tool_execution_end", toolName: "bash", isError: false, result: { content: [] } },
+        { type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 200, errorMessage: "429 Too Many Requests" },
+        150,
+        { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Done." } },
+      ]),
+    );
+    expect(events.map((event) => event.kind)).toEqual(["provider_retry"]);
+  });
+
+  it("is what the person is told - a turn turri stopped itself is the work's normal course, and is not", async () => {
+    const { describeTurnIncident } = await import("../src/regenerate/activity.ts");
+    expect(describeTurnIncident({ kind: "stopped", role: "coding", model: "p/m:low", reason: "its 2 minutes were up" })).toBeUndefined();
+    expect(describeTurnIncident({ kind: "provider_stall", role: "coding", model: "p/m:low", waitMs: 120_000 })).toBe(
+      "The model provider has sent nothing back to coding (p/m:low) for 2m - still waiting.",
+    );
+    expect(describeTurnIncident({ kind: "provider_retry", role: "coding", model: "p/m:low", error: "529 overloaded", attempt: 2, of: 6, waitMs: 30_000 })).toBe(
+      "The model provider failed (p/m:low): 529 overloaded - trying coding's request again in 30s (2 of 6).",
+    );
   });
 });

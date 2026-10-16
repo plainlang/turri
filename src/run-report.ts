@@ -31,6 +31,8 @@ export interface UsageTotals {
   compactions: number;
   /** Turns the provider failed for a moment, waited out and tried again. */
   provider_retries: number;
+  /** Requests the provider sent nothing back on for a long while. */
+  provider_stalls: number;
   /** Turns turri ended itself - the agent going round in a circle, its time up - and carried on from. */
   turns_stopped: number;
   /** How long the models took to answer, added up - from each request to its response's end. */
@@ -99,6 +101,7 @@ const emptyTotals = (): UsageTotals => ({
   agent_turns: 0,
   compactions: 0,
   provider_retries: 0,
+  provider_stalls: 0,
   turns_stopped: 0,
   model_seconds: 0,
 });
@@ -121,6 +124,7 @@ function addEvent(totals: UsageTotals, event: ModelEvent, tokens: boolean): void
   } else if (event.kind === "turn") totals.agent_turns += 1;
   else if (event.kind === "compaction") totals.compactions += 1;
   else if (event.kind === "provider_retry") totals.provider_retries += 1;
+  else if (event.kind === "provider_stall") totals.provider_stalls += 1;
   else totals.turns_stopped += 1;
 }
 
@@ -272,10 +276,10 @@ export function startRunReport(options: RunReportOptions): RunReporter {
       }));
     });
 
-  /** Each turn the provider failed and turri waited out, and each turn turri ended itself: why, and where. */
+  /** Each request the provider failed and was waited out or stalled on, and each turn turri ended itself: why, and where. */
   const turnIncidentsOf = () =>
     events
-      .filter((event) => event.kind === "provider_retry" || event.kind === "stopped")
+      .filter((event) => event.kind === "provider_retry" || event.kind === "provider_stall" || event.kind === "stopped")
       .map((event) => ({
         kind: event.kind,
         pulse_id: event.job ?? null,
@@ -283,7 +287,9 @@ export function startRunReport(options: RunReportOptions): RunReporter {
         model: event.model ?? null,
         ...(event.kind === "stopped"
           ? { reason: event.reason ?? null }
-          : { error: event.error ?? null, attempt: event.attempt ?? null, of: event.of ?? null, wait_seconds: Math.round((event.waitMs ?? 0) / 100) / 10 }),
+          : event.kind === "provider_stall"
+            ? { silent_seconds: Math.round((event.waitMs ?? 0) / 1000) }
+            : { error: event.error ?? null, attempt: event.attempt ?? null, of: event.of ?? null, wait_seconds: Math.round((event.waitMs ?? 0) / 100) / 10 }),
       }));
 
   const functionalitiesOf = (counts: CompletionCounts[] | undefined) => {

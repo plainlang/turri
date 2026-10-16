@@ -398,8 +398,12 @@ A provider failure - no credits, bad key, rate limit - is raised with the provid
 rather than surfacing as an agent that said nothing. One that passes - overloaded, rate limited, unreachable,
 timed out - is waited out first, after pi's own retries: six more tries, the wait doubled each time from 15
 seconds up to five minutes (15s, 30s, 1m, 2m, 4m, 5m, a tenth either way so parallel jobs do not all come back
-at once), the agent carrying on where it was. Each wait is shown as it happens - a notification in the chat and
-the job panel's status, a yellow line in a headless run - and listed in the run report's `turn_incidents`.
+at once), the agent carrying on where it was. Each wait - pi's own retries too - is shown as it happens - a
+notification in the chat and the job panel's status, a yellow line in a headless run - and listed in the run
+report's `turn_incidents`. So is a provider stalling: a request to the model that nothing has come back on for two
+minutes (`TURRI_PROVIDER_STALL`, in seconds; 0 never), said once for each silence while the turn goes on waiting.
+A turn turri stops itself - its time up, the agent going round in a circle - is the work's normal course and is not
+said, only listed.
 
 ## Module history
 
