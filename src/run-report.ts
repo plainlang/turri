@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { turriIdentity } from "./environment.ts";
 import { onModelEvent, type ModelEvent, type UsageReport } from "./regenerate/activity.ts";
 import type { Job } from "./regenerate/jobs.ts";
+import type { SpecGap } from "./regenerate/notes.ts";
 
 /**
  * A headless run's report: one JSON file, `turri regenerate --report <file>`, saying what the run did - how it ended,
@@ -247,6 +248,20 @@ export function startRunReport(options: RunReportOptions): RunReporter {
     };
   };
 
+  /** The spec gaps the pulses' agents met, in the order the pulses started: questions a person would want to decide. */
+  const specGapsOf = (jobs: Job[]) =>
+    jobs.flatMap((job) => {
+      const details = job.details as { landed?: boolean; specGaps?: SpecGap[] } | undefined;
+      return (details?.specGaps ?? []).map((gap) => ({
+        module: job.module ?? null,
+        pulse: job.pulse ?? null,
+        pulse_id: job.id,
+        landed: job.status === "succeeded" && details?.landed === true,
+        question: gap.question,
+        assumption: gap.assumption,
+      }));
+    });
+
   const functionalitiesOf = (counts: CompletionCounts[] | undefined) => {
     if (counts === undefined) return null;
     const modules = counts.flatMap((chain) =>
@@ -314,6 +329,7 @@ export function startRunReport(options: RunReportOptions): RunReporter {
       usage: usageOf(jobs),
       pulses: pulsesOf(jobs, now),
       functionalities: functionalitiesOf(attempt(sources.completion)),
+      spec_gaps: specGapsOf(jobs),
       ...(exitParts ?? {}),
       logs: {
         jobs_dir: fromProject(join(projectRoot, ".turri", "jobs")),

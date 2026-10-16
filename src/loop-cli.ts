@@ -18,6 +18,7 @@ import { c } from "./module-report.ts";
 import { tryItCommand } from "./regenerate/delivery.ts";
 import { describeDiagnosis, diagnoseFailure } from "./regenerate/diagnose.ts";
 import { createJobRegistry, pulseName, type Job } from "./regenerate/jobs.ts";
+import type { SpecGap } from "./regenerate/notes.ts";
 import { conformanceChooser } from "./regenerate/choose-conformance.ts";
 import { createWorkLoop, describeModules, functionalityCompletion, promptOf, type DriftReport, type ModuleStatus, type WorkLoop } from "./regenerate/loop.ts";
 import { MODULES_DIR, projectDirOf } from "./regenerate/paths.ts";
@@ -116,6 +117,8 @@ async function runLoopReporting(
       const mark = job.status === "succeeded" ? c.green("✓") : job.status === "stopped" ? c.dim("■") : c.red("✗");
       console.log(`${mark} ${job.id} ${pulseName(job)} - ${job.status}`);
       if (job.status !== "succeeded") console.log(c.dim((job.announce ?? job.report ?? job.error ?? "").trim()));
+      // Its report is not printed when it succeeds, and nobody is asked here: the spec gaps its agents met are said.
+      else for (const gap of (job.details as { specGaps?: SpecGap[] } | undefined)?.specGaps ?? []) console.log(c.yellow(`  spec gap: ${gap.question}`), c.dim(`Meanwhile: ${gap.assumption}`));
       report?.write();
     },
   });

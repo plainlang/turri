@@ -104,7 +104,8 @@ Conformance tests follow `conformance-tests:` in `config.turri.yaml`, or `--conf
 The command exits `0` only when every module is complete: its code regenerated from the spec as it is
 now, and its conformance tests written for what is built when they are on - no pulse failed, nothing
 halted, nothing waiting for a start over. Anything else exits `1`, and the last lines say which
-module is not complete, and why. The log says, per functionality, what was built and whether its
+module is not complete, and why. A behaviour the spec leaves open that an agent had to decide is printed
+as a `spec gap` under its pulse, with what was decided meanwhile. The log says, per functionality, what was built and whether its
 tests passed.
 
 | | |
@@ -191,6 +192,11 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
     ],
     "codebases": ["plain_modules/app/code"]
   },
+  "spec_gaps": [{                                       // [] when no agent met one
+    "module": "app", "pulse": 3, "pulse_id": "2a058729", "landed": true,
+    "question": "What happens to a contact archived in HubSpot after it was synced?",
+    "assumption": "An archived contact is left as synced - asserted in sync.test.ts, archived contacts"
+  }],
   "build_dir_export": { "exported": true, "dir": "/work/out", "module": "app", "commit": "8036b3b", "files": 23 },
   "logs": { "jobs_dir": ".turri/jobs", "debug_dir": ".turri/debug", "sessions_dir": ".turri/sessions" }
 }
@@ -208,6 +214,13 @@ calls; a role or model turri could not tell is `unknown`.
 **Pulses.** `landed`: its work is committed. `rolled_back`: it ended without landing - failed,
 stopped, or did not pass - and everything it wrote was undone. A pulse that failed is tried once more
 before it counts as failed; both tries are the one pulse.
+
+**Spec gaps.** A behaviour the spec leaves open that an agent met and decided on its own - reported with
+`report_spec_gap` (see [regenerating](regenerating.md)). In the chat they are put to you as the pulse ends; a
+headless run has no one to ask, so they are listed here, in the order the pulses started, and printed under the
+pulse that met them. `assumption` is what the agent decided meanwhile, also in the codebase's notes'
+assumptions while its pulse is `landed`; a pulse rolled back takes it out of the notes, but the question still
+stands. Settle the ones you care about in the spec and run again.
 
 **Completed functional specs** - the pass rate, the figure to compare runs by.
 A functional spec is completed when the code record of the codebase the run delivers - the

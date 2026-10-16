@@ -1111,7 +1111,9 @@ are the next agent's, and a gap is yours. An agent reports one with `report_spec
 and the assumption it made meanwhile; turri writes that assumption into the notes' assumptions, so the code built on
 it is known for what it is. The gaps a pulse's agents report are said in its report - "Spec gaps its agents met ... Put
 each to the user", each with its assumption - so the conversation asks you, and writes the ones you decide into the
-spec; the pulse that builds the answer finds the assumption it replaces in the notes, and the tests it names. However many gaps a pulse's agents report, they
+spec; the pulse that builds the answer finds the assumption it replaces in the notes, and the tests it names.
+A headless run has no one to ask: it prints each gap under its pulse, and lists them in its run report's
+`spec_gaps` ([running unattended](headless.md#the-run-report)). However many gaps a pulse's agents report, they
 are put to you - never a reason to stop the pulse; the tool is guarded like any other. A notes
 file from before keeps no spec gaps section: its lines are dropped as it is read.
 

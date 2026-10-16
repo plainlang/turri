@@ -89,6 +89,29 @@ describe("the run report's usage", () => {
   });
 });
 
+describe("the run report's spec gaps", () => {
+  it("lists each gap a pulse's agents met, with its pulse and whether that pulse landed", async () => {
+    const reporter = report();
+    const registry = createJobRegistry();
+    reporter.attach({ jobs: () => registry.list() });
+    const pulse = (pulse: number, landed: boolean, specGaps?: Array<{ question: string; assumption: string }>) =>
+      registry.start({ kind: "regenerate", summary: "app", module: "app", pulse, run: async () => ({ report: "done", details: { landed, ...(specGaps !== undefined ? { specGaps } : {}) } }) });
+    const first = pulse(1, true, [{ question: "Are names case-sensitive?", assumption: "Names are case-sensitive" }]);
+    const quiet = pulse(2, true);
+    const second = pulse(3, false, [{ question: "What happens to an archived contact?", assumption: "It is left as synced" }]);
+    for (const job of [first, quiet, second]) await registry.wait(job.id);
+
+    expect((reporter.build() as { spec_gaps: unknown }).spec_gaps).toEqual([
+      { module: "app", pulse: 1, pulse_id: first.id, landed: true, question: "Are names case-sensitive?", assumption: "Names are case-sensitive" },
+      { module: "app", pulse: 3, pulse_id: second.id, landed: false, question: "What happens to an archived contact?", assumption: "It is left as synced" },
+    ]);
+  });
+
+  it("is an empty list when no agent met one", () => {
+    expect((report().build() as { spec_gaps: unknown }).spec_gaps).toEqual([]);
+  });
+});
+
 describe("how the run report says the run ended", () => {
   it("is running until the run ends, then what the run decided - unless a crash came after", () => {
     const reporter = report();

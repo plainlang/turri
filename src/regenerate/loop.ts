@@ -6,7 +6,7 @@ import { ACCEPTANCE_TESTS, FUNCTIONAL_REQUIREMENTS, REQUIRED_FUNCTIONAL_SPECS, T
 import { reportActivity, reportStage } from "./activity.ts";
 import { llmChunkAgents, MAX_LINES_PER_JOB, MAX_SPECS_PER_JOB, planChunks, stepsOf, type ChunkAgents, type PlanInput } from "./chunk-plan.ts";
 import { commitNotes, recordHistory, resetToLastCommit } from "./lineage.ts";
-import { NOTES_FILE, recordPulse } from "./notes.ts";
+import { NOTES_FILE, recordPulse, type SpecGap } from "./notes.ts";
 import { createJobRegistry, formatDuration, type Job, type JobRegistry } from "./jobs.ts";
 import { moduleLanes } from "./lanes.ts";
 import type { Steering } from "./steer.ts";
@@ -91,7 +91,7 @@ export type JobRunner = (
     steering?: JobSteering;
   },
   onDelta: (delta: string) => void,
-) => Promise<{ landed: boolean; report: string; story?: string }>;
+) => Promise<{ landed: boolean; report: string; story?: string; specGaps?: SpecGap[] }>;
 
 /** A codebase as the loop sees it, for the person. */
 export interface ModuleStatus {
@@ -945,7 +945,14 @@ export function createWorkLoop(options: {
         }
         return {
           report: released !== undefined ? `${report}\n\n${released}` : report,
-          details: { passed: result.landed, landed: result.landed, ...(released !== undefined ? { released: true } : {}), ...(result.story !== undefined ? { story: result.story } : {}) },
+          details: {
+            passed: result.landed,
+            landed: result.landed,
+            ...(released !== undefined ? { released: true } : {}),
+            ...(result.story !== undefined ? { story: result.story } : {}),
+            // The spec gaps its agents met, for a headless run to say - in the chat the report puts them to the person.
+            ...(result.specGaps !== undefined && result.specGaps.length > 0 ? { specGaps: result.specGaps } : {}),
+          },
         };
       },
     });
@@ -1926,7 +1933,7 @@ const defaultConformanceRunner: JobRunner = async (job, onDelta) => {
     writeTestsRecord(result.conformanceDir, job.planned.step.tree);
     recordHistory(job.buildDir, `conformance tests: ${job.planned.title}`);
   }
-  return { landed: result.passed, report: describeSpecDiffConformance(result) };
+  return { landed: result.passed, report: describeSpecDiffConformance(result), ...(result.specGaps !== undefined ? { specGaps: result.specGaps } : {}) };
 };
 
 /** A job as a spec diff render, landed on its unit tests: conformance is a track of its own. */
@@ -1943,7 +1950,9 @@ const defaultRunner: JobRunner = async (job, onDelta) => {
     onDelta,
   });
   // Landed code can be tried.
-  return { landed: result.passed, report: withTryItLine(describeSpecDiff(result), result.passed && result.restructured !== true), story: codeStory(result) };
+  return { landed: result.passed, report: withTryItLine(describeSpecDiff(result), result.passed && result.restructured !== true), story: codeStory(result),
+    ...(result.specGaps !== undefined ? { specGaps: result.specGaps } : {}),
+  };
 };
 
 /** How a code pulse went, for its line in the notes: the rounds it took, its test runs, what the debugger found. */

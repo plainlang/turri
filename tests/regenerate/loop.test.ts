@@ -230,6 +230,17 @@ describe("the work loop", () => {
     expect(git("status", "--porcelain")).toBe("");
   });
 
+  it("keeps the spec gaps a pulse's agents met in its job's details, for a headless run to say", async () => {
+    writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
+    const { run } = runner();
+    const gap = { question: "Should hello be capitalised?", assumption: "Hello is capitalised" };
+    const registry = createJobRegistry();
+    const loop = createWorkLoop({ registry, cwd: dir, planner: false, run: async (job, onDelta) => ({ ...(await run(job, onDelta)), specGaps: [gap] }) });
+    await loop.bringUp("app.plain");
+    await loop.drain();
+    expect(registry.list().map((job) => (job.details as { specGaps?: unknown }).specGaps)).toEqual([[gap]]);
+  });
+
   it("has nothing to do when only the test reqs changed", async () => {
     writeFileSync(join(dir, "app.plain"), app(["Say hello."]));
     const { ran, run } = runner();
