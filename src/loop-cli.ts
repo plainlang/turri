@@ -15,6 +15,7 @@ import {
 } from "./config.ts";
 import { PACKAGE_ROOT } from "./environment.ts";
 import { c } from "./module-report.ts";
+import { describeTurnIncident, onModelEvent } from "./regenerate/activity.ts";
 import { tryItCommand } from "./regenerate/delivery.ts";
 import { describeDiagnosis, diagnoseFailure } from "./regenerate/diagnose.ts";
 import { createJobRegistry, pulseName, type Job } from "./regenerate/jobs.ts";
@@ -77,6 +78,7 @@ export async function runLoop(options: {
           ...(buildDir !== undefined ? { buildDir } : {}),
           conformanceTests: conformanceLabel(project.conformanceTests),
           review: project.review === true,
+          mutationTesting: project.mutationTesting !== false,
           models: reportModels(project, model),
         })
       : undefined;
@@ -121,6 +123,11 @@ async function runLoopReporting(
       else for (const gap of (job.details as { specGaps?: SpecGap[] } | undefined)?.specGaps ?? []) console.log(c.yellow(`  spec gap: ${gap.question}`), c.dim(`Meanwhile: ${gap.assumption}`));
       report?.write();
     },
+  });
+  // A provider failing and waited out, a turn turri ended itself: said as they happen, not left in the job logs alone.
+  onModelEvent((event) => {
+    const line = describeTurnIncident(event);
+    if (line !== undefined) console.log(c.yellow(`  ${event.job !== undefined ? `${event.job}: ` : ""}${line}`));
   });
   const planner = modelSpec(projectModels(project).harness);
   const loop = createWorkLoop({
@@ -281,7 +288,7 @@ function reportModels(project: ProjectConfig, model: string | undefined): Record
 
 /**
  * The options every command that regenerates takes for a headless run: `--report` and `--build-dir`, and the config's
- * own keys (configKeyOptions) - `--harness-model`, `--coding-model` (`--model`), `--judge-model`, `--review` and, where
+ * own keys (configKeyOptions) - `--harness-model`, `--coding-model` (`--model`), `--judge-model`, `--review`, `--mutation-testing` and, where
  * `conformance` is true, `--conformance-tests` - read as if config.turri.yaml had them. Exits on a value it cannot read.
  */
 export function headlessOptions(options: Record<string, string | undefined>, conformance: boolean): { report?: string; buildDir?: string } {

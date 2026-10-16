@@ -157,3 +157,117 @@ describe("the reasoning effort turri sends itself", () => {
     expect(withReasoningEffort(payload, { api: "google-generative-ai", id: "gemini-3.8-flash", reasoning: true }, "high")).toBe(payload);
   });
 });
+
+describe("a turn turri stops itself", () => {
+  /**
+   * A session whose agent makes `calls` failing tool calls, each answered as pi answers a call its arguments fail - then,
+   * aborted, ends as pi ends an aborted turn: an assistant message with stopReason error.
+   */
+  function failingSession(calls: number) {
+    const listeners: Array<(event: unknown) => void> = [];
+    let aborted = 0;
+    const emit = (event: unknown) => {
+      for (const listener of [...listeners]) listener(event);
+    };
+    const session = {
+      model: { id: "eu.anthropic.claude-haiku-5-5" },
+      subscribe(listener: (event: unknown) => void) {
+        listeners.push(listener);
+        return () => void listeners.splice(listeners.indexOf(listener), 1);
+      },
+      async prompt() {
+        emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Submitting." } });
+        for (let call = 0; call < calls && aborted === 0; call += 1) {
+          emit({ type: "tool_execution_start", toolName: "submit_exploration", args: {} });
+          emit({ type: "tool_execution_end", toolName: "submit_exploration", isError: true, result: { content: [{ type: "text", text: "interfaces.0: must be object" }] } });
+        }
+        if (aborted > 0) emit({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted" } });
+      },
+      async abort() {
+        aborted += 1;
+      },
+    };
+    return { session: session as unknown as AgentSession, aborted: () => aborted, emit };
+  }
+
+  it("after failed calls in a row ends as any turn ends - not as a provider error - so the caller's fallback runs", async () => {
+    const { onModelEvent } = await import("../src/regenerate/activity.ts");
+    const { FAILURES_BEFORE_STOP } = await import("../src/pi.ts");
+    const events: unknown[] = [];
+    const stop = onModelEvent((event) => events.push(event));
+    const { session, aborted } = failingSession(FAILURES_BEFORE_STOP + 5);
+    const reply = await ask(session, "Explore the code.");
+    stop();
+    expect(aborted()).toBe(1);
+    expect(reply).toBe(`Submitting.\n\n[the turn was stopped: ${FAILURES_BEFORE_STOP} submit_exploration calls failed in a row]`);
+    expect(events).toContainEqual(expect.objectContaining({ kind: "stopped", reason: `${FAILURES_BEFORE_STOP} submit_exploration calls failed in a row` }));
+  });
+
+  it("is told apart from an abort turri did not make: that one is still the provider failing", async () => {
+    const { ProviderError } = await import("../src/pi.ts");
+    const listeners: Array<(event: unknown) => void> = [];
+    const session = {
+      model: { id: "m" },
+      subscribe(listener: (event: unknown) => void) {
+        listeners.push(listener);
+        return () => void listeners.splice(listeners.indexOf(listener), 1);
+      },
+      async prompt() {
+        for (const listener of [...listeners]) listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted" } });
+      },
+      async abort() {},
+    } as unknown as AgentSession;
+    await expect(ask(session, "Go.")).rejects.toBeInstanceOf(ProviderError);
+  });
+
+  it("for the same call made again and again ends as any turn ends too", async () => {
+    const { guardRepeats, REPEATS_BEFORE_STOP } = await import("../src/pi.ts");
+    const { session, emit } = failingSession(0);
+    let aborted = false;
+    const tool = { name: "read", label: "read", description: "", parameters: {}, execute: async () => ({ content: [{ type: "text", text: "same" }] }) };
+    const [guarded] = guardRepeats([tool as never], () => session);
+    (session as unknown as { abort: () => Promise<void> }).abort = async () => void (aborted = true);
+    (session as unknown as { prompt: () => Promise<void> }).prompt = async () => {
+      for (let call = 0; call <= REPEATS_BEFORE_STOP && !aborted; call += 1) await guarded!.execute("id", { path: "a.ts" }, undefined, undefined, undefined as never).catch(() => {});
+      emit({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted" } });
+    };
+    expect(await ask(session, "Read it.")).toBe(`[the turn was stopped: the same read call ${REPEATS_BEFORE_STOP + 1} times with nothing changed]`);
+  });
+});
+
+describe("the wait before a provider is tried again", () => {
+  it("doubles each time up to the longest, a tenth either way", async () => {
+    const { providerRetryDelay, PROVIDER_RETRY_DELAY_MS, PROVIDER_RETRY_MAX_DELAY_MS, PROVIDER_RETRIES } = await import("../src/pi.ts");
+    const middle = () => 0.5;
+    expect([0, 1, 2, 3, 4, 5].map((attempt) => providerRetryDelay(attempt, middle) / PROVIDER_RETRY_DELAY_MS)).toEqual([1, 2, 4, 8, 16, 20]);
+    expect(providerRetryDelay(10, middle)).toBe(PROVIDER_RETRY_MAX_DELAY_MS);
+    expect(providerRetryDelay(0, () => 0)).toBe(Math.round(PROVIDER_RETRY_DELAY_MS * 0.9));
+    expect(PROVIDER_RETRIES).toBe(6);
+  });
+
+  it("is said as it happens, for the chat and a headless run to show", async () => {
+    const { onModelEvent } = await import("../src/regenerate/activity.ts");
+    const events: Array<{ kind: string; attempt?: number; of?: number; error?: string }> = [];
+    const stop = onModelEvent((event) => events.push(event));
+    const listeners: Array<(event: unknown) => void> = [];
+    let prompts = 0;
+    const session = {
+      model: { id: "flaky" },
+      subscribe(listener: (event: unknown) => void) {
+        listeners.push(listener);
+        return () => void listeners.splice(listeners.indexOf(listener), 1);
+      },
+      async prompt() {
+        prompts += 1;
+        for (const listener of [...listeners]) {
+          if (prompts === 1) listener({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "529 overloaded" } });
+          else listener({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Done." } });
+        }
+      },
+      async abort() {},
+    } as unknown as AgentSession;
+    expect(await ask(session, "Go.")).toBe("Done.");
+    stop();
+    expect(events.filter((event) => event.kind === "provider_retry")).toEqual([expect.objectContaining({ attempt: 1, of: 6, error: "flaky: 529 overloaded" })]);
+  });
+});

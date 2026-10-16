@@ -143,7 +143,7 @@ export function unitReviewTask(options: {
           "  assertion so loose any answer passes, an expected value computed the way the code computes it.",
           ...(options.canItFail === true
             ? [
-                "- A test you doubt can fail, check: can_it_fail puts a bug in a copy of the code - a condition turned round, a",
+                "- A test you doubt can fail, check: can_it_fail puts a bug in the code for one run - a condition turned round, a",
                 "  value changed - and runs the unit tests on it. A test that still passes cannot fail: raise it as bad, with the",
                 `  bug it missed. ${REVIEWER_CAN_IT_FAIL_RUNS} runs a session: spend them on the tests the work rests on.`,
               ]
@@ -246,7 +246,7 @@ export async function createUnitReviewer(options: {
   label: string;
   model?: string;
   onDelta?: (delta: string) => void;
-  /** The unit testing script, where it runs on a copy: the reviewer checks with can_it_fail that a test it doubts can fail. */
+  /** The unit testing script: the reviewer checks with can_it_fail that a test it doubts can fail. */
   unitScript?: string;
   /** The unit testing script, word for word, in its task. */
   testingScript?: { path: string; content: string };
@@ -367,7 +367,7 @@ export async function untilUnitTestsReviewed(options: {
   work?: WorkLedger;
   /** Send the coding agent back once for problems its account left unanswered. Default true when `work` is given. */
   askForAnswers?: boolean;
-  /** The unit testing script, where it runs on a copy: the reviewer checks with can_it_fail that a test it doubts can fail. */
+  /** The unit testing script: the reviewer checks with can_it_fail that a test it doubts can fail. */
   unitScript?: string;
   /** The unit testing script, word for word, for the reviewer to read. */
   testingScript?: { path: string; content: string };

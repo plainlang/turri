@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { workDiff } from "./lineage.ts";
-import { lastPassingMs, runOnCode, type ScriptRun } from "./test-scripts.ts";
+import { lastPassingMs, runOnCode, scriptsRunInPlace, type ScriptRun } from "./test-scripts.ts";
 
 /**
  * Tools an agent checks its own work with, before the harness and the reviewer do: the diff the reviewer is shown, and
@@ -50,6 +50,8 @@ export function canItFailLimitMs(buildDir: string, script: string): number {
  */
 export function createCanItFailTool(options: { buildDir: string; script: string; runs?: number }): ToolDefinition {
   let left = options.runs ?? CAN_IT_FAIL_RUNS;
+  // In place, the change is made to the code itself for the run, and undone after it: the scripts run on the code there.
+  const inPlace = scriptsRunInPlace(options.buildDir);
   return defineTool({
     name: "can_it_fail",
     label: "Can it fail",
@@ -57,10 +59,15 @@ export function createCanItFailTool(options: { buildDir: string; script: string;
       "Check that the unit tests catch a bug: give one change to the code that breaks a behaviour the specification " +
       "states - a value or a status changed, a check taken out, a condition turned round where it cannot make a loop run for " +
       "ever - and the unit testing script " +
-      "runs on a copy of the code with that change. The code itself is never touched. The tests should fail; if they all " +
+      (inPlace
+        ? "runs with that change made to the code, which is put back as it was once the run ends, whatever its result. "
+        : "runs on a copy of the code with that change. The code itself is never touched. ") +
+      "The tests should fail; if they all " +
       "pass, no test catches that bug. Make a change that still builds and runs: a failure only because it no longer " +
       `compiles or imports says nothing about the tests. ${options.runs ?? CAN_IT_FAIL_RUNS} runs at most.`,
-    promptSnippet: "can_it_fail: whether the unit tests catch a bug you put in a copy of the code",
+    promptSnippet: "can_it_fail: whether the unit tests catch a bug you put in the code for one run",
+    // Never beside another call: in place, an edit made while the bug is in would be undone with it.
+    executionMode: "sequential",
     parameters: Type.Object({
       file: Type.String({ description: "The code file to change, relative to the code folder" }),
       find: Type.String({ description: "Text that is in the file exactly once - the code to change" }),
@@ -89,7 +96,7 @@ export function createCanItFailTool(options: { buildDir: string; script: string;
           options.buildDir,
           options.script,
           "unit testing script, with the change",
-          (copy) => writeFileSync(join(copy, relative(options.buildDir, path)), text.slice(0, at) + replace + text.slice(at + find.length)),
+          { file: relative(options.buildDir, path), text: text.slice(0, at) + replace + text.slice(at + find.length) },
           canItFailLimitMs(options.buildDir, options.script),
         );
       } catch (error) {

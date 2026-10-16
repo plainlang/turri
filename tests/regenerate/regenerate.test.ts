@@ -341,6 +341,51 @@ describe("rendering a spec diff", () => {
     expect(prompts[0]).toContain('<resource name="the mockup" path="mockup.png" type="image/png">\n[an image: attached to your first message, image 1]');
   });
 
+  it("gives the coding agent can_it_fail where the testing scripts run in place, and its run leaves the code as the agent wrote it", async () => {
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const { ask } = await import("../../src/pi.ts");
+    let checked = "";
+    let task = "";
+    vi.mocked(ask).mockImplementation((async (session: StubSession & { task?: string }, prompt: string) => {
+      const own = (name: string) => session.tools.find((tool) => tool.name === name);
+      if (prompt === BEGIN && own("can_it_fail") !== undefined) {
+        task = session.task ?? "";
+        await own("write")!.execute("id", { path: "app.py", content: "def add(a, b):\n    return a + b\n" });
+        await own("write")!.execute("id", {
+          path: "test_app.py",
+          content: "import unittest\nfrom app import add\n\nclass AddTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(1, 2), 3)\n",
+        });
+        const result = (await own("can_it_fail")!.execute("id", { file: "app.py", find: "a + b", replace: "a - b" })) as { content: Array<{ text: string }> };
+        checked = result.content[0]!.text;
+        return agentRunning("python3 -m unittest discover", session, prompt);
+      }
+      return passingAgent(session, prompt);
+    }) as never);
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+    expect(task).toContain("check with can_it_fail that a test fails when it breaks");
+    expect(checked).toContain("The unit tests fail with app.py changed: something catches it.");
+    expect(result.passed).toBe(true);
+    expect(readFileSync(join(dir, "plain_modules", "app", "code", "app.py"), "utf8")).toBe("def add(a, b):\n    return a + b\n");
+  });
+
+  it("gives the coding agent no can_it_fail, nor tells it to use one, under mutation-testing: false", async () => {
+    writeFileSync(join(dir, "config.yaml"), "mutation-testing: false\n");
+    writeFileSync(join(dir, "app.plain"), plain(["- One."]));
+    const { ask } = await import("../../src/pi.ts");
+    const coders: Array<{ tools: string[]; task: string }> = [];
+    vi.mocked(ask).mockImplementation((async (session: StubSession, prompt: string) => {
+      if (prompt === BEGIN && session.tools.some((tool) => tool.name === "submit_work")) coders.push({ tools: session.tools.map((tool) => tool.name), task: session.task ?? "" });
+      return passingAgent(session, prompt);
+    }) as never);
+    const result = await renderSpecDiff({ plainFile: "app.plain", diff: diffOf(plain(["- One."]), plain(["- One.", "- Two."])), cwd: dir });
+    expect(result.passed).toBe(true);
+    expect(coders.length).toBeGreaterThan(0);
+    for (const coder of coders) {
+      expect(coder.tools).not.toContain("can_it_fail");
+      expect(coder.task).not.toContain("can_it_fail");
+    }
+  });
+
   it("tells the coding agent up front about its folder and this machine, beside its walls", async () => {
     writeFileSync(join(dir, "app.plain"), plain(["- One."]));
     const diff = diffOf(plain(["- One."]), plain(["- One.", "- Two."]));

@@ -22,6 +22,7 @@ import { projectDirOf } from "./regenerate/paths.ts";
  * conformance-tests: chosen                                 # all, chosen (those with acceptance tests, and those the chooser picks after each pulse), module (the chooser picks, and plans, once the module is regenerated) or false (default: false)
  * conformance-budget: 30%                                   # under chosen or module: how many functional specs a module may have chosen, beside those with acceptance tests - a count or a share (default: no limit)
  * review: false                                             # review the code and its tests once they pass (default: true)
+ * mutation-testing: false                                   # give the coding agent and the reviewer can_it_fail (default: true)
  * allow-to-stop-jobs: false                                 # stop a running job the spec moved on from (default: true)
  * release-after-pulse: true                                 # release what each pulse lands, as its last stage, before the next pulse (default: false)
  * rules-off: [integrations]                                 # ***plain rules to leave out of the prompts, by name (default: none)
@@ -387,6 +388,11 @@ export interface ProjectConfig {
    */
   review?: boolean;
   /**
+   * Whether the coding agent and the reviewer have can_it_fail: a bug put in the code for one run of the unit tests,
+   * to see that a test catches it - on a copy, or in place and put back after. Unset: true.
+   */
+  mutationTesting?: boolean;
+  /**
    * Whether turri stops a running job the spec has moved on from - a spec change, or a file it links edited - and
    * regenerates the spec as it now is instead. false: the job runs to its end and lands what it was regenerating, and
    * what changed since is regenerated on top of it by the next job: something lands as soon as it can, the software
@@ -451,6 +457,7 @@ export const CONFIG_KEYS = {
   conformanceTests: "conformance-tests",
   conformanceBudget: "conformance-budget",
   review: "review",
+  mutationTesting: "mutation-testing",
   allowToStopJobs: "allow-to-stop-jobs",
   releaseAfterPulse: "release-after-pulse",
   unittestsScript: "unittests-script",
@@ -534,12 +541,12 @@ function readStackedConfig(root: string, stack?: string): ProjectConfig {
 
 /**
  * What a command's own options say of the config's keys - `turri regenerate --harness-model`, `--coding-model`,
- * `--judge-model`, `--conformance-tests`, `--review` - read as if the file had them: each takes its key's value, and
+ * `--judge-model`, `--conformance-tests`, `--review`, `--mutation-testing` - read as if the file had them: each takes its key's value, and
  * every key keeps its place in the order, so a run is the same as one with them in config.turri.yaml - a `models:`
  * entry still winning over `harness-model`, `coding-model` or `judge-model`. A headless run needs no config file
  * edited. Never set in the conversation.
  */
-type RunOverrides = Partial<Pick<ProjectConfig, "harnessModel" | "codingModel" | "judgeModel" | "conformanceTests" | "review">>;
+type RunOverrides = Partial<Pick<ProjectConfig, "harnessModel" | "codingModel" | "judgeModel" | "conformanceTests" | "review" | "mutationTesting">>;
 
 let runOverrides: RunOverrides = {};
 
@@ -553,8 +560,8 @@ export function conformanceOption(value: string): ProjectConfig["conformanceTest
   return conformanceSetting(value);
 }
 
-/** `--review <value>`: the config's own, true or false. Undefined for anything else. */
-export function reviewOption(value: string): boolean | undefined {
+/** `--review <value>`, `--mutation-testing <value>`: the config's own, true or false. Undefined for anything else. */
+export function booleanOption(value: string): boolean | undefined {
   const word = value.trim().toLowerCase();
   return word === "true" ? true : word === "false" ? false : undefined;
 }
@@ -625,6 +632,7 @@ function readConfigFile(path: string): ProjectConfig {
     conformanceTests: conformanceSetting(conformance),
     conformanceBudget: budgetSetting(raw[CONFIG_KEYS.conformanceBudget]),
     review: typeof raw[CONFIG_KEYS.review] === "boolean" ? (raw[CONFIG_KEYS.review] as boolean) : undefined,
+    mutationTesting: typeof raw[CONFIG_KEYS.mutationTesting] === "boolean" ? (raw[CONFIG_KEYS.mutationTesting] as boolean) : undefined,
     allowToStopJobs: typeof raw[CONFIG_KEYS.allowToStopJobs] === "boolean" ? (raw[CONFIG_KEYS.allowToStopJobs] as boolean) : undefined,
     releaseAfterPulse: typeof raw[CONFIG_KEYS.releaseAfterPulse] === "boolean" ? (raw[CONFIG_KEYS.releaseAfterPulse] as boolean) : undefined,
     unittestsScript: text(raw[CONFIG_KEYS.unittestsScript]),

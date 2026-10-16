@@ -86,6 +86,7 @@ Useful options - `turri regenerate --help` lists all of them:
 | `--judge-model <provider/id>` | `judge-model`: the judge and the test review; not given, the coding model |
 | `--conformance-tests <all\|chosen\|module\|false>` | `conformance-tests`, with its values (`true` is `all`) |
 | `--review <true\|false>` | `review`: whether the code and its tests are reviewed once they pass |
+| `--mutation-testing <true\|false>` | `mutation-testing`: whether the coding agent and the reviewer have `can_it_fail` |
 | `--stack <name>` | build with the stack's `config.turri.<name>.yaml` over `config.turri.yaml`; default, `TURRI_STACK`, else none |
 | `--from-scratch` | delete the module's code and conformance tests (its lineage keeps them) and regenerate all of it |
 | `--from-scratch-chain` | the same for every module of its requires chain, the base's included, built again from the bottom |
@@ -153,6 +154,7 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
   "spec_file": "/work/app.plain", "project_dir": "/work", "build_dir": "/work/out",  // build_dir: null without one
   "conformance_tests": "all",                                                       // all | chosen | module | false
   "review": false,
+  "mutation_testing": true,
   "models": {
     "harness": { "model": "…", "thinking": "medium" },  // the planner, the chooser
     "coding":  { "model": "…", "thinking": "low" },
@@ -168,7 +170,7 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
   "usage": {
     "total": {
       "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_usd": 0,
-      "llm_calls": 0, "agent_turns": 0, "compactions": 0, "model_seconds": 0
+      "llm_calls": 0, "agent_turns": 0, "compactions": 0, "provider_retries": 0, "turns_stopped": 0, "model_seconds": 0
     },
     "in_pulses": { },       // the pulses' usage added up - the same fields
     "outside_pulses": { },  // the planner, the conformance chooser, a failed pulse's diagnosis
@@ -199,6 +201,10 @@ changes meaning or goes; new fields may appear in the same version. Paths in `pu
     "question": "What happens to a contact archived in HubSpot after it was synced?",
     "assumption": "An archived contact is left as synced - asserted in sync.test.ts, archived contacts"
   }],
+  "turn_incidents": [                                   // [] when none
+    { "kind": "provider_retry", "pulse_id": "2a058729", "role": "coding", "model": "…", "error": "…: 529 overloaded", "attempt": 1, "of": 6, "wait_seconds": 15.3 },
+    { "kind": "stopped", "pulse_id": "5c1e0b2f", "role": "conformance explorer", "model": "…", "reason": "10 submit_exploration calls failed in a row" }
+  ],
   "build_dir_export": { "exported": true, "dir": "/work/out", "module": "app", "commit": "8036b3b", "files": 23 },
   "logs": { "jobs_dir": ".turri/jobs", "debug_dir": ".turri/debug", "sessions_dir": ".turri/sessions" }
 }
@@ -223,6 +229,12 @@ headless run has no one to ask, so they are listed here, in the order the pulses
 pulse that met them. `assumption` is what the agent decided meanwhile, also in the codebase's notes'
 assumptions while its pulse is `landed`; a pulse rolled back takes it out of the notes, but the question still
 stands. Settle the ones you care about in the spec and run again.
+
+**Turn incidents.** Each time the model provider failed for a moment and turri waited it out before trying the
+turn again, and each turn turri stopped itself - an agent going round in a circle, its calls failing again and again,
+its time up - after which the run carried on. Both are printed as they happen, in yellow, under the pulse, and
+counted in the usage as `provider_retries` and `turns_stopped`. Many of either point at the model, not the spec: a
+provider at its limits, or a model too small for the role it was given.
 
 **Completed functional specs** - the pass rate, the figure to compare runs by.
 A functional spec is completed when the code record of the codebase the run delivers - the

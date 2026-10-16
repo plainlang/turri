@@ -29,6 +29,10 @@ export interface UsageTotals {
   /** Requests of the harness's to an agent, each as many calls as it takes. */
   agent_turns: number;
   compactions: number;
+  /** Turns the provider failed for a moment, waited out and tried again. */
+  provider_retries: number;
+  /** Turns turri ended itself - the agent going round in a circle, its time up - and carried on from. */
+  turns_stopped: number;
   /** How long the models took to answer, added up - from each request to its response's end. */
   model_seconds: number;
 }
@@ -76,6 +80,8 @@ export interface RunReportOptions {
   conformanceTests: string;
   /** Whether the code and its tests are reviewed once they pass. */
   review?: boolean;
+  /** Whether the coding agent and the reviewer had can_it_fail. */
+  mutationTesting?: boolean;
   models: Record<"harness" | "coding" | "judge", { model?: string; thinking?: string }>;
   /** Not given: the process's exit is listened for. Tests write the last report themselves. */
   onExit?: false;
@@ -92,6 +98,8 @@ const emptyTotals = (): UsageTotals => ({
   llm_calls: 0,
   agent_turns: 0,
   compactions: 0,
+  provider_retries: 0,
+  turns_stopped: 0,
   model_seconds: 0,
 });
 
@@ -111,7 +119,9 @@ function addEvent(totals: UsageTotals, event: ModelEvent, tokens: boolean): void
     totals.model_seconds += (event.ms ?? 0) / 1000;
     if (tokens) addUsage(totals, event.usage);
   } else if (event.kind === "turn") totals.agent_turns += 1;
-  else totals.compactions += 1;
+  else if (event.kind === "compaction") totals.compactions += 1;
+  else if (event.kind === "provider_retry") totals.provider_retries += 1;
+  else totals.turns_stopped += 1;
 }
 
 function sumTotals(a: UsageTotals, b: UsageTotals): UsageTotals {
@@ -262,6 +272,20 @@ export function startRunReport(options: RunReportOptions): RunReporter {
       }));
     });
 
+  /** Each turn the provider failed and turri waited out, and each turn turri ended itself: why, and where. */
+  const turnIncidentsOf = () =>
+    events
+      .filter((event) => event.kind === "provider_retry" || event.kind === "stopped")
+      .map((event) => ({
+        kind: event.kind,
+        pulse_id: event.job ?? null,
+        role: event.role ?? null,
+        model: event.model ?? null,
+        ...(event.kind === "stopped"
+          ? { reason: event.reason ?? null }
+          : { error: event.error ?? null, attempt: event.attempt ?? null, of: event.of ?? null, wait_seconds: Math.round((event.waitMs ?? 0) / 100) / 10 }),
+      }));
+
   const functionalitiesOf = (counts: CompletionCounts[] | undefined) => {
     if (counts === undefined) return null;
     const modules = counts.flatMap((chain) =>
@@ -308,6 +332,7 @@ export function startRunReport(options: RunReportOptions): RunReporter {
       build_dir: options.buildDir !== undefined ? resolve(options.buildDir) : null,
       conformance_tests: options.conformanceTests,
       review: options.review ?? null,
+      mutation_testing: options.mutationTesting ?? null,
       models: {
         ...Object.fromEntries(
           Object.entries(options.models).map(([role, choice]) => [role, { model: choice.model ?? null, thinking: choice.thinking ?? null }]),
@@ -330,6 +355,7 @@ export function startRunReport(options: RunReportOptions): RunReporter {
       pulses: pulsesOf(jobs, now),
       functionalities: functionalitiesOf(attempt(sources.completion)),
       spec_gaps: specGapsOf(jobs),
+      turn_incidents: turnIncidentsOf(),
       ...(exitParts ?? {}),
       logs: {
         jobs_dir: fromProject(join(projectRoot, ".turri", "jobs")),

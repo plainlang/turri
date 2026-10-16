@@ -123,7 +123,21 @@ An agent that goes round in a circle - the same tool called with the same argume
 nothing in between, or a look (read, grep, find, ls) made again with nothing changed since, however
 many other looks came between, so the same answer comes back - is let through three times; the next
 such call is refused with what is happening, and past six its turn is stopped, and the harness goes on
-from there as after any turn. The arguments are compared whatever order they come in.
+from there as after any turn. The arguments are compared whatever order they come in. So too an agent whose
+calls to one tool fail ten times in a row, nothing going through - a call its arguments do not fit never reaches
+any guard on the tools.
+
+A turn turri stops itself - for any of these, or for its time, below - ends as any turn ends: what the agent said
+stands, `[the turn was stopped: ...]` after it, and the caller does what it does when the agent handed nothing over
+(the explorer's fallback, a nudge, a failed round). The abort that ended it is never taken for the provider
+failing; an abort turri did not make still is. Each stop is said as it happens - a notification in the chat, a
+line in a headless run - and listed in the run report's `turn_incidents`.
+
+A tool argument that is a list of objects - the explorer's `interfaces` and `plan`, a reviewer's `problems` - is
+what small models get wrong most. Before a call's arguments are checked, a list sent as JSON text, entries sent as
+JSON text, one object for the list, or a list written inside another argument's text
+(`...</tests_reach_it><plan>[...]</plan>`) are taken as the list; what still is not one is refused saying which
+argument, what was sent, each entry's fields and an example (`list-arguments.ts`).
 
 The agents with one thing to decide have a budget of tool calls: the judge 30, the test review and the
 explorer 40. Past it every tool but the one that hands the decision over refuses, telling it to decide
@@ -245,12 +259,18 @@ use each:
 - **`my_diff`**: the diff of the code folder from the commit the job started from, new files whole - exactly
   what the reviewer is shown. Read before handing the work in: every part of the change in it, and nothing else.
 - **`can_it_fail`**: whether the unit tests catch a bug. The agent gives one change to a code file - a
-  condition turned round, a value changed - and the unit testing script runs on a fresh copy of the code with
-  it; the code itself is never touched. If every test still passes, no test catches that bug. Six
+  condition turned round, a value changed - and the unit testing script runs with it. Where the testing scripts
+  run on a copy (`testing-scripts-run-on: copy`), the change is made to a fresh copy and the code itself is never
+  touched. In place, the default, it is made to the code itself, so a script that finds the code from its own path
+  sees it; the file is put back as it was once the run ends - passed, failed, hung, the script failing to start, the
+  script rewriting the file, turri exiting. Killed outright, the next unit of work starts from the last commit anyway.
+  It never runs beside another call of the agent's, so no edit lands while the bug is in. What the script does
+  beyond the code - a package copied into a host codebase - it does with the bug in, until the next test run puts the
+  real code there. If every test still passes, no test catches that bug. Six
   runs a job. A bug often makes the code hang instead - a loop that never ends - so a run may take three times
   as long as the last passing run of the unit tests, within 15 and 60 seconds, and one that does not finish is
-  reported as a hang, not as a test that caught it. Only where the testing scripts run on a copy
-  (`testing-scripts-run-on: copy`): in place, the default, there is no copy to change.
+  reported as a hang, not as a test that caught it. `mutation-testing: false` in the [config](config.md) - or
+  `turri regenerate --mutation-testing false` - takes it away, from the reviewer too.
 - **`start_service`**, **`service_logs`**, **`stop_service`**: a server or a worker it built, started in the
   background on this machine, behind the same walls as its shell - the command check, the module's environment, the
   OS sandbox, the audit while it comes up - to try from outside with `curl` as a client would. Whatever the stack: the
@@ -561,7 +581,8 @@ does not find them:
 testing-scripts-run-on: copy
 ```
 
-`can_it_fail` needs a copy to change, so an agent has it only where the scripts run on one.
+`can_it_fail` works either way: on a copy it changes the copy; in place it changes the code for the one run and puts
+it back.
 
 ### When the environment lacks something
 

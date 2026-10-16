@@ -13,6 +13,7 @@ import {
 import { loadRules, renderRulesBlock } from "./rules.ts";
 import { inheritModel, stackOf, readProjectConfig, ROLE_THINKING, roleModel, roleTurnLimitMs, splitModelSpec, type AgentRole, type ProjectConfig } from "./config.ts";
 import { maskToolResults } from "./regenerate/masking.ts";
+import { withListArguments } from "./regenerate/list-arguments.ts";
 import { checkAgainstScript, ENVIRONMENT_ERROR_TOOL, EnvironmentError, environmentErrorTool, sandboxGapOf } from "./regenerate/environment-error.ts";
 import { MODULES_DIR, projectRootOf, sessionsDir } from "./regenerate/paths.ts";
 import {
@@ -178,6 +179,20 @@ export class ProviderError extends Error {
   }
 }
 
+/** Why turri itself ended a session's turn under way: the abort that comes back is its own, not the provider failing. */
+const harnessStops = new WeakMap<AgentSession, string>();
+
+/**
+ * End the agent's turn, turri's own doing - it is going round in a circle, its time is up. The turn ends as any turn
+ * does: what the agent said stands, and the harness goes on from there. Never a provider error.
+ */
+export function stopTurn(session: AgentSession | undefined, reason: string): void {
+  if (session === undefined || harnessStops.has(session)) return;
+  harnessStops.set(session, reason);
+  reportModelEvent({ kind: "stopped", ...modelEventOf(session), reason });
+  void session.abort();
+}
+
 /**
  * Run one turn and return the assistant's text, streaming deltas to `onDelta`.
  *
@@ -249,18 +264,32 @@ async function askUnrestricted(session: AgentSession, text: string, onDelta?: (d
       return reply;
     } catch (error) {
       if (!(error instanceof ProviderError) || !TRANSIENT_PROVIDER_ERROR.test(error.message) || attempt >= PROVIDER_RETRIES) throw error;
-      const wait = PROVIDER_RETRY_DELAY_MS * 2 ** attempt;
-      reportActivity(`  the model provider is failing for now - trying again in ${Math.round(wait / 1000)}s (${attempt + 1} of ${PROVIDER_RETRIES})`);
-      debugLogOf(session)?.note(`provider failing - trying again in ${Math.round(wait / 1000)}s: ${error.message.slice(0, 200)}`);
+      const wait = providerRetryDelay(attempt);
+      const shown = `${Math.round(wait / 1000)}s (${attempt + 1} of ${PROVIDER_RETRIES})`;
+      reportActivity(`  the model provider is failing for now - trying again in ${shown}`);
+      reportNow(`the model provider is failing - trying again in ${shown}`);
+      reportModelEvent({ kind: "provider_retry", ...modelEventOf(session), error: error.message, attempt: attempt + 1, of: PROVIDER_RETRIES, waitMs: wait });
+      debugLogOf(session)?.note(`provider failing - trying again in ${shown}: ${error.message.slice(0, 200)}`);
       await waitOrStop(wait);
+      reportNow(undefined);
       prompt = "Carry on where you were: the model provider failed part-way through your last turn.";
     }
   }
 }
 
-/** How many times, after pi's own retries, a turn whose provider failed for a moment is tried again - and the first wait, doubled each time. */
-export const PROVIDER_RETRIES = 3;
+/**
+ * How many times, after pi's own retries, a turn whose provider failed for a moment is tried again; the first wait,
+ * doubled each time up to the longest - 15s, 30s, 1m, 2m, 4m, 5m: an outage of about 13 minutes is waited out.
+ */
+export const PROVIDER_RETRIES = 6;
 export const PROVIDER_RETRY_DELAY_MS = Number(process.env.TURRI_PROVIDER_RETRY_DELAY ?? 15) * 1000;
+export const PROVIDER_RETRY_MAX_DELAY_MS = 20 * PROVIDER_RETRY_DELAY_MS;
+
+/** The wait before try `attempt + 1`: doubled each time, up to the longest, with a tenth either way so parallel jobs do not all come back at once. */
+export function providerRetryDelay(attempt: number, random = Math.random): number {
+  const base = Math.min(PROVIDER_RETRY_DELAY_MS * 2 ** attempt, PROVIDER_RETRY_MAX_DELAY_MS);
+  return Math.round(base * (0.9 + 0.2 * random()));
+}
 
 /** A provider error that passes: overloaded, rate limited, unreachable, timed out. */
 const TRANSIENT_PROVIDER_ERROR =
@@ -292,7 +321,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
   // Calls to one tool failing one after another - arguments it refuses, or errors - with nothing going through.
   let failing = 0;
   let failingTool: string | undefined;
-  let stoppedFailing = false;
+  harnessStops.delete(session);
   reportNow("waiting for the model");
   // Every entry says which agent it is from, and what it runs on - for reading one agent at a time.
   const agent = agentOf(session);
@@ -344,14 +373,13 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
     if (event.type === "tool_execution_end") {
       failing = event.isError ? (event.toolName === failingTool ? failing + 1 : 1) : 0;
       failingTool = event.isError ? event.toolName : undefined;
-      if (failing >= FAILURES_BEFORE_STOP && !stoppedFailing) {
+      if (failing >= FAILURES_BEFORE_STOP && !harnessStops.has(session)) {
         // A call its tool refuses never reaches the tool, so no guard on the tools sees it: an agent can
         // make the same bad call, worded a little differently, thousands of times. Its turn ends here, and
         // the harness goes on from there, as after any turn.
-        stoppedFailing = true;
         reportActivity(`  stopped the agent's turn: ${failing} ${shownName(event.toolName)} calls failed in a row`);
         debugLogOf(session)?.note(`turn stopped: ${failing} ${event.toolName} calls failed in a row`);
-        void session.abort();
+        stopTurn(session, `${failing} ${shownName(event.toolName)} calls failed in a row`);
       }
       const output = resultText(event.result);
       transcript({ kind: "result", text: clipText(output, MAX_TOOL_RESULT), error: event.isError, full: output });
@@ -414,7 +442,7 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
     stopped = true;
     reportActivity(`  stopped the agent's turn: its ${formatLimit(limitMs)} are up`);
     debug?.note(`turn stopped: its ${formatLimit(limitMs)} are up${how}`);
-    void session.abort();
+    stopTurn(session, `its ${formatLimit(limitMs)} were up`);
   };
   const atNextRequest = timed
     ? session.subscribe((event) => {
@@ -449,15 +477,18 @@ async function askOnce(session: AgentSession, text: string, onDelta?: (delta: st
     stop?.removeEventListener("abort", onStop);
     reportNow(undefined);
   }
-  if (stopped) out = `${out.trim()}\n\n[the turn was stopped: its ${formatLimit(limitMs)} were up]`.trim();
+  // turri ended the turn itself - its time was up, the agent went round in a circle: the abort that ended it is its own.
+  const stoppedFor = harnessStops.get(session);
+  harnessStops.delete(session);
+  if (stoppedFor !== undefined) out = `${out.trim()}\n\n[the turn was stopped: ${stoppedFor}]`.trim();
 
   if (stop?.aborted) {
     debug?.note(`turn stopped on request after ${seconds(Date.now() - turnStarted)}`);
     throw new JobStoppedError();
   }
 
-  // A turn ended for its time is ended, whatever the provider was doing then.
-  if (providerError !== undefined && !stopped) {
+  // A turn turri ended is ended, whatever the provider was doing then: what comes back of the abort is not the provider failing.
+  if (providerError !== undefined && stoppedFor === undefined) {
     debug?.note(`turn ended with a provider error after ${seconds(Date.now() - turnStarted)}: ${providerError}`);
     throw new ProviderError(`${session.model?.id ?? "model"}: ${providerError}`);
   }
@@ -685,7 +716,7 @@ export function guardRepeats(tools: ToolDefinition[], session: () => AgentSessio
         refused += 1;
         if (refused > REFUSED_BEFORE_STOP) {
           reportActivity(`  stopped the agent's turn: ${refused} calls to tools this turn does not have`);
-          void current?.abort();
+          stopTurn(current, `${refused} calls to tools this turn does not have`);
           throw new Error(`Stopped: ${refused} calls to tools this turn does not have.`);
         }
         throw new Error(
@@ -697,7 +728,7 @@ export function guardRepeats(tools: ToolDefinition[], session: () => AgentSessio
       if (budget !== undefined && !budget.finish.includes(tool.name) && calls > budget.calls) {
         if (calls > budget.calls * 2) {
           reportActivity(`  stopped the agent's turn: ${calls} tool calls, past its budget of ${budget.calls}`);
-          void session()?.abort();
+          stopTurn(session(), `${calls} tool calls, past its budget of ${budget.calls}`);
           throw new Error(`Stopped: ${calls} tool calls, past the budget of ${budget.calls}.`);
         }
         throw new Error(
@@ -725,7 +756,7 @@ export function guardRepeats(tools: ToolDefinition[], session: () => AgentSessio
       }
       if (repeats > REPEATS_BEFORE_STOP) {
         reportActivity(`  stopped the agent's turn: it made the same ${tool.name} call ${repeats} times with nothing changed`);
-        void session()?.abort();
+        stopTurn(session(), `the same ${tool.name} call ${repeats} times with nothing changed`);
         throw new Error(`Stopped: the same ${tool.name} call ${repeats} times with nothing changed.`);
       }
       if (repeats > REPEATS_ALLOWED) {
@@ -817,7 +848,7 @@ export async function createExecutor(opts: {
     modelRuntime: await subAgentModelRuntime(),
     tools: hasShell ? [...opts.tools, ENVIRONMENT_ERROR_TOOL] : opts.tools,
     // What an agent is shown never holds a credential the project passed: each value is its name (masking.ts).
-    customTools: guardRepeats(maskToolResults(withEnvironmentErrors), () => session, opts.budget),
+    customTools: guardRepeats(maskToolResults(withListArguments(withEnvironmentErrors)), () => session, opts.budget),
     sessionManager,
     resourceLoader: await subAgentResources(opts.cwd, opts.rules === true, [opts.system, opts.task].filter((part) => part !== undefined && part !== "").join("\n\n") || undefined),
   });
@@ -945,7 +976,7 @@ export async function createJudge(opts: {
     model,
     modelRuntime,
     tools: [...(opts.extraTools ?? []), "submit_verdict"],
-    customTools: [opts.verdictTool],
+    customTools: withListArguments([opts.verdictTool]),
     sessionManager: SessionManager.inMemory(opts.cwd),
     // Judges assess specs against the rules, so they have them too.
     resourceLoader: await subAgentResources(opts.cwd, true, opts.task),

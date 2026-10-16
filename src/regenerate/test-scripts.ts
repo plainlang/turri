@@ -377,6 +377,11 @@ export function setScriptTimeoutForTests(ms: number | undefined): void {
  * own paths start - and whether they run on the code in place (the default), rather than on a fresh copy
  * (`testing-scripts-run-on: copy`).
  */
+/** Whether the testing scripts run on the code in `buildDir` itself, not on a copy of it. */
+export function scriptsRunInPlace(buildDir: string): boolean {
+  return projectOfBuild(buildDir).inPlace;
+}
+
 function projectOfBuild(buildDir: string): { root: string; inPlace: boolean } {
   const parts = resolve(buildDir).split(sep);
   const index = parts.lastIndexOf("plain_modules");
@@ -496,33 +501,77 @@ export function lastPassingMs(buildDir: string, script: string): number | undefi
   return lastPassing.get(`${resolve(buildDir)}\n${script}`);
 }
 
+/** A change to one code file for a run: the file, relative to the code folder, and the text it holds for the run. */
+export interface CodeChange {
+  file: string;
+  text: string;
+}
+
+/** Files changed in place for a run under way, and what each held: put back however the run ends - the process exiting too. */
+const changedInPlace = new Map<string, Buffer>();
+let restoreOnExit = false;
+
+function putBack(path: string): void {
+  const original = changedInPlace.get(path);
+  if (original === undefined) return;
+  writeFileSync(path, original);
+  changedInPlace.delete(path);
+}
+
 /**
- * A script that takes the code folder - the unit testing script - run where the testing scripts
- * run. `change`: what to do to the fresh copy before it runs - only where there is a copy; never in place.
+ * `run` with `change` made to the code itself, and undone once it ends - passed, failed, timed out, thrown, or the process
+ * exiting. Killed outright, the change is left: the next unit of work starts from the last commit (lineage.ts startWork).
+ */
+async function withChangeInPlace<T>(buildDir: string, change: CodeChange, run: () => Promise<T>): Promise<T> {
+  const path = resolve(buildDir, change.file);
+  if (changedInPlace.has(path)) throw new Error(`${change.file} is being changed for another run already.`);
+  if (!restoreOnExit) {
+    restoreOnExit = true;
+    process.once("exit", () => {
+      for (const changed of [...changedInPlace.keys()]) putBack(changed);
+    });
+  }
+  changedInPlace.set(path, readFileSync(path));
+  try {
+    writeFileSync(path, change.text);
+    return await run();
+  } finally {
+    putBack(path);
+  }
+}
+
+/**
+ * A script that takes the code folder - the unit testing script - run where the testing scripts run. `change`: one file
+ * as it is for this run - made to the fresh copy, or, in place, to the code itself and undone once the run ends.
  */
 export async function runOnCode(
   buildDir: string,
   script: string,
   what: string,
-  change?: (copy: string) => void,
+  change?: CodeChange,
   /** A time limit of its own, in place of a test run's. */
   limitMs?: number,
 ): Promise<ScriptRun> {
   const project = projectOfBuild(buildDir);
+  const passed = (run: ScriptRun, started: number) => {
+    if (change === undefined && run.exitCode === 0) lastPassing.set(`${resolve(buildDir)}\n${script}`, Date.now() - started);
+    return run;
+  };
   if (project.inPlace) {
-    if (change !== undefined) throw new Error("This runs only where the testing scripts run on a copy: here they run in place, on the code itself.");
-    return runScript(project.root, script, [resolve(buildDir)], buildDir);
+    const inPlace = () => runScript(project.root, script, [resolve(buildDir)], buildDir, limitMs !== undefined ? { limitMs } : {});
+    const started = Date.now();
+    if (change === undefined) return passed(await inPlace(), started);
+    reportActivity(`  changing ${change.file} in place for the ${what} - put back once it has run`);
+    return withChangeInPlace(buildDir, change, inPlace);
   }
   const staging = stagingFor(buildDir);
   rmSync(staging.root, { recursive: true, force: true });
   ensureInModulesScratch(buildDir, staging.root);
   try {
     reportActivity(`  copying ${stageBuild(buildDir, staging.build)} files of the code for the ${what}`);
-    change?.(staging.build);
+    if (change !== undefined) writeFileSync(join(staging.build, change.file), change.text);
     const started = Date.now();
-    const run = await runOnCopy(staging.root, script, [staging.build], buildDir, limitMs);
-    if (change === undefined && run.exitCode === 0) lastPassing.set(`${resolve(buildDir)}\n${script}`, Date.now() - started);
-    return run;
+    return passed(await runOnCopy(staging.root, script, [staging.build], buildDir, limitMs), started);
   } finally {
     rmSync(staging.root, { recursive: true, force: true });
   }

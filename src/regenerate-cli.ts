@@ -26,6 +26,9 @@ its conformance tests too when they are on.
   --coding-model <p/id>    its coding-model, --model too: the agents that build; p/id:level for how hard a model thinks
   --judge-model <p/id>     its judge-model: the judge and the test review
   --review <true|false>    its review: whether the code and its tests are reviewed once they pass
+  --mutation-testing <true|false>
+                           its mutation-testing: whether the coding agent and the reviewer can put a bug in the code
+                           for one test run (can_it_fail), to see that a test catches it
   --conformance-tests <all|chosen|module|false>
                            its conformance-tests: which conformance tests are written and run
   --build-dir <dir>        as the run ends, however it ends, export the code there: the furthest-built codebase's
@@ -35,7 +38,7 @@ its conformance tests too when they are on.
 
   PLAIN_TEMPLATE_DIRS      colon-separated template directories`;
 
-const { positional, options } = parseArgs(process.argv.slice(2), ["--dry-run", "--start-over", "--from-scratch", "--from-scratch-chain"], USAGE, ["--build-dir", "--report", "--conformance-tests", "--harness-model", "--judge-model", "--review"]);
+const { positional, options } = parseArgs(process.argv.slice(2), ["--dry-run", "--start-over", "--from-scratch", "--from-scratch-chain"], USAGE, ["--build-dir", "--report", "--conformance-tests", "--harness-model", "--judge-model", "--review", "--mutation-testing"]);
 const { report, buildDir } = headlessOptions(options, true);
 const named = positional[0] ?? readProjectConfig(process.cwd()).module;
 // Functional specs named after the file: regenerated again though their spec did not change.

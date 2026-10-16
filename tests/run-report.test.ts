@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { conformanceOption, overrideConfig, projectModels, readProjectConfig, reviewOption, roleModel } from "../src/config.ts";
-import { parseArgs } from "../src/cli-options.ts";
+import { conformanceOption, overrideConfig, projectModels, readProjectConfig, booleanOption, roleModel } from "../src/config.ts";
+import { configKeyOptions, parseArgs } from "../src/cli-options.ts";
 import { headlessOptions, moduleStates } from "../src/loop-cli.ts";
 import { reportModelEvent, reportUsage } from "../src/regenerate/activity.ts";
 import { createJobRegistry } from "../src/regenerate/jobs.ts";
@@ -109,6 +109,20 @@ describe("the run report's spec gaps", () => {
 
   it("is an empty list when no agent met one", () => {
     expect((report().build() as { spec_gaps: unknown }).spec_gaps).toEqual([]);
+  });
+});
+
+describe("the run report's turn incidents", () => {
+  it("lists each provider failure waited out and each turn turri stopped, and counts them in the usage", () => {
+    const reporter = report();
+    reportModelEvent({ kind: "provider_retry", model: "p/small:low", role: "coding", error: "529 overloaded", attempt: 1, of: 6, waitMs: 15000 });
+    reportModelEvent({ kind: "stopped", model: "p/small:low", role: "conformance explorer", reason: "10 submit_exploration calls failed in a row" });
+    const built = reporter.build() as { turn_incidents: unknown; usage: { total: UsageTotals } };
+    expect(built.turn_incidents).toEqual([
+      { kind: "provider_retry", pulse_id: null, role: "coding", model: "p/small:low", error: "529 overloaded", attempt: 1, of: 6, wait_seconds: 15 },
+      { kind: "stopped", pulse_id: null, role: "conformance explorer", model: "p/small:low", reason: "10 submit_exploration calls failed in a row" },
+    ]);
+    expect(built.usage.total).toMatchObject({ provider_retries: 1, turns_stopped: 1, compactions: 0 });
   });
 });
 
@@ -270,7 +284,17 @@ describe("a headless run's options", () => {
   it("takes the config's own values, and only those", () => {
     expect(["all", "true", "chosen", "module", "false"].map(conformanceOption)).toEqual([true, true, "chosen", "module", false]);
     expect(conformanceOption("off")).toBeUndefined();
-    expect(["true", "false", "off"].map(reviewOption)).toEqual([true, false, undefined]);
+    expect(["true", "false", "off"].map(booleanOption)).toEqual([true, false, undefined]);
+  });
+
+  it("reads --mutation-testing as the config's mutation-testing, over what the file says, and refuses anything but true or false", () => {
+    writeFileSync(join(dir, "config.turri.yaml"), "mutation-testing: true\n");
+    expect(readProjectConfig(dir).mutationTesting).toBe(true);
+    configKeyOptions({ "mutation-testing": "false" }, { review: true });
+    expect(readProjectConfig(dir).mutationTesting).toBe(false);
+    const run = spawnSync(process.execPath, [TURRI, "regenerate", "app.plain", "--mutation-testing", "maybe"], { cwd: dir, encoding: "utf8" });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("--mutation-testing takes true or false, not maybe");
   });
 
   it("refuses a value it cannot read", () => {

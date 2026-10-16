@@ -44,7 +44,7 @@ import { createJobsTreeState, selectJob } from "./regenerate/jobs-tree.ts";
 import { describeDiagnosis, diagnoseFailure } from "./regenerate/diagnose.ts";
 import { HISTORY_DIR, historyLog, historyShow } from "./regenerate/lineage.ts";
 import { defaultBuildDir } from "./regenerate/paths.ts";
-import { describeUsage, type SpecConflict } from "./regenerate/activity.ts";
+import { describeTurnIncident, describeUsage, onModelEvent, type SpecConflict } from "./regenerate/activity.ts";
 import { describeSpecConflict } from "./regenerate/stop-report.ts";
 import { inheritProviders, inheritThinkingLevel } from "./pi.ts";
 import { beginCapture, captureConsole, describeCaptured, dropNoise } from "./quiet.ts";
@@ -376,6 +376,18 @@ export default function (pi: ExtensionAPI) {
   };
   pi.on("agent_end", endTurnCapture);
   pi.on("agent_settled", endTurnCapture);
+
+  // A pulse's provider failing and waited out, or a turn turri ended itself: said in the chat as it happens - the job
+  // panel's activity holds it too, but scrolls by.
+  let stopTurnIncidents: (() => void) | undefined;
+  pi.on("session_start", (_event, ctx) => {
+    stopTurnIncidents?.();
+    if (!ctx.hasUI) return;
+    stopTurnIncidents = onModelEvent((event) => {
+      const line = describeTurnIncident(event);
+      if (line !== undefined) ctx.ui.notify(event.job !== undefined ? `${event.job}: ${line}` : line, "warning");
+    });
+  });
 
   // What a turri that was killed left running - its commands' process groups - stopped as this one starts.
   const orphans = sweepOrphanedGroups();

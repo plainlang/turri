@@ -92,6 +92,7 @@ export function settings(rules: string[] = []): Setting[] {
     { key: "conformance-tests", about: "which functional specs get conformance tests", kind: "choice", options: ["all", "chosen", "module", "false"], unset: "all, where a module has test reqs", effect: "next-plan" },
     { key: "conformance-budget", about: "under conformance-tests: chosen or module, how many may be chosen - a count or a share", kind: "budget", options: ["10%", "30%", "50%", "5", "10"], unset: "no limit", effect: "next-plan" },
     { key: "review", about: "whether the code and its tests are reviewed once they pass", kind: "boolean", unset: "true", effect: "next-pulse" },
+    { key: "mutation-testing", about: "whether the coding agent and the reviewer can put a bug in the code for one test run (can_it_fail)", kind: "boolean", unset: "true", effect: "next-pulse" },
     { key: "allow-to-stop-jobs", about: "whether turri stops a running pulse the spec has moved on from", kind: "boolean", unset: "true", effect: "now" },
     { key: "release-after-pulse", about: "whether every pulse that lands code releases it", kind: "boolean", unset: "false", effect: "next-landing" },
     { key: "unittests-script", about: "the unit testing script, by path from the project root", kind: "path", unset: "the one run_unittests*.sh found", effect: "next-test-run" },

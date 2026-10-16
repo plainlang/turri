@@ -396,9 +396,11 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
   const work = createWorkLedger();
   // What it checks its own work with: the diff its reviewer is shown, and whether a test catches a bug - neither decides anything.
   const gate = createUnitGate(buildDir, scripts.unit);
+  // can_it_fail, for the coding agent and its reviewer: on unless mutation-testing says otherwise.
+  const mutationTesting = scripts.unit !== undefined && configForSpec(tip.plainFile).mutationTesting !== false;
   const selfChecks = [
     createMyDiffTool({ dir: buildDir, what: "code" }),
-    ...(scripts.runOn === "copy" ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
+    ...(mutationTesting ? [createCanItFailTool({ buildDir, script: scripts.unit! })] : []),
   ];
   // A server it built, it can start and try from outside - stopped when it is done.
   const services = createServiceTools({ dir: buildDir });
@@ -612,7 +614,7 @@ export async function renderSpecDiff(options: RenderSpecDiffOptions): Promise<Re
         forChange: true,
         ...(options.cases !== undefined ? { cases: options.cases } : {}),
         label: `${moduleName} spec change`,
-        ...(scripts.runOn === "copy" ? { unitScript: scripts.unit! } : {}),
+        ...(mutationTesting ? { unitScript: scripts.unit! } : {}),
         testingScript: { path: relative(root, scripts.unit!), content: readFileSync(scripts.unit!, "utf8") },
         model: options.judgeModel ?? modelSpec(inheritModel(configForSpec(tip.plainFile).judgeModel, modelOnly(options.model))),
         send: async (next) => {

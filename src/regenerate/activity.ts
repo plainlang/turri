@@ -210,10 +210,19 @@ const store = new AsyncLocalStorage<ActivitySink>();
 /**
  * Something an agent did with its model, wherever it ran - in a pulse or not, the planner and the chooser too: what a
  * headless run's report adds up (run-report.ts). A call is one model response; a turn, one request of the harness's
- * to an agent, as many calls as it takes; a compaction, its work summed up - a call of its own.
+ * to an agent, as many calls as it takes; a compaction, its work summed up - a call of its own. A provider retry is a
+ * turn the provider failed for a moment, waited out and tried again; a stop, a turn turri itself ended - the agent going
+ * round in a circle, or its time up - after which the harness carries on as after any turn.
  */
 export interface ModelEvent {
-  kind: "call" | "turn" | "compaction";
+  kind: "call" | "turn" | "compaction" | "provider_retry" | "stopped";
+  /** For a provider retry: what the provider said, the try this is and how many there may be, and the wait before it. */
+  error?: string;
+  attempt?: number;
+  of?: number;
+  waitMs?: number;
+  /** For a stop: why turri ended the turn. */
+  reason?: string;
   /** "provider/model-id:thinking", when known. */
   model?: string;
   role?: string;
@@ -231,6 +240,18 @@ const modelListeners = new Set<(event: ModelEvent) => void>();
 export function onModelEvent(listener: (event: ModelEvent) => void): () => void {
   modelListeners.add(listener);
   return () => modelListeners.delete(listener);
+}
+
+/** A provider retry or a stop, in a line for the person: the chat's notification, a headless run's console. */
+export function describeTurnIncident(event: ModelEvent): string | undefined {
+  const who = event.role ?? event.label ?? "an agent";
+  const model = event.model !== undefined ? ` (${event.model})` : "";
+  if (event.kind === "provider_retry") {
+    const wait = Math.round((event.waitMs ?? 0) / 1000);
+    return `The model provider failed${model}: ${(event.error ?? "").slice(0, 160)} - trying ${who}'s turn again in ${wait}s (${event.attempt} of ${event.of}).`;
+  }
+  if (event.kind === "stopped") return `turri stopped ${who}'s turn${model}: ${event.reason ?? "it was stopped"} - carrying on from there.`;
+  return undefined;
 }
 
 export function reportModelEvent(event: Omit<ModelEvent, "job">): void {

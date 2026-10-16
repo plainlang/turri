@@ -31,6 +31,7 @@ describe("turri init-config", () => {
     expect(readProjectConfig(dir)).toMatchObject({
       conformanceTests: false,
       review: false,
+      mutationTesting: true,
       allowToStopJobs: true,
       releaseAfterPulse: false,
       testingScriptsRunOn: "in-place",

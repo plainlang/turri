@@ -165,7 +165,8 @@ export function createLiveReviewer(opts: {
       all.push(finding);
     }
 
-    if (violations.length === 0) {
+    // No verdict - its turn stopped before it gave one - clears nothing: the scope is looked at again next pass.
+    if (captured !== undefined && violations.length === 0) {
       cleared.push(scope);
     } else if (captured?.question) {
       const question = { id: `q${asked.size + 1}`, scope, question: captured.question };

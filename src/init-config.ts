@@ -160,6 +160,7 @@ export function withModels(text: string, lines: [string, string]): string {
 export const DEFAULTS = {
   conformanceTests: false,
   review: false,
+  mutationTesting: true,
   allowToStopJobs: true,
   releaseAfterPulse: false,
   testingScriptsRunOn: "in-place",
@@ -194,6 +195,10 @@ export function quickStartConfig(vendor: Vendor = "other", bedrock?: BedrockChoi
     "",
     "# Whether the code and its tests are reviewed once they pass - two reviews at most, the second weighed by the arbiter.",
     `review: ${DEFAULTS.review}`,
+    "",
+    "# Whether the coding agent and the reviewer can put a bug in the code for one run of the unit tests (can_it_fail),",
+    "# to see that a test catches it - on a copy of the code, or in place and put back after.",
+    `mutation-testing: ${DEFAULTS.mutationTesting}`,
     "",
     "# Whether turri stops a running pulse the spec has moved on from. false: it lands, the change regenerated on top.",
     `allow-to-stop-jobs: ${DEFAULTS.allowToStopJobs}`,
