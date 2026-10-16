@@ -65,6 +65,7 @@ GOOD — statements of fact with concrete subjects:
 - The renderer has **no knowledge of future specs** — only previously rendered specs are in context
 - A new spec can reference behavior from earlier specs but cannot assume anything about specs that come after it
 - Functional specs from `requires` modules are treated as previous requirements — transitively, across the whole ancestor chain
+- This order is about what a spec may assume, not what a change costs: turri regenerates a change as a spec diff wherever it sits (`turri-regeneration.md`)
 
 ## No conflicts
 - The new spec must not contradict any existing functional spec

@@ -75,9 +75,11 @@ Parameters are key-value pairs; the template reads them as `{{ variable_name }}`
 
 ## When an earlier test fails after a render
 
-Functional specs render in order, each knowing the ones before it and none after it - a required
-module's specs count as before. After each render every conformance test so far runs again. A test
-that passed before and fails now means one of:
+Each functional spec is written knowing the ones before it and none after it - a required module's
+specs count as before - so a spec may rely on what earlier ones say, never on later ones. This is
+about what a spec may assume, not what a change costs (`turri-regeneration.md`). After each
+render every conformance test so far runs again. A test that passed before and fails now means one
+of:
 
 1. the new code does not satisfy its spec;
 2. the test does not test its spec accurately;

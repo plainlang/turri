@@ -158,13 +158,15 @@ an agent has to decide to go and read.
 | `import-modules.md`, `requires-modules.md` | the two ways modules build on each other |
 | `exported-concepts.md`, `required-concepts.md` | which concepts cross module boundaries |
 | `integrations.md` (+ standalone, embedded, embedded testing) | specs for REST API integrations, deployed standalone or embedded in an existing codebase |
+| `turri-regeneration.md` | how turri regenerates a spec change - as a spec diff, wherever it sits, in the chain's tip - so a spec is placed by what it means, never to spare regeneration |
 | `stdlib.md` | the standard library: when to import which template, and every template with what it is and where it is, read from `stdlib/` |
 
 The ones that shape a spec most:
 
 - **One functionality is at most ~200 lines of code.** A bigger one is split before it is written
   (`analyze-if-func-spec-too-complex`, `break-down-func-spec`).
-- **Functional specs are in build order.** Each is rendered on top of the ones before it.
+- **Functional specs are in build order.** Each is rendered on top of the ones before it - which is
+  what a spec may assume, not what a change costs: a spec inserted anywhere is regenerated alone.
 - **They state facts, with a concrete subject.** "A :User: can add a :Task:" - not "Implement
   adding tasks", not "The system should…".
 - **Nothing a test cannot check.** No `robust`, `seamless`, `as appropriate`; state the checkable
