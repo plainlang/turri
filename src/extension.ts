@@ -110,12 +110,13 @@ export function askUserVia(
       // The question, with what the asker gives to read for it - a brief to confirm - above it; what it said of its work
       // before asking is kept in its record, never put in the dialog.
       // A dialog of turri's own: a long brief scrolls above the question, and the options always show (question-dialog.ts).
-      const dialog = (question: string, context: string | undefined, options?: string[]) =>
+      const dialog = (question: string, context: string | undefined, options?: string[], selected?: number) =>
         ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) => {
           const shown: QuestionDialog = new QuestionDialog({
             question,
             ...(context !== undefined ? { context } : {}),
             ...(options !== undefined ? { options } : {}),
+            ...(selected !== undefined ? { selected } : {}),
             rows: () => tui.terminal.rows,
             style: { accent: (text) => theme.fg("accent", text), muted: (text) => theme.fg("muted", text), bold: (text) => theme.bold(text) },
             done: (answer) => {
@@ -129,7 +130,7 @@ export function askUserVia(
         });
       const asking: AskUser = (asked) =>
         runAsk(asked, {
-          select: (title, options, context) => dialog(title, context, options),
+          select: (title, options, context, at) => dialog(title, context, options, at),
           input: (title, context) => dialog(title, context),
         });
       const bare: AskUserRequest = { ...request, said: undefined };

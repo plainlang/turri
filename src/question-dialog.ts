@@ -21,6 +21,8 @@ export interface QuestionDialogOptions {
   question: string;
   /** The choices. Without them, a line to type the answer on. */
   options?: string[];
+  /** The choice the cursor starts on. */
+  selected?: number;
   /** The terminal's height, for the window the brief scrolls in. */
   rows: () => number;
   style: DialogStyle;
@@ -58,6 +60,7 @@ export class QuestionDialog implements Component, Focusable {
       this.input.onEscape = () => this.finish(undefined);
     } else {
       this.input = undefined;
+      this.selected = Math.min(Math.max(0, options.selected ?? 0), options.options.length - 1);
     }
   }
 

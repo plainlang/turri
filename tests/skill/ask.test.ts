@@ -1,14 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { CHAT_OPTION, DONE_OPTION, OTHER_OPTION, isChat, missingOptions, peekKeyListener, runAsk, type AskUserIO } from "../../src/ask.ts";
+import { CHAT_OPTION, DONE_OPTION, OTHER_OPTION, TICKED, UNTICKED, isChat, missingOptions, peekKeyListener, runAsk, type AskUserIO } from "../../src/ask.ts";
 
 /** A scripted user: each select/input call returns the next queued reply. */
-function scriptedUser(replies: Array<string | undefined>): AskUserIO & { calls: string[][] } {
+function scriptedUser(replies: Array<string | undefined>): AskUserIO & { calls: string[][]; at: Array<number | undefined> } {
   const queue = [...replies];
   const calls: string[][] = [];
+  const at: Array<number | undefined> = [];
   return {
     calls,
-    async select(title, options) {
+    at,
+    async select(title, options, _context, cursor) {
       calls.push([title, ...options]);
+      at.push(cursor);
       return queue.shift();
     },
     async input(title) {
@@ -83,7 +86,7 @@ describe("talking about a question before answering it", () => {
   });
 
   it("says what was picked so far, in a question of several", async () => {
-    const user = scriptedUser(["Slack", CHAT_OPTION, "Is email enough on its own?"]);
+    const user = scriptedUser([`${UNTICKED} Slack`, CHAT_OPTION, "Is email enough on its own?"]);
     const answer = await runAsk({ question: "Which integrations?", options: ["Slack", "Email"], multiSelect: true, chattable: true }, user);
     expect(isChat(answer)).toBe(true);
     expect(answer).toContain("They had picked so far: Slack.");
@@ -111,30 +114,41 @@ describe("Something else, chosen by accident", () => {
 
 describe("picking several", () => {
   const request = { question: "Which integrations?", options: ["Slack", "Email", "SMS"], multiSelect: true };
+  const box = (ticked: boolean, option: string) => `${ticked ? TICKED : UNTICKED} ${option}`;
 
-  it("collects choices until the user is done", async () => {
-    const user = scriptedUser(["Slack", "SMS", DONE_OPTION]);
+  it("ticks each option chosen until the user is done, and answers in the options' order", async () => {
+    const user = scriptedUser([box(false, "SMS"), box(false, "Slack"), DONE_OPTION]);
     expect(await runAsk(request, user)).toBe("Slack, SMS");
+    expect(user.calls[2]).toEqual(["Which integrations?", box(true, "Slack"), box(false, "Email"), box(true, "SMS"), OTHER_OPTION, DONE_OPTION]);
   });
 
-  it("stops offering what has already been picked", async () => {
-    const user = scriptedUser(["Slack", DONE_OPTION]);
+  it("unticks an option chosen again, so a pick made by mistake is undone", async () => {
+    const user = scriptedUser([box(false, "Slack"), box(false, "Email"), box(true, "Slack"), DONE_OPTION]);
+    expect(await runAsk(request, user)).toBe("Email");
+    expect(user.calls[3]).toContain(box(false, "Slack"));
+  });
+
+  it("keeps the cursor on the option just ticked", async () => {
+    const user = scriptedUser([box(false, "SMS"), DONE_OPTION]);
     await runAsk(request, user);
-
-    expect(user.calls[0]).toContain("Slack");
-    expect(user.calls[1]).not.toContain("Slack");
-    expect(user.calls[1]![0]).toContain("so far: Slack");
+    expect(user.at).toEqual([0, 2]);
   });
 
-  it("stops on its own once everything is chosen", async () => {
-    const user = scriptedUser(["Slack", "Email", "SMS"]);
-    expect(await runAsk(request, user)).toBe("Slack, Email, SMS");
-    expect(user.calls).toHaveLength(3);
+  it("adds a typed answer as one more box, ticked - and unticks it like any other", async () => {
+    const user = scriptedUser([OTHER_OPTION, "Webhooks", box(false, "Email"), box(true, "Webhooks"), DONE_OPTION]);
+    expect(await runAsk(request, user)).toBe("Email");
+    expect(user.calls[2]).toContain(box(true, "Webhooks"));
   });
 
-  it("takes typed answers alongside the offered ones", async () => {
-    const user = scriptedUser([OTHER_OPTION, "Webhooks", "Email", DONE_OPTION]);
-    expect(await runAsk(request, user)).toBe("Webhooks, Email");
+  it("takes an option by its text where the answer is typed, as on the command line", async () => {
+    const user = scriptedUser(["Email", "Webhooks", DONE_OPTION]);
+    expect(await runAsk(request, user)).toBe("Email, Webhooks");
+  });
+
+  it("gives no box to Something else, Chat about this or Done", async () => {
+    const user = scriptedUser([DONE_OPTION]);
+    await runAsk({ ...request, chattable: true }, user);
+    expect(user.calls[0]!.slice(-3)).toEqual([OTHER_OPTION, CHAT_OPTION, DONE_OPTION]);
   });
 
   it("reports a dismissal when nothing was picked", async () => {

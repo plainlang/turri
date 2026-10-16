@@ -63,7 +63,7 @@ where it stopped. A project can have skills of its own, in `.turri/skills/` or `
 | `lineage` | a module's lineage: what each regeneration and conformance run changed in it, and what it was regenerated from |
 | `cultivate` | run a gated skill, its steps and review gates enforced |
 | `release`, `activate` | try what is regenerated: release it to `dist/<module>` and activate it on this machine, installing what it needs - see [deploy](deploy.md) |
-| `ask_user` | put a question to you as a dialog to pick from - several at once, "Something else…" to type, or "Chat about this" to talk it over first; Esc in either goes back to the options |
+| `ask_user` | put a question to you as a dialog to pick from - several at once, each a box you tick and untick, "Something else…" to type, or "Chat about this" to talk it over first; Esc in either goes back to the options |
 | `web_search`, `web_fetch` | search the web and read a page as text - documentation, an API, an error; `curl` and the like run in its `bash` |
 
 What each render does, in order, is in [regenerating the code](regenerating.md).

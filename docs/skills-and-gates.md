@@ -133,7 +133,9 @@ change the step makes and puts its findings on the executor's next tool result.
 - **Interview the user.** `ask_user` puts one question to the person. In the TUI it is a dialog;
   from the CLI the options are numbered. Offering choices is required, not optional - a call with
   neither `options` nor `free_form: true` is refused - and every list carries "Something else…".
-  `multi_select: true` keeps offering what is left until they are done. The skill's agent talks in a
+  `multi_select: true` gives every option a box, ticked and unticked as it is chosen - a pick made by mistake is
+  undone by choosing it again - until they choose Done; what they type is one more box, ticked. "Something
+  else…", "Chat about this" and Done are no boxes. The skill's agent talks in a
   session of its own that the person never sees, so what the person must read to answer - the brief
   to confirm, the plan to approve - it passes as `ask_user`'s `context`, shown above the question in
   the dialog; `brood`, `spawn` and `bud` pass their briefs so. The agents are told to keep it to what can be taken in at

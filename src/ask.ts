@@ -12,7 +12,7 @@ export interface AskUserRequest {
   question: string;
   /** Concrete choices. Selecting beats typing whenever the answer space is known. */
   options?: string[];
-  /** Let the user pick several. Their picks come back comma-separated. */
+  /** Let the user pick several: each option a box to tick and untick. Their picks come back comma-separated. */
   multiSelect?: boolean;
   /** Deliberately asking without options, for a genuinely open question. */
   freeForm?: boolean;
@@ -41,13 +41,17 @@ export type AskUser = (request: AskUserRequest) => Promise<string>;
  * a dialog can show a long one without losing the question and its options under it - the TUI's scrolls it.
  */
 export interface AskUserIO {
-  select(title: string, options: string[], context?: string): Promise<string | undefined>;
+  /** `at`: the option the cursor starts on - the one just ticked, in a question of several. */
+  select(title: string, options: string[], context?: string, at?: number): Promise<string | undefined>;
   input(title: string, context?: string): Promise<string | undefined>;
 }
 
 export const OTHER_OPTION = "Something else…";
 export const CHAT_OPTION = "Chat about this";
 export const DONE_OPTION = "Done — that's all of them";
+/** An option's box in a question of several, ticked and not. */
+export const TICKED = "☑";
+export const UNTICKED = "☐";
 export const DISMISSED = "The user dismissed the question without answering.";
 
 /** How an answer that is no answer starts: the person chose to talk about the question first. */
@@ -155,31 +159,42 @@ export async function runAsk(asked: AskUserRequest, io: AskUserIO): Promise<stri
     }
   }
 
-  // Pick several: keep offering what is left until they say they are done.
-  const chosen: string[] = [];
-  let remaining = [...options];
-  while (remaining.length > 0) {
-    const title = chosen.length === 0 ? request.question : `${request.question}  [so far: ${chosen.join(", ")}]`;
-    const choice = await io.select(title, [...remaining, ...extras, DONE_OPTION], context);
-
-    if (choice === undefined) break;
-    if (choice === DONE_OPTION) break;
+  // Pick several: every option a box, ticked and unticked as it is chosen, until they say they are done. What they type
+  // is one more box, ticked - and can be unticked too. Something else, Chat about this and Done are no boxes.
+  const listed = [...options];
+  const ticked = new Set<string>();
+  const picked = () => listed.filter((option) => ticked.has(option));
+  let at = 0;
+  for (;;) {
+    const rows = listed.map((option) => `${ticked.has(option) ? TICKED : UNTICKED} ${option}`);
+    const choice = await io.select(request.question, [...rows, ...extras, DONE_OPTION], context, at);
+    if (choice === undefined || choice === DONE_OPTION) break;
     if (choice === OTHER_OPTION) {
+      at = listed.length;
       const typed = await typeInstead();
-      if (!typedNothing(typed)) chosen.push(typed.trim());
+      if (typedNothing(typed)) continue;
+      const option = typed.trim();
+      if (!listed.includes(option)) listed.push(option);
+      ticked.add(option);
+      at = listed.indexOf(option);
       continue;
     }
     if (choice === CHAT_OPTION) {
+      at = listed.length + extras.indexOf(CHAT_OPTION);
       const said = await chatAbout();
       if (typedNothing(said)) continue;
-      return chatAnswer(said, chosen);
+      return chatAnswer(said, picked());
     }
-
-    chosen.push(choice);
-    remaining = remaining.filter((option) => option !== choice);
+    // A row, or - where the answer is typed, on the command line - an option by its text, or one more of their own.
+    const row = rows.indexOf(choice);
+    const option = row !== -1 ? listed[row]! : choice.trim();
+    if (!listed.includes(option)) listed.push(option);
+    if (ticked.has(option)) ticked.delete(option);
+    else ticked.add(option);
+    at = listed.indexOf(option);
   }
 
-  return chosen.length > 0 ? chosen.join(", ") : DISMISSED;
+  return ticked.size > 0 ? picked().join(", ") : DISMISSED;
 }
 
 /**

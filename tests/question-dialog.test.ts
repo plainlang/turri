@@ -7,13 +7,14 @@ const KEY = { up: "\x1b[A", down: "\x1b[B", enter: "\r", escape: "\x1b", pageDow
 
 const plain = { accent: (text: string) => text, muted: (text: string) => text, bold: (text: string) => text };
 
-function dialog(options: { context?: string; options?: string[]; rows?: number }) {
+function dialog(options: { context?: string; options?: string[]; rows?: number; selected?: number }) {
   const answers: Array<string | undefined> = [];
   let renders = 0;
   const shown = new QuestionDialog({
     question: "Is this the right brief?",
     ...(options.context !== undefined ? { context: options.context } : {}),
     ...(options.options !== undefined ? { options: options.options } : {}),
+    ...(options.selected !== undefined ? { selected: options.selected } : {}),
     rows: () => options.rows ?? 30,
     style: plain,
     done: (answer) => answers.push(answer),
@@ -36,6 +37,13 @@ describe("the question dialog", () => {
     expect(shown).toContain("  Is this the right brief?");
     expect(shown).toContain("  › Build it");
     expect(shown).toContain("    Change something");
+  });
+
+  it("starts the cursor on the option it is given - the box just ticked - and answers with it", () => {
+    const { shown, answers, lines } = dialog({ options: ["☑ Slack", "☐ Email", "Done"], selected: 1 });
+    expect(lines()).toContain("  › ☐ Email");
+    shown.handleInput(KEY.enter);
+    expect(answers).toEqual(["☐ Email"]);
   });
 
   it("scrolls the brief with PgUp/PgDn and shift+arrows, to its end and back, the options staying put", () => {
