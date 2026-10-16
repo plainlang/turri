@@ -349,6 +349,18 @@ describe("the regeneration drawn", () => {
     expect(specMapLines([marked!], open, 100, style).lines.join("\n")).toContain("{+  - At most 60° per second.+}");
   });
 
+  it("draws nothing as an addition where everything is new - built for the first time, or from scratch", () => {
+    const first = page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register a user.", "- The bell turns as it swims.\n  - At most 60° per second."] }), null);
+    const [marked] = markSpecMap([first], noPlan);
+    expect(marked!.items.map((entry) => entry.state)).toEqual(["new", "new"]);
+    const open = createSpecMapState();
+    for (const entry of marked!.items) open.open.add(`${marked!.plainFile}\n${entry.key}`);
+    const text = specMapLines([marked!], open, 100, style).lines.join("\n");
+    expect(text).toContain("│ - The bell turns as it swims.");
+    expect(text).toContain("  - At most 60° per second.");
+    expect(text).not.toContain("{+");
+  });
+
   it("wraps an item too long for the width, its lines after the first hanging past the bullet, never cutting it short", () => {
     const long = "- :UserAdmin: is the local administration entry point whose successful provisioning output follows `[resource]user-created.schema.json` exactly.";
     const first = page(tree({ [DEFINITIONS]: [long] }), tree({ [DEFINITIONS]: [long] }));

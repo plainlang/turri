@@ -175,7 +175,8 @@ come waits for a free slot, and says so.
 
   A changed item shows what changed in it: its first line word by word - what is gone struck through in red,
   what is new in green, what is kept highlighted as it reads now - and, under it, only the sub-bullets that changed. A new
-  item - not in the code yet - is green, all of it, so a new functional spec stands apart from one changed. A spec never built that is taken
+  item beside code already built - one a spec diff adds - is green, all of it, so a new functional spec stands apart
+  from one changed; where everything is new, built for the first time or from scratch, nothing is. A spec never built that is taken
   out is simply gone. The top line has a strip of the module's functional specs - built, regenerating, planned,
   waiting - and how many are built, then what is happening: `pulse 3 of 8 regenerating`, or why nothing is -
   `not asked to build - regenerate plans it` (turri was just opened, or nothing has asked for the module: the
