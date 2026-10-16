@@ -21,6 +21,8 @@ allowed-tools: [read, write, edit, bash, ls, grep, find]
 
 The refactoring is purely structural. The **combined behavior** of the resulting modules must be **identical** to the original module. No functional spec is added, removed, or weakened. The split is semantic — grouping related specs together — not behavioral.
 
+The spec is structural; the code is not. Once modules are split and specs move between them, the code already built no longer matches the module layout: specs move into modules the code was never built on, and no change to that code brings them in. **After a refactor, the whole requires chain is regenerated from scratch** — the existing code and conformance tests are taken out (their lineage keeps them) and every module is built again from the base of the chain upward. Say so up front: it is part of what the user agrees to (Phase 2e), and it is the last step of the skill (Phase 5).
+
 ## Input
 
 The `.plain` file to refactor, plus guidance from the user on the desired grouping (or ask the user to confirm your proposed grouping).
@@ -90,8 +92,9 @@ Summarize for the user:
 - Any new import module being created
 - Which concepts are exported from each module
 - Confirmation that all original specs are accounted for (none lost)
+- That the whole chain will be **regenerated from scratch** once the split is done: the code and conformance tests built so far are taken out (kept in the lineage) and everything is built again from the base module up — this takes as long and costs as much as building the original module did
 
-Get explicit user confirmation before proceeding.
+Get explicit user confirmation before proceeding — of the split and of regenerating from scratch.
 
 ## Phase 3 — Execute the Split
 
@@ -162,6 +165,19 @@ For each new module:
 
 Read each new `.plain` file in full and present the final structure to the user for approval. If the user requests changes, apply them and re-verify.
 
+Validate each new module with `turri validate <module>.plain` (or the `validate` tool) before going on: a module that does not parse cannot be regenerated.
+
+## Phase 5 — Regenerate the Chain from Scratch
+
+The split moves specs between modules, so the code built from the original module cannot be patched into the new layout: the chain is regenerated from scratch. Do not try to keep or reuse the existing code, and do not regenerate only what looks changed — modules have moved, and a codebase built without a module it now requires has to be started over anyway.
+
+1. **Remind the user** what regenerating from scratch does — the code and conformance tests built so far are taken out, committed so the lineage keeps them, and the whole chain is built again from the base up — and that they already agreed to it in Phase 2e. Proceed only on that agreement.
+2. **Regenerate the tip of the chain from scratch, with its whole chain** — the last module, the one everything else is required by. From scratch for the tip alone is not enough: the modules below keep their code, and the tip starts from a copy of it, laid out for the old modules. With the whole chain, every module's code is taken out, the base's included, and the chain is built again from the bottom:
+   - in the chat: the `regenerate` tool on the tip's `.plain` file with `from_scratch: "chain"`, or `/regenerate <tip> from scratch, the whole chain`;
+   - on the command line: `turri regenerate <tip>.plain --from-scratch-chain`.
+3. **Modules that require the chain** (updated in 3d) are regenerated after it, from scratch too (`from_scratch: "module"`): the modules they require are not the ones their code was built on. When the tip's whole chain is regenerated, a module built on top of it is a chain of its own — regenerating it from scratch with its whole chain instead covers the tip's chain too, in one go.
+4. **The original module's codebase** (`plain_modules/<original-module>/`), when the original module was deleted or renamed, is no longer built from anything. Tell the user it is there; it is theirs to delete. Do not delete it unasked.
+
 ## Common Pitfalls
 
 ### Splitting too aggressively
@@ -179,9 +195,12 @@ This is a refactoring, not a rewrite. Spec text must be copied verbatim. If a sp
 ### Losing acceptance tests
 Acceptance tests are nested under their parent functional spec. When moving a spec to a new module, its acceptance tests must move with it.
 
+### Regenerating only what changed
+After a split the existing code was built for a module layout that no longer exists. Regenerating incrementally either stops at a codebase that has to be started over or builds on code laid out for the old modules. Regenerate the whole chain from scratch.
+
 ## Validation Checklist
 
-- [ ] User confirmed the split plan before execution
+- [ ] User confirmed the split plan before execution, including regenerating the whole chain from scratch
 - [ ] All original functional specs are present in exactly one new module — none lost
 - [ ] Spec text is identical to the original — no rewording
 - [ ] Acceptance tests moved with their parent specs
@@ -194,3 +213,6 @@ Acceptance tests are nested under their parent functional spec. When moving a sp
 - [ ] Original module removed or updated
 - [ ] Downstream modules (if any) updated to require the chain tip, plus any earlier chain modules whose exported concepts they reference
 - [ ] User approved the final result
+- [ ] Every new module validates
+- [ ] The tip of the chain regenerated from scratch with its whole chain, then any module that requires it
+- [ ] User told about the original module's leftover codebase, if there is one
