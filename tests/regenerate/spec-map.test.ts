@@ -216,8 +216,7 @@ describe("the plan laid over the map", () => {
     // Nothing is written to the right of an item: where it stands is in its mark, and in its lines once opened.
     const lines = specMapLines([marked!], createSpecMapState(), 160, style).lines;
     const row = lines.findIndex((line) => line.includes("- Log in."));
-    // New, it is drawn as an addition.
-    expect(lines[row]!.trimEnd().endsWith("{+- Log in.+}")).toBe(true);
+    expect(lines[row]!.trimEnd().endsWith("- Log in.")).toBe(true);
     expect(lines[row]).toMatch(/^ {3}! {4}│ /);
     // Under the first item that needs the person: what for, and how to go about it.
     expect(lines[row + 1]).toBe(`${" ".repeat(8)}│ needs you - pulse 3 didn't land · d to talk it through in the chat`);
@@ -333,32 +332,6 @@ describe("the regeneration drawn", () => {
     expect(text).not.toContain("Emails are lowercased");
     expect(text).toContain("[-- Search for users by name.-]");
     expect(lines.find((line) => line.includes("Search for users"))).toMatch(/^ +− /);
-  });
-
-  it("draws a new item as an addition, opened too, and one built as it reads", () => {
-    const first = page(
-      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register a user.", "- The bell turns as it swims.\n  - At most 60° per second."] }),
-      tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register a user."] }),
-    );
-    const [marked] = markSpecMap([first], noPlan);
-    const closed = specMapLines([marked!], createSpecMapState(), 100, style).lines;
-    expect(closed.find((line) => line.includes("Register a user."))!.trimEnd()).toMatch(/│ - Register a user\.$/);
-    expect(closed.find((line) => line.includes("The bell turns"))!.trimEnd()).toMatch(/│ \{\+- The bell turns as it swims\.\+\}$/);
-    const open = createSpecMapState();
-    open.open.add(`${marked!.plainFile}\n${marked!.items[1]!.key}`);
-    expect(specMapLines([marked!], open, 100, style).lines.join("\n")).toContain("{+  - At most 60° per second.+}");
-  });
-
-  it("draws nothing as an addition where everything is new - built for the first time, or from scratch", () => {
-    const first = page(tree({ [FUNCTIONAL_REQUIREMENTS]: ["- Register a user.", "- The bell turns as it swims.\n  - At most 60° per second."] }), null);
-    const [marked] = markSpecMap([first], noPlan);
-    expect(marked!.items.map((entry) => entry.state)).toEqual(["new", "new"]);
-    const open = createSpecMapState();
-    for (const entry of marked!.items) open.open.add(`${marked!.plainFile}\n${entry.key}`);
-    const text = specMapLines([marked!], open, 100, style).lines.join("\n");
-    expect(text).toContain("│ - The bell turns as it swims.");
-    expect(text).toContain("  - At most 60° per second.");
-    expect(text).not.toContain("{+");
   });
 
   it("wraps an item too long for the width, its lines after the first hanging past the bullet, never cutting it short", () => {
@@ -559,7 +532,7 @@ describe("the side panel's two views", () => {
     // A mark alone, under the status column's heading.
     expect(lines.find((line) => line.includes("- Register."))).toMatch(/^[ ›] {2}◆ {4}│ - Register\./);
     expect(lines.find((line) => line.includes("- Log in."))).toMatch(/^[ ›] {2}◇ {4}│ - Log in\./);
-    expect(lines.find((line) => line.includes("- Search."))).toMatch(/^[ ›] {2}○ {4}│ \{\+- Search\.\+\}/);
+    expect(lines.find((line) => line.includes("- Search."))).toMatch(/^[ ›] {2}○ {4}│ - Search\./);
     // The legend: up the ladder, every rung whatever the page has - to take out only where something is.
     expect(legendLines(marked!, style)).toEqual(["○ planned", "⠋ working", "◇ regenerated", "⠋ validating", "◆ conform", "! needs you"]);
     const panel = createSidePanel({ jobs: () => [], map: () => [marked!], rows: () => 20, style, back() {}, close() {}, key: "ctrl+h" });

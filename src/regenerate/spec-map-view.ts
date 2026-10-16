@@ -358,22 +358,13 @@ function wrapped(text: string, width: number, colour: (text: string) => string =
     .map((line) => `${CONTINUED}${colour(line)}`);
 }
 
-/**
- * Whether a new item is drawn as an addition: only beside code already built - a spec diff that adds it - never when the
- * whole page is new, built for the first time or from scratch, where green would say nothing.
- */
-function addedToBuilt(item: MarkedItem, page: MarkedPage): boolean {
-  return item.state === "new" && page.items.some((other) => other.state === "built" || other.state === "changed" || other.state === "removed");
-}
-
 /** All of an item, opened: the rest of its text against the code's, and its acceptance tests. Where it stands is beside its mark. */
-function detailLines(item: MarkedItem, width: number, style: TranscriptStyle, added: boolean): string[] {
+function detailLines(item: MarkedItem, width: number, style: TranscriptStyle): string[] {
   const lines: string[] = [];
   // The rest of its text - its first line is the row - against the record's, for a change.
   const rest = item.state === "changed" ? lineDiff(item.was ?? "", item.text).slice(1) : item.text.split("\n").slice(1).map((line) => ({ was: line, now: line }));
   for (const line of rest) {
-    const drawn =
-      item.state === "removed" ? style.removed(strike(line.now ?? "")) : item.state === "changed" ? diffLine(line, style) : added ? style.added(line.now ?? "") : highlighted(line.now ?? "", style);
+    const drawn = item.state === "removed" ? style.removed(strike(line.now ?? "")) : item.state === "changed" ? diffLine(line, style) : highlighted(line.now ?? "", style);
     lines.push(...wrapped(drawn, width));
   }
   if (item.acceptance.length > 0) {
@@ -518,9 +509,7 @@ export function specMapLines(
         ? style.removed(strike(first))
         : item.state === "changed" && wasFirst !== first
           ? wordDiff(wasFirst, first, style)
-          : addedToBuilt(item, page)
-            ? style.added(first)
-            : highlighted(first, style);
+          : highlighted(first, style);
     // Wrapped, never cut short: what follows a `…` is what a person came to read. The lines after the first hang
     // under the item's text, past its bullet.
     const [head = "", ...rest] = hanging(drawn, first, room);
@@ -532,7 +521,7 @@ export function specMapLines(
       for (const line of wrapped(needsLine(page), width, style.error)) add(line, mark);
     }
     if (state.open.has(row.key)) {
-      for (const detail of detailLines(item, width, style, addedToBuilt(item, page))) add(detail, mark);
+      for (const detail of detailLines(item, width, style)) add(detail, mark);
       return;
     }
     // A changed item shows what changed in it, closed too: its changed sub-bullets, word by word.
