@@ -1685,7 +1685,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
 
   // The side panel: the regeneration - and the pulses behind p - over the whole screen, or beside the chat (s, from one to
   // the other). Its key (PANEL_KEY) opens it; the key again closes it and goes back to the chat, as esc does over the
-  // screen - beside the chat, esc gives the chat its keys back and the panel stays, and the key gives them to the panel.
+  // screen - beside the chat, the key switches sides, giving the keys to the chat or the panel, as esc gives them to the
+  // chat, the panel staying; ctrl+c closes it.
   // While the panel has the keys, every key is its own.
   let panel: { handle?: OverlayHandle; view: ReturnType<typeof createSidePanel>; close: () => void; keepChatFocus: () => void; keys: boolean } | undefined;
   // Beside the chat or over it: as the person last left it, for the conversation.
@@ -1854,15 +1855,6 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
             return undefined;
           }
           if (!state) return undefined;
-          // Beside the chat, ⌥⌘← and ⌥⌘→ go to the side they point at, whichever has the keys - on a terminal that tells
-          // turri of ⌘ (the Kitty keyboard protocol). Its release goes nowhere.
-          if (panelBeside() > 0 && (matchesKey(data, SIDE_KEYS.chat) || matchesKey(data, SIDE_KEYS.panel))) {
-            if (!isKeyRelease(data)) {
-              if (matchesKey(data, SIDE_KEYS.chat)) toChat();
-              else toPanel();
-            }
-            return { consume: true };
-          }
           // Beside the chat, with the chat's keys: they are the chat's - PANEL_KEY among them, for the shortcut that gives
           // them to the panel. A click on the panel gives it the focus, and the keys with it.
           if (!entry.keys && entry.handle?.isFocused() !== true) return undefined;
@@ -1871,8 +1863,11 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           // the ctrl+h that opened the panel would close it again at once, and every arrow would move twice. Only
           // presses count - and ctrl+h held down, repeating, does not open and close it over and over.
           if (isKeyRelease(data) || (isKeyRepeat(data) && matchesKey(data, PANEL_KEY))) return { consume: true };
-          // ctrl+c closes it too: whatever else goes wrong, a key always leads back to the chat.
-          if (matchesKey(data, PANEL_KEY) || matchesKey(data, "ctrl+c")) close();
+          // PANEL_KEY goes back: beside the chat, to the chat, the panel staying - the switch between the sides, as it is
+          // from the chat to the panel - and over the screen, closing it. ctrl+c closes it either way: whatever else goes
+          // wrong, a key always leads back to the chat.
+          if (matchesKey(data, "ctrl+c")) close();
+          else if (matchesKey(data, PANEL_KEY)) back();
           else {
             try {
               view.handleInput(data);
@@ -1898,7 +1893,8 @@ function registerJobTools(pi: ExtensionAPI, jobs: JobRegistry, cwd: string) {
           // Reached only if the listener above is gone: the same, so the panel never passes a key on.
           handleInput: (data: string) => {
             if (isKeyRepeat(data) && matchesKey(data, PANEL_KEY)) return;
-            if (matchesKey(data, PANEL_KEY)) close();
+            if (matchesKey(data, "ctrl+c")) close();
+            else if (matchesKey(data, PANEL_KEY)) back();
             else view.handleInput(data);
             tui.requestRender();
           },
@@ -2032,9 +2028,6 @@ export const JOB_FINISHED_REACTION = [
   "  to do, and that \"resume\" picks it up once it is in.",
   "- a credential `agent-env:` names that is not there: never make one up - tell the person where it is read from.",
 ].join("\n");
-
-/** The keys that go to the chat and to the panel, side by side: ⌥⌘← and ⌥⌘→. */
-const SIDE_KEYS = { chat: "alt+super+left", panel: "alt+super+right" } as const;
 
 /** Opens the side panel, and goes back to it from the conversation. */
 

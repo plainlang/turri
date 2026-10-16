@@ -147,8 +147,8 @@ describe("the side panel's s key", () => {
     expect(docked).toBe(true);
     const beside = panel.render(100).join("\n");
     expect(beside).toContain("s full screen");
-    expect(beside).toContain("esc or ⌥⌘← to the chat");
-    expect(beside).toContain("ctrl+h close");
+    expect(beside).toContain("ctrl+h or esc to the chat");
+    expect(beside).toContain("ctrl+c close");
     panel.handleInput("s");
     expect(docked).toBe(false);
   });

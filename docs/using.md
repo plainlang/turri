@@ -217,11 +217,10 @@ come waits for a free slot, and says so.
   closes when it moves to another section. What is open is kept while the panel is closed. What the agents
   said and did is not shown - it is in each pulse's log (see [Agent logs](#agent-logs)).
 
-  `ctrl+h` again, or `esc`, closes it and goes back to the chat. Beside the chat, a click decides which side has
-  the keys - the chat or the panel, the one clicked, or the one `⌥⌘←` / `⌥⌘→` points at (on a
-  terminal that passes ⌘ on, over the Kitty keyboard protocol - Ghostty, kitty, WezTerm, iTerm2; not Apple's Terminal);
-  the other is drawn faint - and `esc` gives the chat the keys too, the panel staying and
-  following the pulses; `ctrl+h` gives the panel the keys again, and from the panel closes it. (pi's regular screen,
+  `ctrl+h` again, or `esc`, closes it and goes back to the chat. Beside the chat, one side has the keys and the
+  other is drawn faint: `ctrl+h` switches sides - from the chat to the panel, from the panel to the chat, the panel
+  staying and following the pulses - `esc` gives the chat the keys too, and a click gives them to the side clicked.
+  `ctrl+c` closes the panel; so do `s`, over the whole screen, then `esc`. (pi's regular screen,
   `--tui-mode regular`, reads no mouse: there it is the keys alone.)
   While the panel has the keys, every key is the panel's,
   whatever else happens: a question the chat model asks in the background (`ask_user`) waits in the chat,
